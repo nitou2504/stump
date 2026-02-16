@@ -46,6 +46,7 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 	let primary_router = Router::new()
 		.route("/catalog", get(catalog))
 		.route("/search", get(search_description))
+		.route("/search/feed", get(search_feed))
 		.route("/keep-reading", get(keep_reading))
 		.nest(
 			"/libraries",
@@ -255,6 +256,108 @@ async fn search_description(Extension(req): Extension<RequestContext>) -> APIRes
 	Ok(OpdsOpenSearch::new(Some(service_url(&req)))
 		.build()
 		.map(Xml)?)
+}
+
+/// A handler for GET /opds/v1.2/search/feed, returns combined series and book
+/// results matching the search query. This is what the OpenSearch template points to.
+async fn search_feed(
+	State(ctx): State<AppState>,
+	Query(OPDSSearchQuery { search }): Query<OPDSSearchQuery>,
+	Extension(req): Extension<RequestContext>,
+) -> APIResult<Xml> {
+	let db = &ctx.db;
+
+	let query = search.ok_or(APIError::BadRequest(
+		"search parameter is required".to_string(),
+	))?;
+
+	let user = req.user();
+
+	// Search series
+	let series_age_restrictions = user
+		.age_restriction
+		.as_ref()
+		.map(|ar| apply_series_age_restriction(ar.age, ar.restrict_on_unset));
+
+	let series = db
+		.series()
+		.find_many(chain_optional_iter(
+			[],
+			[
+				series_age_restrictions,
+				Some(or![
+					series::name::contains(query.clone()),
+					series::metadata::is(vec![
+						series_metadata::title::contains(query.clone()),
+					])
+				]),
+			],
+		))
+		.order_by(series::name::order(Direction::Asc))
+		.exec()
+		.await?;
+
+	// Search books/media
+	let media_age_restrictions = user
+		.age_restriction
+		.as_ref()
+		.map(|ar| apply_media_age_restriction(ar.age, ar.restrict_on_unset));
+	let library_filters = apply_media_library_not_hidden_for_user_filter(user);
+
+	let mut media_filters: Vec<media::WhereParam> =
+		library_filters.into_iter().collect();
+	if let Some(ar) = media_age_restrictions {
+		media_filters.push(ar);
+	}
+	media_filters.push(or![
+		media::name::contains(query.clone()),
+		media::metadata::is(vec![or![
+			media_metadata::title::contains(query.clone()),
+			media_metadata::summary::contains(query.clone()),
+		]])
+	]);
+
+	let media_results = db
+		.media()
+		.find_many(media_filters)
+		.order_by(media::name::order(Direction::Asc))
+		.exec()
+		.await?;
+
+	// Combine: series first, then books
+	let mut entries: Vec<OpdsEntry> = series
+		.into_iter()
+		.map(|s| {
+			OPDSEntryBuilder::<series::Data>::new(s, req.api_key()).into_opds_entry()
+		})
+		.collect();
+
+	entries.extend(media_results.into_iter().map(|m| {
+		OPDSEntryBuilder::<media::Data>::new(m, req.api_key()).into_opds_entry()
+	}));
+
+	let feed = OpdsFeed::new(
+		"searchResults".to_string(),
+		format!("Search results for \"{}\"", query),
+		Some(vec![
+			OpdsLink {
+				link_type: OpdsLinkType::Acquisition,
+				rel: OpdsLinkRel::ItSelf,
+				href: catalog_url(
+					&req,
+					&format!("search/feed?search={}", query),
+				),
+			},
+			OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Start,
+				href: catalog_url(&req, "catalog"),
+			},
+		]),
+		entries,
+	);
+
+	Ok(Xml(feed.build()?))
 }
 
 async fn keep_reading(
