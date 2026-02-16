@@ -54,10 +54,15 @@ impl OpdsOpenSearch {
 		)?;
 		writer.write(XmlEvent::end_element())?; // end series template URL
 
-		// TODO: more templates? have to look into open search spec to see
-		// if that 'is possible' or if it is only supposed to be one
+		let books_example = self.format_url("books?search={searchTerms}");
 
-		// https://developer.mozilla.org/en-US/docs/Web/OpenSearch
+		// start of books template URL
+		writer.write(
+			XmlEvent::start_element("Url")
+				.attr("template", &books_example)
+				.attr("type", OpdsLinkType::Acquisition.as_str()),
+		)?;
+		writer.write(XmlEvent::end_element())?; // end books template URL
 
 		writer.write(XmlEvent::end_element())?; // end of feed
 

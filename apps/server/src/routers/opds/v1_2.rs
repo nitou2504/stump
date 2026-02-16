@@ -22,7 +22,7 @@ use stump_core::{
 		link::{OpdsLink, OpdsLinkRel, OpdsLinkType},
 		opensearch::OpdsOpenSearch,
 	},
-	prisma::{active_reading_session, library, media, series, series_metadata, user},
+	prisma::{active_reading_session, library, media, media_metadata, series, series_metadata, user},
 };
 use tracing::{debug, trace};
 
@@ -59,6 +59,11 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 				.route("/", get(get_series))
 				.route("/latest", get(get_latest_series))
 				.route("/{id}", get(get_series_by_id)),
+		)
+		.nest(
+			"/books",
+			Router::new()
+				.route("/", get(get_books)),
 		)
 		.nest(
 			"/books/{id}",
@@ -197,6 +202,19 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 				link_type: OpdsLinkType::Navigation,
 				rel: OpdsLinkRel::Subsection,
 				href: catalog_url(&req, "libraries"),
+			}]),
+			None,
+		),
+		OpdsEntry::new(
+			"allBooks".to_string(),
+			chrono::Utc::now().into(),
+			"All books".to_string(),
+			Some(String::from("Browse all books")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "books"),
 			}]),
 			None,
 		),
@@ -507,6 +525,87 @@ async fn get_series(
 		title: "All Series".to_string(),
 		entries,
 		href_postfix: "series".to_string(),
+		page_params: Some(OPDSFeedBuilderPageParams {
+			page: page.into(),
+			count,
+		}),
+		search,
+	})?;
+
+	Ok(Xml(feed.build()?))
+}
+
+/// A handler for GET /opds/v1.2/books, accepts `page` and `search` URL params.
+/// Note: OPDS pagination is zero-indexed.
+async fn get_books(
+	State(ctx): State<AppState>,
+	Query(pagination): Query<PageQuery>,
+	Query(OPDSSearchQuery { search }): Query<OPDSSearchQuery>,
+	Extension(req): Extension<RequestContext>,
+) -> APIResult<Xml> {
+	let db = &ctx.db;
+
+	let page = pagination.page.unwrap_or(0);
+	let (skip, take) = pagination_bounds(page.into(), 20);
+
+	let user = req.user();
+	let age_restrictions = user
+		.age_restriction
+		.as_ref()
+		.map(|ar| apply_media_age_restriction(ar.age, ar.restrict_on_unset));
+	let library_filters = apply_media_library_not_hidden_for_user_filter(user);
+
+	let search_clone = search.clone();
+	let (media_results, count) = db
+		._transaction()
+		.run(|client| async move {
+			let mut base_filters: Vec<media::WhereParam> =
+				library_filters.clone().into_iter().collect();
+			if let Some(ref ar) = age_restrictions {
+				base_filters.push(ar.clone());
+			}
+
+			let mut query_filters = base_filters.clone();
+			if let Some(q) = search_clone {
+				query_filters.push(or![
+					media::name::contains(q.clone()),
+					media::metadata::is(vec![or![
+						media_metadata::title::contains(q.clone()),
+						media_metadata::summary::contains(q),
+					]])
+				]);
+			}
+
+			let results = client
+				.media()
+				.find_many(query_filters.clone())
+				.skip(skip)
+				.take(take)
+				.order_by(media::name::order(Direction::Asc))
+				.exec()
+				.await?;
+
+			client
+				.media()
+				.count(query_filters)
+				.exec()
+				.await
+				.map(|count| (results, count))
+		})
+		.await?;
+
+	let entries = media_results
+		.into_iter()
+		.map(|m| {
+			OPDSEntryBuilder::<media::Data>::new(m, req.api_key()).into_opds_entry()
+		})
+		.collect::<Vec<OpdsEntry>>();
+
+	let feed = OPDSFeedBuilder::new(req.api_key()).paginated(OPDSFeedBuilderParams {
+		id: "allBooks".to_string(),
+		title: "All Books".to_string(),
+		entries,
+		href_postfix: "books".to_string(),
 		page_params: Some(OPDSFeedBuilderPageParams {
 			page: page.into(),
 			count,
