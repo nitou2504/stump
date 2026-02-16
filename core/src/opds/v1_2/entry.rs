@@ -31,6 +31,7 @@ pub struct OpdsEntry {
 	id: String,
 	updated: DateTime<FixedOffset>,
 	title: String,
+	summary: Option<String>,
 	content: Option<String>,
 	authors: Option<Vec<String>>,
 	links: Vec<OpdsLink>,
@@ -42,6 +43,7 @@ impl OpdsEntry {
 		id: String,
 		updated: DateTime<FixedOffset>,
 		title: String,
+		summary: Option<String>,
 		content: Option<String>,
 		authors: Option<Vec<String>>,
 		links: Option<Vec<OpdsLink>>,
@@ -53,6 +55,7 @@ impl OpdsEntry {
 			id,
 			updated,
 			title,
+			summary,
 			content,
 			authors,
 			links,
@@ -67,8 +70,12 @@ impl OpdsEntry {
 		util::write_xml_element("id", self.id.as_str(), writer)?;
 		util::write_xml_element("updated", &self.updated.to_rfc3339(), writer)?;
 
+		if let Some(ref summary) = self.summary {
+			util::write_xml_element("summary", summary.as_str(), writer)?;
+		}
+
 		if let Some(content) = self.get_content() {
-			util::write_xml_element("content", content.as_str(), writer)?;
+			util::write_xml_content(content.as_str(), writer)?;
 		} else {
 			writer.write(XmlEvent::start_element("content"))?;
 			writer.write(XmlEvent::end_element())?;
@@ -143,6 +150,7 @@ impl IntoOPDSEntry for OPDSEntryBuilder<library::Data> {
 			id: self.data.id,
 			updated: self.data.updated_at,
 			title: self.data.name,
+			summary: None,
 			content: self.data.description,
 			authors: None,
 			links,
@@ -167,6 +175,7 @@ impl IntoOPDSEntry for OPDSEntryBuilder<series::Data> {
 			id: self.data.id.to_string(),
 			updated: self.data.updated_at,
 			title: self.data.name,
+			summary: None,
 			content: self.data.description,
 			authors: None,
 			links,
@@ -277,12 +286,20 @@ impl IntoOPDSEntry for OPDSEntryBuilder<media::Data> {
 			.ok()
 			.flatten()
 			.map(|meta| MediaMetadata::from(meta.to_owned()));
-		let description = metadata
-			.as_ref()
-			.and_then(|m| m.summary.as_ref())
-			.map(|s| s.to_owned());
 
-		let content = match description {
+		let title = metadata
+			.as_ref()
+			.and_then(|m| m.title.clone())
+			.unwrap_or(self.data.name);
+
+		let authors = metadata
+			.as_ref()
+			.and_then(|m| m.writers.clone())
+			.filter(|w| !w.is_empty());
+
+		let summary = metadata.as_ref().and_then(|m| m.summary.clone());
+
+		let content = match &summary {
 			Some(s) => Some(format!(
 				"{:.1} MiB - {}<br/><br/>{}",
 				mib, self.data.extension, s
@@ -292,11 +309,12 @@ impl IntoOPDSEntry for OPDSEntryBuilder<media::Data> {
 
 		OpdsEntry {
 			id: self.data.id.to_string(),
-			title: self.data.name,
+			title,
 			updated: chrono::Utc::now().into(),
+			summary,
 			content,
 			links,
-			authors: None,
+			authors,
 			stream_link: Some(stream_link),
 		}
 	}
@@ -337,6 +355,7 @@ mod tests {
 			"urn:uuid:6409a00b-7bf2-405e-826c-3fdff0fd0734".to_string(),
 			updated,
 			"Modern Online Philately".to_string(),
+			Some("A summary of the book.".to_string()),
 			Some("The definitive reference for the web-curious philatelist.".to_string()),
 			Some(vec!["Harold McGee".to_string()]),
 			Some(links),
@@ -354,7 +373,8 @@ mod tests {
 				<title>Modern Online Philately</title>
 				<id>urn:uuid:6409a00b-7bf2-405e-826c-3fdff0fd0734</id>
 				<updated>2010-01-10T10:01:11+00:00</updated>
-				<content>The definitive reference for the web-curious philatelist.</content>
+				<summary>A summary of the book.</summary>
+				<content type="html">The definitive reference for the web-curious philatelist.</content>
 				<author>
 					<name>Harold McGee</name>
 				</author>

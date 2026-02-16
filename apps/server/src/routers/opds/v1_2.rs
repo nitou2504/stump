@@ -64,7 +64,8 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 		.nest(
 			"/books",
 			Router::new()
-				.route("/", get(get_books)),
+				.route("/", get(get_books))
+				.route("/latest", get(get_latest_books)),
 		)
 		.nest(
 			"/books/{id}",
@@ -158,6 +159,7 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 			"keepReading".to_string(),
 			chrono::Utc::now().into(),
 			"Keep reading".to_string(),
+			None,
 			Some(String::from("Continue reading your in progress books")),
 			None,
 			Some(vec![OpdsLink {
@@ -171,6 +173,7 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 			"allSeries".to_string(),
 			chrono::Utc::now().into(),
 			"All series".to_string(),
+			None,
 			Some(String::from("Browse by series")),
 			None,
 			Some(vec![OpdsLink {
@@ -184,6 +187,7 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 			"latestSeries".to_string(),
 			chrono::Utc::now().into(),
 			"Latest series".to_string(),
+			None,
 			Some(String::from("Browse latest series")),
 			None,
 			Some(vec![OpdsLink {
@@ -197,6 +201,7 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 			"allLibraries".to_string(),
 			chrono::Utc::now().into(),
 			"All libraries".to_string(),
+			None,
 			Some(String::from("Browse by library")),
 			None,
 			Some(vec![OpdsLink {
@@ -210,6 +215,7 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 			"allBooks".to_string(),
 			chrono::Utc::now().into(),
 			"All books".to_string(),
+			None,
 			Some(String::from("Browse all books")),
 			None,
 			Some(vec![OpdsLink {
@@ -219,9 +225,20 @@ async fn catalog(Extension(req): Extension<RequestContext>) -> APIResult<Xml> {
 			}]),
 			None,
 		),
-		// TODO: more?
-		// TODO: get user stored searches, so they don't have to redo them over and over?
-		// e.g. /opds/v1.2/series?search={searchTerms}, /opds/v1.2/libraries?search={searchTerms}, etc.
+		OpdsEntry::new(
+			"latestBooks".to_string(),
+			chrono::Utc::now().into(),
+			"Latest books".to_string(),
+			None,
+			Some(String::from("Browse latest books")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "books/latest"),
+			}]),
+			None,
+		),
 	];
 
 	let links = vec![
@@ -320,17 +337,33 @@ async fn search_feed(
 	let media_results = db
 		.media()
 		.find_many(media_filters)
+		.with(media::metadata::fetch())
 		.order_by(media::name::order(Direction::Asc))
 		.exec()
 		.await?;
 
-	// Combine: series first, then books
-	let mut entries: Vec<OpdsEntry> = series
+	// Search libraries
+	let libraries = db
+		.library()
+		.find_many(chain_optional_iter(
+			[library_not_hidden_from_user_filter(user)],
+			[Some(library::name::contains(query.clone()))],
+		))
+		.order_by(library::name::order(Direction::Asc))
+		.exec()
+		.await?;
+
+	// Combine: libraries first, then series, then books
+	let mut entries: Vec<OpdsEntry> = libraries
 		.into_iter()
-		.map(|s| {
-			OPDSEntryBuilder::<series::Data>::new(s, req.api_key()).into_opds_entry()
+		.map(|l| {
+			OPDSEntryBuilder::<library::Data>::new(l, req.api_key()).into_opds_entry()
 		})
 		.collect();
+
+	entries.extend(series.into_iter().map(|s| {
+		OPDSEntryBuilder::<series::Data>::new(s, req.api_key()).into_opds_entry()
+	}));
 
 	entries.extend(media_results.into_iter().map(|m| {
 		OPDSEntryBuilder::<media::Data>::new(m, req.api_key()).into_opds_entry()
@@ -377,6 +410,7 @@ async fn keep_reading(
 		.with(media::active_user_reading_sessions::fetch(
 			in_progress_filter,
 		))
+		.with(media::metadata::fetch())
 		.order_by(media::name::order(Direction::Asc))
 		.exec()
 		.await?;
@@ -549,7 +583,7 @@ async fn get_library_by_id(
 					count: library_series_count,
 				}),
 				search: None,
-			})?;
+				})?;
 		Ok(Xml(feed.build()?))
 	} else {
 		Err(APIError::NotFound(format!(
@@ -682,6 +716,7 @@ async fn get_books(
 			let results = client
 				.media()
 				.find_many(query_filters.clone())
+				.with(media::metadata::fetch())
 				.skip(skip)
 				.take(take)
 				.order_by(media::name::order(Direction::Asc))
@@ -714,6 +749,73 @@ async fn get_books(
 			count,
 		}),
 		search,
+	})?;
+
+	Ok(Xml(feed.build()?))
+}
+
+async fn get_latest_books(
+	State(ctx): State<AppState>,
+	pagination: Query<PageQuery>,
+	Extension(req): Extension<RequestContext>,
+) -> APIResult<Xml> {
+	let db = &ctx.db;
+
+	let page = pagination.page.unwrap_or(0);
+	let (skip, take) = pagination_bounds(page.into(), 20);
+
+	let user = req.user();
+	let age_restrictions = user
+		.age_restriction
+		.as_ref()
+		.map(|ar| apply_media_age_restriction(ar.age, ar.restrict_on_unset));
+	let library_filters = apply_media_library_not_hidden_for_user_filter(user);
+
+	let (media_results, count) = db
+		._transaction()
+		.run(|client| async move {
+			let mut base_filters: Vec<media::WhereParam> =
+				library_filters.clone().into_iter().collect();
+			if let Some(ref ar) = age_restrictions {
+				base_filters.push(ar.clone());
+			}
+
+			let results = client
+				.media()
+				.find_many(base_filters.clone())
+				.with(media::metadata::fetch())
+				.skip(skip)
+				.take(take)
+				.order_by(media::created_at::order(Direction::Desc))
+				.exec()
+				.await?;
+
+			client
+				.media()
+				.count(base_filters)
+				.exec()
+				.await
+				.map(|count| (results, count))
+		})
+		.await?;
+
+	let entries = media_results
+		.into_iter()
+		.map(|m| {
+			OPDSEntryBuilder::<media::Data>::new(m, req.api_key()).into_opds_entry()
+		})
+		.collect::<Vec<OpdsEntry>>();
+
+	let feed = OPDSFeedBuilder::new(req.api_key()).paginated(OPDSFeedBuilderParams {
+		id: "latestBooks".to_string(),
+		title: "Latest Books".to_string(),
+		entries,
+		href_postfix: "books/latest".to_string(),
+		page_params: Some(OPDSFeedBuilderPageParams {
+			page: page.into(),
+			count,
+		}),
+		search: None,
 	})?;
 
 	Ok(Xml(feed.build()?))
@@ -809,6 +911,7 @@ async fn get_series_by_id(
 				))
 				.with(
 					series::media::fetch(vec![])
+						.with(media::metadata::fetch())
 						.skip(skip)
 						.take(take)
 						.order_by(media::name::order(Direction::Asc)),
@@ -851,7 +954,7 @@ async fn get_series_by_id(
 					count: series_book_count,
 				}),
 				search: None,
-			})?;
+					})?;
 		Ok(Xml(feed.build()?))
 	} else {
 		Err(APIError::NotFound(format!("Series {series_id} not found")))

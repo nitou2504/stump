@@ -263,7 +263,7 @@ impl From<HashMap<String, Vec<String>>> for MediaMetadata {
 					metadata.volume =
 						value.into_iter().next().and_then(|n| n.parse().ok());
 				},
-				"summary" => metadata.summary = Some(value.join("\n").to_string()),
+				"summary" | "description" => metadata.summary = Some(value.join("\n").to_string()),
 				"notes" => metadata.notes = Some(value.join("\n").to_string()),
 				"genre" => metadata.genre = Some(value),
 				"year" => {
