@@ -331,6 +331,7 @@ async fn search_feed(
 		media::metadata::is(vec![or![
 			media_metadata::title::contains(query.clone()),
 			media_metadata::summary::contains(query.clone()),
+			media_metadata::writers::contains(query.clone()),
 		]])
 	]);
 
@@ -583,7 +584,7 @@ async fn get_library_by_id(
 					count: library_series_count,
 				}),
 				search: None,
-				})?;
+			})?;
 		Ok(Xml(feed.build()?))
 	} else {
 		Err(APIError::NotFound(format!(
@@ -708,7 +709,8 @@ async fn get_books(
 					media::name::contains(q.clone()),
 					media::metadata::is(vec![or![
 						media_metadata::title::contains(q.clone()),
-						media_metadata::summary::contains(q),
+						media_metadata::summary::contains(q.clone()),
+						media_metadata::writers::contains(q),
 					]])
 				]);
 			}
@@ -954,7 +956,7 @@ async fn get_series_by_id(
 					count: series_book_count,
 				}),
 				search: None,
-					})?;
+			})?;
 		Ok(Xml(feed.build()?))
 	} else {
 		Err(APIError::NotFound(format!("Series {series_id} not found")))
