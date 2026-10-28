@@ -81,7 +81,7 @@ fn into_paginated_response(
 
 	let mut truncated_files = files;
 
-	let start = (offset_info.current_page - 1) * offset_info.page_size;
+	let start = offset_info.page_offset;
 	let end = start + offset_info.page_size;
 
 	if start > truncated_files.len() as u64 {

@@ -73,16 +73,23 @@ impl Default for OffsetPagination {
 }
 
 impl OffsetPagination {
+	/// The largest value that can be bound as an SQL integer. Anything larger panics in the
+	/// sqlx binder, which (with `panic = "abort"`) takes the whole server down.
+	const MAX_SQL_INT: u64 = i64::MAX as u64;
+
 	pub fn offset(&self) -> u64 {
-		if self.zero_based.unwrap_or(false) {
-			self.page * self.page_size.unwrap_or(20)
+		let page = if self.zero_based.unwrap_or(false) {
+			self.page
 		} else {
-			(self.page - 1) * self.page_size.unwrap_or(20)
-		}
+			// A 1-based page of 0 is invalid; treat it as the first page instead of
+			// underflowing (e.g. `?page=0` used to crash the server)
+			self.page.saturating_sub(1)
+		};
+		page.saturating_mul(self.limit()).min(Self::MAX_SQL_INT)
 	}
 
 	pub fn limit(&self) -> u64 {
-		self.page_size.unwrap_or(20)
+		self.page_size.unwrap_or(20).min(Self::MAX_SQL_INT)
 	}
 
 	pub fn next_page(&self) -> u64 {
@@ -226,13 +233,16 @@ pub struct OffsetPaginationInfo {
 impl OffsetPaginationInfo {
 	pub fn new(input: OffsetPagination, count: u64) -> Self {
 		let zero_based = input.zero_based.unwrap_or(false);
-		let page_size = input.page_size.unwrap_or(20);
-		let current_page = input.page;
+		let page_size = input.limit();
+		// A 1-based page of 0 is invalid, normalize it to the first page
+		let current_page = if zero_based {
+			input.page
+		} else {
+			input.page.max(1)
+		};
 
-		let total_pages = (count as f64 / page_size as f64).ceil() as u64;
-		// If zero-based, we don't need to subtract 1 from the current page
-		let modifier = if zero_based { 0 } else { 1 };
-		let page_offset = (current_page - modifier) * page_size;
+		let total_pages = (count as f64 / page_size.max(1) as f64).ceil() as u64;
+		let page_offset = input.offset();
 
 		Self {
 			current_page,
@@ -422,6 +432,25 @@ mod tests {
 
 	mod offset_pagination {
 		use super::*;
+
+		#[test]
+		fn offset_does_not_underflow_or_overflow() {
+			// page=0 on a 1-based pagination used to underflow and crash the server
+			let pagination = OffsetPagination {
+				page: 0,
+				page_size: Some(20),
+				zero_based: Some(false),
+			};
+			assert_eq!(pagination.offset(), 0);
+
+			let pagination = OffsetPagination {
+				page: u64::MAX,
+				page_size: Some(u64::MAX),
+				zero_based: Some(true),
+			};
+			assert_eq!(pagination.offset(), i64::MAX as u64);
+			assert_eq!(pagination.limit(), i64::MAX as u64);
+		}
 
 		#[test]
 		fn next_page_returns_current_page_plus_one_when_one_based() {
