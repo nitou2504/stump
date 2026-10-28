@@ -87,7 +87,7 @@ const schema = z.object({
 	extension: z.string().optional(),
 	metadata: z
 		.object({
-			age_rating: z
+			ageRating: z
 				.number()
 				.optional()
 				.nullable()
@@ -134,7 +134,7 @@ export default function MediaFilterForm() {
 	const defaultValue = useMemo(() => {
 		const metadata = (filters?.metadata ?? {}) as MediaMetadataFilterInput
 		const flattenMetadata = {
-			age_rating: metadata.ageRating?.lte ?? null,
+			ageRating: metadata.ageRating?.lte ?? null,
 			...Object.fromEntries(
 				METADATA_FIELDS.map(({ name, key }) => [
 					name,
@@ -185,8 +185,8 @@ export default function MediaFilterForm() {
 
 		if (values.metadata) {
 			const metadata: MediaMetadataFilterInput = {}
-			if (values.metadata.age_rating != null) {
-				metadata.ageRating = { lte: values.metadata.age_rating }
+			if (values.metadata.ageRating != null && !Number.isNaN(values.metadata.ageRating)) {
+				metadata.ageRating = { lte: values.metadata.ageRating }
 			}
 
 			for (const { name, key, list } of METADATA_FIELDS) {
