@@ -6,8 +6,8 @@ import {
 	SystemArrangement,
 	UserPermission,
 } from '@stump/graphql'
-import { Book, Home } from 'lucide-react'
-import { Suspense, useCallback, useEffect, useMemo } from 'react'
+import { Book, Home, Tags, Users } from 'lucide-react'
+import { Fragment, Suspense, useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router'
 import { match } from 'ts-pattern'
 
@@ -106,14 +106,29 @@ export default function AppSidebar() {
 					</SideBarButtonLink>
 				))
 				.with(SystemArrangement.Explore, () => (
-					<SideBarButtonLink
-						key="explore-sidebar-navlink"
-						to={paths.bookSearch()}
-						icon={Book}
-						isActive={location.pathname === paths.bookSearch()}
-					>
-						{t('sidebar.buttons.books')}
-					</SideBarButtonLink>
+					<Fragment key="explore-sidebar-navlink">
+						<SideBarButtonLink
+							to={paths.bookSearch()}
+							icon={Book}
+							isActive={location.pathname === paths.bookSearch()}
+						>
+							{t('sidebar.buttons.books')}
+						</SideBarButtonLink>
+						<SideBarButtonLink
+							to={paths.browseIndex('authors')}
+							icon={Users}
+							isActive={location.pathname === paths.browseIndex('authors')}
+						>
+							Authors
+						</SideBarButtonLink>
+						<SideBarButtonLink
+							to={paths.browseIndex('genres')}
+							icon={Tags}
+							isActive={location.pathname === paths.browseIndex('genres')}
+						>
+							Genres
+						</SideBarButtonLink>
+					</Fragment>
 				))
 				.with(SystemArrangement.Libraries, () => (
 					<Suspense key="libraries-sidebar-navlink">

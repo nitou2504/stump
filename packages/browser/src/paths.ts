@@ -27,6 +27,7 @@ type SettingsPage =
 	| 'notifications'
 type DocTopic = 'access-control' | 'features/book-clubs'
 type BookClubTab = 'overview' | 'members' | 'discussion' | 'settings'
+export type BrowseIndex = 'genres' | 'authors'
 
 const pathsInternal = {
 	bookClub: (slug: string, tab?: BookClubTab) => `/clubs/${slug}${tab ? `/${tab}` : ''}`,
@@ -81,6 +82,7 @@ const pathsInternal = {
 		return `${baseUrl}/reader?${searchParams.toString()}`
 	},
 	bookSearch: () => '/books',
+	browseIndex: (index: BrowseIndex) => `/browse/${index}`,
 	bookSearchWithFilter: (filters: MediaFilterInput) => {
 		const params = toUrlParams({ filters: JSON.stringify(filters) })
 		return `/books?${params.toString()}`
@@ -157,6 +159,7 @@ export function usePaths() {
 		bookReader: (id: string, params: BookReaderParams = {}) =>
 			`${basePath}${pathsInternal.bookReader(id, params)}`,
 		bookSearch: () => `${basePath}${pathsInternal.bookSearch()}`,
+		browseIndex: (index: BrowseIndex) => `${basePath}${pathsInternal.browseIndex(index)}`,
 		bookSearchWithFilter: (filters: MediaFilterInput) =>
 			`${basePath}${pathsInternal.bookSearchWithFilter(filters)}`,
 		createEmailer: () => `${basePath}${pathsInternal.createEmailer()}`,
