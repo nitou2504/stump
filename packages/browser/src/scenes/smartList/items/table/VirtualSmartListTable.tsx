@@ -1,5 +1,5 @@
 import { cn } from '@stump/components'
-import { Media } from '@stump/graphql'
+import { InterfaceLayout, Media } from '@stump/graphql'
 import {
 	flexRender,
 	getCoreRowModel,
@@ -12,11 +12,15 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useMemo, useRef } from 'react'
 
+import { GridSizeSlider } from '@/components/container/GridSizeSlider'
 import { SortIcon } from '@/components/table'
+import TableOrGridLayout from '@/components/TableOrGridLayout'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
-import { useSafeWorkingView } from '../../context'
+import { useSafeWorkingView, useSmartListContext } from '../../context'
+import { useSmartListLayout } from '../../layout'
 import { buildColumns } from './mediaColumns'
+import SmartListBookGrid from './SmartListBookGrid'
 import { SmartListTableItem } from './SmartListTableItem'
 import TableHeaderActions from './TableHeaderActions'
 
@@ -80,9 +84,34 @@ export default function VirtualSmartListTable({ books }: Props) {
 	const virtualItems = rowVirtualizer.getVirtualItems()
 	const totalSize = rowVirtualizer.getTotalSize()
 
+	const {
+		list: { id: listId },
+	} = useSmartListContext()
+	const { layout, setLayout } = useSmartListLayout(listId)
+	const isGrid = layout === InterfaceLayout.Grid
+	const layoutControls = (
+		<div className="gap-2 flex shrink-0 items-center">
+			{isGrid && (
+				<div className="w-32 md:block hidden">
+					<GridSizeSlider />
+				</div>
+			)}
+			<TableOrGridLayout layout={layout} setLayout={setLayout} />
+		</div>
+	)
+
+	if (isGrid) {
+		return (
+			<div ref={containerRef} className="flex w-full flex-col">
+				<TableHeaderActions layoutControls={layoutControls} showColumnControls={false} />
+				<SmartListBookGrid books={rows.map((row) => row.original)} scrollElement={scrollElement} />
+			</div>
+		)
+	}
+
 	return (
 		<div ref={containerRef} className="flex w-full flex-col">
-			<TableHeaderActions />
+			<TableHeaderActions layoutControls={layoutControls} />
 
 			<div
 				className="top-0 sticky z-30 flex w-full border-b border-border bg-background"

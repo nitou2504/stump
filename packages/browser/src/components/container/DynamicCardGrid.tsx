@@ -47,41 +47,47 @@ export const VirtualizedCardGrid = ({ count, renderItem, onEndReached }: Virtual
 	</AutoSizer>
 )
 
-const List = forwardRef<HTMLDivElement, GridListProps>(({ style, children, ...props }, ref) => (
-	<div
-		ref={ref}
-		{...props}
-		style={{
-			display: 'flex',
-			flexWrap: 'wrap',
-			columnGap: GRID_GAP,
-			...style,
-		}}
-	>
-		{children}
-	</div>
-))
-List.displayName = 'List'
-
-const Item = forwardRef<HTMLDivElement, GridItemProps>(({ style, children, ...props }, ref) => {
-	const { columns } = useGridSize()
-
-	return (
+export const VirtualGridList = forwardRef<HTMLDivElement, GridListProps>(
+	({ style, children, ...props }, ref) => (
 		<div
 			ref={ref}
 			{...props}
 			style={{
-				width: sizeToPercentageWidth[columns],
 				display: 'flex',
-				flex: 'none',
-				alignContent: 'stretch',
-				boxSizing: 'border-box',
-				paddingBottom: GRID_GAP,
+				flexWrap: 'wrap',
+				columnGap: GRID_GAP,
 				...style,
 			}}
 		>
 			{children}
 		</div>
-	)
-})
-Item.displayName = 'Item'
+	),
+)
+VirtualGridList.displayName = 'List'
+const List = VirtualGridList
+
+export const VirtualGridItem = forwardRef<HTMLDivElement, GridItemProps>(
+	({ style, children, ...props }, ref) => {
+		const { columns } = useGridSize()
+
+		return (
+			<div
+				ref={ref}
+				{...props}
+				style={{
+					width: sizeToPercentageWidth[columns],
+					display: 'flex',
+					flex: 'none',
+					alignContent: 'stretch',
+					boxSizing: 'border-box',
+					paddingBottom: GRID_GAP,
+					...style,
+				}}
+			>
+				{children}
+			</div>
+		)
+	},
+)
+VirtualGridItem.displayName = 'Item'
+const Item = VirtualGridItem
