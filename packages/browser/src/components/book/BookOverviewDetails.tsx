@@ -78,7 +78,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 	const creatorLink = (name: string, field: 'writers' | 'pencillers') => (
 		<Link
 			key={name}
-			to={paths.bookSearchWithFilter({ metadata: { [field]: { likeAnyOf: [name] } } })}
+			to={paths.bookSearchWithFilter({ metadata: { [field]: { hasAnyOf: [name] } } })}
 			underline={false}
 			className="font-medium text-foreground hover:underline"
 		>
@@ -149,7 +149,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 					{genres.map((genre) => (
 						<Link
 							key={genre}
-							to={paths.bookSearchWithFilter({ metadata: { genres: { likeAnyOf: [genre] } } })}
+							to={paths.bookSearchWithFilter({ metadata: { genres: { hasAnyOf: [genre] } } })}
 							underline={false}
 						>
 							<Badge variant="secondary" rounded="full" size="sm" className="cursor-pointer">

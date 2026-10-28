@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useGraphQL } from '@stump/client'
 import { CheckBox, Form } from '@stump/components'
 import {
+	FieldFilterString,
 	graphql,
 	MediaFilterFormQuery,
 	MediaFilterInput,
@@ -24,6 +25,7 @@ const query = graphql(`
 	query MediaFilterForm($seriesId: ID) {
 		mediaMetadataOverview(seriesId: $seriesId) {
 			genres
+			languages
 			writers
 			pencillers
 			colorists
@@ -33,8 +35,53 @@ const query = graphql(`
 			editors
 			characters
 		}
+		tags {
+			id
+			name
+		}
 	}
 `)
+
+type Overview = MediaFilterFormQuery['mediaMetadataOverview']
+
+/**
+ * The multi-select metadata fields of the form. `list` fields are stored as
+ * comma-separated lists (e.g. `Novel, Science`) and are matched per element with
+ * `hasAnyOf`, so `Science` doesn't also match `Science fiction`. The other fields hold a
+ * single value and are matched exactly with `anyOf`.
+ */
+const METADATA_FIELDS = [
+	{ name: 'genre', label: 'Genre', key: 'genres', overview: 'genres', list: true },
+	{ name: 'writer', label: 'Writer', key: 'writers', overview: 'writers', list: true },
+	{ name: 'language', label: 'Language', key: 'language', overview: 'languages', list: false },
+	{ name: 'publisher', label: 'Publisher', key: 'publisher', overview: 'publishers', list: false },
+	{
+		name: 'penciller',
+		label: 'Penciller',
+		key: 'pencillers',
+		overview: 'pencillers',
+		list: true,
+	},
+	{ name: 'colorist', label: 'Colorist', key: 'colorists', overview: 'colorists', list: true },
+	{ name: 'letterer', label: 'Letterer', key: 'letterers', overview: 'letterers', list: true },
+	{ name: 'inker', label: 'Inker', key: 'inkers', overview: 'inkers', list: true },
+	{ name: 'editor', label: 'Editor', key: 'editors', overview: 'editors', list: true },
+	{
+		name: 'character',
+		label: 'Character',
+		key: 'characters',
+		overview: 'characters',
+		list: true,
+	},
+] as const satisfies ReadonlyArray<{
+	name: string
+	label: string
+	key: keyof MediaMetadataFilterInput
+	overview: keyof Overview
+	list: boolean
+}>
+
+type MetadataFieldName = (typeof METADATA_FIELDS)[number]['name']
 
 const schema = z.object({
 	extension: z.string().optional(),
@@ -45,20 +92,22 @@ const schema = z.object({
 				.optional()
 				.nullable()
 				.refine((val) => val == null || (val >= 0 && val <= 18)),
-			character: z.array(z.string()).optional(),
-			colorist: z.array(z.string()).optional(),
-			editor: z.array(z.string()).optional(),
-			genre: z.array(z.string()).optional(),
-			inker: z.array(z.string()).optional(),
-			letterer: z.array(z.string()).optional(),
-			penciller: z.array(z.string()).optional(),
-			publisher: z.array(z.string()).optional(),
-			writer: z.array(z.string()).optional(),
+			...(Object.fromEntries(
+				METADATA_FIELDS.map(({ name }) => [name, z.array(z.string()).optional()]),
+			) as Record<MetadataFieldName, z.ZodOptional<z.ZodArray<z.ZodString>>>),
 		})
 		.optional(),
+	tags: z.array(z.string()).optional(),
 	read_status: z.array(z.enum(['finished', 'reading', 'not_started'])).optional(),
 })
 export type MediaFilterFormSchema = z.infer<typeof schema>
+
+/**
+ * Reads the selected values back out of a string filter, accepting the legacy
+ * substring operators so older links/bookmarks keep working
+ */
+const selectedValues = (filter?: FieldFilterString | null): string[] =>
+	filter?.hasAnyOf ?? filter?.anyOf ?? filter?.likeAnyOf ?? []
 
 export default function MediaFilterForm() {
 	const { filters: filtersInput, setFilters } = useFilterContext()
@@ -80,23 +129,23 @@ export default function MediaFilterForm() {
 		placeholderData: (prev) => prev,
 	})
 	const data = _data?.mediaMetadataOverview
+	const tags = useMemo(() => _data?.tags ?? [], [_data])
 
 	const defaultValue = useMemo(() => {
+		const metadata = (filters?.metadata ?? {}) as MediaMetadataFilterInput
 		const flattenMetadata = {
-			age_rating: (filters?.metadata as MediaMetadataFilterInput)?.ageRating?.lte ?? null,
-			character: (filters?.metadata as MediaMetadataFilterInput)?.characters?.likeAnyOf ?? [],
-			colorist: (filters?.metadata as MediaMetadataFilterInput)?.colorists?.likeAnyOf ?? [],
-			editor: (filters?.metadata as MediaMetadataFilterInput)?.editors?.likeAnyOf ?? [],
-			genre: (filters?.metadata as MediaMetadataFilterInput)?.genres?.likeAnyOf ?? [],
-			inker: (filters?.metadata as MediaMetadataFilterInput)?.inkers?.likeAnyOf ?? [],
-			letterer: (filters?.metadata as MediaMetadataFilterInput)?.letterers?.likeAnyOf ?? [],
-			penciller: (filters?.metadata as MediaMetadataFilterInput)?.pencillers?.likeAnyOf ?? [],
-			publisher: (filters?.metadata as MediaMetadataFilterInput)?.publisher?.likeAnyOf ?? [],
-			writer: (filters?.metadata as MediaMetadataFilterInput)?.writers?.likeAnyOf ?? [],
+			age_rating: metadata.ageRating?.lte ?? null,
+			...Object.fromEntries(
+				METADATA_FIELDS.map(({ name, key }) => [
+					name,
+					selectedValues(metadata[key] as FieldFilterString | undefined),
+				]),
+			),
 		}
 		return {
 			extension: filters?.extension?.eq as string,
 			metadata: flattenMetadata,
+			tags: selectedValues(filters?.tags),
 			read_status: filters?.readingStatus?.isAnyOf?.map((elem) => (elem as string).toLowerCase()),
 		}
 	}, [filters])
@@ -130,74 +179,27 @@ export default function MediaFilterForm() {
 			}
 		}
 
+		if (values.tags?.length) {
+			newFilters.tags = { anyOf: values.tags }
+		}
+
 		if (values.metadata) {
-			if (values.metadata.age_rating !== null) {
-				newFilters.metadata = {
-					ageRating: values.metadata.age_rating ? { lte: values.metadata.age_rating } : null,
+			const metadata: MediaMetadataFilterInput = {}
+			if (values.metadata.age_rating != null) {
+				metadata.ageRating = { lte: values.metadata.age_rating }
+			}
+
+			for (const { name, key, list } of METADATA_FIELDS) {
+				const selected = values.metadata[name] as string[] | undefined
+				if (selected?.length) {
+					Object.assign(metadata, {
+						[key]: list ? { hasAnyOf: selected } : { anyOf: selected },
+					})
 				}
 			}
 
-			if (values.metadata.character?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					characters: { likeAnyOf: values.metadata.character },
-				}
-			}
-
-			if (values.metadata.colorist?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					colorists: { likeAnyOf: values.metadata.colorist },
-				}
-			}
-
-			if (values.metadata.editor?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					editors: { likeAnyOf: values.metadata.editor },
-				}
-			}
-
-			if (values.metadata.genre?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					genres: { likeAnyOf: values.metadata.genre },
-				}
-			}
-
-			if (values.metadata.inker?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					inkers: { likeAnyOf: values.metadata.inker },
-				}
-			}
-
-			if (values.metadata.letterer?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					letterers: { likeAnyOf: values.metadata.letterer },
-				}
-			}
-
-			if (values.metadata.penciller?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					pencillers: { likeAnyOf: values.metadata.penciller },
-				}
-			}
-
-			if (values.metadata.publisher?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					publisher: { likeAnyOf: values.metadata.publisher },
-				}
-			}
-
-			if (values.metadata.writer?.length) {
-				newFilters.metadata = {
-					...newFilters.metadata,
-					writers: { likeAnyOf: values.metadata.writer },
-				}
+			if (Object.keys(metadata).length) {
+				newFilters.metadata = metadata
 			}
 		}
 
@@ -225,103 +227,35 @@ export default function MediaFilterForm() {
 			<ReadStatusSelect />
 			<AgeRatingFilter />
 
-			{!isEmptyState && (
-				<>
-					<GenericFilterMultiselect
-						name="metadata.genre"
-						label="Genre"
-						options={
-							data?.genres.map((genre) => ({ label: genre, value: genre.toLowerCase() })) || []
-						}
-					/>
+			{!isEmptyState &&
+				METADATA_FIELDS.map(({ name, label, overview }) => {
+					const options = (data?.[overview] ?? []).filter(Boolean)
+					if (!options.length) return null
+					return (
+						<GenericFilterMultiselect
+							key={name}
+							name={`metadata.${name}`}
+							label={label}
+							options={options.map((value) => ({ label: value, value }))}
+						/>
+					)
+				})}
 
-					<GenericFilterMultiselect
-						name="metadata.writer"
-						label="Writer"
-						options={
-							data?.writers.map((writer) => ({ label: writer, value: writer.toLowerCase() })) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.penciller"
-						label="Penciller"
-						options={
-							data?.pencillers.map((penciller) => ({
-								label: penciller,
-								value: penciller.toLowerCase(),
-							})) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.colorist"
-						label="Colorist"
-						options={
-							data?.colorists.map((colorist) => ({
-								label: colorist,
-								value: colorist.toLowerCase(),
-							})) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.letterer"
-						label="Letterer"
-						options={
-							data?.letterers.map((letterer) => ({
-								label: letterer,
-								value: letterer.toLowerCase(),
-							})) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.inker"
-						label="Inker"
-						options={
-							data?.inkers.map((inker) => ({ label: inker, value: inker.toLowerCase() })) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.publisher"
-						label="Publisher"
-						options={
-							data?.publishers.map((publisher) => ({
-								label: publisher,
-								value: publisher.toLowerCase(),
-							})) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.editor"
-						label="Editor"
-						options={
-							data?.editors.map((editor) => ({ label: editor, value: editor.toLowerCase() })) || []
-						}
-					/>
-
-					<GenericFilterMultiselect
-						name="metadata.character"
-						label="Character"
-						options={
-							data?.characters.map((character) => ({
-								label: character,
-								value: character.toLowerCase(),
-							})) || []
-						}
-					/>
-				</>
+			{tags.length > 0 && (
+				<GenericFilterMultiselect
+					name="tags"
+					label="Tags"
+					options={tags.map(({ name }) => ({ label: name, value: name }))}
+				/>
 			)}
 		</Form>
 	)
 }
 
-const isEmptyResult = (result?: MediaFilterFormQuery['mediaMetadataOverview']) =>
+const isEmptyResult = (result?: Overview) =>
 	!(
 		result?.genres?.length ||
+		result?.languages?.length ||
 		result?.writers?.length ||
 		result?.pencillers?.length ||
 		result?.colorists?.length ||

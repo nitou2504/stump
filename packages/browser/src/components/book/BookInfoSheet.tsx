@@ -118,7 +118,7 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 			value: metadata?.publisher ? (
 				<Link
 					to={paths.bookSearchWithFilter({
-						metadata: { publisher: { likeAnyOf: [metadata.publisher] } },
+						metadata: { publisher: { anyOf: [metadata.publisher] } },
 					})}
 					underline={false}
 					className="hover:underline"
@@ -266,7 +266,7 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 											<RouterLink
 												key={name}
 												to={paths.bookSearchWithFilter({
-													metadata: { [key]: { likeAnyOf: [name] } },
+													metadata: { [key]: { hasAnyOf: [name] } },
 												})}
 											>
 												<Badge variant={key === 'writers' ? 'primary' : 'secondary'}>{name}</Badge>
