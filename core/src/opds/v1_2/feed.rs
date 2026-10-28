@@ -172,9 +172,11 @@ impl OPDSFeedBuilder {
 			zero_based,
 		} = page_params.unwrap_or_default();
 		let first_page = u64::from(!zero_based);
-		if page_size == 0 || page < first_page {
+		if page_size == 0 {
 			return Err(CoreError::BadRequest("Invalid OPDS pagination".into()));
 		}
+		// A 1-based page of 0 is treated as the first page (the offset does the same)
+		let page = page.max(first_page);
 		let params_for_page = |page: u64| {
 			let mut params = HashMap::from([
 				("page".into(), page.to_string()),

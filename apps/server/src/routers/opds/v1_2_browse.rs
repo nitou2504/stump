@@ -93,19 +93,32 @@ impl BookFeedParams {
 			.filter(|l| l.len() == 2 && l.chars().all(|c| c.is_ascii_alphabetic()))
 	}
 
+	/// The sort used when none is requested: relevance while searching, otherwise the
+	/// scope's natural order
+	fn default_sort(&self, scope: &BookScope) -> BookSort {
+		if self.search().is_some() {
+			BookSort::Relevance
+		} else {
+			scope.default_sort()
+		}
+	}
+
 	fn sort(&self, scope: &BookScope) -> BookSort {
 		match self.sort.as_deref() {
 			Some("added") => BookSort::Added,
 			Some("series") => BookSort::Series,
 			Some("author") => BookSort::Author,
 			Some("title") => BookSort::Title,
-			_ => scope.default_sort(),
+			Some("relevance") if self.search().is_some() => BookSort::Relevance,
+			_ => self.default_sort(scope),
 		}
 	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BookSort {
+	/// Title, author and series matches first, then summary-only matches
+	Relevance,
 	Title,
 	Added,
 	Series,
@@ -113,7 +126,8 @@ enum BookSort {
 }
 
 impl BookSort {
-	const ALL: [BookSort; 4] = [
+	const ALL: [BookSort; 5] = [
+		BookSort::Relevance,
 		BookSort::Title,
 		BookSort::Author,
 		BookSort::Series,
@@ -122,6 +136,7 @@ impl BookSort {
 
 	fn key(&self) -> &'static str {
 		match self {
+			BookSort::Relevance => "relevance",
 			BookSort::Title => "title",
 			BookSort::Added => "added",
 			BookSort::Series => "series",
@@ -131,6 +146,7 @@ impl BookSort {
 
 	fn label(&self) -> &'static str {
 		match self {
+			BookSort::Relevance => "Best match",
 			BookSort::Title => "Title",
 			BookSort::Added => "Recently added",
 			BookSort::Series => "Series order",
@@ -257,11 +273,29 @@ fn lang_condition(lang: &str) -> Condition {
 	Condition::all().add(QExpr::cust(LANG_EXPR).eq(lang.to_string()))
 }
 
-fn apply_sort(query: Select<media::Entity>, sort: BookSort) -> Select<media::Entity> {
+fn apply_sort(
+	query: Select<media::Entity>,
+	sort: BookSort,
+	search: Option<&str>,
+) -> Select<media::Entity> {
 	let title = QExpr::cust(
-		"COALESCE(NULLIF(\"media_metadata\".\"title_sort\", ''), NULLIF(\"media_metadata\".\"title\", ''), \"media\".\"name\") COLLATE NOCASE",
+		"TRIM(COALESCE(NULLIF(TRIM(\"media_metadata\".\"title_sort\"), ''), NULLIF(TRIM(\"media_metadata\".\"title\"), ''), \"media\".\"name\")) COLLATE NOCASE",
 	);
 	match sort {
+		BookSort::Relevance => {
+			let pattern = format!(
+				"%{}%",
+				graphql::filter::keyword::escape_like_fragment(search.unwrap_or_default())
+			);
+			let rank = QExpr::cust_with_values(
+				"CASE WHEN \"media_metadata\".\"title\" LIKE ? ESCAPE '\\' OR \"media\".\"name\" LIKE ? ESCAPE '\\' THEN 0 WHEN \"media_metadata\".\"writers\" LIKE ? ESCAPE '\\' THEN 1 WHEN \"media_metadata\".\"series\" LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END",
+				[pattern.clone(), pattern.clone(), pattern.clone(), pattern],
+			);
+			query
+				.order_by(rank, Order::Asc)
+				.order_by(title, Order::Asc)
+				.order_by_asc(media::Column::Id)
+		},
 		BookSort::Title => query
 			.order_by(title, Order::Asc)
 			.order_by_asc(media::Column::Id),
@@ -338,6 +372,8 @@ fn language_name(code: &str) -> String {
 		"zh" => "中文",
 		"ru" => "Русский",
 		"nl" => "Nederlands",
+		// ISO 639-2 `und`
+		"un" => "Undetermined",
 		_ => return code.to_uppercase(),
 	};
 	name.to_string()
@@ -362,7 +398,7 @@ pub(crate) async fn books_feed(
 		true,
 	);
 	let count = query.clone().count(conn).await?;
-	let books = apply_sort(query, sort)
+	let books = apply_sort(query, sort, params.search().as_deref())
 		.offset(pagination.offset())
 		.limit(pagination.limit())
 		.into_model::<OPDSPublicationEntity>()
@@ -376,8 +412,9 @@ pub(crate) async fn books_feed(
 
 	// The params which define *what* is listed (not the page or the search), used to
 	// build the facet and search links
-	let sort_param = (sort != scope.default_sort()).then(|| sort.key().to_string());
-	let base = |sort: Option<String>, lang: Option<String>| {
+	let default_sort = params.default_sort(&scope);
+	let sort_param = (sort != default_sort).then(|| sort.key().to_string());
+	let base = |sort: Option<String>, lang: Option<String>, search: Option<String>| {
 		path_with_params(
 			&scope.path(),
 			&[
@@ -385,10 +422,16 @@ pub(crate) async fn books_feed(
 				("author", params.author()),
 				("lang", lang),
 				("sort", sort),
+				("search", search),
 			],
 		)
 	};
-	let feed_path = base(sort_param.clone(), params.lang());
+	// The feed's own path without the search (the paginator and the search template add
+	// it), and the facet base which keeps the current search
+	let feed_path = base(sort_param.clone(), params.lang(), None);
+	let facet = |sort: Option<String>, lang: Option<String>| {
+		catalog_url(req, &base(sort, lang, params.search()))
+	};
 
 	let mut title = scope.title();
 	if let Some(genre) = params.genre() {
@@ -403,13 +446,16 @@ pub(crate) async fn books_feed(
 
 	let mut extra_links = vec![scoped_search_link(req, &feed_path)];
 
-	// Sort facets
+	// Sort facets (best match only makes sense while searching)
 	for option in BookSort::ALL {
-		let key = (option != scope.default_sort()).then(|| option.key().to_string());
+		if option == BookSort::Relevance && params.search().is_none() {
+			continue;
+		}
+		let key = (option != default_sort).then(|| option.key().to_string());
 		extra_links.push(OpdsGenericLink::facet(
 			"Sort",
 			option.label().to_string(),
-			catalog_url(req, &base(key, params.lang())),
+			facet(key, params.lang()),
 			option == sort,
 		));
 	}
@@ -425,6 +471,8 @@ pub(crate) async fn books_feed(
 			.into_tuple()
 			.all(conn)
 			.await?;
+	// Books without a (valid) language still count towards "All languages"
+	let total: i64 = languages.iter().map(|(_, c)| c).sum();
 	let languages = languages
 		.into_iter()
 		.filter_map(|(lang, count)| {
@@ -433,11 +481,10 @@ pub(crate) async fn books_feed(
 		})
 		.collect::<Vec<_>>();
 	if languages.len() > 1 || params.lang().is_some() {
-		let total: i64 = languages.iter().map(|(_, c)| c).sum();
 		extra_links.push(OpdsGenericLink::facet(
 			"Language",
 			format!("All languages ({total})"),
-			catalog_url(req, &base(sort_param.clone(), None)),
+			facet(sort_param.clone(), None),
 			params.lang().is_none(),
 		));
 		for (lang, count) in languages.into_iter().take(8) {
@@ -445,7 +492,7 @@ pub(crate) async fn books_feed(
 			extra_links.push(OpdsGenericLink::facet(
 				"Language",
 				format!("{} ({count})", language_name(&lang)),
-				catalog_url(req, &base(sort_param.clone(), Some(lang))),
+				facet(sort_param.clone(), Some(lang)),
 				active,
 			));
 		}
@@ -559,32 +606,41 @@ pub(crate) async fn smart_lists_feed(
 		.all(conn)
 		.await?;
 
-	let mut entries = Vec::with_capacity(lists.len());
-	for list in lists {
-		let count = match smart_list_media_ids(&user, &list) {
-			Ok(ids) => media::Entity::find()
+	// Count every list's books concurrently, the shelf list is opened from slow e-readers
+	let counts = futures_util::future::join_all(lists.iter().map(|list| {
+		let user = &user;
+		async move {
+			let ids = smart_list_media_ids(user, list).ok()?;
+			media::Entity::find()
 				.filter(media::Column::Id.in_subquery(ids))
 				.count(conn)
 				.await
-				.ok(),
-			Err(_) => None,
-		};
-		let content = match (count, list.description.clone()) {
-			(Some(count), Some(desc)) if !desc.is_empty() => {
-				Some(format!("{count} books — {desc}"))
-			},
-			(Some(count), _) => Some(format!("{count} books")),
-			(None, desc) => desc,
-		};
-		entries.push(navigation_entry(
-			req,
-			format!("smartList:{}", list.id),
-			list.name.clone(),
-			content,
-			format!("smart-lists/{}", list.id),
-			true,
-		));
-	}
+				.ok()
+		}
+	}))
+	.await;
+
+	let entries = lists
+		.into_iter()
+		.zip(counts)
+		.map(|(list, count)| {
+			let content = match (count, list.description.clone()) {
+				(Some(count), Some(desc)) if !desc.is_empty() => {
+					Some(format!("{count} books — {desc}"))
+				},
+				(Some(count), _) => Some(format!("{count} books")),
+				(None, desc) => desc,
+			};
+			navigation_entry(
+				req,
+				format!("smartList:{}", list.id),
+				list.name.clone(),
+				content,
+				format!("smart-lists/{}", list.id),
+				true,
+			)
+		})
+		.collect();
 
 	let feed = simple_feed(
 		req,
