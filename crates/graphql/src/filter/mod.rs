@@ -17,6 +17,7 @@ pub mod series;
 pub mod series_metadata;
 
 use keyword::{like_contains, like_ends_with, like_starts_with};
+use sea_orm::sea_query::LikeExpr;
 
 // TODO: This probably needs a rewrite to make it more compatible with async-graphql. The big issue is generics
 // with input objects. Look at and yoink from seaography for how they are doing things
@@ -48,6 +49,29 @@ where
 	Excludes(T),
 	StartsWith(T),
 	EndsWith(T),
+	/// Matches when a comma-separated list column (e.g. genres, writers) contains at
+	/// least one of the given values as a whole element. Unlike `likeAnyOf`, the value
+	/// `Science` does not match `Science fiction`.
+	HasAnyOf(Vec<T>),
+	/// Matches when none of the given values is a whole element of the list column
+	HasNoneOf(Vec<T>),
+}
+
+/// Builds a condition matching rows whose comma-separated list `column` (genres, writers,
+/// etc.) contains `value` as a whole element, e.g. `Science` matches `Novel, Science` but
+/// not `Science fiction`. Separators with or without a space are both accepted. Case
+/// folding follows SQLite `LIKE` (ASCII case-insensitive), so the value is intentionally
+/// not lowercased in Rust.
+pub fn list_has_element<C>(column: C, value: &str) -> Condition
+where
+	C: sea_orm::ColumnTrait + Copy,
+{
+	let normalized_column = QExpr::cust_with_exprs(
+		"',' || REPLACE(REPLACE(?, ', ', ','), ' ,', ',') || ','",
+		[QExpr::col(column.as_column_ref())],
+	);
+	let pattern = format!("%,{},%", keyword::escape_like_fragment(value.trim()));
+	Condition::all().add(normalized_column.like(LikeExpr::new(pattern).escape('\\')))
 }
 
 pub(crate) fn apply_string_filter<C, T>(
@@ -113,6 +137,19 @@ where
 				)
 			})
 		},
+		StringLikeFilter::HasAnyOf(values) => {
+			values.into_iter().fold(Condition::any(), |acc, value| {
+				let v: String = value.into();
+				acc.add(list_has_element(column, &v))
+			})
+		},
+		StringLikeFilter::HasNoneOf(values) => values
+			.into_iter()
+			.fold(Condition::any(), |acc, value| {
+				let v: String = value.into();
+				acc.add(list_has_element(column, &v))
+			})
+			.not(),
 		StringLikeFilter::LikeNoneOf(values) => values
 			.into_iter()
 			.fold(Condition::any(), |acc, value| {
@@ -230,6 +267,25 @@ mod tests {
 		assert_eq!(
 			sql,
 			r#"SELECT  FROM "media" WHERE LOWER("media"."name") LIKE '%test%' ESCAPE '\' OR LOWER("media"."name") LIKE '%example%' ESCAPE '\'"#
+		);
+	}
+
+	#[test]
+	fn test_string_has_any_of() {
+		let filter = StringLikeFilter::HasAnyOf(vec![
+			"Science".to_string(),
+			"50% off_".to_string(),
+		]);
+		let condition = apply_string_filter(media::Column::Name, filter);
+		let query = media::Entity::find().filter(condition);
+		let sql = query
+			.select_only()
+			.into_query()
+			.to_string(SqliteQueryBuilder);
+
+		assert_eq!(
+			sql,
+			r#"SELECT  FROM "media" WHERE (',' || REPLACE(REPLACE("media"."name", ', ', ','), ' ,', ',') || ',') LIKE '%,Science,%' ESCAPE '\' OR (',' || REPLACE(REPLACE("media"."name", ', ', ','), ' ,', ',') || ',') LIKE '%,50\% off\_,%' ESCAPE '\'"#
 		);
 	}
 

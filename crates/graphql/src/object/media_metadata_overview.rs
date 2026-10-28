@@ -75,6 +75,13 @@ impl MediaMetadataOverview {
 		get_unique_values_inner!(Genres, conn, series_id, Some(user))
 	}
 
+	async fn languages(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn: &DatabaseConnection = ctx.data::<CoreContext>()?.conn.as_ref();
+		let series_id = self.series_id.clone();
+		get_unique_values_inner!(Language, conn, series_id, Some(user))
+	}
+
 	async fn writers(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn: &DatabaseConnection = ctx.data::<CoreContext>()?.conn.as_ref();

@@ -832,6 +832,14 @@ input FieldFilterFileStatus @oneOf {
 	excludes: FileStatus
 	startsWith: FileStatus
 	endsWith: FileStatus
+	"""
+	Matches when a comma-separated list column (e.g. genres, writers) contains at
+	least one of the given values as a whole element. Unlike `likeAnyOf`, the value
+	`Science` does not match `Science fiction`.
+	"""
+	hasAnyOf: [FileStatus!]
+	"Matches when none of the given values is a whole element of the list column"
+	hasNoneOf: [FileStatus!]
 }
 
 input FieldFilterString @oneOf {
@@ -846,6 +854,14 @@ input FieldFilterString @oneOf {
 	excludes: String
 	startsWith: String
 	endsWith: String
+	"""
+	Matches when a comma-separated list column (e.g. genres, writers) contains at
+	least one of the given values as a whole element. Unlike `likeAnyOf`, the value
+	`Science` does not match `Science fiction`.
+	"""
+	hasAnyOf: [String!]
+	"Matches when none of the given values is a whole element of the list column"
+	hasNoneOf: [String!]
 }
 
 "The different statuses a file reference can have"
@@ -1544,6 +1560,7 @@ input MediaMetadataFilterInput {
 	title: FieldFilterString = null
 	publisher: FieldFilterString = null
 	genres: FieldFilterString = null
+	language: FieldFilterString = null
 	characters: FieldFilterString = null
 	colorists: FieldFilterString = null
 	writers: FieldFilterString = null
@@ -1653,6 +1670,7 @@ input MediaMetadataOrderByField {
 
 type MediaMetadataOverview {
 	genres: [String!]!
+	languages: [String!]!
 	writers: [String!]!
 	pencillers: [String!]!
 	inkers: [String!]!
@@ -1736,6 +1754,15 @@ enum MergeStrategy {
 	PREFER_EXTERNAL_AND_MERGE_LISTS
 	"FillGaps and merge/dedupe for array fields"
 	FILL_AND_MERGE_LISTS
+}
+
+"The metadata fields which can be listed with their book counts"
+enum MetadataFacetField {
+	GENRES
+	WRITERS
+	LANGUAGE
+	PUBLISHER
+	SERIES
 }
 
 type MetadataFetchJobOutput {
@@ -1904,6 +1931,11 @@ enum MetadataResetImpact {
 input MetadataRetryConfigInput {
 	"Which metadata fetch statuses to retry (e.g. RATE_LIMITED, FAILED)"
 	statuses: [MetadataFetchStatus!]!
+}
+
+type MetadataValueCount {
+	value: String!
+	count: Int!
 }
 
 type MissingEntity {
@@ -2677,6 +2709,11 @@ type Query {
 	"Returns a list of all tags."
 	tags: [Tag!]!
 	mediaMetadataOverview(seriesId: ID): MediaMetadataOverview!
+	"""
+	List the distinct values of a metadata field with their book counts, e.g. every
+	genre and how many books have it
+	"""
+	metadataValueCounts(field: MetadataFacetField!, libraryId: ID, search: String): [MetadataValueCount!]!
 	"""
 	Finds a reading session by its ID, if it exists. Access control is enforced such that:
 	- The session owner (i.e., the reader) can always access their own session
