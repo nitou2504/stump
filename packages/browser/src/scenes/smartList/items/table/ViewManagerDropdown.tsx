@@ -29,6 +29,7 @@ export default function ViewManagerDropdown() {
 			<Dropdown>
 				<Dropdown.Trigger asChild>
 					<Button
+						variant="secondary"
 						disabled={!workingView}
 						className="h-10 divide-opacity-30 px-0 py-0 shrink-0 bg-muted/50 hover:bg-muted/80 data-[state=open]:bg-muted"
 					>

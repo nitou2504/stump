@@ -31,23 +31,27 @@ export const buildDefaultWorkingView = (grouping?: SmartListGrouping): WorkingVi
 }
 
 /**
- * Checks if a working view is equivalent to the default working view
+ * Checks if a working view is equivalent to a default working view. Every grouping's
+ * default counts: the viewer can switch a list's grouping, and the list's own default
+ * (e.g. series-grouped, with group columns) must not look like a customized view.
  */
-const isDefaultView = (view: WorkingView): boolean => {
-	return Object.keys(defaultWorkingView).every((key) => {
-		const viewValue = view[key as keyof WorkingView]
-		const defaultValue = defaultWorkingView[key as keyof WorkingView]
+const isDefaultView = (view: WorkingView): boolean =>
+	[undefined, ...Object.values(SmartListGrouping)].some((grouping) => {
+		const defaults = buildDefaultWorkingView(grouping)
+		return Object.keys(defaults).every((key) => {
+			const viewValue = view[key as keyof WorkingView]
+			const defaultValue = defaults[key as keyof WorkingView]
 
-		if (viewValue === undefined || viewValue === null) {
-			return defaultValue === undefined || defaultValue === null
-		}
-		if (Array.isArray(viewValue) && Array.isArray(defaultValue)) {
-			if (viewValue.length === 0 && defaultValue.length === 0) return true
-			return JSON.stringify(viewValue) === JSON.stringify(defaultValue)
-		}
-		return viewValue === defaultValue
+			if (viewValue === undefined || viewValue === null) {
+				return defaultValue === undefined || defaultValue === null
+			}
+			if (Array.isArray(viewValue) && Array.isArray(defaultValue)) {
+				if (viewValue.length === 0 && defaultValue.length === 0) return true
+				return JSON.stringify(viewValue) === JSON.stringify(defaultValue)
+			}
+			return viewValue === defaultValue
+		})
 	})
-}
 
 export type SmartListViewState = {
 	/** The current in-memory view state being modified */
