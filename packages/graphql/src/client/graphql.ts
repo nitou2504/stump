@@ -890,30 +890,46 @@ export type ExternalSeriesMetadata = {
 };
 
 export type FieldFilterFileStatus =
-  { anyOf: Array<FileStatus>; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains: FileStatus; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith: FileStatus; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq: FileStatus; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes: FileStatus; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like: FileStatus; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf: Array<FileStatus>; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf: Array<FileStatus>; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq: FileStatus; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf: Array<FileStatus>; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith: FileStatus; };
+  { anyOf: Array<FileStatus>; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains: FileStatus; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith: FileStatus; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq: FileStatus; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes: FileStatus; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  /**
+   * Matches when a comma-separated list column (e.g. genres, writers) contains at
+   * least one of the given values as a whole element. Unlike `likeAnyOf`, the value
+   * `Science` does not match `Science fiction`.
+   */
+  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf: Array<FileStatus>; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  /** Matches when none of the given values is a whole element of the list column */
+  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf: Array<FileStatus>; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like: FileStatus; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf: Array<FileStatus>; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf: Array<FileStatus>; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq: FileStatus; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf: Array<FileStatus>; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith: FileStatus; };
 
 export type FieldFilterString =
-  { anyOf: Array<Scalars['String']['input']>; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains: Scalars['String']['input']; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith: Scalars['String']['input']; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq: Scalars['String']['input']; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes: Scalars['String']['input']; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like: Scalars['String']['input']; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf: Array<Scalars['String']['input']>; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf: Array<Scalars['String']['input']>; neq?: never; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq: Scalars['String']['input']; noneOf?: never; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf: Array<Scalars['String']['input']>; startsWith?: never; }
-  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith: Scalars['String']['input']; };
+  { anyOf: Array<Scalars['String']['input']>; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains: Scalars['String']['input']; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith: Scalars['String']['input']; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq: Scalars['String']['input']; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes: Scalars['String']['input']; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  /**
+   * Matches when a comma-separated list column (e.g. genres, writers) contains at
+   * least one of the given values as a whole element. Unlike `likeAnyOf`, the value
+   * `Science` does not match `Science fiction`.
+   */
+  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf: Array<Scalars['String']['input']>; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  /** Matches when none of the given values is a whole element of the list column */
+  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf: Array<Scalars['String']['input']>; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like: Scalars['String']['input']; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf: Array<Scalars['String']['input']>; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf: Array<Scalars['String']['input']>; neq?: never; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq: Scalars['String']['input']; noneOf?: never; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf: Array<Scalars['String']['input']>; startsWith?: never; }
+  |  { anyOf?: never; contains?: never; endsWith?: never; eq?: never; excludes?: never; hasAnyOf?: never; hasNoneOf?: never; like?: never; likeAnyOf?: never; likeNoneOf?: never; neq?: never; noneOf?: never; startsWith: Scalars['String']['input']; };
 
 /** The different statuses a file reference can have */
 export enum FileStatus {
@@ -1677,6 +1693,7 @@ export type MediaMetadataFilterInput = {
   editors?: InputMaybe<FieldFilterString>;
   genres?: InputMaybe<FieldFilterString>;
   inkers?: InputMaybe<FieldFilterString>;
+  language?: InputMaybe<FieldFilterString>;
   letterers?: InputMaybe<FieldFilterString>;
   links?: InputMaybe<FieldFilterString>;
   month?: InputMaybe<NumericFilterI32>;
@@ -1784,6 +1801,7 @@ export type MediaMetadataOverview = {
   editors: Array<Scalars['String']['output']>;
   genres: Array<Scalars['String']['output']>;
   inkers: Array<Scalars['String']['output']>;
+  languages: Array<Scalars['String']['output']>;
   letterers: Array<Scalars['String']['output']>;
   pencillers: Array<Scalars['String']['output']>;
   publishers: Array<Scalars['String']['output']>;
@@ -1860,6 +1878,15 @@ export enum MergeStrategy {
   PreferExternal = 'PREFER_EXTERNAL',
   /** PreferExternal for scalars, merge/dedupe for array fields */
   PreferExternalAndMergeLists = 'PREFER_EXTERNAL_AND_MERGE_LISTS'
+}
+
+/** The metadata fields which can be listed with their book counts */
+export enum MetadataFacetField {
+  Genres = 'GENRES',
+  Language = 'LANGUAGE',
+  Publisher = 'PUBLISHER',
+  Series = 'SERIES',
+  Writers = 'WRITERS'
 }
 
 export type MetadataFetchJobOutput = {
@@ -2030,6 +2057,12 @@ export enum MetadataResetImpact {
 export type MetadataRetryConfigInput = {
   /** Which metadata fetch statuses to retry (e.g. RATE_LIMITED, FAILED) */
   statuses: Array<MetadataFetchStatus>;
+};
+
+export type MetadataValueCount = {
+  __typename?: 'MetadataValueCount';
+  count: Scalars['Int']['output'];
+  value: Scalars['String']['output'];
 };
 
 export type MissingEntity = {
@@ -3639,6 +3672,11 @@ export type Query = {
   metadataFetchRecord?: Maybe<MetadataFetchRecord>;
   metadataProviderConfigById?: Maybe<MetadataProviderConfigModel>;
   metadataProviderConfigs: Array<MetadataProviderConfigModel>;
+  /**
+   * List the distinct values of a metadata field with their book counts, e.g. every
+   * genre and how many books have it
+   */
+  metadataValueCounts: Array<MetadataValueCount>;
   /** Get all pending invitations for the current user */
   myBookClubInvitations: Array<BookClubInvitation>;
   /** Reading stats for the authenticated user within the provided range */
@@ -3895,6 +3933,13 @@ export type QueryMetadataFetchRecordArgs = {
 
 export type QueryMetadataProviderConfigByIdArgs = {
   id: Scalars['Int']['input'];
+};
+
+
+export type QueryMetadataValueCountsArgs = {
+  field: MetadataFacetField;
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -6318,7 +6363,7 @@ export type MediaFilterFormQueryVariables = Exact<{
 }>;
 
 
-export type MediaFilterFormQuery = { __typename?: 'Query', mediaMetadataOverview: { __typename?: 'MediaMetadataOverview', genres: Array<string>, writers: Array<string>, pencillers: Array<string>, colorists: Array<string>, letterers: Array<string>, inkers: Array<string>, publishers: Array<string>, editors: Array<string>, characters: Array<string> } };
+export type MediaFilterFormQuery = { __typename?: 'Query', mediaMetadataOverview: { __typename?: 'MediaMetadataOverview', genres: Array<string>, languages: Array<string>, writers: Array<string>, pencillers: Array<string>, colorists: Array<string>, letterers: Array<string>, inkers: Array<string>, publishers: Array<string>, editors: Array<string>, characters: Array<string> }, tags: Array<{ __typename?: 'Tag', id: number, name: string }> };
 
 export type DeleteLibraryMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -6793,6 +6838,13 @@ export type BookSearchSceneQuery = { __typename?: 'Query', media: { __typename?:
       { __typename?: 'Media', id: string }
       & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment;'BookMetadataFragment': BookMetadataFragment } }
     )>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', currentPage: number, totalPages: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
+
+export type BrowseIndexSceneQueryVariables = Exact<{
+  field: MetadataFacetField;
+}>;
+
+
+export type BrowseIndexSceneQuery = { __typename?: 'Query', metadataValueCounts: Array<{ __typename?: 'MetadataValueCount', value: string, count: number }> };
 
 export type CreateLibrarySceneExistingLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -12338,6 +12390,7 @@ export const MediaFilterFormDocument = new TypedDocumentString(`
     query MediaFilterForm($seriesId: ID) {
   mediaMetadataOverview(seriesId: $seriesId) {
     genres
+    languages
     writers
     pencillers
     colorists
@@ -12346,6 +12399,10 @@ export const MediaFilterFormDocument = new TypedDocumentString(`
     publishers
     editors
     characters
+  }
+  tags {
+    id
+    name
   }
 }
     `) as unknown as TypedDocumentString<MediaFilterFormQuery, MediaFilterFormQueryVariables>;
@@ -13988,6 +14045,14 @@ fragment BookMetadata on Media {
     number
   }
 }`) as unknown as TypedDocumentString<BookSearchSceneQuery, BookSearchSceneQueryVariables>;
+export const BrowseIndexSceneDocument = new TypedDocumentString(`
+    query BrowseIndexScene($field: MetadataFacetField!) {
+  metadataValueCounts(field: $field) {
+    value
+    count
+  }
+}
+    `) as unknown as TypedDocumentString<BrowseIndexSceneQuery, BrowseIndexSceneQueryVariables>;
 export const CreateLibrarySceneExistingLibrariesDocument = new TypedDocumentString(`
     query CreateLibrarySceneExistingLibraries {
   libraries(pagination: {none: {unpaginated: true}}) {
