@@ -190,10 +190,12 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 						.sort((a, b) => (bookSortMap.get(a.id) ?? 0) - (bookSortMap.get(b.id) ?? 0)),
 					href: groupHref(groupRow.original.entity),
 					id: groupRow.id,
+					isExpanded: groupRow.getIsExpanded(),
 					name: groupRow.original.entity?.name ?? standaloneLabel,
+					onToggle: () => groupRow.toggleExpanded(),
 				}))
 				.filter(({ books }) => books.length > 0),
-		[groupRows, search, bookSortMap, groupHref, standaloneLabel],
+		[groupRows, search, bookSortMap, groupHref, standaloneLabel, expanded],
 	)
 
 	const rowVirtualizer = useVirtualizer({
@@ -278,7 +280,12 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 					layoutControls={<SmartListLayoutControls />}
 					showColumnControls={false}
 				/>
-				<GroupedSmartListGrid groups={gridGroups} />
+				<GroupedSmartListGrid
+					groups={gridGroups}
+					label={isGroupedBySeries ? 'Series' : 'Library'}
+					isAllExpanded={groupTable.getIsAllRowsExpanded()}
+					onToggleAll={() => groupTable.toggleAllRowsExpanded()}
+				/>
 			</div>
 		)
 	}
