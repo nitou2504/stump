@@ -106,6 +106,24 @@ export type MediaFilterFormSchema = z.infer<typeof schema>
  * Reads the selected values back out of a string filter, accepting the legacy
  * substring operators so older links/bookmarks keep working
  */
+const languageNames = (() => {
+	try {
+		return new Intl.DisplayNames([navigator.language, 'en'], { type: 'language' })
+	} catch {
+		return null
+	}
+})()
+
+/** A human readable label for a two-letter language code, e.g. `es` -> `Spanish (es)` */
+const languageLabel = (code: string) => {
+	try {
+		const name = languageNames?.of(code)
+		return name && name !== code ? `${name} (${code})` : code
+	} catch {
+		return code
+	}
+}
+
 const selectedValues = (filter?: FieldFilterString | null): string[] =>
 	filter?.hasAnyOf ?? filter?.anyOf ?? filter?.likeAnyOf ?? []
 
@@ -236,7 +254,10 @@ export default function MediaFilterForm() {
 							key={name}
 							name={`metadata.${name}`}
 							label={label}
-							options={options.map((value) => ({ label: value, value }))}
+							options={options.map((value) => ({
+								label: name === 'language' ? languageLabel(value) : value,
+								value,
+							}))}
 						/>
 					)
 				})}

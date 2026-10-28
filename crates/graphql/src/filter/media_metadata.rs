@@ -61,6 +61,36 @@ pub struct MediaMetadataFilterInput {
 	pub _or: Option<Vec<MediaMetadataFilterInput>>,
 }
 
+/// The SQL expression normalizing a stored language (`en`, `EN`, `en-US`, `eng`, ...) to
+/// its lowercase two-letter prefix
+pub const NORMALIZED_LANGUAGE_SQL: &str =
+	"LOWER(SUBSTR(TRIM(\"media_metadata\".\"language\"), 1, 2))";
+
+/// Language filters compare two-letter language codes, so `anyOf: ["en"]` matches books
+/// tagged `en`, `EN`, `en-US` or `eng`. Other operators compare the raw stored value.
+fn apply_language_filter(filter: StringLikeFilter<String>) -> sea_orm::Condition {
+	use sea_orm::{sea_query::Expr, ExprTrait};
+	let normalize = |values: Vec<String>| {
+		values
+			.into_iter()
+			.map(|v| v.trim().to_lowercase().chars().take(2).collect::<String>())
+			.collect::<Vec<_>>()
+	};
+	let language = || Expr::cust(NORMALIZED_LANGUAGE_SQL);
+	match filter {
+		StringLikeFilter::Eq(value) => {
+			sea_orm::Condition::all().add(language().is_in(normalize(vec![value])))
+		},
+		StringLikeFilter::AnyOf(values) => {
+			sea_orm::Condition::all().add(language().is_in(normalize(values)))
+		},
+		StringLikeFilter::NoneOf(values) => sea_orm::Condition::any()
+			.add(language().is_not_in(normalize(values)))
+			.add(Expr::col(media_metadata::Column::Language).is_null()),
+		other => apply_string_filter(media_metadata::Column::Language, other),
+	}
+}
+
 impl IntoFilter for MediaMetadataFilterInput {
 	fn into_filter(self) -> sea_orm::Condition {
 		sea_orm::Condition::all()
@@ -97,10 +127,7 @@ impl IntoFilter for MediaMetadataFilterInput {
 				self.genres
 					.map(|f| apply_string_filter(media_metadata::Column::Genres, f)),
 			)
-			.add_option(
-				self.language
-					.map(|f| apply_string_filter(media_metadata::Column::Language, f)),
-			)
+			.add_option(self.language.map(apply_language_filter))
 			.add_option(
 				self.characters
 					.map(|f| apply_string_filter(media_metadata::Column::Characters, f)),

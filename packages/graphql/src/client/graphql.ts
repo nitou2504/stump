@@ -1801,6 +1801,10 @@ export type MediaMetadataOverview = {
   editors: Array<Scalars['String']['output']>;
   genres: Array<Scalars['String']['output']>;
   inkers: Array<Scalars['String']['output']>;
+  /**
+   * The two-letter codes of the languages in use (`en`, `EN`, `en-US` and `eng` are
+   * all reported as `en`), matching how the `language` filter compares values
+   */
   languages: Array<Scalars['String']['output']>;
   letterers: Array<Scalars['String']['output']>;
   pencillers: Array<Scalars['String']['output']>;

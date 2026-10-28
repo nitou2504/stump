@@ -75,11 +75,22 @@ impl MediaMetadataOverview {
 		get_unique_values_inner!(Genres, conn, series_id, Some(user))
 	}
 
+	/// The two-letter codes of the languages in use (`en`, `EN`, `en-US` and `eng` are
+	/// all reported as `en`), matching how the `language` filter compares values
 	async fn languages(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn: &DatabaseConnection = ctx.data::<CoreContext>()?.conn.as_ref();
 		let series_id = self.series_id.clone();
-		get_unique_values_inner!(Language, conn, series_id, Some(user))
+		let values: Vec<String> =
+			get_base_query(media_metadata::Column::Language, series_id, Some(user))
+				.into_tuple()
+				.all(conn)
+				.await?;
+		Ok(make_unique(values.into_iter().filter_map(|v| {
+			let code = v.trim().to_lowercase().chars().take(2).collect::<String>();
+			(code.len() == 2 && code.chars().all(|c| c.is_ascii_alphabetic()))
+				.then_some(code)
+		})))
 	}
 
 	async fn writers(&self, ctx: &Context<'_>) -> Result<Vec<String>> {

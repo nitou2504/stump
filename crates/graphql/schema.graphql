@@ -1670,6 +1670,10 @@ input MediaMetadataOrderByField {
 
 type MediaMetadataOverview {
 	genres: [String!]!
+	"""
+	The two-letter codes of the languages in use (`en`, `EN`, `en-US` and `eng` are
+	all reported as `en`), matching how the `language` filter compares values
+	"""
 	languages: [String!]!
 	writers: [String!]!
 	pencillers: [String!]!
