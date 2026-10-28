@@ -6285,7 +6285,7 @@ export type BookOverviewSceneQueryVariables = Exact<{
 
 
 export type BookOverviewSceneQuery = { __typename?: 'Query', mediaById?: (
-    { __typename?: 'Media', id: string, resolvedName: string, seriesId?: string | null, library: { __typename?: 'Library', config: { __typename?: 'LibraryConfig', libraryType: LibraryType } }, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }
+    { __typename?: 'Media', id: string, resolvedName: string, seriesId?: string | null, metadata?: { __typename?: 'MediaMetadata', writers: Array<string> } | null, library: { __typename?: 'Library', config: { __typename?: 'LibraryConfig', libraryType: LibraryType } }, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }
     & { ' $fragmentRefs'?: { 'BookHeaderFragment': BookHeaderFragment;'BookOverviewDetailsFragment': BookOverviewDetailsFragment;'BookInfoSheetFragment': BookInfoSheetFragment;'BookReadingActionsFragment': BookReadingActionsFragment } }
   ) | null };
 
@@ -6723,6 +6723,17 @@ export type BooksAlphabetQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type BooksAlphabetQuery = { __typename?: 'Query', mediaAlphabet: any };
+
+export type MoreByAuthorQueryQueryVariables = Exact<{
+  filter: MediaFilterInput;
+  pagination?: InputMaybe<Pagination>;
+}>;
+
+
+export type MoreByAuthorQueryQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<(
+      { __typename?: 'Media', id: string, seriesId?: string | null }
+      & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment } }
+    )> } };
 
 export type BookReaderSceneQueryVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -12161,6 +12172,9 @@ export const BookOverviewSceneDocument = new TypedDocumentString(`
     id
     resolvedName
     seriesId
+    metadata {
+      writers
+    }
     ...BookHeader
     ...BookOverviewDetails
     ...BookInfoSheet
@@ -13592,6 +13606,53 @@ export const BooksAlphabetDocument = new TypedDocumentString(`
   mediaAlphabet
 }
     `) as unknown as TypedDocumentString<BooksAlphabetQuery, BooksAlphabetQueryVariables>;
+export const MoreByAuthorQueryDocument = new TypedDocumentString(`
+    query MoreByAuthorQuery($filter: MediaFilterInput!, $pagination: Pagination) {
+  media(filter: $filter, pagination: $pagination) {
+    nodes {
+      id
+      seriesId
+      ...BookCard
+    }
+  }
+}
+    fragment BookCard on Media {
+  id
+  resolvedName
+  extension
+  pages
+  size
+  status
+  thumbnail {
+    url
+    metadata {
+      averageColor
+      colors {
+        color
+        percentage
+      }
+      thumbhash
+    }
+    height
+    width
+  }
+  readProgress {
+    percentageCompleted
+    page
+    updatedAt
+    locator {
+      href
+    }
+  }
+  readHistory {
+    __typename
+    completedAt
+  }
+  createdAt
+  libraryConfig {
+    skipBookOverview
+  }
+}`) as unknown as TypedDocumentString<MoreByAuthorQueryQuery, MoreByAuthorQueryQueryVariables>;
 export const BookReaderSceneDocument = new TypedDocumentString(`
     query BookReaderScene($id: ID!) {
   mediaById(id: $id) {

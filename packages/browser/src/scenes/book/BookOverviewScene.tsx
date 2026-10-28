@@ -11,6 +11,7 @@ import { SceneContainer } from '@/components/container'
 import { ProminentThumbnailImage } from '@/components/thumbnail'
 
 import BooksAfterCursor from './BooksAfterCursor'
+import MoreByAuthor from './MoreByAuthor'
 
 export default function BookOverviewScene() {
 	const { id } = useParams()
@@ -53,6 +54,15 @@ export default function BookOverviewScene() {
 				</div>
 
 				{media.seriesId && <BooksAfterCursor cursor={media.id} />}
+
+				{!!media.metadata?.writers?.[0] && (
+					<MoreByAuthor
+						key={media.id}
+						bookId={media.id}
+						seriesId={media.seriesId}
+						author={media.metadata.writers[0]}
+					/>
+				)}
 			</SceneContainer>
 
 			<BookInfoSheet

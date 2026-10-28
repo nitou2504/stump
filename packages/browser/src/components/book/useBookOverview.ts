@@ -8,6 +8,9 @@ const query = graphql(`
 			id
 			resolvedName
 			seriesId
+			metadata {
+				writers
+			}
 			...BookHeader
 			...BookOverviewDetails
 			...BookInfoSheet
