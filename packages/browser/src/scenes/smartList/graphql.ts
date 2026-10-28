@@ -8,6 +8,7 @@ import {
 } from '@stump/client'
 import {
 	graphql,
+	MediaFilterInput,
 	SaveSmartListInput,
 	SmartList,
 	SmartListFilterGroupInput,
@@ -77,8 +78,8 @@ const smartListUpdateMutation = graphql(`
 `)
 
 const smartListItemsQuery = graphql(`
-	query SmartListItems($id: ID!) {
-		smartListItems(id: $id) {
+	query SmartListItems($id: ID!, $filter: MediaFilterInput) {
+		smartListItems(id: $id, filter: $filter) {
 			__typename
 			... on SmartListGrouped {
 				items {
@@ -150,14 +151,18 @@ export const smartListMediaItemMetadataFragment = graphql(`
 	}
 `)
 
-export function useSmartListItems({ id }: { id: string }) {
+export function useSmartListItems({ id, filter }: { id: string; filter?: MediaFilterInput }) {
 	const { sdk } = useSDK()
+	const hasFilter = !!filter && Object.keys(filter).length > 0
 	const { data: { smartListItems: items } = {}, isLoading } = useGraphQL(
 		smartListItemsQuery,
-		[sdk.cacheKeys.smartListItems, id],
+		[sdk.cacheKeys.smartListItems, id, hasFilter ? filter : null],
 		{
 			id: id || '',
+			filter: hasFilter ? filter : undefined,
 		},
+		// Keep showing the current books while a new filter loads
+		{ placeholderData: (prev) => prev },
 	)
 
 	return {

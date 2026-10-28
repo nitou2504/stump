@@ -1,7 +1,9 @@
 import { cn } from '@stump/components'
-import { Media, SmartListGroupedItem } from '@stump/graphql'
+import { Media, MediaFilterInput, SmartListGroupedItem } from '@stump/graphql'
 
 import { SceneContainer } from '@/components/container'
+import { FilterContext } from '@/components/filters/context'
+import { useFilterScene } from '@/components/filters/useFilterScene'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { useSmartListContext } from '../context'
@@ -15,7 +17,11 @@ export default function UserSmartListItemsScene() {
 		list: { id },
 	} = useSmartListContext()
 
-	const { items, isLoading } = useSmartListItems({ id })
+	// Ad-hoc filters (genre, writer, language, ...) on top of the list's own rules, kept in
+	// the URL like the library/series book views
+	const filterScene = useFilterScene()
+	const filters = filterScene.filters as MediaFilterInput
+	const { items, isLoading } = useSmartListItems({ id, filter: filters })
 
 	if (isLoading) {
 		return null
@@ -35,5 +41,9 @@ export default function UserSmartListItemsScene() {
 		}
 	}
 
-	return <SceneContainer className={cn('p-0 py-4')}>{renderContent()}</SceneContainer>
+	return (
+		<FilterContext.Provider value={filterScene}>
+			<SceneContainer className={cn('p-0 py-4')}>{renderContent()}</SceneContainer>
+		</FilterContext.Provider>
+	)
 }

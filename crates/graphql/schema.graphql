@@ -2712,7 +2712,11 @@ type Query {
 	annotationsByMediaId(id: ID!): [MediaAnnotation!]!
 	"Returns a list of all tags."
 	tags: [Tag!]!
-	mediaMetadataOverview(seriesId: ID): MediaMetadataOverview!
+	"""
+	The distinct metadata values (genres, writers, ...) of the books visible to the
+	user, optionally restricted to a series or to the books of a smart list
+	"""
+	mediaMetadataOverview(seriesId: ID, smartListId: ID): MediaMetadataOverview!
 	"""
 	List the distinct values of a metadata field with their book counts, e.g. every
 	genre and how many books have it
@@ -2770,7 +2774,10 @@ type Query {
 	smartLists(input: SmartListsInput! = {all: null, mine: true, search: null}): [SmartList!]!
 	smartListById(id: ID!): SmartList
 	smartListMeta(id: ID!): SmartListMeta
-	smartListItems(id: ID!, limit: Int = null): SmartListItems!
+	smartListItems(		id: ID!,		limit: Int = null,
+		"An additional filter narrowing down the list's books, e.g. by genre"
+		filter: MediaFilterInput
+	): SmartListItems!
 	smartListViews: [SmartListView!]!
 	"""
 	Retrieves a paginated list of reading lists for the current user.

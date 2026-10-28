@@ -14,6 +14,7 @@ import { FieldValues, useForm } from 'react-hook-form'
 import z from 'zod'
 
 import { useSeriesContextSafe } from '@/components/series/context'
+import { useSmartListContextSafe } from '@/scenes/smartList/context'
 
 import { useFilterContext } from '..'
 import AgeRatingFilter from './AgeRatingFilter'
@@ -22,8 +23,8 @@ import GenericFilterMultiselect from './GenericFilterMultiselect'
 import ReadStatusSelect from './ReadStatusSelect'
 
 const query = graphql(`
-	query MediaFilterForm($seriesId: ID) {
-		mediaMetadataOverview(seriesId: $seriesId) {
+	query MediaFilterForm($seriesId: ID, $smartListId: ID) {
+		mediaMetadataOverview(seriesId: $seriesId, smartListId: $smartListId) {
 			genres
 			languages
 			writers
@@ -134,14 +135,20 @@ export default function MediaFilterForm() {
 	const seriesContext = useSeriesContextSafe()
 	const [onlyFromSeries, setOnlyFromSeries] = useState(false)
 
+	// Inside a smart list, only offer the values present in the list's books
+	const smartListId = useSmartListContextSafe()?.list.id
+
 	const params = useMemo(() => {
+		if (smartListId) {
+			return { smartListId }
+		}
 		if (onlyFromSeries && !!seriesContext?.series.id) {
 			return {
 				seriesId: seriesContext.series.id,
 			}
 		}
 		return {}
-	}, [onlyFromSeries, seriesContext])
+	}, [onlyFromSeries, seriesContext, smartListId])
 
 	const { data: _data, isPending } = useGraphQL(query, ['mediaFilterForm', params], params, {
 		placeholderData: (prev) => prev,

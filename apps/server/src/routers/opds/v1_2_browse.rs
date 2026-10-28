@@ -14,12 +14,8 @@ use chrono::Utc;
 use graphql::{
 	data::AuthContext,
 	filter::list_has_element,
-	input::smart_lists::SmartListFilterGroupInput,
 	pagination::OffsetPagination,
-	query::{
-		metadata_facets::{metadata_value_counts, sort_key, MetadataFacetField},
-		smart_lists_builder::build_books_query,
-	},
+	query::metadata_facets::{metadata_value_counts, sort_key, MetadataFacetField},
 };
 use models::{
 	entity::{library, media, media_metadata, series, smart_list, user::AuthUser},
@@ -28,7 +24,7 @@ use models::{
 use sea_orm::{
 	prelude::*,
 	sea_query::{Expr as QExpr, SelectStatement},
-	Condition, ExprTrait, Order, QueryOrder, QuerySelect, QueryTrait, Select,
+	Condition, ExprTrait, Order, QueryOrder, QuerySelect, Select,
 };
 use serde::Deserialize;
 use stump_core::opds::{
@@ -584,14 +580,12 @@ fn smart_list_media_ids(
 	user: &AuthUser,
 	list: &smart_list::Model,
 ) -> APIResult<SelectStatement> {
-	let filters: Vec<SmartListFilterGroupInput> = serde_json::from_slice(&list.filters)
-		.map_err(|e| {
-		APIError::InternalServerError(format!("Invalid smart list filters: {e}"))
-	})?;
-	Ok(build_books_query(user, list.joiner, &filters, None)
-		.select_only()
-		.column(media::Column::Id)
-		.into_query())
+	graphql::query::smart_lists_builder::smart_list_media_ids(user, list).map_err(|e| {
+		APIError::InternalServerError(format!(
+			"Invalid smart list filters: {}",
+			e.message
+		))
+	})
 }
 
 /// GET /opds/v1.2/smart-lists: every smart list the user can read

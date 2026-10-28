@@ -1,6 +1,6 @@
 import { ReactNode, useCallback } from 'react'
 
-import { Search } from '@/components/filters'
+import { Search, URLFilterDrawer } from '@/components/filters'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { useSafeWorkingView } from '../../context'
@@ -35,6 +35,7 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 		<header className="-mt-2 mb-2 gap-x-2 px-4 flex w-full items-center bg-background">
 			<SavedViewSelector />
 			<FilterBottomDrawer />
+			<URLFilterDrawer entity="media" />
 			{showColumnControls && <TableColumnsBottomDrawer />}
 			<Search
 				key={selectedView?.id ?? 'default'}

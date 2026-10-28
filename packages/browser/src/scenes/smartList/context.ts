@@ -27,6 +27,9 @@ export const useSmartListContext = () => {
 	return context
 }
 
+/** Like [useSmartListContext], but returns null outside of a smart list */
+export const useSmartListContextSafe = () => useContext(SmartListContext)
+
 /**
  * A hook that provides access to the working view with a guaranteed non-undefined value.
  * If no working view is set, returns the default working view based on the list's grouping.

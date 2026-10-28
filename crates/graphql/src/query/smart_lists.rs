@@ -1,6 +1,9 @@
-use super::smart_lists_builder::{build_books_query, build_smart_list_items};
+use super::smart_lists_builder::{
+	build_books_query, build_smart_list_items, filtered_media_ids,
+};
 use crate::{
 	data::{AuthContext, CoreContext},
+	filter::media::MediaFilterInput,
 	guard::PermissionGuard,
 	input::smart_lists::{SmartListFilterGroupInput, SmartListsInput},
 	object::{
@@ -17,7 +20,7 @@ use models::{
 	},
 	shared::enums::UserPermission,
 };
-use sea_orm::{QuerySelect, TransactionTrait};
+use sea_orm::{prelude::*, QuerySelect, TransactionTrait};
 use std::collections::HashSet;
 
 #[derive(Default, Clone, Copy)]
@@ -127,6 +130,10 @@ impl SmartListsQuery {
 		ctx: &Context<'_>,
 		id: ID,
 		#[graphql(default)] limit: Option<u64>,
+		#[graphql(
+			desc = "An additional filter narrowing down the list's books, e.g. by genre"
+		)]
+		filter: Option<MediaFilterInput>,
 	) -> Result<SmartListItems> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -142,6 +149,11 @@ impl SmartListsQuery {
 
 		let books_query =
 			build_books_query(user, smart_list.joiner, &deserialized_filters, limit);
+		let books_query = match filter {
+			Some(filter) => books_query
+				.filter(media::Column::Id.in_subquery(filtered_media_ids(user, filter))),
+			None => books_query,
+		};
 
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()

@@ -19,10 +19,36 @@ use models::entity::{
 	user::AuthUser,
 };
 use sea_orm::{
-	prelude::*, Condition, DatabaseTransaction, QuerySelect, QueryTrait, Select,
+	prelude::*, sea_query::SelectStatement, Condition, DatabaseTransaction, QuerySelect,
+	QueryTrait, Select,
 };
 
 use std::collections::HashMap;
+
+/// Resolves a smart list into the subquery of the IDs of the media it matches for `user`
+pub fn smart_list_media_ids(
+	user: &AuthUser,
+	list: &smart_list::Model,
+) -> Result<SelectStatement> {
+	let filters: Vec<SmartListFilterGroupInput> = serde_json::from_slice(&list.filters)?;
+	Ok(build_books_query(user, list.joiner, &filters, None)
+		.select_only()
+		.column(media::Column::Id)
+		.into_query())
+}
+
+/// The IDs of the media visible to `user` which match an ad-hoc [MediaFilterInput], as a
+/// subquery. Used to narrow down a smart list without fighting its own joins.
+pub fn filtered_media_ids(
+	user: &AuthUser,
+	filter: crate::filter::media::MediaFilterInput,
+) -> SelectStatement {
+	add_sessions_join_for_filter(user, &filter, media::Entity::find_for_user(user))
+		.filter(filter.into_filter())
+		.select_only()
+		.column(media::Column::Id)
+		.into_query()
+}
 
 pub async fn build_smart_list_items(
 	user: &AuthUser,

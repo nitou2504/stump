@@ -3672,6 +3672,10 @@ export type Query = {
   mediaByPath?: Maybe<Media>;
   mediaCount: Scalars['Int']['output'];
   mediaDiskUsage: Scalars['Int']['output'];
+  /**
+   * The distinct metadata values (genres, writers, ...) of the books visible to the
+   * user, optionally restricted to a series or to the books of a smart list
+   */
   mediaMetadataOverview: MediaMetadataOverview;
   metadataFetchRecord?: Maybe<MetadataFetchRecord>;
   metadataProviderConfigById?: Maybe<MetadataProviderConfigModel>;
@@ -3927,6 +3931,7 @@ export type QueryMediaByPathArgs = {
 
 export type QueryMediaMetadataOverviewArgs = {
   seriesId?: InputMaybe<Scalars['ID']['input']>;
+  smartListId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -4017,6 +4022,7 @@ export type QuerySmartListByIdArgs = {
 
 
 export type QuerySmartListItemsArgs = {
+  filter?: InputMaybe<MediaFilterInput>;
   id: Scalars['ID']['input'];
   limit?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -6364,6 +6370,7 @@ export type UploadLibrarySeriesMutation = { __typename?: 'Mutation', uploadSerie
 
 export type MediaFilterFormQueryVariables = Exact<{
   seriesId?: InputMaybe<Scalars['ID']['input']>;
+  smartListId?: InputMaybe<Scalars['ID']['input']>;
 }>;
 
 
@@ -7655,6 +7662,7 @@ export type UpdateSmartListMutation = { __typename?: 'Mutation', updateSmartList
 
 export type SmartListItemsQueryVariables = Exact<{
   id: Scalars['ID']['input'];
+  filter?: InputMaybe<MediaFilterInput>;
 }>;
 
 
@@ -12391,8 +12399,8 @@ export const UploadLibrarySeriesDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<UploadLibrarySeriesMutation, UploadLibrarySeriesMutationVariables>;
 export const MediaFilterFormDocument = new TypedDocumentString(`
-    query MediaFilterForm($seriesId: ID) {
-  mediaMetadataOverview(seriesId: $seriesId) {
+    query MediaFilterForm($seriesId: ID, $smartListId: ID) {
+  mediaMetadataOverview(seriesId: $seriesId, smartListId: $smartListId) {
     genres
     languages
     writers
@@ -15596,8 +15604,8 @@ export const UpdateSmartListDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<UpdateSmartListMutation, UpdateSmartListMutationVariables>;
 export const SmartListItemsDocument = new TypedDocumentString(`
-    query SmartListItems($id: ID!) {
-  smartListItems(id: $id) {
+    query SmartListItems($id: ID!, $filter: MediaFilterInput) {
+  smartListItems(id: $id, filter: $filter) {
     __typename
     ... on SmartListGrouped {
       items {
