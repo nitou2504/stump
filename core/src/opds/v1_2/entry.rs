@@ -279,7 +279,8 @@ impl IntoOPDSEntry for OPDSEntryBuilder<OPDSPublicationEntity> {
 			current_page_link_type.to_string(),
 			current_page.map(|page| page.to_string()),
 			last_read_at.map(|date| date.to_string()),
-		);
+		)
+		.with_base_url(base_url.clone());
 
 		let mib = self.data.media.size as f64 / (1024.0 * 1024.0);
 

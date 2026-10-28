@@ -10,7 +10,7 @@ use xml::{writer::XmlEvent, EventWriter};
 use super::{
 	author::StumpAuthor,
 	entry::OpdsEntry,
-	link::{OpdsLinkRel, OpdsLinkType},
+	link::{OpdsGenericLink, OpdsLinkRel, OpdsLinkType},
 	util,
 };
 
@@ -22,6 +22,8 @@ pub struct OpdsFeed {
 	pub title: String,
 	pub entries: Vec<OpdsEntry>,
 	pub links: Option<Vec<OpdsLink>>,
+	/// Additional links which don't fit [OpdsLink], e.g. OpenSearch templates and facets
+	pub extra_links: Vec<OpdsGenericLink>,
 }
 
 impl OpdsFeed {
@@ -36,7 +38,14 @@ impl OpdsFeed {
 			title,
 			entries,
 			links,
+			extra_links: Vec::new(),
 		}
+	}
+
+	/// Adds extra links (search templates, facets, ...) to the feed
+	pub fn with_extra_links(mut self, links: Vec<OpdsGenericLink>) -> Self {
+		self.extra_links.extend(links);
+		self
 	}
 
 	/// Build an xml string from the feed.
@@ -69,6 +78,10 @@ impl OpdsFeed {
 			for link in links {
 				link.write(&mut writer)?;
 			}
+		}
+
+		for link in &self.extra_links {
+			link.write(&mut writer)?;
 		}
 
 		for entry in &self.entries {
@@ -127,17 +140,16 @@ impl OPDSFeedBuilder {
 		}
 	}
 
+	/// Appends `params` to `path`. The path may already carry a query string (e.g. a
+	/// sort or genre facet), in which case the params are appended with `&`. Values are
+	/// URL encoded, and keys are sorted so generated links are stable.
 	fn format_params(&self, path: &str, params: HashMap<String, String>) -> String {
 		let mut url = self.format_url(path);
-		if !params.is_empty() {
-			url.push('?');
-			for (idx, (key, value)) in params.iter().enumerate() {
-				if idx == params.len() - 1 {
-					url.push_str(&format!("{}={}", key, value));
-				} else {
-					url.push_str(&format!("{}={}&", key, value));
-				}
-			}
+		let mut params = params.into_iter().collect::<Vec<_>>();
+		params.sort();
+		for (key, value) in params {
+			url.push(if url.contains('?') { '&' } else { '?' });
+			url.push_str(&format!("{}={}", key, urlencoding::encode(&value)));
 		}
 		url
 	}

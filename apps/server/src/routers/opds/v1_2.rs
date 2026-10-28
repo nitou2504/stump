@@ -37,6 +37,11 @@ use stump_core::{
 	},
 };
 
+use super::v1_2_browse::{
+	books_feed, library_books_feed, scoped_search_link, series_books_feed,
+	smart_list_books_feed, smart_lists_feed, value_index_feed, BookFeedParams, BookScope,
+	ValueIndex, ValueIndexParams,
+};
 use crate::{
 	config::state::AppState,
 	errors::{APIError, APIResult},
@@ -53,6 +58,10 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 		.route("/search", get(search_description))
 		.route("/search/feed", get(search_feed))
 		.route("/keep-reading", get(keep_reading))
+		.route("/smart-lists", get(get_smart_lists))
+		.route("/smart-lists/{id}", get(get_smart_list_books))
+		.route("/authors", get(get_authors))
+		.route("/genres", get(get_genres))
 		.nest(
 			"/libraries",
 			Router::new()
@@ -219,6 +228,48 @@ async fn catalog(Extension(req): Extension<AuthContext>) -> APIResult<Xml> {
 				link_type: OpdsLinkType::Navigation,
 				rel: OpdsLinkRel::Subsection,
 				href: catalog_url(&req, "books"),
+			}]),
+			None,
+		),
+		OpdsEntry::new(
+			"smartLists".to_string(),
+			Utc::now().into(),
+			"Shelves".to_string(),
+			None,
+			Some(String::from("Browse your smart lists")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "smart-lists"),
+			}]),
+			None,
+		),
+		OpdsEntry::new(
+			"authors".to_string(),
+			Utc::now().into(),
+			"Authors".to_string(),
+			None,
+			Some(String::from("Browse books by author")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "authors"),
+			}]),
+			None,
+		),
+		OpdsEntry::new(
+			"genres".to_string(),
+			Utc::now().into(),
+			"Genres".to_string(),
+			None,
+			Some(String::from("Browse books by genre")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "genres"),
 			}]),
 			None,
 		),
@@ -410,6 +461,8 @@ async fn get_library_by_id(
 		);
 	}
 
+	let search_link =
+		scoped_search_link(&req, &format!("libraries/{}/books", library.id));
 	let feed = OPDSFeedBuilder::new(req.api_key()).paginated(OPDSFeedBuilderParams {
 		id,
 		title: library.name.clone(),
@@ -424,7 +477,7 @@ async fn get_library_by_id(
 		search: None,
 	})?;
 
-	Ok(Xml(feed.build()?))
+	Ok(Xml(feed.with_extra_links(vec![search_link]).build()?))
 }
 
 async fn get_library_books(
@@ -434,15 +487,52 @@ async fn get_library_books(
 		..
 	}): Path<OPDSURLParams<OPDSIDURLParams>>,
 	Query(pagination): Query<OffsetPagination>,
-	Query(OPDSSearchQuery { search }): Query<OPDSSearchQuery>,
+	Query(params): Query<BookFeedParams>,
 	Extension(req): Extension<AuthContext>,
 ) -> APIResult<Xml> {
-	library::Entity::find_for_user(&req.user())
-		.filter(library::Column::Id.eq(&id))
-		.one(ctx.conn.as_ref())
-		.await?
-		.ok_or(APIError::NotFound("Library not found".into()))?;
-	generate_books_feed(&ctx, &req, pagination, search, Some(id)).await
+	library_books_feed(&ctx, &req, id, pagination, params).await
+}
+
+/// A handler for GET /opds/v1.2/smart-lists, the user's smart lists ("shelves")
+async fn get_smart_lists(
+	State(ctx): State<AppState>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	smart_lists_feed(&ctx, &req).await
+}
+
+/// A handler for GET /opds/v1.2/smart-lists/{id}, the books of a smart list
+async fn get_smart_list_books(
+	State(ctx): State<AppState>,
+	Path(OPDSURLParams {
+		params: OPDSIDURLParams { id },
+		..
+	}): Path<OPDSURLParams<OPDSIDURLParams>>,
+	Query(pagination): Query<OffsetPagination>,
+	Query(params): Query<BookFeedParams>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	smart_list_books_feed(&ctx, &req, id, pagination, params).await
+}
+
+/// A handler for GET /opds/v1.2/authors
+async fn get_authors(
+	State(ctx): State<AppState>,
+	Query(pagination): Query<OffsetPagination>,
+	Query(params): Query<ValueIndexParams>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	value_index_feed(&ctx, &req, ValueIndex::Authors, pagination, params).await
+}
+
+/// A handler for GET /opds/v1.2/genres
+async fn get_genres(
+	State(ctx): State<AppState>,
+	Query(pagination): Query<OffsetPagination>,
+	Query(params): Query<ValueIndexParams>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	value_index_feed(&ctx, &req, ValueIndex::Genres, pagination, params).await
 }
 
 // FIXME: Based on testing with Panels, it seems like pagination isn't an expected default when
@@ -503,7 +593,11 @@ async fn get_series(
 		search,
 	})?;
 
-	Ok(Xml(feed.build()?))
+	let search_link = stump_core::opds::v1_2::link::OpdsGenericLink::search_template(
+		catalog_url(&req, "series?search={searchTerms}"),
+		OpdsLinkType::Navigation,
+	);
+	Ok(Xml(feed.with_extra_links(vec![search_link]).build()?))
 }
 
 async fn get_latest_series(
@@ -550,56 +644,11 @@ async fn get_series_by_id(
 		..
 	}): Path<OPDSURLParams<OPDSIDURLParams>>,
 	State(ctx): State<AppState>,
-	pagination: Query<OffsetPagination>,
+	Query(pagination): Query<OffsetPagination>,
+	Query(params): Query<BookFeedParams>,
 	Extension(req): Extension<AuthContext>,
 ) -> APIResult<Xml> {
-	let user = req.user();
-	let series::ModelWithMetadata { series, metadata } =
-		series::ModelWithMetadata::find_for_user(&user)
-			.filter(series::Column::Id.eq(id.clone()))
-			.into_model::<series::ModelWithMetadata>()
-			.one(ctx.conn.as_ref())
-			.await?
-			.ok_or(APIError::NotFound(format!("Series {id} not found")))?;
-
-	let books = media::Entity::order_in_series(
-		OPDSPublicationEntity::find_for_user(&user)
-			.filter(media::Column::SeriesId.eq(id.clone())),
-	)
-	.offset(pagination.offset())
-	.limit(pagination.limit())
-	.into_model::<OPDSPublicationEntity>()
-	.all(ctx.conn.as_ref())
-	.await?;
-	let count = OPDSPublicationEntity::find_for_user(&user)
-		.filter(media::Column::SeriesId.eq(id.clone()))
-		.count(ctx.conn.as_ref())
-		.await?;
-
-	let entries = futures_util::future::join_all(books.into_iter().map(|m| {
-		OPDSEntryBuilder::<OPDSPublicationEntity>::new(m, req.api_key()).into_opds_entry()
-	}))
-	.await;
-
-	let title = metadata
-		.and_then(|m| m.title.clone())
-		.unwrap_or_else(|| series.name.clone());
-
-	let feed = OPDSFeedBuilder::new(req.api_key()).paginated(OPDSFeedBuilderParams {
-		id: series.id.clone(),
-		title,
-		entries,
-		href_postfix: format!("series/{}", series.id),
-		page_params: Some(OPDSFeedBuilderPageParams {
-			page: pagination.page,
-			page_size: pagination.limit(),
-			zero_based: pagination.zero_based.unwrap_or(false),
-			count,
-		}),
-		search: None,
-	})?;
-
-	Ok(Xml(feed.build()?))
+	series_books_feed(&ctx, &req, id, pagination, params).await
 }
 
 /// A handler for GET /opds/v1.2/search/feed, unified search returning libraries + series + books
@@ -712,67 +761,10 @@ async fn search_feed(
 async fn get_books(
 	State(ctx): State<AppState>,
 	Query(pagination): Query<OffsetPagination>,
-	Query(OPDSSearchQuery { search }): Query<OPDSSearchQuery>,
+	Query(params): Query<BookFeedParams>,
 	Extension(req): Extension<AuthContext>,
 ) -> APIResult<Xml> {
-	generate_books_feed(&ctx, &req, pagination, search, None).await
-}
-
-async fn generate_books_feed(
-	ctx: &AppState,
-	req: &AuthContext,
-	pagination: OffsetPagination,
-	search: Option<String>,
-	library_id: Option<String>,
-) -> APIResult<Xml> {
-	let user = req.user();
-	let query = OPDSPublicationEntity::find_for_user(&user)
-		.apply_if(library_id.clone(), |query, id| {
-			query.filter(media::Column::LibraryId.eq(id))
-		})
-		.apply_if(search.clone(), |query, search| {
-			query.filter(
-				media::Column::Name
-					.contains(search.clone())
-					.or(media_metadata::Column::Title.contains(search.clone()))
-					.or(media_metadata::Column::Summary.contains(search.clone()))
-					.or(media_metadata::Column::Writers.contains(search)),
-			)
-		});
-	let count = query.clone().count(ctx.conn.as_ref()).await?;
-	let books = query
-		.order_by_asc(media::Column::Name)
-		.offset(pagination.offset())
-		.limit(pagination.limit())
-		.into_model::<OPDSPublicationEntity>()
-		.all(ctx.conn.as_ref())
-		.await?;
-
-	let entries = futures_util::future::join_all(books.into_iter().map(|m| {
-		OPDSEntryBuilder::<OPDSPublicationEntity>::new(m, req.api_key()).into_opds_entry()
-	}))
-	.await;
-
-	let feed = OPDSFeedBuilder::new(req.api_key()).paginated(OPDSFeedBuilderParams {
-		id: library_id
-			.as_ref()
-			.map(|id| format!("library:{id}:books"))
-			.unwrap_or_else(|| "allBooks".into()),
-		title: "All Books".to_string(),
-		entries,
-		href_postfix: library_id
-			.map(|id| format!("libraries/{id}/books"))
-			.unwrap_or_else(|| "books".into()),
-		page_params: Some(OPDSFeedBuilderPageParams {
-			page: pagination.page,
-			page_size: pagination.limit(),
-			zero_based: pagination.zero_based.unwrap_or(false),
-			count,
-		}),
-		search,
-	})?;
-
-	Ok(Xml(feed.build()?))
+	books_feed(&ctx, &req, BookScope::All, pagination, params).await
 }
 
 /// A handler for GET /opds/v1.2/books/latest, latest books ordered by created_at DESC

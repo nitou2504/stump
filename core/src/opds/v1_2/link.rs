@@ -135,6 +135,67 @@ impl OpdsLink {
 	}
 }
 
+/// A free-form `atom:link`, used for links which need attributes [OpdsLink] can't express,
+/// such as OpenSearch URL templates (`rel="search"`) and OPDS facets
+/// (`rel="http://opds-spec.org/facet"` + `opds:facetGroup` / `opds:activeFacet`), see
+/// https://specs.opds.io/opds-1.2#4-facets
+#[derive(Debug, Clone, Default)]
+pub struct OpdsGenericLink {
+	pub rel: String,
+	pub link_type: String,
+	pub href: String,
+	pub title: Option<String>,
+	pub facet_group: Option<String>,
+	pub active_facet: bool,
+}
+
+impl OpdsGenericLink {
+	pub const FACET_REL: &'static str = "http://opds-spec.org/facet";
+
+	/// A `rel="search"` link whose `href` contains `{searchTerms}`. Clients like KOReader
+	/// pick this up per feed, which makes search scoped to the feed being viewed.
+	pub fn search_template(href: String, link_type: OpdsLinkType) -> Self {
+		Self {
+			rel: "search".to_string(),
+			link_type: link_type.as_str().to_string(),
+			href,
+			title: Some("Search".to_string()),
+			..Default::default()
+		}
+	}
+
+	pub fn facet(group: &str, title: String, href: String, active: bool) -> Self {
+		Self {
+			rel: Self::FACET_REL.to_string(),
+			link_type: OpdsLinkType::Acquisition.as_str().to_string(),
+			href,
+			title: Some(title),
+			facet_group: Some(group.to_string()),
+			active_facet: active,
+		}
+	}
+
+	pub fn write(&self, writer: &mut EventWriter<Vec<u8>>) -> CoreResult<()> {
+		let mut link = XmlEvent::start_element("link")
+			.attr("type", self.link_type.as_str())
+			.attr("rel", self.rel.as_str())
+			.attr("href", &self.href);
+		if let Some(title) = &self.title {
+			link = link.attr("title", title.as_str());
+		}
+		if let Some(group) = &self.facet_group {
+			link = link.attr(xml::name::Name::prefixed("facetGroup", "opds"), group);
+		}
+		if self.active_facet {
+			link = link.attr(xml::name::Name::prefixed("activeFacet", "opds"), "true");
+		}
+
+		writer.write(link)?;
+		writer.write(XmlEvent::end_element())?;
+		Ok(())
+	}
+}
+
 // don't love this solution, but it works for now.
 #[derive(Debug)]
 pub struct OpdsStreamLink {
@@ -143,9 +204,17 @@ pub struct OpdsStreamLink {
 	pub mime_type: String,
 	pub last_read: Option<String>,
 	pub last_read_date: Option<String>,
+	/// The book's base URL (e.g. `/opds/{api_key}/v1.2/books/{id}`). Without it the
+	/// stream link omits the API key and fails for key-in-path clients.
+	pub base_url: Option<String>,
 }
 
 impl OpdsStreamLink {
+	pub fn with_base_url(mut self, base_url: String) -> Self {
+		self.base_url = Some(base_url);
+		self
+	}
+
 	pub fn new(
 		book_id: String,
 		count: String,
@@ -159,14 +228,16 @@ impl OpdsStreamLink {
 			mime_type,
 			last_read,
 			last_read_date,
+			base_url: None,
 		}
 	}
 
 	pub fn write(&self, writer: &mut EventWriter<Vec<u8>>) -> CoreResult<()> {
-		let href = format!(
-			"/opds/v1.2/books/{}/pages/{{pageNumber}}?zero_based=true",
-			self.book_id
-		);
+		let base_url = self
+			.base_url
+			.clone()
+			.unwrap_or_else(|| format!("/opds/v1.2/books/{}", self.book_id));
+		let href = format!("{base_url}/pages/{{pageNumber}}?zero_based=true");
 
 		let mut link = XmlEvent::start_element("link")
 			.attr("href", href.as_str())
