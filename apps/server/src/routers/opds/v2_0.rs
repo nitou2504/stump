@@ -145,6 +145,9 @@ struct OPDSSearchQuery {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OPDSBrowseFilter {
+	/// A free-text search over the file name, title and writers. Used by the "Books" group
+	/// of the search feed to link to the full, paginated list of matching books.
+	query: Option<String>,
 	author: Option<String>, // Note: Filter by writers
 	penciler: Option<String>,
 	colorist: Option<String>,
@@ -162,6 +165,16 @@ impl OPDSBrowseFilter {
 	fn into_condition(self) -> Option<Condition> {
 		let mut condition = Condition::all();
 		let mut has_filter = false;
+
+		if let Some(query) = self.query.filter(|q| !q.trim().is_empty()) {
+			condition = condition.add(
+				Condition::any()
+					.add(media::Column::Name.contains(query.clone()))
+					.add(media_metadata::Column::Title.contains(query.clone()))
+					.add(media_metadata::Column::Writers.contains(query)),
+			);
+			has_filter = true;
+		}
 
 		let field_mappings: Vec<(Option<String>, media_metadata::Column)> = vec![
 			(self.author, media_metadata::Column::Writers),
@@ -195,6 +208,7 @@ impl OPDSBrowseFilter {
 		let mut parts = Vec::new();
 
 		let fields: Vec<(&str, &Option<String>)> = vec![
+			("query", &self.query),
 			("author", &self.author),
 			("penciler", &self.penciler),
 			("colorist", &self.colorist),
@@ -222,6 +236,7 @@ impl OPDSBrowseFilter {
 	/// just lists them out
 	fn subtitle(&self) -> Option<String> {
 		let parts: Vec<String> = [
+			self.query.as_ref().map(|v| format!("matching \"{v}\"")),
 			self.author.as_ref().map(|v| format!("author {v}")),
 			self.penciler.as_ref().map(|v| format!("penciler {v}")),
 			self.colorist.as_ref().map(|v| format!("colorist {v}")),
@@ -492,7 +507,10 @@ async fn search(
 		)
 		.links(link_finalizer.finalize_all(vec![OPDSLink::Link(
 				OPDSBaseLinkBuilder::default()
-					.href(format!("/opds/v2.0/libraries/search?query={}", query.clone()))
+					.href(format!(
+						"/opds/v2.0/search?query={}",
+						urlencoding::encode(&query)
+					))
 					.rel(OPDSLinkRel::SelfLink.item())
 					.build()?,
 			)]))
@@ -535,7 +553,10 @@ async fn search(
 		)
 		.links(link_finalizer.finalize_all(vec![OPDSLink::Link(
 				OPDSBaseLinkBuilder::default()
-					.href(format!("/opds/v2.0/series/search?query={}", query.clone()))
+					.href(format!(
+						"/opds/v2.0/search?query={}",
+						urlencoding::encode(&query)
+					))
 					.rel(OPDSLinkRel::SelfLink.item())
 					.build()?,
 			)]))
@@ -581,7 +602,10 @@ async fn search(
 		)
 		.links(link_finalizer.finalize_all(vec![OPDSLink::Link(
 				OPDSBaseLinkBuilder::default()
-					.href(format!("/opds/v2.0/books/search?query={}", query.clone()))
+					.href(format!(
+						"/opds/v2.0/books/browse?query={}",
+						urlencoding::encode(&query)
+					))
 					.rel(OPDSLinkRel::SelfLink.item())
 					.build()?,
 			)]))
