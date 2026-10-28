@@ -16,6 +16,7 @@ import { SortIcon } from '@/components/table'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView } from '../../context'
+import { naturalBookOrder } from './bookOrder'
 import { buildColumns } from './mediaColumns'
 import SmartListBookGrid from './SmartListBookGrid'
 import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
@@ -29,7 +30,9 @@ type Props = {
 const HEADER_HEIGHT = 40
 const ROW_HEIGHT = 48
 
-export default function VirtualSmartListTable({ books }: Props) {
+export default function VirtualSmartListTable({ books: unsortedBooks }: Props) {
+	// Start from the natural (title) order instead of the query's arbitrary order
+	const books = useMemo(() => [...unsortedBooks].sort(naturalBookOrder(false)), [unsortedBooks])
 	const containerRef = useRef<HTMLDivElement>(null)
 	const scrollElement = useScrollElement(containerRef)
 

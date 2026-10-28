@@ -20,6 +20,7 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView, useSmartListContext } from '../../context'
+import { naturalBookOrder, naturalGroupOrder } from './bookOrder'
 import { buildColumns as buildGroupColumns } from './groupColumns'
 import GroupedSmartListGrid, { BookGroup, useGroupHref } from './GroupedSmartListGrid'
 import { bookFuzzySearch, buildColumns as buildBookColumns } from './mediaColumns'
@@ -75,9 +76,12 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 		[updateWorkingView, groupSorting],
 	)
 
+	// Groups default to name order (standalone books last) rather than query order
+	const sortedItems = useMemo(() => [...items].sort(naturalGroupOrder), [items])
+
 	const groupTable = useReactTable({
 		columns: groupColumns,
-		data: items,
+		data: sortedItems,
 		getCoreRowModel: getCoreRowModel(),
 		getExpandedRowModel: getExpandedRowModel(),
 		getFilteredRowModel: getFilteredRowModel(),
@@ -92,7 +96,12 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 		state: { expanded, globalFilter: search, sorting: groupSorting },
 	})
 
-	const allBooks = useMemo(() => items.flatMap((item) => item.books), [items])
+	// Start from the natural order (series position, then title) so the default view
+	// isn't the query's arbitrary order
+	const allBooks = useMemo(
+		() => items.flatMap((item) => item.books).sort(naturalBookOrder(isGroupedBySeries)),
+		[items, isGroupedBySeries],
+	)
 	const bookColumns = useMemo(
 		() => buildBookColumns(workingView.bookColumns),
 		[workingView.bookColumns],
