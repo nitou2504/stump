@@ -64,7 +64,8 @@ impl OpdsFeed {
 			xml::writer::XmlEvent::start_element("feed")
 				.default_ns("http://www.w3.org/2005/Atom")
 				.ns("opds", "http://opds-spec.org/2010/catalog")
-				.ns("pse", "http://vaemendis.net/opds-pse/ns"),
+				.ns("pse", "http://vaemendis.net/opds-pse/ns")
+				.ns("thr", "http://purl.org/syndication/thread/1.0"),
 		)?;
 
 		util::write_xml_element("id", &self.id, &mut writer)?;
@@ -305,7 +306,8 @@ mod tests {
 			<?xml version="1.0" encoding="UTF-8"?>
 			<feed xmlns="http://www.w3.org/2005/Atom" 
 						xmlns:opds="http://opds-spec.org/2010/catalog" 
-						xmlns:pse="http://vaemendis.net/opds-pse/ns">
+						xmlns:pse="http://vaemendis.net/opds-pse/ns"
+						xmlns:thr="http://purl.org/syndication/thread/1.0">
 				<id>feed_id</id>
 				<title>Feed Title</title>
 				<updated>{{{INSERT}}}</updated>

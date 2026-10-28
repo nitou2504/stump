@@ -147,6 +147,9 @@ pub struct OpdsGenericLink {
 	pub title: Option<String>,
 	pub facet_group: Option<String>,
 	pub active_facet: bool,
+	/// The number of entries behind the link, written as `thr:count` (shown by e.g.
+	/// KOReader next to the facet)
+	pub count: Option<u64>,
 }
 
 impl OpdsGenericLink {
@@ -172,7 +175,13 @@ impl OpdsGenericLink {
 			title: Some(title),
 			facet_group: Some(group.to_string()),
 			active_facet: active,
+			count: None,
 		}
+	}
+
+	pub fn with_count(mut self, count: u64) -> Self {
+		self.count = Some(count);
+		self
 	}
 
 	pub fn write(&self, writer: &mut EventWriter<Vec<u8>>) -> CoreResult<()> {
@@ -188,6 +197,10 @@ impl OpdsGenericLink {
 		}
 		if self.active_facet {
 			link = link.attr(xml::name::Name::prefixed("activeFacet", "opds"), "true");
+		}
+		let count = self.count.map(|c| c.to_string());
+		if let Some(count) = &count {
+			link = link.attr(xml::name::Name::prefixed("count", "thr"), count);
 		}
 
 		writer.write(link)?;

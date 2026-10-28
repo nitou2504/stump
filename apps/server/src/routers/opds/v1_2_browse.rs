@@ -481,20 +481,26 @@ pub(crate) async fn books_feed(
 		})
 		.collect::<Vec<_>>();
 	if languages.len() > 1 || params.lang().is_some() {
-		extra_links.push(OpdsGenericLink::facet(
-			"Language",
-			format!("All languages ({total})"),
-			facet(sort_param.clone(), None),
-			params.lang().is_none(),
-		));
+		extra_links.push(
+			OpdsGenericLink::facet(
+				"Language",
+				"All languages".to_string(),
+				facet(sort_param.clone(), None),
+				params.lang().is_none(),
+			)
+			.with_count(total as u64),
+		);
 		for (lang, count) in languages.into_iter().take(8) {
 			let active = params.lang().as_deref() == Some(lang.as_str());
-			extra_links.push(OpdsGenericLink::facet(
-				"Language",
-				format!("{} ({count})", language_name(&lang)),
-				facet(sort_param.clone(), Some(lang)),
-				active,
-			));
+			extra_links.push(
+				OpdsGenericLink::facet(
+					"Language",
+					language_name(&lang),
+					facet(sort_param.clone(), Some(lang)),
+					active,
+				)
+				.with_count(count as u64),
+			);
 		}
 	}
 
