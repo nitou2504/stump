@@ -41,6 +41,32 @@ pub fn should_add_sessions_join_for_filter(filter: &MediaFilterInput) -> bool {
 			.any(|filters| filters.iter().any(|f| f.reading_status.is_some()))
 }
 
+/// Loads the metadata of `rows` (media + their reading session) in one query.
+///
+/// The keep-reading query used `select_also_fake(media_metadata::Entity)` after a
+/// `select_also(reading_session)`, which since the SeaORM 2 upgrade always yields `None`,
+/// so continue-reading cards showed file names instead of titles.
+async fn attach_metadata<T>(
+	conn: &DatabaseConnection,
+	rows: Vec<(media::Model, T)>,
+) -> Result<Vec<Media>> {
+	let ids = rows.iter().map(|(m, _)| m.id.clone()).collect::<Vec<_>>();
+	let mut metadata = media_metadata::Entity::find()
+		.filter(media_metadata::Column::MediaId.is_in(ids))
+		.all(conn)
+		.await?
+		.into_iter()
+		.filter_map(|m| m.media_id.clone().map(|id| (id, m)))
+		.collect::<std::collections::HashMap<_, _>>();
+	Ok(rows
+		.into_iter()
+		.map(|(media, _)| {
+			let metadata = metadata.remove(&media.id);
+			Media::from(media::ModelWithMetadata { media, metadata })
+		})
+		.collect())
+}
+
 pub fn add_sessions_join_for_filter(
 	user: &AuthUser,
 	filter: &MediaFilterInput,
@@ -360,18 +386,8 @@ impl MediaQuery {
 					]));
 				}
 
-				let nodes = query
-					// select_also_fake is the 2.0 replacement for select_also, i really
-					// hate the name of it tho
-					.select_also_fake(media_metadata::Entity)
-					.limit(info.limit)
-					.all(conn)
-					.await?
-					.into_iter()
-					.map(|(media, _session, metadata)| {
-						Media::from(media::ModelWithMetadata { media, metadata })
-					})
-					.collect::<Vec<_>>();
+				let rows = query.limit(info.limit).all(conn).await?;
+				let nodes = attach_metadata(conn, rows).await?;
 
 				let current_cursor = info
 					.after
@@ -393,17 +409,12 @@ impl MediaQuery {
 			},
 			Pagination::Offset(info) => {
 				let count = query.clone().count(conn).await?;
-				let nodes = query
-					.select_also_fake(media_metadata::Entity)
+				let rows = query
 					.offset(info.offset())
 					.limit(info.limit())
 					.all(conn)
-					.await?
-					.into_iter()
-					.map(|(media, _session, metadata)| {
-						Media::from(media::ModelWithMetadata { media, metadata })
-					})
-					.collect::<Vec<_>>();
+					.await?;
+				let nodes = attach_metadata(conn, rows).await?;
 
 				Ok(PaginatedResponse {
 					nodes,
@@ -411,15 +422,8 @@ impl MediaQuery {
 				})
 			},
 			Pagination::None(_) => {
-				let nodes = query
-					.select_also_fake(media_metadata::Entity)
-					.all(conn)
-					.await?
-					.into_iter()
-					.map(|(media, _session, metadata)| {
-						Media::from(media::ModelWithMetadata { media, metadata })
-					})
-					.collect::<Vec<_>>();
+				let rows = query.all(conn).await?;
+				let nodes = attach_metadata(conn, rows).await?;
 
 				let count = nodes.len().try_into()?;
 
