@@ -54,3 +54,4 @@ apps/server/client/*
 #Code coverage
 lcov.info
 tarpaulin-report.html
+dist-fork/

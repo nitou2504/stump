@@ -1,0 +1,30 @@
+# Runtime-only image for the fork: expects ./dist-fork/stump_server and ./dist-fork/client
+# built by scripts/fork/build-local.sh (same runtime layout as docker/Dockerfile)
+FROM debian:bookworm-slim AS pdfium
+RUN apt-get update && apt-get install -y curl tar && mkdir -p /pdfium && \
+    curl -sLo pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-linux-x64.tgz && \
+    tar -xzf pdfium.tgz -C /pdfium && \
+    echo "727145701ce5bb0344c389071b7aa8f1e15ae81a /pdfium/lib/libpdfium.so" | sha1sum -c -
+
+FROM gcr.io/distroless/cc-debian12:debug
+ARG GIT_REV
+LABEL org.opencontainers.image.title="Stump (fork)" \
+    org.opencontainers.image.source="https://github.com/nitou2504/stump" \
+    org.opencontainers.image.revision="${GIT_REV}" \
+    org.opencontainers.image.licenses="MIT"
+RUN [ "/busybox/ln", "-s", "/busybox/sh", "/bin/sh" ]
+RUN ln -s /busybox/env /usr/bin/env
+COPY dist-fork/stump_server /app/stump
+COPY --from=pdfium /pdfium /opt/pdfium
+COPY dist-fork/client /app/client
+COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
+ENV STUMP_CONFIG_DIR=/config \
+    STUMP_CLIENT_DIR=/app/client \
+    STUMP_PROFILE=release \
+    STUMP_PORT=10801 \
+    STUMP_IN_DOCKER=true \
+    PDFIUM_PATH=/opt/pdfium/lib/libpdfium.so \
+    API_VERSION=v1
+WORKDIR /app
+EXPOSE 10801
+ENTRYPOINT ["/entrypoint.sh"]
