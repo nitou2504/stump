@@ -12,6 +12,7 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { SmartListContext } from './context'
 import { useSmartListById, useSmartListMeta, useUpdateSmartList } from './graphql'
+import { useSmartListGrouping } from './layout'
 import { createRouteGroups } from './settings/routes'
 import SmartListSettingsSideBar from './settings/SmartListSettingsSideBar'
 import { createSmartListViewStore, SmartListViewStoreContext } from './store'
@@ -48,6 +49,8 @@ export default function UserSmartListLayout() {
 	})
 
 	const { user } = useAppContext()
+
+	const { grouping, setGrouping } = useSmartListGrouping(id, list?.defaultGrouping)
 
 	/**
 	 * Whether or not the current user is the creator of the smart list
@@ -104,6 +107,8 @@ export default function UserSmartListLayout() {
 					meta,
 					patchSmartList: updateSmartList,
 					viewerRole,
+					grouping,
+					setGrouping,
 				}}
 			>
 				<div className="relative flex flex-1">

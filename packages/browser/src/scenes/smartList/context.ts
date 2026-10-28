@@ -1,4 +1,4 @@
-import { AccessRole, SaveSmartListInput, SmartListMeta } from '@stump/graphql'
+import { AccessRole, SaveSmartListInput, SmartListGrouping, SmartListMeta } from '@stump/graphql'
 import { createContext, useContext } from 'react'
 
 import { SmartListParsed } from './graphql'
@@ -13,6 +13,10 @@ export type ISmartListContext = {
 	patchSmartList: (updates: Partial<SaveSmartListInput>) => Promise<void>
 
 	viewerRole: AccessRole
+
+	/** How the items are grouped for this viewer (defaults to the list's grouping) */
+	grouping: SmartListGrouping
+	setGrouping: (grouping: SmartListGrouping) => void
 }
 
 export const SmartListContext = createContext<ISmartListContext | null>(null)
@@ -35,9 +39,7 @@ export const useSmartListContextSafe = () => useContext(SmartListContext)
  * If no working view is set, returns the default working view based on the list's grouping.
  */
 export const useSafeWorkingView = () => {
-	const {
-		list: { defaultGrouping },
-	} = useSmartListContext()
+	const { grouping } = useSmartListContext()
 
 	const workingView = useSmartListViewStore((s) => s.workingView)
 	const updateWorkingView = useSmartListViewStore((s) => s.updateWorkingView)
@@ -46,7 +48,7 @@ export const useSafeWorkingView = () => {
 
 	return {
 		updateWorkingView,
-		workingView: workingView || buildDefaultWorkingView(defaultGrouping),
+		workingView: workingView || buildDefaultWorkingView(grouping),
 		workingViewIsDefined,
 	}
 }

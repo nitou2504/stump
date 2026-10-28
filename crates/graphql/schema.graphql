@@ -2776,7 +2776,9 @@ type Query {
 	smartListMeta(id: ID!): SmartListMeta
 	smartListItems(		id: ID!,		limit: Int = null,
 		"An additional filter narrowing down the list's books, e.g. by genre"
-		filter: MediaFilterInput
+		filter: MediaFilterInput,
+		"Overrides the list's default grouping, e.g. to view a series-grouped list as plain books"
+		grouping: SmartListGrouping
 	): SmartListItems!
 	smartListViews: [SmartListView!]!
 	"""

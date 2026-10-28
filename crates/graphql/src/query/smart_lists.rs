@@ -134,6 +134,10 @@ impl SmartListsQuery {
 			desc = "An additional filter narrowing down the list's books, e.g. by genre"
 		)]
 		filter: Option<MediaFilterInput>,
+		#[graphql(
+			desc = "Overrides the list's default grouping, e.g. to view a series-grouped list as plain books"
+		)]
+		grouping: Option<smart_list::SmartListGrouping>,
 	) -> Result<SmartListItems> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -161,9 +165,13 @@ impl SmartListsQuery {
 			.await?;
 
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
-		let items =
-			build_smart_list_items(user, smart_list.default_grouping, books, &txn)
-				.await?;
+		let items = build_smart_list_items(
+			user,
+			grouping.unwrap_or(smart_list.default_grouping),
+			books,
+			&txn,
+		)
+		.await?;
 
 		txn.commit().await?;
 

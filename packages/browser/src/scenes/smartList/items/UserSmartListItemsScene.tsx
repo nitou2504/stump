@@ -15,13 +15,14 @@ export default function UserSmartListItemsScene() {
 	const { t } = useTranslate()
 	const {
 		list: { id },
+		grouping,
 	} = useSmartListContext()
 
 	// Ad-hoc filters (genre, writer, language, ...) on top of the list's own rules, kept in
 	// the URL like the library/series book views
 	const filterScene = useFilterScene()
 	const filters = filterScene.filters as MediaFilterInput
-	const { items, isLoading } = useSmartListItems({ id, filter: filters })
+	const { items, isLoading } = useSmartListItems({ id, filter: filters, grouping })
 
 	if (isLoading) {
 		return null

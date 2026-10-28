@@ -4023,6 +4023,7 @@ export type QuerySmartListByIdArgs = {
 
 export type QuerySmartListItemsArgs = {
   filter?: InputMaybe<MediaFilterInput>;
+  grouping?: InputMaybe<SmartListGrouping>;
   id: Scalars['ID']['input'];
   limit?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -7674,6 +7675,7 @@ export type UpdateSmartListMutation = { __typename?: 'Mutation', updateSmartList
 export type SmartListItemsQueryVariables = Exact<{
   id: Scalars['ID']['input'];
   filter?: InputMaybe<MediaFilterInput>;
+  grouping?: InputMaybe<SmartListGrouping>;
 }>;
 
 
@@ -15665,8 +15667,8 @@ export const UpdateSmartListDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<UpdateSmartListMutation, UpdateSmartListMutationVariables>;
 export const SmartListItemsDocument = new TypedDocumentString(`
-    query SmartListItems($id: ID!, $filter: MediaFilterInput) {
-  smartListItems(id: $id, filter: $filter) {
+    query SmartListItems($id: ID!, $filter: MediaFilterInput, $grouping: SmartListGrouping) {
+  smartListItems(id: $id, filter: $filter, grouping: $grouping) {
     __typename
     ... on SmartListGrouped {
       items {

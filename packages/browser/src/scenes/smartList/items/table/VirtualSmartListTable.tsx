@@ -1,5 +1,5 @@
 import { cn } from '@stump/components'
-import { InterfaceLayout, Media } from '@stump/graphql'
+import { Media } from '@stump/graphql'
 import {
 	flexRender,
 	getCoreRowModel,
@@ -12,15 +12,13 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useMemo, useRef } from 'react'
 
-import { GridSizeSlider } from '@/components/container/GridSizeSlider'
 import { SortIcon } from '@/components/table'
-import TableOrGridLayout from '@/components/TableOrGridLayout'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
-import { useSafeWorkingView, useSmartListContext } from '../../context'
-import { useSmartListLayout } from '../../layout'
+import { useSafeWorkingView } from '../../context'
 import { buildColumns } from './mediaColumns'
 import SmartListBookGrid from './SmartListBookGrid'
+import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
 import { SmartListTableItem } from './SmartListTableItem'
 import TableHeaderActions from './TableHeaderActions'
 
@@ -84,21 +82,8 @@ export default function VirtualSmartListTable({ books }: Props) {
 	const virtualItems = rowVirtualizer.getVirtualItems()
 	const totalSize = rowVirtualizer.getTotalSize()
 
-	const {
-		list: { id: listId },
-	} = useSmartListContext()
-	const { layout, setLayout } = useSmartListLayout(listId)
-	const isGrid = layout === InterfaceLayout.Grid
-	const layoutControls = (
-		<div className="gap-2 flex shrink-0 items-center">
-			{isGrid && (
-				<div className="w-32 md:block hidden">
-					<GridSizeSlider />
-				</div>
-			)}
-			<TableOrGridLayout layout={layout} setLayout={setLayout} />
-		</div>
-	)
+	const { isGrid } = useSmartListItemsLayout()
+	const layoutControls = <SmartListLayoutControls />
 
 	if (isGrid) {
 		return (

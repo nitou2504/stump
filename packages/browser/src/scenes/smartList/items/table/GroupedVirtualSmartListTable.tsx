@@ -21,7 +21,9 @@ import { useTranslate } from '@/hooks/useTranslate'
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView, useSmartListContext } from '../../context'
 import { buildColumns as buildGroupColumns } from './groupColumns'
+import GroupedSmartListGrid, { BookGroup, useGroupHref } from './GroupedSmartListGrid'
 import { bookFuzzySearch, buildColumns as buildBookColumns } from './mediaColumns'
+import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
 import { SmartListTableItem } from './SmartListTableItem'
 import TableHeaderActions from './TableHeaderActions'
 
@@ -40,7 +42,7 @@ const BOOK_HEADER_HEIGHT = 40
 
 export default function GroupedVirtualSmartListTable({ items }: Props) {
 	const { translate } = useTranslate()
-	const { list } = useSmartListContext()
+	const { grouping } = useSmartListContext()
 	const containerRef = useRef<HTMLDivElement>(null)
 	const listRef = useRef<HTMLDivElement>(null)
 	const scrollElement = useScrollElement(containerRef)
@@ -49,7 +51,7 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 	const search = workingView.search
 	const [expanded, setExpanded] = useState<ExpandedState>({})
 
-	const isGroupedBySeries = list.defaultGrouping === 'BY_SERIES'
+	const isGroupedBySeries = grouping === 'BY_SERIES'
 	const standaloneLabel = translate('shared.common.standaloneBooks')
 	const groupColumns = useMemo(
 		() => buildGroupColumns(isGroupedBySeries, workingView.groupColumns, standaloneLabel),
@@ -166,6 +168,25 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 		return flat
 	}, [groupRows, bookRowsById, bookSortMap])
 
+	// The same groups for the grid layout: every group's (search-matching) books, in the
+	// table's group and book order
+	const { isGrid } = useSmartListItemsLayout()
+	const groupHref = useGroupHref()
+	const gridGroups = useMemo<BookGroup[]>(
+		() =>
+			groupRows
+				.map((groupRow) => ({
+					books: [...groupRow.original.books]
+						.filter((book) => !search || bookFuzzySearch(book, search))
+						.sort((a, b) => (bookSortMap.get(a.id) ?? 0) - (bookSortMap.get(b.id) ?? 0)),
+					href: groupHref(groupRow.original.entity),
+					id: groupRow.id,
+					name: groupRow.original.entity?.name ?? standaloneLabel,
+				}))
+				.filter(({ books }) => books.length > 0),
+		[groupRows, search, bookSortMap, groupHref, standaloneLabel],
+	)
+
 	const rowVirtualizer = useVirtualizer({
 		count: flatData.length,
 		estimateSize: (index) => {
@@ -241,9 +262,21 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 		prevExpandedRef.current = expanded
 	}, [expanded, flatData, rowVirtualizer, scrollElement])
 
+	if (isGrid) {
+		return (
+			<div ref={containerRef} className="flex w-full flex-col">
+				<TableHeaderActions
+					layoutControls={<SmartListLayoutControls />}
+					showColumnControls={false}
+				/>
+				<GroupedSmartListGrid groups={gridGroups} />
+			</div>
+		)
+	}
+
 	return (
 		<div ref={containerRef} className="flex w-full flex-col">
-			<TableHeaderActions />
+			<TableHeaderActions layoutControls={<SmartListLayoutControls />} />
 
 			<div
 				className="top-0 sticky z-30 flex w-full border-b border-border bg-muted"

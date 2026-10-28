@@ -18,9 +18,7 @@ import { columnOptionMap as mediaColumnOptionMap } from './mediaColumns'
 
 export default function TableColumnsBottomDrawer() {
 	const [isOpen, setIsOpen] = useState(false)
-	const {
-		list: { defaultGrouping },
-	} = useSmartListContext()
+	const { grouping: defaultGrouping } = useSmartListContext()
 	const {
 		workingView: {
 			bookColumns: selectedBookColumns,

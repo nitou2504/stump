@@ -12,6 +12,7 @@ import {
 	SaveSmartListInput,
 	SmartList,
 	SmartListFilterGroupInput,
+	SmartListGrouping,
 	SmartListMetaQuery,
 } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
@@ -78,8 +79,8 @@ const smartListUpdateMutation = graphql(`
 `)
 
 const smartListItemsQuery = graphql(`
-	query SmartListItems($id: ID!, $filter: MediaFilterInput) {
-		smartListItems(id: $id, filter: $filter) {
+	query SmartListItems($id: ID!, $filter: MediaFilterInput, $grouping: SmartListGrouping) {
+		smartListItems(id: $id, filter: $filter, grouping: $grouping) {
 			__typename
 			... on SmartListGrouped {
 				items {
@@ -151,15 +152,24 @@ export const smartListMediaItemMetadataFragment = graphql(`
 	}
 `)
 
-export function useSmartListItems({ id, filter }: { id: string; filter?: MediaFilterInput }) {
+export function useSmartListItems({
+	id,
+	filter,
+	grouping,
+}: {
+	id: string
+	filter?: MediaFilterInput
+	grouping?: SmartListGrouping
+}) {
 	const { sdk } = useSDK()
 	const hasFilter = !!filter && Object.keys(filter).length > 0
 	const { data: { smartListItems: items } = {}, isLoading } = useGraphQL(
 		smartListItemsQuery,
-		[sdk.cacheKeys.smartListItems, id, hasFilter ? filter : null],
+		[sdk.cacheKeys.smartListItems, id, hasFilter ? filter : null, grouping ?? null],
 		{
 			id: id || '',
 			filter: hasFilter ? filter : undefined,
+			grouping,
 		},
 		// Keep showing the current books while a new filter loads
 		{ placeholderData: (prev) => prev },
