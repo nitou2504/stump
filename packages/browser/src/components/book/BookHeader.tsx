@@ -110,11 +110,8 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 			label: translate('shared.common.overview'),
 			to: paths.bookOverview(book.id),
 		},
-		{
-			isActive: location.pathname === paths.bookReadingTimeline(book.id),
-			label: translate('shared.readingTimeline.title'),
-			to: paths.bookReadingTimeline(book.id),
-		},
+		// The reading timeline page is not implemented on web yet (it only renders an
+		// "under construction" placeholder), so it is not linked here
 	]
 
 	const actions = [

@@ -187,7 +187,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 
 			{!!metadata?.summary && (
 				<div className="max-w-3xl">
-					<ReadMore text={metadata.summary} variant="sheet" sheetTitle={media.resolvedName} />
+					<ReadMore text={metadata.summary} variant="inline" />
 				</div>
 			)}
 		</div>
