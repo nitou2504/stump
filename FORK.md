@@ -10,7 +10,7 @@ change small and upstreamable.
 | Area | Feature |
 |---|---|
 | Libraries | *(upstream branch)* **Metadata organization**: series come from book metadata (EPUB `calibre:series` / EPUB 3 collections / ComicInfo), books without a series stay standalone, folders are ignored |
-| OPDS 1.2 | **Shelves**: smart lists as navigation + book feeds, with book counts |
+| OPDS 1.2 | **Shelves**: smart lists as navigation + book feeds |
 | OPDS 1.2 | **Scoped search**: every book, library, series and shelf feed has its own `rel="search"` template, so KOReader's *Search* searches inside the feed being viewed |
 | OPDS 1.2 | **Facets**: sort (best match while searching, title, author, series order, recently added) and language, with `thr:count` |
 | OPDS 1.2 | **Authors / Genres** indexes: letter → value (with counts, searchable) → books; exact `?author=` / `?genre=` book filters |

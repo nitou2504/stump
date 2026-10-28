@@ -594,7 +594,7 @@ fn smart_list_media_ids(
 		.into_query())
 }
 
-/// GET /opds/v1.2/smart-lists: every smart list the user can read, with book counts
+/// GET /opds/v1.2/smart-lists: every smart list the user can read
 pub(crate) async fn smart_lists_feed(
 	ctx: &AppState,
 	req: &AuthContext,
@@ -612,36 +612,17 @@ pub(crate) async fn smart_lists_feed(
 		.all(conn)
 		.await?;
 
-	// Count every list's books concurrently, the shelf list is opened from slow e-readers
-	let counts = futures_util::future::join_all(lists.iter().map(|list| {
-		let user = &user;
-		async move {
-			let ids = smart_list_media_ids(user, list).ok()?;
-			media::Entity::find()
-				.filter(media::Column::Id.in_subquery(ids))
-				.count(conn)
-				.await
-				.ok()
-		}
-	}))
-	.await;
-
+	// Counting every list means evaluating every smart list filter (~3s for 60 lists on a
+	// 9k-book library), and KOReader doesn't show entry counts anyway, so the shelf list
+	// only carries the description. Each shelf feed reports its own count via pagination.
 	let entries = lists
 		.into_iter()
-		.zip(counts)
-		.map(|(list, count)| {
-			let content = match (count, list.description.clone()) {
-				(Some(count), Some(desc)) if !desc.is_empty() => {
-					Some(format!("{count} books — {desc}"))
-				},
-				(Some(count), _) => Some(format!("{count} books")),
-				(None, desc) => desc,
-			};
+		.map(|list| {
 			navigation_entry(
 				req,
 				format!("smartList:{}", list.id),
 				list.name.clone(),
-				content,
+				list.description.clone().filter(|d| !d.is_empty()),
 				format!("smart-lists/{}", list.id),
 				true,
 			)
