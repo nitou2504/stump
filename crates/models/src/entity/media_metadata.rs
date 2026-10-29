@@ -80,6 +80,9 @@ pub struct Model {
 	#[sea_orm(column_type = "Text", nullable)]
 	#[graphql(skip)]
 	pub pencillers: Option<String>,
+	/// A community/reader rating from 0 to 5 (e.g. EPUB `calibre:rating` or ComicInfo
+	/// `CommunityRating`)
+	pub rating: Option<Decimal>,
 	#[sea_orm(column_type = "Text", nullable)]
 	pub publisher: Option<String>,
 	#[sea_orm(column_type = "Text", nullable)]

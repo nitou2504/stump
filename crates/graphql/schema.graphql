@@ -1528,6 +1528,11 @@ type MediaMetadata {
 	notes: String
 	number: Decimal
 	pageCount: Int
+	"""
+	A community/reader rating from 0 to 5 (e.g. EPUB `calibre:rating` or ComicInfo
+	`CommunityRating`)
+	"""
+	rating: Decimal
 	publisher: String
 	series: String
 	seriesGroup: String
@@ -1570,6 +1575,13 @@ input MediaMetadataFilterInput {
 	inkers: FieldFilterString = null
 	editors: FieldFilterString = null
 	ageRating: NumericFilterI32 = null
+	"The community/reader rating, from 0 to 5"
+	rating: NumericFilterF32 = null
+	"""
+	`true` keeps adult (18+) books only, `false` keeps everything else, including
+	books without an age rating
+	"""
+	adult: Boolean = null
 	year: NumericFilterI32 = null
 	month: NumericFilterI32 = null
 	day: NumericFilterI32 = null
@@ -1646,6 +1658,7 @@ enum MediaMetadataModelOrdering {
 	NUMBER
 	PAGE_COUNT
 	PENCILLERS
+	RATING
 	PUBLISHER
 	SERIES
 	SERIES_GROUP
@@ -2358,6 +2371,18 @@ input NumericFilterDateTime @oneOf {
 	range: NumericRangeDateTime
 }
 
+input NumericFilterF32 @oneOf {
+	eq: Float
+	neq: Float
+	anyOf: [Float!]
+	noneOf: [Float!]
+	gt: Float
+	gte: Float
+	lt: Float
+	lte: Float
+	range: NumericRangeF32
+}
+
 input NumericFilterI32 @oneOf {
 	eq: Int
 	neq: Int
@@ -2385,6 +2410,12 @@ input NumericFilterI64 @oneOf {
 input NumericRangeDateTime {
 	from: DateTime!
 	to: DateTime!
+	inclusive: Boolean!
+}
+
+input NumericRangeF32 {
+	from: Float!
+	to: Float!
 	inclusive: Boolean!
 }
 

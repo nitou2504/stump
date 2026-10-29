@@ -1,5 +1,6 @@
 use async_graphql::InputObject;
 use models::entity::media_metadata;
+use sea_orm::ColumnTrait;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
@@ -38,6 +39,13 @@ pub struct MediaMetadataFilterInput {
 	pub editors: Option<StringLikeFilter<String>>,
 	#[graphql(default)]
 	pub age_rating: Option<NumericFilter<i32>>,
+	/// The community/reader rating, from 0 to 5
+	#[graphql(default)]
+	pub rating: Option<NumericFilter<f32>>,
+	/// `true` keeps adult (18+) books only, `false` keeps everything else, including
+	/// books without an age rating
+	#[graphql(default)]
+	pub adult: Option<bool>,
 	#[graphql(default)]
 	pub year: Option<NumericFilter<i32>>,
 	#[graphql(default)]
@@ -166,6 +174,20 @@ impl IntoFilter for MediaMetadataFilterInput {
 					.map(|f| apply_numeric_filter(media_metadata::Column::AgeRating, f)),
 			)
 			.add_option(
+				self.rating
+					.map(|f| apply_numeric_filter(media_metadata::Column::Rating, f)),
+			)
+			.add_option(self.adult.map(|adult| {
+				if adult {
+					sea_orm::Condition::all()
+						.add(media_metadata::Column::AgeRating.gte(18))
+				} else {
+					sea_orm::Condition::any()
+						.add(media_metadata::Column::AgeRating.is_null())
+						.add(media_metadata::Column::AgeRating.lt(18))
+				}
+			}))
+			.add_option(
 				self.year
 					.map(|f| apply_numeric_filter(media_metadata::Column::Year, f)),
 			)
@@ -219,6 +241,8 @@ mod tests {
 			inkers: None,
 			editors: None,
 			age_rating: None,
+			rating: None,
+			adult: None,
 			year: None,
 			month: None,
 			day: None,

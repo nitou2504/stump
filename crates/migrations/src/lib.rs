@@ -41,6 +41,7 @@ mod m20260930_000002_organization_mode;
 mod m20261006_152724_journal_entries;
 mod m20261006_225247_reading_devices;
 mod m20261025_235745_drop_navigation_user_prefs;
+mod m20261028_000000_media_metadata_rating;
 
 pub struct Migrator;
 
@@ -88,6 +89,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20260930_000000_media_library::Migration),
 			Box::new(m20260930_000001_virtual_series::Migration),
 			Box::new(m20260930_000002_organization_mode::Migration),
+			Box::new(m20261028_000000_media_metadata_rating::Migration),
 		]
 	}
 }

@@ -78,6 +78,13 @@ pub struct ProcessedMediaMetadata {
 		deserialize_with = "age_rating_deserializer"
 	)]
 	pub age_rating: Option<i32>,
+	/// A community/reader rating from 0 to 5
+	#[serde(
+		default,
+		alias = "CommunityRating",
+		deserialize_with = "optional_f64_deserializer"
+	)]
+	pub rating: Option<f64>,
 	/// The genre(s) the media belongs to.
 	#[serde(
 		alias = "Genre",
@@ -230,6 +237,11 @@ impl ProcessedMediaMetadata {
 			summary: Set(self.summary),
 			notes: Set(self.notes),
 			age_rating: Set(self.age_rating),
+			rating: Set(self
+				.rating
+				.filter(|r| r.is_finite())
+				.map(|r| r.clamp(0.0, 5.0))
+				.and_then(|r| Decimal::try_from((r * 100.0).round() / 100.0).ok())),
 			genres: Set(self.genres.map(|v| v.join(", "))),
 			year: Set(self.year),
 			month: Set(self.month),
@@ -259,6 +271,14 @@ impl ProcessedMediaMetadata {
 }
 
 // NOTE: this is primarily used for converting the EPUB metadata into a common Metadata struct
+/// Parses the first finite, non-negative number of a metadata value
+fn parse_rating(values: &[String]) -> Option<f64> {
+	values
+		.first()
+		.and_then(|v| v.trim().parse::<f64>().ok())
+		.filter(|r| r.is_finite() && *r >= 0.0)
+}
+
 impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 	fn from(source: HashMap<String, Vec<String>>) -> Self {
 		let mut map = HashMap::<String, Vec<String>>::new();
@@ -378,6 +398,24 @@ impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 					},
 					None => metadata.writers = Some(value),
 				},
+				// calibre stores ratings from 0 to 10 (half stars)
+				"rating" => {
+					if metadata.rating.is_none() {
+						metadata.rating = parse_rating(&value).map(|r| r / 2.0);
+					}
+				},
+				// A more precise 0-5 rating written by the fork's book curator
+				// (`bcurator:rating`), preferred over the half-star calibre value
+				"bcurator:rating" => {
+					if let Some(rating) = parse_rating(&value) {
+						metadata.rating = Some(rating);
+					}
+				},
+				"communityrating" => {
+					if metadata.rating.is_none() {
+						metadata.rating = parse_rating(&value);
+					}
+				},
 				"typicalagerange" | "contentrating" => {
 					let parsed = value
 						.into_iter()
@@ -406,6 +444,23 @@ impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn test_rating_from_hashmap() {
+		// calibre:rating is 0-10 (half stars)
+		let map = HashMap::from([("rating".to_string(), vec!["8".to_string()])]);
+		assert_eq!(ProcessedMediaMetadata::from(map).rating, Some(4.0));
+
+		// the precise curator rating wins over the calibre one, in any order
+		let map = HashMap::from([
+			("rating".to_string(), vec!["8".to_string()]),
+			("bcurator:rating".to_string(), vec!["4.12".to_string()]),
+		]);
+		assert_eq!(ProcessedMediaMetadata::from(map).rating, Some(4.12));
+
+		let map = HashMap::from([("rating".to_string(), vec!["n/a".to_string()])]);
+		assert_eq!(ProcessedMediaMetadata::from(map).rating, None);
+	}
 
 	#[test]
 	fn test_from_hashmap() {
