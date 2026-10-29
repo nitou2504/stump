@@ -12,14 +12,16 @@ change small and upstreamable.
 | Libraries | *(upstream branch)* **Metadata organization**: series come from book metadata (EPUB `calibre:series` / EPUB 3 collections / ComicInfo), books without a series stay standalone, folders are ignored |
 | OPDS 1.2 | **Shelves**: smart lists as navigation + book feeds |
 | OPDS 1.2 | **Scoped search**: every book, library, series and shelf feed has its own `rel="search"` template, so KOReader's *Search* searches inside the feed being viewed |
-| OPDS 1.2 | **Facets**: sort (best match while searching, title, author, series order, recently added) and language, with `thr:count` |
+| OPDS 1.2 | **Facets**: sort (best match while searching, title, rating, author, series order, recently added), language, minimum rating and age (general / adult), with `thr:count`; entries show `★ 4.1 · 18+` |
 | OPDS 1.2 | **Authors / Genres** indexes: letter → value (with counts, searchable) → books; exact `?author=` / `?genre=` book filters |
 | Web | **Authors** and **Genres** browse pages (`/browse/authors`, `/browse/genres`) with counts, letter jump bar and `Prefix:` grouping (e.g. `Estante: …` shelves) |
 | Web | **Grid view for smart lists** (per-list table/grid toggle + size slider), including series/library-grouped lists (one section per group) |
 | Web | **Smart list grouping selector**: view any list ungrouped, by series or by library (a per-viewer choice, the list is unchanged); books default to series/title order |
 | Web | **Filters on smart lists**: the same filter drawer as library/series books (genre, writer, language, tags, read status, ...), offering only the values present in the list |
 | Web / GraphQL | **Exact list matching** (`hasAnyOf` / `hasNoneOf`): `Estante: Ciencia` no longer matches `Estante: Ciencia ficción`; genre/author badges and the filter drawer use it |
-| Web | Filter drawer gains **language** and **tags**; the age-rating filter is fixed |
+| Metadata | **Ratings** (0-5): read from EPUB `calibre:rating` (0-10, halved), ComicInfo `CommunityRating`, or the curator's precise `bcurator:rating`; new `rating` column (needs a *Rebuild metadata* scan to fill) |
+| Web | Filter drawer gains **language**, **tags**, **minimum rating** and **age** (general / adult); sort by rating or age rating; rating columns in tables; `rating` in smart list rules |
+| Web | Book cards show **★ rating** and an **18+** badge; in a series they show the book's **#number** on the cover; the book page shows rating and age |
 | Web | **More by <author>** row on book pages (standalone books lost the folder-based "Next in series") |
 | Web | Polish: book summaries expand inline; unimplemented controls are hidden (book *Reading timeline* tab, smart list *List rules* drawer, empty saved-view controls) |
 | Fixes | Continue-reading cards show titles again (metadata was lost since the SeaORM 2 upgrade); `?page=0` no longer crashes the server (offset underflow + `panic = "abort"`); OPDS 2 search group links no longer 404; OPDS 1.2 page-stream links keep the API key; Docker apt cache mounts are locked |
