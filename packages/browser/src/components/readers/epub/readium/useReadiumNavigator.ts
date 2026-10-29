@@ -209,7 +209,9 @@ export function useReadiumNavigator({
 
 	useEffect(() => {
 		if (!publication || !positions.length || !containerRef.current) {
-			setLoadState({ status: 'idle' })
+			// Keep the same state object when already idle, so a re-run of this effect can't
+			// trigger a re-render loop
+			setLoadState((prev) => (prev.status === 'idle' ? prev : { status: 'idle' }))
 			return
 		}
 
