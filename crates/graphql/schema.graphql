@@ -2017,6 +2017,8 @@ type Mutation {
 	analyzeMedia(id: ID!, forceReanalysis: Boolean! = false): Boolean!
 	convertMedia(id: ID!): Boolean!
 	deleteMedia(id: ID!): Media!
+	"Brings back a book removed with `deleteMedia`"
+	restoreMedia(id: ID!): Boolean!
 	favoriteMedia(id: ID!, isFavorite: Boolean!): Media!
 	"""
 	Update the thumbnail for a book. This will replace the existing thumbnail with the the one
@@ -2713,6 +2715,11 @@ type Query {
 	mediaDiskUsage: Int!
 	media(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, _and: null, _not: null, _or: null}, orderBy: [MediaOrderBy!]! = [{media: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	mediaById(id: ID!): Media
+	"""
+	Books removed from their library (soft-deleted; the files are still on disk), most
+	recently removed first. They can be brought back with `restoreMedia`.
+	"""
+	removedMedia(libraryId: ID): [Media!]!
 	mediaByPath(path: String!): Media
 	"Returns the available alphabet for all media in the server"
 	mediaAlphabet: JSONObject!
@@ -3839,6 +3846,8 @@ input UpdateUserPreferencesInput {
 	thumbnailRatio: Float!
 	thumbnailPlaceholderStyle: ThumbnailPlaceholderStyle!
 	enableAlphabetSelect: Boolean!
+	"Clients which don't know this preference leave it off"
+	enableBookRemoval: Boolean! = false
 	enableReadingJournal: Boolean!
 	dayResetHourOffset: Int!
 	readingSessionGracePeriodSecs: Int!
@@ -4018,6 +4027,8 @@ type UserPreferences {
 	thumbnailPlaceholderStyle: ThumbnailPlaceholderStyle!
 	enableJobOverlay: Boolean!
 	enableAlphabetSelect: Boolean!
+	"Offer \"Remove from library\" on book pages (still requires library management rights)"
+	enableBookRemoval: Boolean!
 	interfaceRoundness: InterfaceRoundness!
 	thumbnailRoundness: InterfaceRoundness!
 	enableReadingJournal: Boolean!

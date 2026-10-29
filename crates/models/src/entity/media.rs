@@ -222,9 +222,13 @@ fn apply_series_metadata_join(query: Select<Entity>) -> Select<Entity> {
 }
 
 fn apply_library_hidden_filter(query: Select<Entity>, user: &AuthUser) -> Select<Entity> {
-	query.filter(Column::LibraryId.not_in_subquery(
-		library_exclusion::Entity::library_hidden_to_user_query(user),
-	))
+	query
+		.filter(Column::LibraryId.not_in_subquery(
+			library_exclusion::Entity::library_hidden_to_user_query(user),
+		))
+		// Books removed from the library (soft-deleted, the file stays on disk) are hidden
+		// everywhere a user can see books: lists, search, OPDS, smart lists, counts
+		.filter(Column::DeletedAt.is_null())
 }
 
 impl Entity {
@@ -455,7 +459,7 @@ mod tests {
 		assert_eq!(
             stmt_str,
             r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42')"#
+            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL"#
         );
 	}
 
@@ -473,7 +477,7 @@ mod tests {
 		assert_eq!(
             stmt_str,
             r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42')"# +
+            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL"# +
             r#" AND (("media_metadata"."age_rating" IS NULL AND "series_metadata"."age_rating" IS NOT NULL AND "series_metadata"."age_rating" <= 18) OR ("media_metadata"."age_rating" IS NOT NULL AND "media_metadata"."age_rating" <= 18))"#
         );
 	}
@@ -486,7 +490,7 @@ mod tests {
 		assert_eq!(
             stmt_str,
             r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."id" = '123'"#
+            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL AND "media"."id" = '123'"#
         );
 	}
 
@@ -498,7 +502,7 @@ mod tests {
 		assert_eq!(
 			stmt_str,
 			r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-			r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "series"."id" = '123'"#
+			r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL AND "series"."id" = '123'"#
 		);
 	}
 
@@ -510,7 +514,7 @@ mod tests {
 		assert_eq!(
             stmt_str,
             r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42')"#
+            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL"#
             );
 	}
 
@@ -522,7 +526,7 @@ mod tests {
 		assert_eq!(
             stmt_str,
             r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-            r#"WHERE "media"."id" = '123' AND "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42')"#
+            r#"WHERE "media"."id" = '123' AND "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL"#
             );
 	}
 
@@ -540,7 +544,7 @@ mod tests {
 		assert_eq!(
             stmt_str,
             r#"SELECT  FROM "media" LEFT JOIN "media_metadata" ON "media"."id" = "media_metadata"."media_id" LEFT JOIN "series" ON "media"."series_id" = "series"."id" LEFT JOIN "series_metadata" ON "series_metadata"."series_id" = "series"."id" "#.to_string() +
-            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42')"# +
+            r#"WHERE "media"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "media"."deleted_at" IS NULL"# +
             r#" AND (("media_metadata"."age_rating" IS NULL AND "series_metadata"."age_rating" IS NOT NULL AND "series_metadata"."age_rating" <= 18) OR ("media_metadata"."age_rating" IS NOT NULL AND "media_metadata"."age_rating" <= 18))"#
         );
 	}

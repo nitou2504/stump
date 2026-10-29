@@ -152,6 +152,7 @@ type Documents = {
     "\n\tfragment BookStatRow on Media {\n\t\tpages\n\t\tsize\n\t\textension\n\t\tmetadata {\n\t\t\tyear\n\t\t\trating\n\t\t\tageRating\n\t\t}\n\t}\n": typeof types.BookStatRowFragmentDoc,
     "\n\tquery EmailBookDropdownDevice {\n\t\temailDevices {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": typeof types.EmailBookDropdownDeviceDocument,
     "\n\tmutation SendEmailAttachment($id: ID!, $sendTo: [EmailerSendTo!]!) {\n\t\tsendAttachmentEmail(input: { mediaIds: [$id], sendTo: $sendTo }) {\n\t\t\tsentCount\n\t\t\terrors\n\t\t}\n\t}\n": typeof types.SendEmailAttachmentDocument,
+    "\n\tmutation RemoveBookFromLibrary($id: ID!) {\n\t\tdeleteMedia(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.RemoveBookFromLibraryDocument,
     "\n\tfragment SimpleBookCard on Media {\n\t\tid\n\t\tresolvedName\n\t\tcreatedAt\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": typeof types.SimpleBookCardFragmentDoc,
     "\n\tfragment MediaMetadataEditor on MediaMetadata {\n\t\tageRating\n\t\tcharacters\n\t\tcolorists\n\t\tcoverArtists\n\t\tday\n\t\teditors\n\t\tformat\n\t\tidentifierAmazon\n\t\tidentifierCalibre\n\t\tidentifierGoogle\n\t\tidentifierIsbn\n\t\tidentifierMobiAsin\n\t\tidentifierUuid\n\t\tgenres\n\t\tinkers\n\t\tlanguage\n\t\tletterers\n\t\tlinks\n\t\tmonth\n\t\tnotes\n\t\tnumber\n\t\tpageCount\n\t\tpencillers\n\t\tpublisher\n\t\tseries\n\t\tseriesGroup\n\t\tstoryArc\n\t\tstoryArcNumber\n\t\tsummary\n\t\tteams\n\t\ttitle\n\t\ttitleSort\n\t\tvolume\n\t\twriters\n\t\tyear\n\t\tlockedFields\n\t}\n": typeof types.MediaMetadataEditorFragmentDoc,
     "\n\tmutation UpdateMediaMetadata($id: ID!, $input: MediaMetadataInput!) {\n\t\tupdateMediaMetadata(id: $id, input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.UpdateMediaMetadataDocument,
@@ -268,6 +269,8 @@ type Documents = {
     "\n\tmutation UpdateLibraryExclusions($id: ID!, $userIds: [String!]!) {\n\t\tupdateLibraryExcludedUsers(id: $id, userIds: $userIds) {\n\t\t\tid\n\t\t\texcludedUsers {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UpdateLibraryExclusionsDocument,
     "\n\tmutation CleanLibrary($id: ID!) {\n\t\tcleanLibrary(id: $id) {\n\t\t\tdeletedMediaCount\n\t\t\tdeletedSeriesCount\n\t\t\tisEmpty\n\t\t}\n\t}\n": typeof types.CleanLibraryDocument,
     "\n\tquery LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {\n\t\tlibraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tpath\n\t\t\t\ttype\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\ttotalPages\n\t\t\t\t\tcurrentPage\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t\ttotalItems\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.LibraryMissingEntitiesDocument,
+    "\n\tquery LibraryRemovedBooks($libraryId: ID!) {\n\t\tremovedMedia(libraryId: $libraryId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t\tpath\n\t\t}\n\t}\n": typeof types.LibraryRemovedBooksDocument,
+    "\n\tmutation RestoreRemovedBook($id: ID!) {\n\t\trestoreMedia(id: $id)\n\t}\n": typeof types.RestoreRemovedBookDocument,
     "\n\tmutation AnalyzeLibraryMedia($id: ID!) {\n\t\tanalyzeLibrary(id: $id)\n\t}\n": typeof types.AnalyzeLibraryMediaDocument,
     "\n\tquery InitFetchJobCheckProviders {\n\t\tmetadataProviderConfigs {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.InitFetchJobCheckProvidersDocument,
     "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n": typeof types.InitFetchJobDocument,
@@ -501,6 +504,7 @@ const documents: Documents = {
     "\n\tfragment BookStatRow on Media {\n\t\tpages\n\t\tsize\n\t\textension\n\t\tmetadata {\n\t\t\tyear\n\t\t\trating\n\t\t\tageRating\n\t\t}\n\t}\n": types.BookStatRowFragmentDoc,
     "\n\tquery EmailBookDropdownDevice {\n\t\temailDevices {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": types.EmailBookDropdownDeviceDocument,
     "\n\tmutation SendEmailAttachment($id: ID!, $sendTo: [EmailerSendTo!]!) {\n\t\tsendAttachmentEmail(input: { mediaIds: [$id], sendTo: $sendTo }) {\n\t\t\tsentCount\n\t\t\terrors\n\t\t}\n\t}\n": types.SendEmailAttachmentDocument,
+    "\n\tmutation RemoveBookFromLibrary($id: ID!) {\n\t\tdeleteMedia(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": types.RemoveBookFromLibraryDocument,
     "\n\tfragment SimpleBookCard on Media {\n\t\tid\n\t\tresolvedName\n\t\tcreatedAt\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": types.SimpleBookCardFragmentDoc,
     "\n\tfragment MediaMetadataEditor on MediaMetadata {\n\t\tageRating\n\t\tcharacters\n\t\tcolorists\n\t\tcoverArtists\n\t\tday\n\t\teditors\n\t\tformat\n\t\tidentifierAmazon\n\t\tidentifierCalibre\n\t\tidentifierGoogle\n\t\tidentifierIsbn\n\t\tidentifierMobiAsin\n\t\tidentifierUuid\n\t\tgenres\n\t\tinkers\n\t\tlanguage\n\t\tletterers\n\t\tlinks\n\t\tmonth\n\t\tnotes\n\t\tnumber\n\t\tpageCount\n\t\tpencillers\n\t\tpublisher\n\t\tseries\n\t\tseriesGroup\n\t\tstoryArc\n\t\tstoryArcNumber\n\t\tsummary\n\t\tteams\n\t\ttitle\n\t\ttitleSort\n\t\tvolume\n\t\twriters\n\t\tyear\n\t\tlockedFields\n\t}\n": types.MediaMetadataEditorFragmentDoc,
     "\n\tmutation UpdateMediaMetadata($id: ID!, $input: MediaMetadataInput!) {\n\t\tupdateMediaMetadata(id: $id, input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": types.UpdateMediaMetadataDocument,
@@ -617,6 +621,8 @@ const documents: Documents = {
     "\n\tmutation UpdateLibraryExclusions($id: ID!, $userIds: [String!]!) {\n\t\tupdateLibraryExcludedUsers(id: $id, userIds: $userIds) {\n\t\t\tid\n\t\t\texcludedUsers {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.UpdateLibraryExclusionsDocument,
     "\n\tmutation CleanLibrary($id: ID!) {\n\t\tcleanLibrary(id: $id) {\n\t\t\tdeletedMediaCount\n\t\t\tdeletedSeriesCount\n\t\t\tisEmpty\n\t\t}\n\t}\n": types.CleanLibraryDocument,
     "\n\tquery LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {\n\t\tlibraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tpath\n\t\t\t\ttype\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\ttotalPages\n\t\t\t\t\tcurrentPage\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t\ttotalItems\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.LibraryMissingEntitiesDocument,
+    "\n\tquery LibraryRemovedBooks($libraryId: ID!) {\n\t\tremovedMedia(libraryId: $libraryId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t\tpath\n\t\t}\n\t}\n": types.LibraryRemovedBooksDocument,
+    "\n\tmutation RestoreRemovedBook($id: ID!) {\n\t\trestoreMedia(id: $id)\n\t}\n": types.RestoreRemovedBookDocument,
     "\n\tmutation AnalyzeLibraryMedia($id: ID!) {\n\t\tanalyzeLibrary(id: $id)\n\t}\n": types.AnalyzeLibraryMediaDocument,
     "\n\tquery InitFetchJobCheckProviders {\n\t\tmetadataProviderConfigs {\n\t\t\tid\n\t\t}\n\t}\n": types.InitFetchJobCheckProvidersDocument,
     "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n": types.InitFetchJobDocument,
@@ -1264,6 +1270,10 @@ export function graphql(source: "\n\tmutation SendEmailAttachment($id: ID!, $sen
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tmutation RemoveBookFromLibrary($id: ID!) {\n\t\tdeleteMedia(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').RemoveBookFromLibraryDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tfragment SimpleBookCard on Media {\n\t\tid\n\t\tresolvedName\n\t\tcreatedAt\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').SimpleBookCardFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -1725,6 +1735,14 @@ export function graphql(source: "\n\tmutation CleanLibrary($id: ID!) {\n\t\tclea
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tquery LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {\n\t\tlibraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tpath\n\t\t\t\ttype\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\ttotalPages\n\t\t\t\t\tcurrentPage\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t\ttotalItems\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').LibraryMissingEntitiesDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery LibraryRemovedBooks($libraryId: ID!) {\n\t\tremovedMedia(libraryId: $libraryId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t\tpath\n\t\t}\n\t}\n"): typeof import('./graphql').LibraryRemovedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation RestoreRemovedBook($id: ID!) {\n\t\trestoreMedia(id: $id)\n\t}\n"): typeof import('./graphql').RestoreRemovedBookDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

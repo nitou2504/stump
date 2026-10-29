@@ -5,7 +5,8 @@ use models::{
 	shared::enums::UserPermission,
 };
 use sea_orm::{
-	prelude::*, sea_query::OnConflict, ExprTrait, IntoActiveModel, QuerySelect, Set,
+	prelude::*, sea_query::OnConflict, ExprTrait, IntoActiveModel, QuerySelect,
+	QueryTrait, Set,
 };
 use stump_core::{
 	image::{bump_media_thumbnail_fallbacks, generate_thumbnail_from_book},
@@ -99,6 +100,30 @@ impl MediaMutation {
 			media: deleted_book,
 			..model
 		}))
+	}
+
+	/// Brings back a book removed with `deleteMedia`
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	async fn restore_media(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let visible_libraries = library::Entity::find_for_user(user)
+			.select_only()
+			.column(library::Column::Id)
+			.into_query();
+		let book = media::Entity::find_by_id(id.to_string())
+			.filter(media::Column::LibraryId.in_subquery(visible_libraries))
+			.filter(media::Column::DeletedAt.is_not_null())
+			.one(conn)
+			.await?
+			.ok_or("Removed book not found")?;
+
+		let mut active_model = book.into_active_model();
+		active_model.deleted_at = Set(None);
+		active_model.update(conn).await?;
+
+		Ok(true)
 	}
 
 	async fn favorite_media(

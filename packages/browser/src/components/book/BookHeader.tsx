@@ -11,6 +11,7 @@ import {
 	ImagePlus,
 	ImageUp,
 	Send,
+	Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation } from 'react-router'
@@ -18,11 +19,13 @@ import { toast } from 'sonner'
 
 import { EntityHeader } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import DeleteHistoryConfirmation from './DeleteHistoryConfirmation'
 import EmailBookDialog from './EmailBookDialog'
+import RemoveBookConfirmation from './RemoveBookConfirmation'
 import { useBookReadingActions } from './useBookReadingActions'
 import { useBookThumbnailActions } from './useBookThumbnailActions'
 
@@ -95,12 +98,18 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 
 	const [showEmailDialog, setShowEmailDialog] = useState(false)
 	const [showDeleteHistoryConfirmation, setShowDeleteHistoryConfirmation] = useState(false)
+	const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false)
+	const {
+		preferences: { enableBookRemoval },
+	} = usePreferences()
 
 	const canManage = MANAGE_PERMISSIONS.some((permission) => checkPermission(permission))
 	const canDownload = checkPermission(UserPermission.DownloadFile)
 	const canAnalyze = checkPermission(UserPermission.ManageLibrary)
 	const canEditThumbnail = checkPermission(UserPermission.EditThumbnails)
 	const canUpload = thumbnail.canUpload
+	// opt-in per user (Settings → Preferences), and the server requires library management
+	const canRemove = !!enableBookRemoval && checkPermission(UserPermission.ManageLibrary)
 	const canEmail =
 		checkPermission(UserPermission.EmailSend) || checkPermission(UserPermission.EmailArbitrarySend)
 
@@ -207,6 +216,18 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 					: []),
 			],
 		},
+		{
+			items: canRemove
+				? [
+						{
+							label: 'Remove from library',
+							leftIcon: <Trash2 />,
+							variant: 'destructive' as const,
+							onClick: () => setShowRemoveConfirmation(true),
+						},
+					]
+				: [],
+		},
 	].filter((group) => group.items.length > 0) satisfies DropdownItemGroup[]
 
 	return (
@@ -237,6 +258,18 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 			)}
 
 			{canEditThumbnail && thumbnail.dialogs}
+
+			{canRemove && (
+				<RemoveBookConfirmation
+					bookId={book.id}
+					name={book.resolvedName}
+					redirectTo={
+						book.series ? paths.seriesOverview(book.series.id) : paths.libraryBooks(book.library.id)
+					}
+					isOpen={showRemoveConfirmation}
+					onClose={() => setShowRemoveConfirmation(false)}
+				/>
+			)}
 
 			<DeleteHistoryConfirmation
 				name={book.resolvedName}

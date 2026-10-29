@@ -27,6 +27,7 @@ impl Loader<SeriesCountLoaderKey> for SeriesCountLoader {
 	) -> Result<HashMap<SeriesCountLoaderKey, Self::Value>, Self::Error> {
 		let series_counts = media::Entity::find()
 			.filter(media::Column::SeriesId.is_in(keys.to_vec()))
+			.filter(media::Column::DeletedAt.is_null())
 			.select_only()
 			.column(media::Column::SeriesId)
 			.column_as(media::Column::Id.count(), "count")

@@ -2313,6 +2313,8 @@ export type Mutation = {
   resetLibraryMetadata: Library;
   resetSeriesMetadata: Series;
   respondToBookClubInvitation: BookClubInvitation;
+  /** Brings back a book removed with `deleteMedia` */
+  restoreMedia: Scalars['Boolean']['output'];
   /** Enqueue a scan job for every library which the authenticated user has access to */
   scanAllLibraries: Scalars['Boolean']['output'];
   /**
@@ -2963,6 +2965,11 @@ export type MutationResetSeriesMetadataArgs = {
 export type MutationRespondToBookClubInvitationArgs = {
   id: Scalars['ID']['input'];
   input: BookClubInvitationResponseInput;
+};
+
+
+export type MutationRestoreMediaArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -3757,6 +3764,11 @@ export type Query = {
   readingSessionConflictView: ReadingSessionConflictResolutionView;
   recentlyAddedMedia: PaginatedMediaResponse;
   recentlyAddedSeries: PaginatedSeriesResponse;
+  /**
+   * Books removed from their library (soft-deleted; the files are still on disk), most
+   * recently removed first. They can be brought back with `restoreMedia`.
+   */
+  removedMedia: Array<Media>;
   scheduledJobs: Array<ScheduledJob>;
   series: PaginatedSeriesResponse;
   /** Returns the available alphabet for all series in the server */
@@ -4031,6 +4043,11 @@ export type QueryRecentlyAddedMediaArgs = {
 
 export type QueryRecentlyAddedSeriesArgs = {
   pagination?: Pagination;
+};
+
+
+export type QueryRemovedMediaArgs = {
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -5155,6 +5172,8 @@ export type UpdateUserPreferencesInput = {
   appTheme: Scalars['String']['input'];
   dayResetHourOffset: Scalars['Int']['input'];
   enableAlphabetSelect: Scalars['Boolean']['input'];
+  /** Clients which don't know this preference leave it off */
+  enableBookRemoval?: Scalars['Boolean']['input'];
   enableDiscordPresence: Scalars['Boolean']['input'];
   enableFancyAnimations: Scalars['Boolean']['input'];
   enableGradients: Scalars['Boolean']['input'];
@@ -5348,6 +5367,8 @@ export type UserPreferences = {
    */
   dayResetHourOffset: Scalars['Int']['output'];
   enableAlphabetSelect: Scalars['Boolean']['output'];
+  /** Offer "Remove from library" on book pages (still requires library management rights) */
+  enableBookRemoval: Scalars['Boolean']['output'];
   enableDiscordPresence: Scalars['Boolean']['output'];
   enableFancyAnimations: Scalars['Boolean']['output'];
   enableGradients: Scalars['Boolean']['output'];
@@ -6290,6 +6311,13 @@ export type SendEmailAttachmentMutationVariables = Exact<{
 
 export type SendEmailAttachmentMutation = { __typename?: 'Mutation', sendAttachmentEmail: { __typename?: 'SendAttachmentEmailOutput', sentCount: number, errors: Array<string> } };
 
+export type RemoveBookFromLibraryMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type RemoveBookFromLibraryMutation = { __typename?: 'Mutation', deleteMedia: { __typename?: 'Media', id: string } };
+
 export type SimpleBookCardFragment = { __typename?: 'Media', id: string, resolvedName: string, createdAt: any, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'SimpleBookCardFragment' };
 
 export type MediaMetadataEditorFragment = { __typename?: 'MediaMetadata', ageRating?: number | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, day?: number | null, editors: Array<string>, format?: string | null, identifierAmazon?: string | null, identifierCalibre?: string | null, identifierGoogle?: string | null, identifierIsbn?: string | null, identifierMobiAsin?: string | null, identifierUuid?: string | null, genres: Array<string>, inkers: Array<string>, language?: string | null, letterers: Array<string>, links: Array<string>, month?: number | null, notes?: string | null, number?: any | null, pageCount?: number | null, pencillers: Array<string>, publisher?: string | null, series?: string | null, seriesGroup?: string | null, storyArc?: string | null, storyArcNumber?: any | null, summary?: string | null, teams: Array<string>, title?: string | null, titleSort?: string | null, volume?: number | null, writers: Array<string>, year?: number | null, lockedFields: Array<MetadataField> } & { ' $fragmentName'?: 'MediaMetadataEditorFragment' };
@@ -7106,6 +7134,20 @@ export type LibraryMissingEntitiesQueryVariables = Exact<{
 
 
 export type LibraryMissingEntitiesQuery = { __typename?: 'Query', libraryMissingEntities: { __typename?: 'PaginatedMissingEntityResponse', nodes: Array<{ __typename?: 'MissingEntity', id: string, name: string, path?: string | null, type: MissingEntityType }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalPages: number, currentPage: number, pageSize: number, pageOffset: number, zeroBased: boolean, totalItems: number } } };
+
+export type LibraryRemovedBooksQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+}>;
+
+
+export type LibraryRemovedBooksQuery = { __typename?: 'Query', removedMedia: Array<{ __typename?: 'Media', id: string, resolvedName: string, path: string }> };
+
+export type RestoreRemovedBookMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type RestoreRemovedBookMutation = { __typename?: 'Mutation', restoreMedia: boolean };
 
 export type AnalyzeLibraryMediaMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -12208,6 +12250,13 @@ export const SendEmailAttachmentDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<SendEmailAttachmentMutation, SendEmailAttachmentMutationVariables>;
+export const RemoveBookFromLibraryDocument = new TypedDocumentString(`
+    mutation RemoveBookFromLibrary($id: ID!) {
+  deleteMedia(id: $id) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<RemoveBookFromLibraryMutation, RemoveBookFromLibraryMutationVariables>;
 export const UpdateMediaMetadataDocument = new TypedDocumentString(`
     mutation UpdateMediaMetadata($id: ID!, $input: MediaMetadataInput!) {
   updateMediaMetadata(id: $id, input: $input) {
@@ -14837,6 +14886,20 @@ export const LibraryMissingEntitiesDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<LibraryMissingEntitiesQuery, LibraryMissingEntitiesQueryVariables>;
+export const LibraryRemovedBooksDocument = new TypedDocumentString(`
+    query LibraryRemovedBooks($libraryId: ID!) {
+  removedMedia(libraryId: $libraryId) {
+    id
+    resolvedName
+    path
+  }
+}
+    `) as unknown as TypedDocumentString<LibraryRemovedBooksQuery, LibraryRemovedBooksQueryVariables>;
+export const RestoreRemovedBookDocument = new TypedDocumentString(`
+    mutation RestoreRemovedBook($id: ID!) {
+  restoreMedia(id: $id)
+}
+    `) as unknown as TypedDocumentString<RestoreRemovedBookMutation, RestoreRemovedBookMutationVariables>;
 export const AnalyzeLibraryMediaDocument = new TypedDocumentString(`
     mutation AnalyzeLibraryMedia($id: ID!) {
   analyzeLibrary(id: $id)

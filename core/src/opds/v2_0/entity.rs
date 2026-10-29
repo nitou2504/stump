@@ -68,6 +68,8 @@ impl OPDSPublicationEntity {
 				library_exclusion::Entity::library_hidden_to_user_query(user),
 			))
 			.filter(Condition::all().add_option(age_restriction_filter))
+			// books removed from the library (soft-deleted) are not served
+			.filter(media::Column::DeletedAt.is_null())
 			.left_join(media_metadata::Entity)
 			.left_join(series::Entity)
 			.join_rev(

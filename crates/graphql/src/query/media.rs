@@ -273,6 +273,36 @@ impl MediaQuery {
 		Ok(model.map(Media::from))
 	}
 
+	/// Books removed from their library (soft-deleted; the files are still on disk), most
+	/// recently removed first. They can be brought back with `restoreMedia`.
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	async fn removed_media(
+		&self,
+		ctx: &Context<'_>,
+		library_id: Option<ID>,
+	) -> Result<Vec<Media>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let visible_libraries = models::entity::library::Entity::find_for_user(user)
+			.select_only()
+			.column(models::entity::library::Column::Id)
+			.into_query();
+		let mut query = media::ModelWithMetadata::find()
+			.filter(media::Column::DeletedAt.is_not_null())
+			.filter(media::Column::LibraryId.in_subquery(visible_libraries));
+		if let Some(library_id) = library_id {
+			query = query.filter(media::Column::LibraryId.eq(library_id.to_string()));
+		}
+		let models = query
+			.order_by_desc(media::Column::DeletedAt)
+			.into_model::<media::ModelWithMetadata>()
+			.all(conn)
+			.await?;
+
+		Ok(models.into_iter().map(Media::from).collect())
+	}
+
 	async fn media_by_path(
 		&self,
 		ctx: &Context<'_>,
