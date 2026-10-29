@@ -21,14 +21,14 @@ export default function StumpWebClient(props: StumpClientProps) {
 	const resolvedLocale = (locale as AllowedLocale) || 'en-US'
 	// Navigating (e.g. browser back/forward) clears the error screen instead of trapping
 	// the app on it until "Go home"
-	const { key: locationKey } = useLocation()
+	const { key: locationKey, pathname, search } = useLocation()
 
 	return (
 		<LocaleProvider locale={resolvedLocale}>
 			<ErrorBoundary
 				FallbackComponent={ErrorFallback}
 				onError={recordBoundaryError}
-				resetKeys={[locationKey]}
+				resetKeys={[locationKey, pathname, search]}
 			>
 				<RouterContainer {...props} />
 			</ErrorBoundary>
