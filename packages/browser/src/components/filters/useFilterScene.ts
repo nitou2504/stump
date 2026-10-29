@@ -123,6 +123,17 @@ export function useSearchMediaFilter(search: string | undefined): MediaFilterInp
 					title: { contains: search },
 				},
 			},
+			// authors and series names too, like the OPDS search
+			{
+				metadata: {
+					writers: { contains: search },
+				},
+			},
+			{
+				metadata: {
+					series: { contains: search },
+				},
+			},
 		] as MediaFilterInput[]
 	}, [search])
 }

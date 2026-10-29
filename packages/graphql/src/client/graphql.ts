@@ -6258,7 +6258,7 @@ export type BookHeaderAnalyzeMutation = { __typename?: 'Mutation', analyzeMedia:
 export type BookInfoSheetFragment = { __typename?: 'Media', id: string, resolvedName: string, pages: number, size: number, extension: string, hash?: string | null, koreaderHash?: string | null, relativeLibraryPath: string, createdAt: any, modifiedAt?: any | null, library: { __typename?: 'Library', id: string, name: string }, series?: { __typename?: 'Series', id: string, resolvedName: string } | null, metadata?: { __typename?: 'MediaMetadata', publisher?: string | null, year?: number | null, month?: number | null, day?: number | null, language?: string | null, ageRating?: number | null, volume?: number | null, number?: any | null, storyArc?: string | null, storyArcNumber?: any | null, writers: Array<string>, pencillers: Array<string>, inkers: Array<string>, colorists: Array<string>, letterers: Array<string>, coverArtists: Array<string>, editors: Array<string>, characters: Array<string>, teams: Array<string>, identifierIsbn?: string | null, identifierAmazon?: string | null, identifierCalibre?: string | null, identifierGoogle?: string | null, identifierMobiAsin?: string | null, identifierUuid?: string | null } | null, readHistory: Array<{ __typename?: 'ReadthroughRecord', completedAt: any, dnf: boolean }> } & { ' $fragmentName'?: 'BookInfoSheetFragment' };
 
 export type BookOverviewDetailsFragment = (
-  { __typename?: 'Media', resolvedName: string, seriesPosition?: number | null, series?: { __typename?: 'Series', id: string, resolvedName: string } | null, library: { __typename?: 'Library', id: string, name: string, config: { __typename?: 'LibraryConfig', libraryType: LibraryType } }, metadata?: { __typename?: 'MediaMetadata', summary?: string | null, links: Array<string>, genres: Array<string>, writers: Array<string>, pencillers: Array<string>, number?: any | null, volume?: number | null } | null, tags: Array<{ __typename?: 'Tag', id: number, name: string }>, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null } | null, readHistory: Array<{ __typename: 'ReadthroughRecord' }> }
+  { __typename?: 'Media', id: string, resolvedName: string, seriesPosition?: number | null, series?: { __typename?: 'Series', id: string, resolvedName: string } | null, library: { __typename?: 'Library', id: string, name: string, config: { __typename?: 'LibraryConfig', libraryType: LibraryType } }, metadata?: { __typename?: 'MediaMetadata', summary?: string | null, links: Array<string>, genres: Array<string>, writers: Array<string>, pencillers: Array<string>, number?: any | null, volume?: number | null } | null, tags: Array<{ __typename?: 'Tag', id: number, name: string }>, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null } | null, readHistory: Array<{ __typename: 'ReadthroughRecord' }> }
   & { ' $fragmentRefs'?: { 'BookStatRowFragment': BookStatRowFragment } }
 ) & { ' $fragmentName'?: 'BookOverviewDetailsFragment' };
 
@@ -6939,6 +6939,13 @@ export type HomeSceneQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type HomeSceneQueryQuery = { __typename?: 'Query', numberOfLibraries: number };
+
+export type HomeSearchQueryVariables = Exact<{
+  filter: MediaFilterInput;
+}>;
+
+
+export type HomeSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalPages: number } } };
 
 export type OnDeckBookFragment = { __typename?: 'Media', id: string, resolvedName: string, seriesPosition?: number | null, metadata?: { __typename?: 'MediaMetadata', number?: any | null } | null, series?: { __typename?: 'Series', mediaCount: number, metadata?: { __typename?: 'SeriesMetadata', totalIssues?: number | null } | null } | null, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'OnDeckBookFragment' };
 
@@ -8880,6 +8887,7 @@ export const BookStatRowFragmentDoc = new TypedDocumentString(`
     `, {"fragmentName":"BookStatRow"}) as unknown as TypedDocumentString<BookStatRowFragment, unknown>;
 export const BookOverviewDetailsFragmentDoc = new TypedDocumentString(`
     fragment BookOverviewDetails on Media {
+  id
   resolvedName
   seriesPosition
   series {
@@ -12312,6 +12320,7 @@ fragment BookInfoSheet on Media {
   }
 }
 fragment BookOverviewDetails on Media {
+  id
   resolvedName
   seriesPosition
   series {
@@ -14285,6 +14294,29 @@ export const HomeSceneQueryDocument = new TypedDocumentString(`
   numberOfLibraries
 }
     `) as unknown as TypedDocumentString<HomeSceneQueryQuery, HomeSceneQueryQueryVariables>;
+export const HomeSearchDocument = new TypedDocumentString(`
+    query HomeSearch($filter: MediaFilterInput!) {
+  media(filter: $filter, pagination: {offset: {page: 1, pageSize: 6}}) {
+    nodes {
+      id
+      resolvedName
+      thumbnail {
+        url
+      }
+      metadata {
+        writers
+        rating
+      }
+    }
+    pageInfo {
+      __typename
+      ... on OffsetPaginationInfo {
+        totalPages
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<HomeSearchQuery, HomeSearchQueryVariables>;
 export const OnDeckBooksWebDocument = new TypedDocumentString(`
     query OnDeckBooksWeb($pagination: Pagination!) {
   onDeck(pagination: $pagination) {

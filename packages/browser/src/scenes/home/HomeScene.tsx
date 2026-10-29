@@ -18,6 +18,7 @@ import {
 	useHomeArrangementKey,
 } from './arrangement'
 import ContinueReadingMedia, { usePrefetchContinueReading } from './ContinueReading'
+import HomeSearch from './HomeSearch'
 import OnDeck, { usePrefetchOnDeck } from './OnDeck'
 import RecentlyAddedMedia, { usePrefetchRecentlyAddedMedia } from './RecentlyAddedMedia'
 import RecentlyAddedSeries, { usePrefetchRecentlyAddedSeries } from './RecentlyAddedSeries'
@@ -109,6 +110,8 @@ export default function HomeScene() {
 			{helmet}
 
 			<SceneContainer className="gap-6 flex flex-1 flex-col">
+				<HomeSearch />
+
 				{sections.map((section) => {
 					const id = getHomeSectionId(section)
 					if (!id || !section.visible) return null
