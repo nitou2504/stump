@@ -255,7 +255,7 @@ const BookCard = memo(function BookCard({
 				/>
 				{seriesPosition && (
 					<span
-						className="left-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute z-10 rounded-md"
+						className="left-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute z-20 rounded-md"
 						title={`#${seriesPosition} in series`}
 					>
 						#{seriesPosition}
@@ -263,7 +263,7 @@ const BookCard = memo(function BookCard({
 				)}
 				{isAdult && (
 					<span
-						className="right-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute z-10 rounded-md"
+						className="right-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute z-20 rounded-md"
 						title="Adult (18+)"
 					>
 						18+
