@@ -12,6 +12,17 @@ type Props = {
 	className?: string
 }
 
+const HTML_TAG = /<\/?(p|div|br|i|b|em|strong|span|ul|ol|li|h[1-6]|blockquote)\b[^>]*>/i
+
+/**
+ * Book descriptions are often HTML (e.g. EPUB `dc:description`) rather than Markdown, and
+ * some are pretty-printed with indented lines. Markdown reads a line indented by 4+ spaces
+ * as a code block, so such descriptions rendered their raw `<p>`/`<i>` tags. For HTML
+ * content the indentation carries no meaning, so it is dropped before rendering.
+ */
+export const normalizeDescription = (text: string) =>
+	HTML_TAG.test(text) ? text.replace(/^[ \t]+/gm, '') : text
+
 export default function MarkdownPreview({ children, className }: Props) {
 	return (
 		<ReactMarkdown
@@ -44,7 +55,7 @@ export default function MarkdownPreview({ children, className }: Props) {
 				'youtube-video': YouTubeVideo,
 			}}
 		>
-			{children}
+			{normalizeDescription(children)}
 		</ReactMarkdown>
 	)
 }
