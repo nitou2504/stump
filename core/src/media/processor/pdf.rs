@@ -180,7 +180,21 @@ fn extract_metadata_from_open_document(
 			PdfDocumentMetadataTagType::Title => "title".to_string(),
 			PdfDocumentMetadataTagType::Author => "author".to_string(),
 			PdfDocumentMetadataTagType::Subject => "summary".to_string(),
-			PdfDocumentMetadataTagType::Keywords => "tags".to_string(),
+			PdfDocumentMetadataTagType::Keywords => {
+				// PDFs have no series, age or rating fields: the book curator writes them as
+				// `bcurator:<field>=<value>` keywords (see split_curator_keywords)
+				let (tags, fields) = split_curator_keywords(&value);
+				for (field, field_value) in fields {
+					metadata_map.entry(field).or_default().push(field_value);
+				}
+				if !tags.is_empty() {
+					metadata_map
+						.entry("tags".to_string())
+						.or_default()
+						.push(tags.join(", "));
+				}
+				continue;
+			},
 			PdfDocumentMetadataTagType::CreationDate => "date".to_string(),
 			PdfDocumentMetadataTagType::ModificationDate => "date".to_string(),
 			_ => continue,
@@ -193,6 +207,39 @@ fn extract_metadata_from_open_document(
 	} else {
 		Some(ProcessedMediaMetadata::from(metadata_map))
 	})
+}
+
+/// Splits a PDF Keywords string into plain tags and the book curator's structured fields.
+///
+/// PDF has no standard place for a series, an age rating or a rating, so the curator writes
+/// them into Keywords as `bcurator:series=<name>`, `bcurator:series_index=<n>`,
+/// `bcurator:age=<18+|All ages>` and `bcurator:rating=<0-5>`. They are returned under the keys
+/// the EPUB path already understands (`series`, `series_index`, `typicalagerange`,
+/// `bcurator:rating`) and left out of the tags.
+fn split_curator_keywords(keywords: &str) -> (Vec<String>, Vec<(String, String)>) {
+	let mut tags = Vec::new();
+	let mut fields = Vec::new();
+	for item in keywords.split([',', ';']).map(str::trim).filter(|s| !s.is_empty()) {
+		let field = item
+			.strip_prefix("bcurator:")
+			.and_then(|rest| rest.split_once('='))
+			.and_then(|(name, value)| {
+				let key = match name.trim() {
+					"series" => "series",
+					"series_index" => "series_index",
+					"age" => "typicalagerange",
+					"rating" => "bcurator:rating",
+					_ => return None,
+				};
+				let value = value.trim();
+				(!value.is_empty()).then(|| (key.to_string(), value.to_string()))
+			});
+		match field {
+			Some(field) => fields.push(field),
+			None => tags.push(item.to_string()),
+		}
+	}
+	(tags, fields)
 }
 
 /// Process the metadata of a PDF file using the specified config/env pdfium path.
@@ -746,6 +793,35 @@ mod tests {
 
 		let metadata = process_metadata_internal(path, &None);
 		assert!(metadata.is_ok());
+	}
+
+	#[test]
+	fn test_split_curator_keywords() {
+		let (tags, fields) = split_curator_keywords(
+			"Estante: Historia, Canon de referencia, bcurator:series=Cambridge Concise Histories, \
+			 bcurator:series_index=3, bcurator:age=All ages, bcurator:rating=3.98, bcurator:unknown=x",
+		);
+		assert_eq!(
+			tags,
+			vec!["Estante: Historia", "Canon de referencia", "bcurator:unknown=x"]
+		);
+		assert_eq!(
+			fields,
+			vec![
+				("series".to_string(), "Cambridge Concise Histories".to_string()),
+				("series_index".to_string(), "3".to_string()),
+				("typicalagerange".to_string(), "All ages".to_string()),
+				("bcurator:rating".to_string(), "3.98".to_string()),
+			]
+		);
+
+		let metadata = ProcessedMediaMetadata::from(std::collections::HashMap::from_iter(
+			fields.into_iter().map(|(k, v)| (k, vec![v])),
+		));
+		assert_eq!(metadata.series.as_deref(), Some("Cambridge Concise Histories"));
+		assert_eq!(metadata.number, Some(3.0));
+		assert_eq!(metadata.age_rating, Some(0));
+		assert_eq!(metadata.rating, Some(3.98));
 	}
 
 	#[test]
