@@ -285,6 +285,7 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 					label={isGroupedBySeries ? 'Series' : 'Library'}
 					isAllExpanded={groupTable.getIsAllRowsExpanded()}
 					onToggleAll={() => groupTable.toggleAllRowsExpanded()}
+					showSeriesPosition={isGroupedBySeries}
 				/>
 			</div>
 		)

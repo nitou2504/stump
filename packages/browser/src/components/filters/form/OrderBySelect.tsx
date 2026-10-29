@@ -49,6 +49,8 @@ const options: Record<FilterableEntity, OptionGroup[]> = {
 				MediaMetadataModelOrdering.Number,
 				MediaMetadataModelOrdering.Volume,
 				MediaMetadataModelOrdering.Year,
+				MediaMetadataModelOrdering.Rating,
+				MediaMetadataModelOrdering.AgeRating,
 			],
 		},
 	],

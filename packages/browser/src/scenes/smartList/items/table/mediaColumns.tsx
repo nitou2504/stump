@@ -164,6 +164,55 @@ const ageRatingColumn = columnHelper.accessor(({ metadata }) => metadata?.ageRat
 	id: 'age_rating',
 })
 
+const ratingColumn = columnHelper.accessor(
+	({ metadata }) => (metadata?.rating != null ? Number(metadata.rating) : undefined),
+	{
+		cell: ({ getValue }) => {
+			const value = getValue()
+			if (value == null || isNaN(value) || value <= 0) return null
+			return (
+				<Text size="sm" variant="muted">
+					★ {value.toFixed(1)}
+				</Text>
+			)
+		},
+		enableGlobalFilter: false,
+		enableSorting: true,
+		header: () => (
+			<Text size="sm" variant="muted">
+				Rating
+			</Text>
+		),
+		id: 'rating',
+		// unrated books sort last in both directions
+		sortUndefined: 'last',
+	},
+)
+
+const positionColumn = columnHelper.accessor(
+	({ metadata }) => (metadata?.number != null ? Number(metadata.number) : undefined),
+	{
+		cell: ({ getValue }) => {
+			const value = getValue()
+			if (value == null || isNaN(value)) return null
+			return (
+				<Text size="sm" variant="muted">
+					#{Number(value.toFixed(2))}
+				</Text>
+			)
+		},
+		enableGlobalFilter: false,
+		enableSorting: true,
+		header: () => (
+			<Text size="sm" variant="muted">
+				#
+			</Text>
+		),
+		id: 'position',
+		sortUndefined: 'last',
+	},
+)
+
 const genresColumn = columnHelper.accessor(({ metadata }) => metadata?.genres?.join(', '), {
 	cell: ({ getValue }) => (
 		<Text size="sm" variant="muted">
@@ -351,6 +400,8 @@ export const columnMap = {
 	publisher: publisherColumn,
 	volume: volumeColumn,
 	writers: writersColumn,
+	rating: ratingColumn,
+	position: positionColumn,
 } as Record<string, ColumnDef<Media>>
 
 // TODO: localization keys instead of hardcoded strings
@@ -372,6 +423,8 @@ export const columnOptionMap: Record<keyof typeof columnMap, string> = {
 	publisher: 'Publisher',
 	volume: 'Volume',
 	writers: 'Writers',
+	rating: 'Rating',
+	position: 'Series position',
 }
 
 export const defaultColumns = [

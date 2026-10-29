@@ -5,6 +5,7 @@ export const BookMetadataFragment = graphql(`
 	fragment BookMetadata on Media {
 		metadata {
 			ageRating
+			rating
 			characters
 			colorists
 			coverArtists

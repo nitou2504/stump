@@ -3204,6 +3204,7 @@
       "identifiers": "Identifiers",
       "issue": "Issue",
       "ageRating": "Age Rating",
+      "rating": "Rating",
       "characters": "Characters",
       "format": "Format",
       "genres": "Genres",
@@ -3383,7 +3384,9 @@
         "EXTENSION": "File Type",
         "PAGES": "Page Count",
         "DESCRIPTION": "Description",
-        "VOLUME": "Volume"
+        "VOLUME": "Volume",
+        "RATING": "Rating",
+        "AGE_RATING": "Age Rating"
       },
       "sortDirection": {
         "ASC": "Ascending",

@@ -24,6 +24,8 @@ type Props = {
 	label: string
 	isAllExpanded: boolean
 	onToggleAll: () => void
+	/** Show each book's number in its series on the covers */
+	showSeriesPosition?: boolean
 }
 
 const Chevron = ({ isExpanded }: { isExpanded: boolean }) => (
@@ -38,7 +40,13 @@ const Chevron = ({ isExpanded }: { isExpanded: boolean }) => (
  * A cover grid for grouped smart lists: one section per series/library, with its books
  * as cards. Groups and books arrive already filtered and sorted by the current view.
  */
-export default function GroupedSmartListGrid({ groups, label, isAllExpanded, onToggleAll }: Props) {
+export default function GroupedSmartListGrid({
+	groups,
+	label,
+	isAllExpanded,
+	onToggleAll,
+	showSeriesPosition,
+}: Props) {
 	if (!groups.length) {
 		return (
 			<Text variant="muted" className="py-8 text-center">
@@ -105,6 +113,7 @@ export default function GroupedSmartListGrid({ groups, label, isAllExpanded, onT
 										<BookCard
 											key={book.id}
 											fragment={book as unknown as FragmentType<typeof BookCardFragment>}
+											showSeriesPosition={showSeriesPosition}
 										/>
 									)
 								}}

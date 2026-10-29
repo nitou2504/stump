@@ -284,6 +284,8 @@ const MEDIA_METADATA_ORDER_FIELDS: string[] = [
 	MediaMetadataModelOrdering.Number,
 	MediaMetadataModelOrdering.Volume,
 	MediaMetadataModelOrdering.Year,
+	MediaMetadataModelOrdering.Rating,
+	MediaMetadataModelOrdering.AgeRating,
 ]
 
 export function useMediaURLOrderBy(ordering: Ordering): MediaOrderBy[] {

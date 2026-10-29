@@ -3013,6 +3013,7 @@
       "identifiers": "Identifiers",
       "issue": "Issue",
       "ageRating": "Age Rating",
+      "rating": "Rating",
       "characters": "Characters",
       "format": "Format",
       "genres": "Genres",
@@ -3290,7 +3291,9 @@
         "YEAR": "Year Published",
         "NAME": "Name",
         "ADDED_AT": "Date Added",
-        "SERIES": "Series"
+        "SERIES": "Series",
+        "RATING": "Rating",
+        "AGE_RATING": "Age Rating"
       },
       "sortDirection": {
         "ASC": "Ascending",

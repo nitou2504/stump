@@ -373,6 +373,29 @@ const linksColumn = columnHelper.accessor(({ metadata }) => metadata?.links?.joi
 	id: 'links',
 })
 
+const ratingColumn = columnHelper.accessor(
+	({ metadata }) => (metadata?.rating != null ? Number(metadata.rating) : null),
+	{
+		cell: ({ getValue }) => {
+			const value = getValue()
+			if (value == null || isNaN(value) || value <= 0) return null
+			return (
+				<Text size="sm" variant="muted">
+					★ {value.toFixed(1)}
+				</Text>
+			)
+		},
+		enableGlobalFilter: false,
+		enableSorting: true,
+		header: () => (
+			<Text size="sm" variant="secondary">
+				Rating
+			</Text>
+		),
+		id: MediaMetadataModelOrdering.Rating,
+	},
+)
+
 const positionColumn = columnHelper.accessor(
 	({ metadata, seriesPosition }) => seriesPosition ?? Number(metadata?.number),
 	{
@@ -425,6 +448,7 @@ export const columnMap = {
 	volume: volumeColumn,
 	writers: writersColumn,
 	position: positionColumn,
+	rating: ratingColumn,
 } as Record<string, ColumnDef<Media>>
 
 // TODO: localization keys instead of hardcoded strings
@@ -449,6 +473,7 @@ export const columnOptionMap: Record<keyof typeof columnMap, string> = {
 	volume: 'Volume',
 	writers: 'Writers',
 	position: 'Position',
+	rating: 'Rating',
 }
 
 export const defaultColumns = [

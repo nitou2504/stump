@@ -17,9 +17,9 @@ import { useSeriesContextSafe } from '@/components/series/context'
 import { useSmartListContextSafe } from '@/scenes/smartList/context'
 
 import { useFilterContext } from '..'
-import AgeRatingFilter from './AgeRatingFilter'
 import ExtensionSelect from './ExtensionSelect'
 import GenericFilterMultiselect from './GenericFilterMultiselect'
+import RatingAgeSelects from './RatingAgeSelects'
 import ReadStatusSelect from './ReadStatusSelect'
 
 const query = graphql(`
@@ -88,17 +88,14 @@ const schema = z.object({
 	extension: z.string().optional(),
 	metadata: z
 		.object({
-			ageRating: z
-				.number()
-				.optional()
-				.nullable()
-				.refine((val) => val == null || (val >= 0 && val <= 18)),
 			...(Object.fromEntries(
 				METADATA_FIELDS.map(({ name }) => [name, z.array(z.string()).optional()]),
 			) as Record<MetadataFieldName, z.ZodOptional<z.ZodArray<z.ZodString>>>),
 		})
 		.optional(),
 	tags: z.array(z.string()).optional(),
+	minRating: z.string().optional(),
+	age: z.enum(['', 'general', 'adult']).optional(),
 	read_status: z.array(z.enum(['finished', 'reading', 'not_started'])).optional(),
 })
 export type MediaFilterFormSchema = z.infer<typeof schema>
@@ -159,7 +156,6 @@ export default function MediaFilterForm() {
 	const defaultValue = useMemo(() => {
 		const metadata = (filters?.metadata ?? {}) as MediaMetadataFilterInput
 		const flattenMetadata = {
-			ageRating: metadata.ageRating?.lte ?? null,
 			...Object.fromEntries(
 				METADATA_FIELDS.map(({ name, key }) => [
 					name,
@@ -171,6 +167,11 @@ export default function MediaFilterForm() {
 			extension: filters?.extension?.eq as string,
 			metadata: flattenMetadata,
 			tags: selectedValues(filters?.tags),
+			minRating: metadata.rating?.gte != null ? String(metadata.rating.gte) : '',
+			age: (metadata.adult == null ? '' : metadata.adult ? 'adult' : 'general') as
+				| ''
+				| 'general'
+				| 'adult',
 			read_status: filters?.readingStatus?.isAnyOf?.map((elem) => (elem as string).toLowerCase()),
 		}
 	}, [filters])
@@ -208,19 +209,23 @@ export default function MediaFilterForm() {
 			newFilters.tags = { anyOf: values.tags }
 		}
 
-		if (values.metadata) {
+		{
 			const metadata: MediaMetadataFilterInput = {}
-			if (values.metadata.ageRating != null && !Number.isNaN(values.metadata.ageRating)) {
-				metadata.ageRating = { lte: values.metadata.ageRating }
-			}
 
 			for (const { name, key, list } of METADATA_FIELDS) {
-				const selected = values.metadata[name] as string[] | undefined
+				const selected = values.metadata?.[name] as string[] | undefined
 				if (selected?.length) {
 					Object.assign(metadata, {
 						[key]: list ? { hasAnyOf: selected } : { anyOf: selected },
 					})
 				}
+			}
+
+			if (values.minRating) {
+				metadata.rating = { gte: Number(values.minRating) }
+			}
+			if (values.age) {
+				metadata.adult = values.age === 'adult'
 			}
 
 			if (Object.keys(metadata).length) {
@@ -250,7 +255,7 @@ export default function MediaFilterForm() {
 
 			<ExtensionSelect />
 			<ReadStatusSelect />
-			<AgeRatingFilter />
+			<RatingAgeSelects />
 
 			{!isEmptyState &&
 				METADATA_FIELDS.map(({ name, label, overview }) => {

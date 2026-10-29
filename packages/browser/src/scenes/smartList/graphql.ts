@@ -115,6 +115,7 @@ export const smartListMediaItemMetadataFragment = graphql(`
 	fragment SmartListItemBookMetadata on Media {
 		metadata {
 			ageRating
+			rating
 			characters
 			colorists
 			coverArtists

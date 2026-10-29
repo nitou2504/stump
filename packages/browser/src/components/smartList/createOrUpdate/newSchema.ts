@@ -67,6 +67,7 @@ export const isStringField = (field: string): field is StringField =>
 
 export const numberField = z.enum([
 	'ageRating',
+	'rating',
 	'year',
 	'day',
 	'month',

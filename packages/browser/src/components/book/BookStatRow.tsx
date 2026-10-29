@@ -1,7 +1,7 @@
 import { formatBytesSeparate } from '@stump/client'
 import { MiniStatCard } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
-import { Calendar, FileStack, FileType, HardDrive } from 'lucide-react'
+import { Calendar, FileStack, FileType, HardDrive, ShieldAlert, Star } from 'lucide-react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -12,6 +12,8 @@ const fragment = graphql(`
 		extension
 		metadata {
 			year
+			rating
+			ageRating
 		}
 	}
 `)
@@ -25,7 +27,14 @@ export default function BookStatRow({ fragment: fragmentRef }: Props) {
 	const { pages, size, extension, metadata } = useFragment(fragment, fragmentRef)
 	const formattedSize = size > 0 ? formatBytesSeparate(size) : null
 
+	const rating = metadata?.rating != null ? Number(metadata.rating) : null
 	const items = [
+		{
+			key: 'rating',
+			icon: Star,
+			value: rating != null && Number.isFinite(rating) && rating > 0 ? rating.toFixed(1) : null,
+			suffix: '/ 5',
+		},
 		{
 			key: 'pages',
 			icon: FileStack,
@@ -43,6 +52,11 @@ export default function BookStatRow({ fragment: fragmentRef }: Props) {
 			icon: HardDrive,
 			value: formattedSize?.value,
 			suffix: formattedSize?.unit,
+		},
+		{
+			key: 'age',
+			icon: ShieldAlert,
+			value: metadata?.ageRating && metadata.ageRating > 0 ? `${metadata.ageRating}+` : null,
 		},
 	].filter(({ value }) => value != null && value !== '')
 

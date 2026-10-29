@@ -52,14 +52,27 @@ export const BookCardFragment = graphql(`
 		libraryConfig {
 			skipBookOverview
 		}
+		metadata {
+			number
+			rating
+			ageRating
+		}
 	}
 `)
+
+/** `3`, `1.5`: a series position without trailing zeros */
+const formatPosition = (value: unknown) => {
+	const number = Number(value)
+	return Number.isFinite(number) ? String(Number(number.toFixed(2))) : null
+}
 
 type Props = {
 	fragment: FragmentType<typeof BookCardFragment>
 	readingLink?: boolean
 	onSelect?: () => void
 	fullWidth?: boolean
+	/** Show the book's number in its series (e.g. `#3`) on the cover */
+	showSeriesPosition?: boolean
 }
 
 const BookCard = memo(function BookCard({
@@ -67,6 +80,7 @@ const BookCard = memo(function BookCard({
 	readingLink,
 	onSelect,
 	fullWidth = true,
+	showSeriesPosition,
 }: Props) {
 	const data = useFragment(BookCardFragment, fragment)
 	const paths = usePaths()
@@ -131,6 +145,20 @@ const BookCard = memo(function BookCard({
 	const pagesLeft = data.pages - (data.readProgress?.page || 0)
 	const progressPercent = progress ?? 0
 
+	const seriesPosition =
+		showSeriesPosition && data.metadata?.number != null
+			? formatPosition(data.metadata.number)
+			: null
+	const rating = data.metadata?.rating != null ? Number(data.metadata.rating) : null
+	const isAdult = (data.metadata?.ageRating ?? 0) >= 18
+
+	const ratingLabel =
+		rating != null && Number.isFinite(rating) && rating > 0 ? (
+			<Text size="xs" variant="muted" className="shrink-0" title={`Rating ${rating} / 5`}>
+				★ {rating.toFixed(1)}
+			</Text>
+		) : null
+
 	const renderSubtitle = () => {
 		if (isMissing) {
 			return (
@@ -155,16 +183,22 @@ const BookCard = memo(function BookCard({
 			)
 		} else if (progressPercent === 100) {
 			return (
-				<Text size="xs" variant="muted">
-					Completed
-				</Text>
+				<div className="gap-1 flex items-center justify-between">
+					<Text size="xs" variant="muted">
+						Completed
+					</Text>
+					{ratingLabel}
+				</div>
 			)
 		}
 
 		return (
-			<Text size="xs" variant="muted">
-				{formatBytes(data.size.valueOf())}
-			</Text>
+			<div className="gap-1 flex items-center justify-between">
+				<Text size="xs" variant="muted">
+					{formatBytes(data.size.valueOf())}
+				</Text>
+				{ratingLabel}
+			</div>
 		)
 	}
 
@@ -219,6 +253,22 @@ const BookCard = memo(function BookCard({
 						shadowRadius: 2,
 					}}
 				/>
+				{seriesPosition && (
+					<span
+						className="left-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute rounded-md"
+						title={`#${seriesPosition} in series`}
+					>
+						#{seriesPosition}
+					</span>
+				)}
+				{isAdult && (
+					<span
+						className="right-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute rounded-md"
+						title="Adult (18+)"
+					>
+						18+
+					</span>
+				)}
 			</div>
 
 			{progressPercent > 0 && (

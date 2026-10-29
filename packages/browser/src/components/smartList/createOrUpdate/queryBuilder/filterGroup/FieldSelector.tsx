@@ -203,6 +203,7 @@ const sourceOptions: Record<FilterSource, { value: string }[]> = {
 		{ value: 'characters' },
 		{ value: 'teams' },
 		{ value: 'ageRating' },
+		{ value: 'rating' },
 		{ value: 'year' },
 		{ value: 'month' },
 		{ value: 'day' },

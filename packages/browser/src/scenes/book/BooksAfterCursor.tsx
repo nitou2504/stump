@@ -73,7 +73,9 @@ function BooksAfterCurrent({ cursor }: Props) {
 
 	const nodes = data.pages.flatMap((page) => page.mediaById?.nextInSeries.nodes || [])
 
-	const cards = nodes.map((node) => <BookCard key={node.id} fragment={node} fullWidth={false} />)
+	const cards = nodes.map((node) => (
+		<BookCard key={node.id} fragment={node} fullWidth={false} showSeriesPosition />
+	))
 
 	const handleFetchMore = useCallback(() => {
 		if (hasNextPage && !isFetchingNextPage) {

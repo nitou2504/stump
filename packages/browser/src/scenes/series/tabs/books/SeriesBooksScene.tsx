@@ -214,7 +214,9 @@ function SeriesBooksScene() {
 						{!!nodes.length && (
 							<DynamicCardGrid
 								count={nodes.length}
-								renderItem={(index) => <BookCard key={nodes[index]!.id} fragment={nodes[index]!} />}
+								renderItem={(index) => (
+									<BookCard key={nodes[index]!.id} fragment={nodes[index]!} showSeriesPosition />
+								)}
 							/>
 						)}
 						{!nodes.length && !isLoading && (
