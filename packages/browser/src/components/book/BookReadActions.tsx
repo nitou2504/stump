@@ -1,5 +1,5 @@
 import { Button, ButtonOrLink, DropdownMenu } from '@stump/components'
-import { BookOpen, ChevronDown, EyeOff, FileText } from 'lucide-react'
+import { BookMinus, BookOpen, BookOpenCheck, ChevronDown, EyeOff, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -14,7 +14,14 @@ export function BookReadActions({ fragment }: Props) {
 	const navigate = useNavigate()
 
 	const { translate } = useTranslate()
-	const { isReading, isPreviouslyCompleted, links } = useBookReadingActions(fragment)
+	const {
+		isReading,
+		isPreviouslyCompleted,
+		isUntouched,
+		links,
+		completeBook,
+		deleteCurrentSession,
+	} = useBookReadingActions(fragment)
 
 	const primaryLabel = isReading
 		? translate('shared.common.continue')
@@ -59,6 +66,28 @@ export function BookReadActions({ fragment }: Props) {
 								: []),
 						],
 					},
+					...(isReading || isUntouched
+						? [
+								{
+									items: [
+										...(isReading
+											? [
+													{
+														label: translate('shared.bookActions.clearProgress.label'),
+														leftIcon: <BookMinus />,
+														onClick: deleteCurrentSession,
+													},
+												]
+											: []),
+										{
+											label: translate('shared.bookActions.markAsRead.label'),
+											leftIcon: <BookOpenCheck />,
+											onClick: completeBook,
+										},
+									],
+								},
+							]
+						: []),
 				]}
 			/>
 		</div>

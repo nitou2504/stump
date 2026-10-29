@@ -1,12 +1,14 @@
 import { PREFETCH_STALE_TIME, useInfiniteSuspenseGraphQL, useSDK } from '@stump/client'
-import { Heading, ProgressBar, Text } from '@stump/components'
+import { DropdownMenu, Heading, IconButton, ProgressBar, Text } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
-import { BookMarked } from 'lucide-react'
+import { BookMarked, BookMinus, BookOpen, BookOpenCheck, Info, MoreHorizontal } from 'lucide-react'
 import { memo, Suspense, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router'
 import { useMediaMatch } from 'rooks'
 
+import { useBookProgressMutations } from '@/components/book/useBookReadingActions'
 import HorizontalCardList from '@/components/HorizontalCardList'
 import { ThumbnailImage } from '@/components/thumbnail/ThumbnailImage'
 import { ThumbnailPlaceholderData } from '@/components/thumbnail/ThumbnailPlaceholder'
@@ -14,7 +16,7 @@ import { Link } from '@/context'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
-import { isEbookReadProgress, readProgressPercent } from '@/utils/readingProgress'
+import { isEbookExtension, isEbookReadProgress, readProgressPercent } from '@/utils/readingProgress'
 
 const IMAGE_WIDTH_MOBILE = 200
 const IMAGE_WIDTH_TABLET = 220
@@ -171,6 +173,15 @@ const ContinueReadingCard = memo(function ContinueReadingCard({
 	const width = isAtLeastMedium ? IMAGE_WIDTH_TABLET : IMAGE_WIDTH_MOBILE
 	const data = useFragment(ContinueReadingBookFragment, fragment)
 	const paths = usePaths()
+	const navigate = useNavigate()
+	const { translate } = useTranslate()
+	const { completeBook, clearProgress } = useBookProgressMutations()
+
+	const resumeLink = useMemo(() => {
+		const isEpub = isEbookExtension(data.extension) || !!data.readProgress?.locator?.href
+		if (isEpub) return paths.bookReader(data.id, { isEpub })
+		return paths.bookReader(data.id, { page: data.readProgress?.page || 1 })
+	}, [data.id, data.extension, data.readProgress, paths])
 
 	const {
 		preferences: { thumbnailRatio },
@@ -206,6 +217,58 @@ const ContinueReadingCard = memo(function ContinueReadingCard({
 			className="group relative block shrink-0 rounded-thumbnail transition-opacity hover:opacity-90"
 			style={{ width }}
 		>
+			{/* Card actions: the menu lives inside the card link, so its clicks must not navigate */}
+			<div
+				className="right-1.5 top-1.5 md:opacity-0 md:group-hover:opacity-100 md:has-[[data-state=open]]:opacity-100 absolute z-40 opacity-100 transition-opacity"
+				onClick={(e) => {
+					e.preventDefault()
+					e.stopPropagation()
+				}}
+			>
+				<DropdownMenu
+					align="end"
+					trigger={
+						<IconButton
+							variant="ghost"
+							size="sm"
+							title="More actions"
+							className="bg-black/55 text-white backdrop-blur-sm hover:bg-black/75 hover:text-white rounded-full"
+						>
+							<MoreHorizontal className="h-4 w-4" />
+						</IconButton>
+					}
+					groups={[
+						{
+							items: [
+								{
+									label: translate('shared.common.continue'),
+									leftIcon: <BookOpen />,
+									onClick: () => navigate(resumeLink),
+								},
+								{
+									label: translate('shared.bookActions.seeDetails'),
+									leftIcon: <Info />,
+									onClick: () => navigate(paths.bookOverview(data.id)),
+								},
+							],
+						},
+						{
+							items: [
+								{
+									label: translate('shared.bookActions.clearProgress.label'),
+									leftIcon: <BookMinus />,
+									onClick: () => clearProgress(data.id),
+								},
+								{
+									label: translate('shared.bookActions.markAsRead.label'),
+									leftIcon: <BookOpenCheck />,
+									onClick: () => completeBook(data.id),
+								},
+							],
+						},
+					]}
+				/>
+			</div>
 			<ThumbnailImage
 				src={data.thumbnail.url}
 				alt={data.resolvedName}

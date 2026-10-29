@@ -42,15 +42,16 @@ const deleteHistoryMutation = graphql(`
 
 export type BookReadingActionsRef = FragmentType<typeof fragment>
 
-export function useBookReadingActions(data: BookReadingActionsRef) {
-	const book = useFragment(fragment, data)
-	const paths = usePaths()
+/**
+ * Progress mutations for any book by ID (mark as read, clear progress, delete history).
+ * Reading progress shows up in many places (book page, cards, continue reading, on deck),
+ * so a successful change refreshes every active query.
+ */
+export function useBookProgressMutations() {
 	const client = useQueryClient()
-
 	const { translate } = useTranslate()
 
-	const onSuccess = () => client.invalidateQueries({ queryKey: ['bookOverview', book.id] })
-
+	const onSuccess = () => client.invalidateQueries()
 	const onError = (title: string, error: unknown) => {
 		toast.error(title, {
 			description: extractErrorMessage(error, translate('shared.common.unknownError')),
@@ -61,14 +62,29 @@ export function useBookReadingActions(data: BookReadingActionsRef) {
 		onSuccess,
 		onError: (error) => onError(translate('shared.bookActions.markAsRead.failure'), error),
 	})
-	const { mutate: deleteCurrentSession } = useGraphQLMutation(deleteMutation, {
-		onSuccess,
+	const { mutate: clearProgress } = useGraphQLMutation(deleteMutation, {
+		onSuccess: () => {
+			toast.success('Progress cleared')
+			onSuccess()
+		},
 		onError: (error) => onError(translate('shared.bookActions.clearProgress.failure'), error),
 	})
 	const { mutate: deleteReadHistory } = useGraphQLMutation(deleteHistoryMutation, {
 		onSuccess,
 		onError: (error) => onError(translate('shared.bookActions.deleteReadHistory.failure'), error),
 	})
+
+	return {
+		completeBook: (id: string) => completeBook({ id }),
+		clearProgress: (id: string) => clearProgress({ id }),
+		deleteReadHistory: (id: string) => deleteReadHistory({ id }),
+	}
+}
+
+export function useBookReadingActions(data: BookReadingActionsRef) {
+	const book = useFragment(fragment, data)
+	const paths = usePaths()
+	const mutations = useBookProgressMutations()
 
 	const isReading = !!book.readProgress
 	const isPreviouslyCompleted = !!book.readHistory?.length
@@ -100,8 +116,8 @@ export function useBookReadingActions(data: BookReadingActionsRef) {
 		isPreviouslyCompleted,
 		isUntouched,
 		links,
-		completeBook: () => completeBook({ id: book.id }),
-		deleteCurrentSession: () => deleteCurrentSession({ id: book.id }),
-		deleteReadHistory: () => deleteReadHistory({ id: book.id }),
+		completeBook: () => mutations.completeBook(book.id),
+		deleteCurrentSession: () => mutations.clearProgress(book.id),
+		deleteReadHistory: () => mutations.deleteReadHistory(book.id),
 	}
 }

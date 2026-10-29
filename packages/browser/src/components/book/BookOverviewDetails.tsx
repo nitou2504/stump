@@ -1,7 +1,7 @@
 import { parseGraphQLPercentageDecimal } from '@stump/client'
 import { Badge, Heading, Link } from '@stump/components'
 import { FragmentType, graphql, Tag, useFragment } from '@stump/graphql'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, X } from 'lucide-react'
 import { Fragment } from 'react'
 
 import ReadMore from '@/components/ReadMore'
@@ -11,9 +11,11 @@ import { usePaths } from '@/paths'
 
 import BookStatRow from './BookStatRow'
 import { getBookPresentation } from './presentation'
+import { useBookProgressMutations } from './useBookReadingActions'
 
 const fragment = graphql(`
 	fragment BookOverviewDetails on Media {
+		id
 		resolvedName
 		seriesPosition
 		series {
@@ -70,6 +72,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 	const position = metadata?.number ?? metadata?.volume ?? media.seriesPosition
 
 	const isReading = !!media.readProgress
+	const { clearProgress } = useBookProgressMutations()
 	const isPreviouslyCompleted = !!media.readHistory?.length
 	const percentage = parseGraphQLPercentageDecimal(media.readProgress?.percentageCompleted)
 
@@ -129,7 +132,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 				</div>
 
 				{(isReading || isPreviouslyCompleted) && (
-					<Badge variant="primary">
+					<Badge variant="primary" className="gap-1">
 						{isReading
 							? [
 									translate('shared.readingStatus.READING'),
@@ -138,6 +141,17 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 									.filter(Boolean)
 									.join(' · ')
 							: translate('shared.common.completed')}
+						{isReading && (
+							<button
+								type="button"
+								onClick={() => clearProgress(media.id)}
+								title={translate('shared.bookActions.clearProgress.label')}
+								aria-label={translate('shared.bookActions.clearProgress.label')}
+								className="-mr-1 p-0.5 hover:bg-black/10 rounded-full opacity-60 hover:opacity-100"
+							>
+								<X className="h-3 w-3" />
+							</button>
+						)}
 					</Badge>
 				)}
 			</div>
