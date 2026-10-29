@@ -1,5 +1,6 @@
 import { Button, ButtonOrLink, useBodyLock } from '@stump/components'
 import { ExternalLink } from 'lucide-react'
+import { ErrorInfo } from 'react'
 import { FallbackProps } from 'react-error-boundary'
 import { toast } from 'sonner'
 
@@ -8,17 +9,47 @@ import { useTranslate } from '@/hooks/useTranslate'
 import { copyTextToClipboard } from '../utils/misc'
 import { Owl } from './Owl'
 
+/**
+ * Details of the last error caught by the app's error boundary. React only hands the
+ * component stack to the boundary's `onError`, so it is kept here for the copy button.
+ */
+const lastError: { componentStack?: string | null; url?: string } = {}
+
+/** Pass as the error boundary's `onError` to capture the details copied by the fallback */
+export function recordBoundaryError(error: Error, info: ErrorInfo) {
+	lastError.componentStack = info.componentStack
+	lastError.url = window.location.href
+	console.error('Error boundary caught:', error, info.componentStack)
+}
+
+/**
+ * The text copied by the fallback's copy button: enough to locate the failing component
+ * in a production build (map the chunk positions with the build's hidden source maps)
+ */
+function errorReport(error: Error) {
+	return [
+		`${error.name}: ${error.message}`,
+		`URL: ${lastError.url ?? window.location.href}`,
+		`Previous page: ${document.referrer || 'n/a'}`,
+		`User agent: ${navigator.userAgent}`,
+		'',
+		'Stack:',
+		error.stack ?? '(none)',
+		'',
+		'Component stack:',
+		lastError.componentStack ?? '(none)',
+	].join('\n')
+}
+
 // TODO: take in platform?
 export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
 	useBodyLock()
 	const { t } = useTranslate()
 
 	function copyErrorStack() {
-		if (error.stack) {
-			copyTextToClipboard(error.stack).then(() => {
-				toast.success(t('errorScene.copiedDetails'))
-			})
-		}
+		copyTextToClipboard(errorReport(error)).then(() => {
+			toast.success(t('errorScene.copiedDetails'))
+		})
 	}
 
 	return (
@@ -54,7 +85,7 @@ export function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
 					>
 						{t('errorScene.buttons.report')} <ExternalLink className="ml-2 h-4 w-4" />
 					</ButtonOrLink>
-					{error.stack && (
+					{(error.stack || lastError.componentStack) && (
 						<Button
 							title={t('errorScene.buttons.copyTitle')}
 							onClick={copyErrorStack}

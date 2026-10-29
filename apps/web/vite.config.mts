@@ -19,6 +19,9 @@ export default defineConfig({
 		manifest: true,
 		outDir: '../dist',
 		emptyOutDir: true,
+		// Generated but not referenced by the bundles, so production stack traces (e.g. from
+		// the error screen's copy button) can be mapped back to the source offline
+		sourcemap: 'hidden',
 		rollupOptions: {
 			output: {
 				manualChunks(id) {

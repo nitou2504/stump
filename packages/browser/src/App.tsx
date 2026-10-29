@@ -9,7 +9,7 @@ import { ErrorBoundary } from 'react-error-boundary'
 import { Helmet } from 'react-helmet'
 import { createSearchParams, useLocation, useNavigate } from 'react-router'
 
-import { ErrorFallback } from '@/components/ErrorFallback'
+import { ErrorFallback, recordBoundaryError } from '@/components/ErrorFallback'
 
 import { AppRouter } from './AppRouter'
 import { Toaster } from './components/Toaster'
@@ -19,10 +19,17 @@ import { useAppStore, useDebugStore, useUserStore } from './stores'
 export default function StumpWebClient(props: StumpClientProps) {
 	const locale = useUserStore((store) => store.userPreferences?.locale)
 	const resolvedLocale = (locale as AllowedLocale) || 'en-US'
+	// Navigating (e.g. browser back/forward) clears the error screen instead of trapping
+	// the app on it until "Go home"
+	const { key: locationKey } = useLocation()
 
 	return (
 		<LocaleProvider locale={resolvedLocale}>
-			<ErrorBoundary FallbackComponent={ErrorFallback}>
+			<ErrorBoundary
+				FallbackComponent={ErrorFallback}
+				onError={recordBoundaryError}
+				resetKeys={[locationKey]}
+			>
 				<RouterContainer {...props} />
 			</ErrorBoundary>
 		</LocaleProvider>
