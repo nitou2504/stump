@@ -48,6 +48,7 @@ import {
 } from './locator'
 import { type OpenedPublication, openStumpPublication } from './openPublication'
 import { bookPreferencesToEpubPreferences, resolveReaderTheme } from './preferences'
+import { useReaderChromeTheme } from './useReaderChromeTheme'
 import { useReadiumNavigator } from './useReadiumNavigator'
 
 type Props = {
@@ -210,6 +211,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	const readerTheme = useReaderStore((state) => state.settings.theme)
 	const textAlign = useReaderStore((state) => state.settings.textAlign)
 	const themeColors = resolveReaderTheme(readerTheme, isDarkVariant)
+	useReaderChromeTheme(readerTheme)
 
 	// Measures the viewport parent — i.e. the parent of the element Readium itself treats
 	// as its viewport (`containerRef`'s parent, see `useReadiumNavigator`). Keeping the
