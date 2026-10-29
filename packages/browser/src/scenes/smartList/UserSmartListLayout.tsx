@@ -50,7 +50,10 @@ export default function UserSmartListLayout() {
 
 	const { user } = useAppContext()
 
-	const { grouping, setGrouping } = useSmartListGrouping(id, list?.defaultGrouping)
+	const { grouping, setGrouping, fieldGrouping, setFieldGrouping } = useSmartListGrouping(
+		id,
+		list?.defaultGrouping,
+	)
 
 	/**
 	 * Whether or not the current user is the creator of the smart list
@@ -109,6 +112,8 @@ export default function UserSmartListLayout() {
 					viewerRole,
 					grouping,
 					setGrouping,
+					fieldGrouping,
+					setFieldGrouping,
 				}}
 			>
 				<div className="relative flex flex-1">

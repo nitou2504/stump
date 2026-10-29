@@ -6,7 +6,7 @@ import { ChevronDown } from 'lucide-react'
 type EntityGroup = SmartListGroupedItem
 const columnHelper = createColumnHelper<EntityGroup>()
 
-const buildNameColumn = (isGroupedBySeries: boolean, standaloneLabel: string) =>
+const buildNameColumn = (isGroupedBySeries: boolean, standaloneLabel: string, label?: string) =>
 	columnHelper.accessor(({ entity }) => entity?.name ?? standaloneLabel, {
 		cell: ({ getValue, row: { getToggleExpandedHandler, getIsExpanded, getCanExpand } }) => {
 			const isExpanded = getIsExpanded()
@@ -53,7 +53,7 @@ const buildNameColumn = (isGroupedBySeries: boolean, standaloneLabel: string) =>
 						/>
 					</button>
 					<Text className="text-sm" variant="muted">
-						{isGroupedBySeries ? 'Series' : 'Library'}
+						{label ?? (isGroupedBySeries ? 'Series' : 'Library')}
 					</Text>
 				</div>
 			)
@@ -105,10 +105,12 @@ export const buildColumns = (
 	isGroupedBySeries: boolean,
 	columns?: SmartListViewColumn[],
 	standaloneLabel = 'Standalone books',
+	/** The group column's header, e.g. `Author` (defaults to Series/Library) */
+	label?: string,
 ) => {
-	if (!columns?.length) {
+	if (!columns?.length || label) {
 		return [
-			buildNameColumn(isGroupedBySeries, standaloneLabel),
+			buildNameColumn(isGroupedBySeries, standaloneLabel, label),
 			booksCountColumn,
 		] as ColumnDef<EntityGroup>[]
 	}

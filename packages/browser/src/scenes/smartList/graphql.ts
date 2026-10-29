@@ -105,6 +105,10 @@ const smartListItemsQuery = graphql(`
 				books {
 					...BookCard
 					...SmartListItemBookMetadata
+					tags {
+						id
+						name
+					}
 				}
 			}
 		}
@@ -157,10 +161,12 @@ export function useSmartListItems({
 	id,
 	filter,
 	grouping,
+	enabled = true,
 }: {
 	id: string
 	filter?: MediaFilterInput
 	grouping?: SmartListGrouping
+	enabled?: boolean
 }) {
 	const { sdk } = useSDK()
 	const hasFilter = !!filter && Object.keys(filter).length > 0
@@ -173,7 +179,7 @@ export function useSmartListItems({
 			grouping,
 		},
 		// Keep showing the current books while a new filter loads
-		{ placeholderData: (prev) => prev },
+		{ enabled: enabled && !!id, placeholderData: (prev) => prev },
 	)
 
 	return {

@@ -30,6 +30,12 @@ import TableHeaderActions from './TableHeaderActions'
 
 type Props = {
 	items: SmartListGroupedItem[]
+	/**
+	 * Set for viewer-side groupings by a book detail (see `fieldGrouping.ts`): the group
+	 * column's label, the label of books without a value, and groups keep their given order
+	 * and don't link anywhere
+	 */
+	fieldGroup?: { label: string; ungroupedLabel: string }
 }
 
 type FlatItem =
@@ -41,7 +47,7 @@ const HEADER_HEIGHT = 40
 const GROUP_ROW_HEIGHT = 40
 const BOOK_HEADER_HEIGHT = 40
 
-export default function GroupedVirtualSmartListTable({ items }: Props) {
+export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Props) {
 	const { translate } = useTranslate()
 	const { grouping } = useSmartListContext()
 	const containerRef = useRef<HTMLDivElement>(null)
@@ -53,10 +59,16 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 	const [expanded, setExpanded] = useState<ExpandedState>({})
 
 	const isGroupedBySeries = grouping === 'BY_SERIES'
-	const standaloneLabel = translate('shared.common.standaloneBooks')
+	const standaloneLabel = fieldGroup?.ungroupedLabel ?? translate('shared.common.standaloneBooks')
 	const groupColumns = useMemo(
-		() => buildGroupColumns(isGroupedBySeries, workingView.groupColumns, standaloneLabel),
-		[isGroupedBySeries, workingView.groupColumns, standaloneLabel],
+		() =>
+			buildGroupColumns(
+				isGroupedBySeries,
+				workingView.groupColumns,
+				standaloneLabel,
+				fieldGroup?.label,
+			),
+		[isGroupedBySeries, workingView.groupColumns, standaloneLabel, fieldGroup?.label],
 	)
 
 	const groupSorting = useMemo(() => workingView?.groupSorting ?? [], [workingView])
@@ -77,7 +89,10 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 	)
 
 	// Groups default to name order (standalone books last) rather than query order
-	const sortedItems = useMemo(() => [...items].sort(naturalGroupOrder), [items])
+	const sortedItems = useMemo(
+		() => (fieldGroup ? items : [...items].sort(naturalGroupOrder)),
+		[items, fieldGroup],
+	)
 
 	const groupTable = useReactTable({
 		columns: groupColumns,
@@ -99,7 +114,10 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 	// Start from the natural order (series position, then title) so the default view
 	// isn't the query's arbitrary order
 	const allBooks = useMemo(
-		() => items.flatMap((item) => item.books).sort(naturalBookOrder(isGroupedBySeries)),
+		() =>
+			[
+				...new Map(items.flatMap((item) => item.books).map((book) => [book.id, book])).values(),
+			].sort(naturalBookOrder(isGroupedBySeries)),
 		[items, isGroupedBySeries],
 	)
 	const bookColumns = useMemo(
@@ -188,14 +206,14 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 					books: [...groupRow.original.books]
 						.filter((book) => !search || bookFuzzySearch(book, search))
 						.sort((a, b) => (bookSortMap.get(a.id) ?? 0) - (bookSortMap.get(b.id) ?? 0)),
-					href: groupHref(groupRow.original.entity),
+					href: fieldGroup ? undefined : groupHref(groupRow.original.entity),
 					id: groupRow.id,
 					isExpanded: groupRow.getIsExpanded(),
 					name: groupRow.original.entity?.name ?? standaloneLabel,
 					onToggle: () => groupRow.toggleExpanded(),
 				}))
 				.filter(({ books }) => books.length > 0),
-		[groupRows, search, bookSortMap, groupHref, standaloneLabel, expanded],
+		[groupRows, search, bookSortMap, groupHref, standaloneLabel, expanded, fieldGroup],
 	)
 
 	const rowVirtualizer = useVirtualizer({
@@ -282,7 +300,7 @@ export default function GroupedVirtualSmartListTable({ items }: Props) {
 				/>
 				<GroupedSmartListGrid
 					groups={gridGroups}
-					label={isGroupedBySeries ? 'Series' : 'Library'}
+					label={fieldGroup?.label ?? (isGroupedBySeries ? 'Series' : 'Library')}
 					isAllExpanded={groupTable.getIsAllRowsExpanded()}
 					onToggleAll={() => groupTable.toggleAllRowsExpanded()}
 					showSeriesPosition={isGroupedBySeries}

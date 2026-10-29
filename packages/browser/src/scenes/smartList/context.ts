@@ -1,6 +1,7 @@
 import { AccessRole, SaveSmartListInput, SmartListGrouping, SmartListMeta } from '@stump/graphql'
 import { createContext, useContext } from 'react'
 
+import { FieldGrouping } from './fieldGrouping'
 import { SmartListParsed } from './graphql'
 import { buildDefaultWorkingView, useSmartListViewStore } from './store'
 
@@ -17,6 +18,9 @@ export type ISmartListContext = {
 	/** How the items are grouped for this viewer (defaults to the list's grouping) */
 	grouping: SmartListGrouping
 	setGrouping: (grouping: SmartListGrouping) => void
+	/** A viewer-side grouping by a book detail, e.g. `Asignatura: *`; overrides `grouping` */
+	fieldGrouping: FieldGrouping | null
+	setFieldGrouping: (grouping: FieldGrouping) => void
 }
 
 export const SmartListContext = createContext<ISmartListContext | null>(null)

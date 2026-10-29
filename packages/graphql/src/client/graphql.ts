@@ -7762,7 +7762,7 @@ export type SmartListItemsQuery = { __typename?: 'Query', smartListItems: { __ty
         { __typename?: 'Media' }
         & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment;'BookMetadataFragment': BookMetadataFragment } }
       )> }> } | { __typename: 'SmartListUngrouped', books: Array<(
-      { __typename?: 'Media' }
+      { __typename?: 'Media', tags: Array<{ __typename?: 'Tag', id: number, name: string }> }
       & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment;'SmartListItemBookMetadataFragment': SmartListItemBookMetadataFragment } }
     )> } };
 
@@ -15864,6 +15864,10 @@ export const SmartListItemsDocument = new TypedDocumentString(`
       books {
         ...BookCard
         ...SmartListItemBookMetadata
+        tags {
+          id
+          name
+        }
       }
     }
   }
