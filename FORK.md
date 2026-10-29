@@ -24,7 +24,7 @@ change small and upstreamable.
 | Web | Filter drawer gains **language**, **tags**, **minimum rating** and **age** (general / adult); sort by rating or age rating; rating columns in tables; `rating` in smart list rules |
 | Web | Book cards show **★ rating** and an **18+** badge; in a series they show the book's **#number** on the cover; the book page shows rating and age |
 | Web | **More by <author>** row on book pages (standalone books lost the folder-based "Next in series") |
-| Web | **EPUB reader**: themes (auto / light / sepia / dark / black), a one-tap day/night button, and text alignment (book default / justified with hyphenation / left), kept across books |
+| Web | **EPUB reader**: themes (auto / light / sepia / dark / black) that colour the whole reader page (bars, margins, dialogs), a one-tap day/night button, and text alignment (book default / justified with hyphenation / left), kept across books |
 | Web | **Remove books** from their book page (opt-in per user: *Settings → Preferences*, needs *Manage library*): the file stays on disk, the book is hidden everywhere (web, search, smart lists, OPDS) and survives rescans; restore it from the library's *Settings → Danger zone → Deletion* |
 | Web | Polish: book summaries expand inline; unimplemented controls are hidden (book *Reading timeline* tab, smart list *List rules* drawer, empty saved-view controls) |
 | Fixes | The EPUB reader no longer crashes with React error #185 when going back into it (book → reader → book → browser back); the error screen's *Copy report* stack maps to source with `scripts/fork/map_stack.py` |
