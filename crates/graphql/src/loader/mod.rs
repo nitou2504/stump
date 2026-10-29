@@ -5,6 +5,7 @@ pub mod library_config;
 pub mod log;
 pub mod media;
 pub mod media_analysis;
+pub mod media_tags;
 pub mod reading_session;
 pub mod series;
 pub mod series_count;

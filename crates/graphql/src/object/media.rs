@@ -3,7 +3,7 @@ use async_graphql::{
 };
 
 use models::{
-	entity::{library, media, media_analysis, media_metadata, reading_session, tag},
+	entity::{library, media, media_analysis, media_metadata, reading_session},
 	services::reading_timeline::sessions_with_events,
 	shared::{
 		analysis::MediaAnalysisData, enums::SeriesKind, image::ImageRef,
@@ -20,6 +20,7 @@ use crate::{
 		library::LibraryLoader,
 		library_config::LibraryConfigLoader,
 		media_analysis::{MediaAnalysisLoader, PageDimensionLoaderKey},
+		media_tags::MediaTagsLoader,
 		reading_session::{
 			ReadingSessionLoader, ReadthroughRecordLoaderKey,
 			ResumeReadingCursorLoaderKey,
@@ -100,11 +101,12 @@ impl Media {
 
 	/// The tags associated with the media
 	async fn tags(&self, ctx: &Context<'_>) -> Result<Vec<Tag>> {
-		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let model = tag::Entity::find_for_media_id(&self.model.id.clone())
-			.all(conn)
-			.await?;
-		Ok(model.into_iter().map(Tag::from).collect())
+		let loader = ctx.data::<DataLoader<MediaTagsLoader>>()?;
+		let tags = loader
+			.load_one(self.model.id.clone())
+			.await?
+			.unwrap_or_default();
+		Ok(tags.into_iter().map(Tag::from).collect())
 	}
 
 	/// The series the media belongs to
