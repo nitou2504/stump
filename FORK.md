@@ -55,5 +55,7 @@ The helper scripts in `scripts/fork/` run in containers on a build host:
 - `schema.sh` — regenerate `crates/graphql/schema.graphql`, then
   `node.sh 'cd packages/graphql && yarn codegen'` for the TS client
 - `build-image.sh <tag>` — the upstream multi-stage `docker/Dockerfile`
+- `map_stack.py <assets dir>` — map a stack copied from the web error screen to source
+  (`docker cp stump-fork:/app/client/assets /tmp/stump-assets` first; builds ship hidden source maps)
 - `build-local.sh <tag>` — faster: builds the server and web client with cached
   crates/node_modules and assembles `docker/Dockerfile.fork`
