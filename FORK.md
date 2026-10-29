@@ -20,6 +20,7 @@ change small and upstreamable.
 | Web | **Filters on smart lists**: the same filter drawer as library/series books (genre, writer, language, tags, read status, ...), offering only the values present in the list |
 | Web / GraphQL | **Exact list matching** (`hasAnyOf` / `hasNoneOf`): `Estante: Ciencia` no longer matches `Estante: Ciencia ficción`; genre/author badges and the filter drawer use it |
 | Metadata | **Ratings** (0-5): read from EPUB `calibre:rating` (0-10, halved), ComicInfo `CommunityRating`, or the curator's precise `bcurator:rating`; new `rating` column (needs a *Rebuild metadata* scan to fill) |
+| Metadata | **PDF series, age and rating**: PDFs have no such fields, so `bcurator:series=`, `bcurator:series_index=`, `bcurator:age=` (`18+` / `All ages`) and `bcurator:rating=` entries in the PDF Keywords are read like the EPUB fields (and kept out of the tags); PDFs then join metadata series |
 | Web | Filter drawer gains **language**, **tags**, **minimum rating** and **age** (general / adult); sort by rating or age rating; rating columns in tables; `rating` in smart list rules |
 | Web | Book cards show **★ rating** and an **18+** badge; in a series they show the book's **#number** on the cover; the book page shows rating and age |
 | Web | **More by <author>** row on book pages (standalone books lost the folder-based "Next in series") |
