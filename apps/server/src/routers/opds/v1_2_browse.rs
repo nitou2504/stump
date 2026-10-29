@@ -61,6 +61,32 @@ pub(crate) struct BookFeedParams {
 	/// An exact writer (whole list element)
 	#[serde(default)]
 	pub author: Option<String>,
+	/// The minimum rating (0-5)
+	#[serde(default)]
+	pub min_rating: Option<String>,
+	/// `general` (not 18+) or `adult` (18+)
+	#[serde(default)]
+	pub age: Option<String>,
+}
+
+/// Which filters [apply_book_filters] leaves out, to compute the facet counts of the
+/// filter itself
+#[derive(Default, Clone, Copy)]
+struct SkipFilters {
+	lang: bool,
+	rating: bool,
+	age: bool,
+}
+
+/// The minimum ratings offered as facets
+const RATING_STEPS: [f32; 4] = [4.5, 4.0, 3.5, 3.0];
+
+fn format_rating(rating: f32) -> String {
+	if rating.fract() == 0.0 {
+		format!("{rating:.0}")
+	} else {
+		format!("{rating:.1}")
+	}
 }
 
 impl BookFeedParams {
@@ -81,6 +107,20 @@ impl BookFeedParams {
 
 	fn author(&self) -> Option<String> {
 		Self::clean(&self.author)
+	}
+
+	fn min_rating(&self) -> Option<f32> {
+		Self::clean(&self.min_rating)
+			.and_then(|r| r.parse::<f32>().ok())
+			.filter(|r| r.is_finite() && *r > 0.0)
+	}
+
+	fn age(&self) -> Option<&'static str> {
+		match Self::clean(&self.age).as_deref() {
+			Some("general") => Some("general"),
+			Some("adult") => Some("adult"),
+			_ => None,
+		}
 	}
 
 	fn lang(&self) -> Option<String> {
@@ -105,6 +145,7 @@ impl BookFeedParams {
 			Some("series") => BookSort::Series,
 			Some("author") => BookSort::Author,
 			Some("title") => BookSort::Title,
+			Some("rating") => BookSort::Rating,
 			Some("relevance") if self.search().is_some() => BookSort::Relevance,
 			_ => self.default_sort(scope),
 		}
@@ -119,12 +160,15 @@ enum BookSort {
 	Added,
 	Series,
 	Author,
+	/// Highest rated first, unrated last
+	Rating,
 }
 
 impl BookSort {
-	const ALL: [BookSort; 5] = [
+	const ALL: [BookSort; 6] = [
 		BookSort::Relevance,
 		BookSort::Title,
+		BookSort::Rating,
 		BookSort::Author,
 		BookSort::Series,
 		BookSort::Added,
@@ -137,6 +181,7 @@ impl BookSort {
 			BookSort::Added => "added",
 			BookSort::Series => "series",
 			BookSort::Author => "author",
+			BookSort::Rating => "rating",
 		}
 	}
 
@@ -147,6 +192,7 @@ impl BookSort {
 			BookSort::Added => "Recently added",
 			BookSort::Series => "Series order",
 			BookSort::Author => "Author",
+			BookSort::Rating => "Rating",
 		}
 	}
 }
@@ -232,13 +278,13 @@ pub(crate) fn book_search_condition(search: &str) -> Condition {
 		.add(media_metadata::Column::Writers.contains(search))
 }
 
-/// Applies the scope and every param filter. The language filter can be skipped, which
-/// is used to compute the language facet for the rest of the filters.
+/// Applies the scope and every param filter. Some filters can be skipped, which is used
+/// to compute a facet's counts for the rest of the filters.
 fn apply_book_filters(
 	query: Select<media::Entity>,
 	scope: &BookScope,
 	params: &BookFeedParams,
-	with_lang: bool,
+	skip: SkipFilters,
 ) -> Select<media::Entity> {
 	let query = scope.apply(query);
 	let query = match params.search() {
@@ -257,7 +303,20 @@ fn apply_book_filters(
 		},
 		None => query,
 	};
-	match params.lang().filter(|_| with_lang) {
+	let query = match params.min_rating().filter(|_| !skip.rating) {
+		Some(rating) => query.filter(media_metadata::Column::Rating.gte(rating)),
+		None => query,
+	};
+	let query = match params.age().filter(|_| !skip.age) {
+		Some("adult") => query.filter(media_metadata::Column::AgeRating.gte(18)),
+		Some(_) => query.filter(
+			Condition::any()
+				.add(media_metadata::Column::AgeRating.is_null())
+				.add(media_metadata::Column::AgeRating.lt(18)),
+		),
+		None => query,
+	};
+	match params.lang().filter(|_| !skip.lang) {
 		Some(lang) => query.filter(lang_condition(&lang)),
 		None => query,
 	}
@@ -306,6 +365,13 @@ fn apply_sort(
 				Order::Asc,
 			),
 		),
+		BookSort::Rating => query
+			.order_by(
+				QExpr::cust("COALESCE(\"media_metadata\".\"rating\", -1)"),
+				Order::Desc,
+			)
+			.order_by(title, Order::Asc)
+			.order_by_asc(media::Column::Id),
 		BookSort::Author => query
 			.order_by(
 				QExpr::cust(
@@ -391,7 +457,7 @@ pub(crate) async fn books_feed(
 		OPDSPublicationEntity::find_for_user(&user),
 		&scope,
 		&params,
-		true,
+		SkipFilters::default(),
 	);
 	let count = query.clone().count(conn).await?;
 	let books = apply_sort(query, sort, params.search().as_deref())
@@ -406,27 +472,34 @@ pub(crate) async fn books_feed(
 	}))
 	.await;
 
-	// The params which define *what* is listed (not the page or the search), used to
-	// build the facet and search links
+	// The params which define *what* is listed (not the page), used to build the facet
+	// and search links. A sort equal to the default is left out of the links.
 	let default_sort = params.default_sort(&scope);
-	let sort_param = (sort != default_sort).then(|| sort.key().to_string());
-	let base = |sort: Option<String>, lang: Option<String>, search: Option<String>| {
+	let path_for = |p: &BookFeedParams, with_search: bool| {
+		let sort = p.sort(&scope);
 		path_with_params(
 			&scope.path(),
 			&[
-				("genre", params.genre()),
-				("author", params.author()),
-				("lang", lang),
-				("sort", sort),
-				("search", search),
+				("genre", p.genre()),
+				("author", p.author()),
+				("lang", p.lang()),
+				("min_rating", p.min_rating().map(format_rating)),
+				("age", p.age().map(str::to_string)),
+				(
+					"sort",
+					(sort != p.default_sort(&scope)).then(|| sort.key().to_string()),
+				),
+				("search", if with_search { p.search() } else { None }),
 			],
 		)
 	};
 	// The feed's own path without the search (the paginator and the search template add
-	// it), and the facet base which keeps the current search
-	let feed_path = base(sort_param.clone(), params.lang(), None);
-	let facet = |sort: Option<String>, lang: Option<String>| {
-		catalog_url(req, &base(sort, lang, params.search()))
+	// it), and facet links, which keep the current search
+	let feed_path = path_for(&params, false);
+	let facet = |change: &dyn Fn(&mut BookFeedParams)| {
+		let mut variant = params.clone();
+		change(&mut variant);
+		catalog_url(req, &path_for(&variant, true))
 	};
 
 	let mut title = scope.title();
@@ -451,22 +524,29 @@ pub(crate) async fn books_feed(
 		extra_links.push(OpdsGenericLink::facet(
 			"Sort",
 			option.label().to_string(),
-			facet(key, params.lang()),
+			facet(&|p| p.sort = key.clone()),
 			option == sort,
 		));
 	}
 
 	// Language facets, computed for the current filters minus the language itself
-	let languages: Vec<(Option<String>, i64)> =
-		apply_book_filters(media::Entity::find_for_user(&user), &scope, &params, false)
-			.select_only()
-			.column_as(QExpr::cust(LANG_EXPR), "lang")
-			.column_as(media::Column::Id.count(), "count")
-			.group_by(QExpr::cust(LANG_EXPR))
-			.order_by(QExpr::cust("COUNT(\"media\".\"id\")"), Order::Desc)
-			.into_tuple()
-			.all(conn)
-			.await?;
+	let languages: Vec<(Option<String>, i64)> = apply_book_filters(
+		media::Entity::find_for_user(&user),
+		&scope,
+		&params,
+		SkipFilters {
+			lang: true,
+			..Default::default()
+		},
+	)
+	.select_only()
+	.column_as(QExpr::cust(LANG_EXPR), "lang")
+	.column_as(media::Column::Id.count(), "count")
+	.group_by(QExpr::cust(LANG_EXPR))
+	.order_by(QExpr::cust("COUNT(\"media\".\"id\")"), Order::Desc)
+	.into_tuple()
+	.all(conn)
+	.await?;
 	// Books without a (valid) language still count towards "All languages"
 	let total: i64 = languages.iter().map(|(_, c)| c).sum();
 	let languages = languages
@@ -481,7 +561,7 @@ pub(crate) async fn books_feed(
 			OpdsGenericLink::facet(
 				"Language",
 				"All languages".to_string(),
-				facet(sort_param.clone(), None),
+				facet(&|p| p.lang = None),
 				params.lang().is_none(),
 			)
 			.with_count(total as u64),
@@ -492,11 +572,110 @@ pub(crate) async fn books_feed(
 				OpdsGenericLink::facet(
 					"Language",
 					language_name(&lang),
-					facet(sort_param.clone(), Some(lang)),
+					facet(&|p| p.lang = Some(lang.clone())),
 					active,
 				)
 				.with_count(count as u64),
 			);
+		}
+	}
+
+	// Rating facets: how many books reach each minimum, for the other filters
+	let rating_counts: Option<(i64, i64, i64, i64, i64)> = apply_book_filters(
+		media::Entity::find_for_user(&user),
+		&scope,
+		&params,
+		SkipFilters {
+			rating: true,
+			..Default::default()
+		},
+	)
+	.select_only()
+	.column_as(media::Column::Id.count(), "total")
+	.column_as(
+		QExpr::cust("COALESCE(SUM(\"media_metadata\".\"rating\" >= 4.5), 0)"),
+		"r45",
+	)
+	.column_as(
+		QExpr::cust("COALESCE(SUM(\"media_metadata\".\"rating\" >= 4.0), 0)"),
+		"r40",
+	)
+	.column_as(
+		QExpr::cust("COALESCE(SUM(\"media_metadata\".\"rating\" >= 3.5), 0)"),
+		"r35",
+	)
+	.column_as(
+		QExpr::cust("COALESCE(SUM(\"media_metadata\".\"rating\" >= 3.0), 0)"),
+		"r30",
+	)
+	.into_tuple()
+	.one(conn)
+	.await
+	.ok()
+	.flatten();
+	if let Some((total, r45, r40, r35, r30)) = rating_counts {
+		if r30 > 0 || params.min_rating().is_some() {
+			extra_links.push(
+				OpdsGenericLink::facet(
+					"Rating",
+					"Any rating".to_string(),
+					facet(&|p| p.min_rating = None),
+					params.min_rating().is_none(),
+				)
+				.with_count(total as u64),
+			);
+			for (step, count) in RATING_STEPS.into_iter().zip([r45, r40, r35, r30]) {
+				extra_links.push(
+					OpdsGenericLink::facet(
+						"Rating",
+						format!("★ {}+", format_rating(step)),
+						facet(&|p| p.min_rating = Some(format_rating(step))),
+						params.min_rating() == Some(step),
+					)
+					.with_count(count as u64),
+				);
+			}
+		}
+	}
+
+	// Age facets, only offered when the feed has adult books
+	let age_counts: Option<(i64, i64)> = apply_book_filters(
+		media::Entity::find_for_user(&user),
+		&scope,
+		&params,
+		SkipFilters {
+			age: true,
+			..Default::default()
+		},
+	)
+	.select_only()
+	.column_as(media::Column::Id.count(), "total")
+	.column_as(
+		QExpr::cust("COALESCE(SUM(\"media_metadata\".\"age_rating\" >= 18), 0)"),
+		"adult",
+	)
+	.into_tuple()
+	.one(conn)
+	.await
+	.ok()
+	.flatten();
+	if let Some((total, adult)) = age_counts {
+		if adult > 0 || params.age().is_some() {
+			for (key, label, count) in [
+				(None, "Any age", total),
+				(Some("general"), "General (no 18+)", total - adult),
+				(Some("adult"), "Adult (18+)", adult),
+			] {
+				extra_links.push(
+					OpdsGenericLink::facet(
+						"Age",
+						label.to_string(),
+						facet(&|p| p.age = key.map(str::to_string)),
+						params.age() == key,
+					)
+					.with_count(std::cmp::max(count, 0) as u64),
+				);
+			}
 		}
 	}
 

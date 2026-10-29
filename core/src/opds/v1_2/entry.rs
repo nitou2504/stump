@@ -303,12 +303,28 @@ impl IntoOPDSEntry for OPDSEntryBuilder<OPDSPublicationEntity> {
 			})
 			.filter(|v| !v.is_empty());
 
+		// e.g. "★ 4.1 · 18+ · 1.2 MiB - epub"
+		let mut details = Vec::new();
+		if let Some(rating) = self.data.metadata.as_ref().and_then(|m| m.rating) {
+			details.push(format!(
+				"★ {:.1}",
+				rating.to_string().parse::<f64>().unwrap_or(0.0)
+			));
+		}
+		if let Some(age) = self
+			.data
+			.metadata
+			.as_ref()
+			.and_then(|m| m.age_rating)
+			.filter(|age| *age > 0)
+		{
+			details.push(format!("{age}+"));
+		}
+		details.push(format!("{:.1} MiB - {}", mib, self.data.media.extension));
+		let details = details.join(" · ");
 		let content = match &summary {
-			Some(s) => Some(format!(
-				"{:.1} MiB - {}<br/><br/>{}",
-				mib, self.data.media.extension, s
-			)),
-			None => Some(format!("{:.1} MiB - {}", mib, self.data.media.extension)),
+			Some(s) => Some(format!("{details}<br/><br/>{s}")),
+			None => Some(details),
 		};
 
 		OpdsEntry {
