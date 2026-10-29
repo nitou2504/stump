@@ -17,6 +17,10 @@ export const isDoublePageBehavior = (value: string): value is DoublePageBehavior
  */
 export type EpubColumnCount = 'auto' | 1 | 2
 
+export const EPUB_READER_THEMES = ['auto', 'light', 'sepia', 'dark', 'black'] as const
+export type EpubReaderTheme = (typeof EPUB_READER_THEMES)[number]
+export type EpubTextAlign = 'auto' | 'justify' | 'start'
+
 /**
  * The preferences for a book, which represents an override of a user's default preferences for a
  * specific book
@@ -53,9 +57,14 @@ export type BookPreferences = {
 	 */
 	lineHeight?: number
 	/**
-	 * The theme to use for the book. This will have no effect if the book is image-based
+	 * The EPUB reader colour theme (`auto` follows the app's light/dark theme). Read from the
+	 * global reader settings. This will have no effect if the book is image-based
 	 */
-	theme?: string
+	theme?: EpubReaderTheme
+	/**
+	 * Text alignment for EPUBs: `auto` keeps the book's own, `justify` or `start` force it
+	 */
+	textAlign?: EpubTextAlign
 	/**
 	 * The image scaling preferences for the book. This will have no effect if the book is not an image-based book
 	 */

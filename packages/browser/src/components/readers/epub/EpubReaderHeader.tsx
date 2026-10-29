@@ -10,6 +10,7 @@ import {
 	BookmarkToggle,
 	ControlButton,
 	ControlsContainer,
+	DayNightToggle,
 	FullScreenToggle,
 	SearchCommand,
 	ThemeControls,
@@ -53,6 +54,7 @@ export default function EpubReaderHeader() {
 
 			<div className="gap-x-2 flex items-center">
 				{searchBook ? <SearchCommand /> : null}
+				<DayNightToggle />
 				<ThemeControls />
 				<FullScreenToggle />
 				<BookmarkToggle />

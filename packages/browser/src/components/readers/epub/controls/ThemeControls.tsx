@@ -12,6 +12,7 @@ import FontFamily from './FontFamily'
 import FontSizeControl from './FontSizeControl'
 import LineHeightControl from './LineHeightControl'
 import PageMargins from './PageMargins'
+import ReaderThemePicker from './ReaderThemePicker'
 import ReadingDirection from './ReadingDirection'
 import ReadingModeControl from './ReadingMode'
 
@@ -36,6 +37,8 @@ export default function ThemeControls() {
 
 			<Dialog.Content size="md" className="gap-4 z-101 flex flex-col bg-muted">
 				<Heading size="md">{translate('shared.epubReader.appearance')}</Heading>
+
+				<ReaderThemePicker />
 
 				<FontFamily />
 				<FontSizeControl />

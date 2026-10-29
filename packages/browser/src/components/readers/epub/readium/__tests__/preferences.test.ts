@@ -92,3 +92,30 @@ describe('bookPreferencesToEpubPreferences', () => {
 		expect(preferences.textColor).toBe('#E8EDF4')
 	})
 })
+
+describe('reader themes and alignment', () => {
+	it('uses an explicit theme regardless of the app theme', () => {
+		const sepia = bookPreferencesToEpubPreferences({ theme: 'sepia', isDarkVariant: true })
+		expect(sepia.backgroundColor).toBe('#f4ecd8')
+		const black = bookPreferencesToEpubPreferences({ theme: 'black', isDarkVariant: false })
+		expect(black.backgroundColor).toBe('#000000')
+	})
+
+	it('follows the app theme on auto', () => {
+		expect(
+			bookPreferencesToEpubPreferences({ theme: 'auto', isDarkVariant: true }).backgroundColor,
+		).toBe('#161719')
+		expect(
+			bookPreferencesToEpubPreferences({ theme: 'auto', isDarkVariant: false }).backgroundColor,
+		).toBe('#ffffff')
+	})
+
+	it('justifies with hyphenation, and clears alignment with null on auto', () => {
+		const justified = bookPreferencesToEpubPreferences({ textAlign: 'justify' })
+		expect(justified.textAlign).toBe('justify')
+		expect(justified.hyphens).toBe(true)
+		const auto = bookPreferencesToEpubPreferences({ textAlign: 'auto' })
+		expect(auto.textAlign).toBeNull()
+		expect(auto.hyphens).toBeNull()
+	})
+})

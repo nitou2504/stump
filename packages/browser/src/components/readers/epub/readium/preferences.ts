@@ -1,4 +1,5 @@
-import type { IEpubPreferences } from '@readium/navigator'
+import { type IEpubPreferences, TextAlignment } from '@readium/navigator'
+import type { EpubReaderTheme, EpubTextAlign } from '@stump/client'
 import { ReadingMode, SupportedFont } from '@stump/graphql'
 
 import { toFamilyName } from '../themes'
@@ -27,6 +28,29 @@ type PreferenceSource = {
 	 * Current stage (viewport) width in CSS px, used to resolve `'auto'` column count.
 	 */
 	stageWidth?: number
+	/** The reader colour theme; `auto` follows `isDarkVariant` */
+	theme?: EpubReaderTheme
+	textAlign?: EpubTextAlign
+}
+
+type ThemeColors = { background: string; text: string; link: string }
+
+/** The reader colour themes. `auto` resolves to light or dark with the app theme. */
+export const READER_THEME_COLORS: Record<Exclude<EpubReaderTheme, 'auto'>, ThemeColors> = {
+	light: { background: '#ffffff', text: '#161719', link: '#2563eb' },
+	sepia: { background: '#f4ecd8', text: '#5b4636', link: '#8a5a2b' },
+	dark: { background: '#161719', text: '#E8EDF4', link: '#4299E1' },
+	black: { background: '#000000', text: '#d4d4d4', link: '#60a5fa' },
+}
+
+export function resolveReaderTheme(
+	theme: EpubReaderTheme | undefined,
+	isDarkVariant: boolean | undefined,
+): ThemeColors {
+	if (!theme || theme === 'auto') {
+		return READER_THEME_COLORS[isDarkVariant ? 'dark' : 'light']
+	}
+	return READER_THEME_COLORS[theme] ?? READER_THEME_COLORS.light
 }
 
 const DEFAULT_PX = 16
@@ -73,6 +97,8 @@ export function bookPreferencesToEpubPreferences({
 	columnCount,
 	pageMargins,
 	stageWidth,
+	theme,
+	textAlign,
 }: PreferenceSource): IEpubPreferences {
 	const isContinuous = readingMode === ReadingMode.ContinuousVertical
 
@@ -100,15 +126,19 @@ export function bookPreferencesToEpubPreferences({
 		preferences.pageGutter = clamp(pageMargins * DEFAULT_PX, 0, DEFAULT_PX * 4)
 	}
 
-	if (isDarkVariant) {
-		preferences.backgroundColor = '#161719'
-		preferences.textColor = '#E8EDF4'
-		preferences.linkColor = '#4299E1'
-	} else {
-		preferences.backgroundColor = '#ffffff'
-		preferences.textColor = '#161719'
-		preferences.linkColor = '#2563eb'
-	}
+	const colors = resolveReaderTheme(theme, isDarkVariant)
+	preferences.backgroundColor = colors.background
+	preferences.textColor = colors.text
+	preferences.linkColor = colors.link
+
+	// `null` (not `undefined`) so switching back to `auto` clears a previous override
+	preferences.textAlign =
+		textAlign === 'justify'
+			? TextAlignment.justify
+			: textAlign === 'start'
+				? TextAlignment.start
+				: null
+	preferences.hyphens = textAlign === 'justify' ? true : null
 
 	return preferences
 }

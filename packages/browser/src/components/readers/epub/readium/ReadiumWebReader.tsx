@@ -24,6 +24,7 @@ import Spinner from '@/components/Spinner'
 import { useTheme } from '@/hooks'
 import { useTranslate } from '@/hooks/useTranslate'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
+import { useReaderStore } from '@/stores'
 import { useBookTimer } from '@/stores/reader'
 
 import AnnotationDialog from '../annotations/AnnotationDialog'
@@ -46,7 +47,7 @@ import {
 	toolkitLocatorToReaderLocator,
 } from './locator'
 import { type OpenedPublication, openStumpPublication } from './openPublication'
-import { bookPreferencesToEpubPreferences } from './preferences'
+import { bookPreferencesToEpubPreferences, resolveReaderTheme } from './preferences'
 import { useReadiumNavigator } from './useReadiumNavigator'
 
 type Props = {
@@ -165,6 +166,12 @@ const mutation = graphql(`
 	}
 `)
 
+// Stable fallbacks: fresh `[]`s here changed the navigator effect's dependencies on every
+// render while a publication was (re)opening, and its idle `setLoadState` then looped
+// (React error #185, e.g. when going back into the reader)
+const NO_POSITIONS: Locator[] = []
+const NO_DOMAINS: string[] = []
+
 type LoadState =
 	| { status: 'loading' }
 	| { status: 'ready'; opened: OpenedPublication; initialLocator?: Locator }
@@ -199,6 +206,10 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			pageMargins,
 		},
 	} = useBookPreferences({ book: ebook.media })
+	// Theme and alignment are global reader settings, not per-book overrides
+	const readerTheme = useReaderStore((state) => state.settings.theme)
+	const textAlign = useReaderStore((state) => state.settings.textAlign)
+	const themeColors = resolveReaderTheme(readerTheme, isDarkVariant)
 
 	// Measures the viewport parent — i.e. the parent of the element Readium itself treats
 	// as its viewport (`containerRef`'s parent, see `useReadiumNavigator`). Keeping the
@@ -257,8 +268,12 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				columnCount,
 				pageMargins,
 				stageWidth,
+				theme: readerTheme,
+				textAlign,
 			}),
 		[
+			readerTheme,
+			textAlign,
 			fontSize,
 			lineHeight,
 			fontFamily,
@@ -467,7 +482,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			const locator = enrichSelectionLocator({
 				selectionLocator: sel.locator ?? null,
 				selectedText: sel.text,
-				positions: opened?.positions ?? [],
+				positions: opened?.positions ?? NO_POSITIONS,
 				readingOrderHrefs,
 				chapterTitleFromToc,
 			})
@@ -509,9 +524,9 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	const { loadState, api } = useReadiumNavigator({
 		containerRef,
 		publication: opened?.publication ?? null,
-		positions: opened?.positions ?? [],
+		positions: opened?.positions ?? NO_POSITIONS,
 		initialLocator,
-		allowedDomains: opened?.allowedDomains ?? [],
+		allowedDomains: opened?.allowedDomains ?? NO_DOMAINS,
 		preferences,
 		onPositionChanged: handlePositionChanged,
 		onTextSelected,
@@ -521,7 +536,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 
 	useEffect(() => {
 		api.applyDecorations(
-			annotationsToDecorations(annotations, undefined, opened?.positions ?? []),
+			annotationsToDecorations(annotations, undefined, opened?.positions ?? NO_POSITIONS),
 			ANNOTATION_DECORATION_GROUP,
 		)
 	}, [api, annotations, opened])
@@ -796,7 +811,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			*/}
 				<div
 					className="relative mx-auto h-full w-full overflow-hidden"
-					style={{ backgroundColor: isDarkVariant ? '#161719' : '#ffffff' }}
+					style={{ backgroundColor: themeColors.background }}
 				>
 					<div ref={containerRef} className="relative mx-auto h-full w-full overflow-hidden" />
 				</div>
