@@ -108,7 +108,8 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 			(entity?.name ?? standaloneLabel).toLowerCase().includes(searchValue.toLowerCase()),
 		onExpandedChange: setExpanded,
 		onSortingChange: setGroupSorting,
-		state: { expanded, globalFilter: search, sorting: groupSorting },
+		// while searching every matching group is open (see `visibleBooks`)
+		state: { expanded: search ? true : expanded, globalFilter: search, sorting: groupSorting },
 	})
 
 	// Start from the natural order (series position, then title) so the default view
@@ -168,6 +169,19 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 	}, [bookRows])
 
 	const groupRows = groupTable.getRowModel().rows
+
+	// While searching, matching groups are open and show only the matching books (all of
+	// them when the group's own name matches), so a search lands on the books themselves
+	const visibleBooks = useCallback(
+		({ books, entity }: SmartListGroupedItem) => {
+			if (!search) return books
+			const groupName = entity?.name ?? standaloneLabel
+			if (groupName.toLowerCase().includes(search.toLowerCase())) return books
+			return books.filter((book) => bookFuzzySearch(book, search))
+		},
+		[search, standaloneLabel],
+	)
+
 	const flatData = useMemo(() => {
 		const flat: FlatItem[] = []
 
@@ -178,7 +192,7 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 			if (groupRow.getIsExpanded()) {
 				flat.push({ groupId: groupRow.id, groupIndex, type: 'book-header' })
 
-				const sortedBooks = [...groupRow.original.books].sort((a, b) => {
+				const sortedBooks = [...visibleBooks(groupRow.original)].sort((a, b) => {
 					const indexA = bookSortMap.get(a.id) ?? 0
 					const indexB = bookSortMap.get(b.id) ?? 0
 					return indexA - indexB
@@ -193,7 +207,7 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 			}
 		})
 		return flat
-	}, [groupRows, bookRowsById, bookSortMap])
+	}, [groupRows, bookRowsById, bookSortMap, visibleBooks])
 
 	// The same groups for the grid layout: every group's (search-matching) books, in the
 	// table's group and book order
@@ -203,9 +217,9 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 		() =>
 			groupRows
 				.map((groupRow) => ({
-					books: [...groupRow.original.books]
-						.filter((book) => !search || bookFuzzySearch(book, search))
-						.sort((a, b) => (bookSortMap.get(a.id) ?? 0) - (bookSortMap.get(b.id) ?? 0)),
+					books: [...visibleBooks(groupRow.original)].sort(
+						(a, b) => (bookSortMap.get(a.id) ?? 0) - (bookSortMap.get(b.id) ?? 0),
+					),
 					href: fieldGroup ? undefined : groupHref(groupRow.original.entity),
 					id: groupRow.id,
 					isExpanded: groupRow.getIsExpanded(),
@@ -213,7 +227,7 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 					onToggle: () => groupRow.toggleExpanded(),
 				}))
 				.filter(({ books }) => books.length > 0),
-		[groupRows, search, bookSortMap, groupHref, standaloneLabel, expanded, fieldGroup],
+		[groupRows, visibleBooks, bookSortMap, groupHref, standaloneLabel, expanded, fieldGroup],
 	)
 
 	const rowVirtualizer = useVirtualizer({

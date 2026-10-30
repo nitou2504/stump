@@ -17,7 +17,7 @@ import { SortIcon } from '@/components/table'
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView } from '../../context'
 import { naturalBookOrder } from './bookOrder'
-import { buildColumns } from './mediaColumns'
+import { bookFuzzySearch, buildColumns } from './mediaColumns'
 import SmartListBookGrid from './SmartListBookGrid'
 import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
 import { SmartListTableItem } from './SmartListTableItem'
@@ -66,6 +66,8 @@ export default function VirtualSmartListTable({ books: unsortedBooks }: Props) {
 		getFilteredRowModel: getFilteredRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 		getRowId: (book) => book.id,
+		// Search every book detail (writers, genres, tags, ...), not only the visible columns
+		globalFilterFn: ({ original }, _columnId, value) => bookFuzzySearch(original, String(value)),
 		onSortingChange: setSorting,
 		state: {
 			globalFilter: search,

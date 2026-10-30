@@ -430,6 +430,7 @@ export const columnOptionMap: Record<keyof typeof columnMap, string> = {
 export const defaultColumns = [
 	coverColumn,
 	nameColumn,
+	writersColumn,
 	pagesColumn,
 	publishedColumn,
 	addedColumn,
@@ -505,6 +506,10 @@ export const bookFuzzySearch = (book: Media, search: string): boolean => {
 	}
 
 	if (metadata?.links?.join(', ').toLowerCase().includes(search.toLowerCase())) {
+		return true
+	}
+
+	if (book.tags?.some((tag) => tag.name.toLowerCase().includes(search.toLowerCase()))) {
 		return true
 	}
 
