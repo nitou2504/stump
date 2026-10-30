@@ -1506,6 +1506,11 @@ input MediaFilterInput {
 	metadata: MediaMetadataFilterInput = null
 	series: SeriesFilterInput = null
 	tags: FieldFilterString = null
+	"""
+	Free-text search: every word must appear in the file name or path, title, series,
+	writers, publisher, genres or tags, ignoring case and accents
+	"""
+	search: String = null
 	_and: [MediaFilterInput!] = null
 	_not: [MediaFilterInput!] = null
 	_or: [MediaFilterInput!] = null
@@ -2713,7 +2718,7 @@ type Query {
 	finishedReadingSessionCount: Int!
 	activeReadingSessionCount: Int!
 	mediaDiskUsage: Int!
-	media(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, _and: null, _not: null, _or: null}, orderBy: [MediaOrderBy!]! = [{media: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
+	media(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, orderBy: [MediaOrderBy!]! = [{media: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	mediaById(id: ID!): Media
 	"""
 	Books removed from their library (soft-deleted; the files are still on disk), most
@@ -2736,7 +2741,7 @@ type Query {
 	numberOfLibraries: Int!
 	lastVisitedLibrary: Library
 	libraryMissingEntities(libraryId: ID!, pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMissingEntityResponse!
-	series(filter: SeriesFilterInput! = {name: null, path: null, libraryId: null, readingStatus: null, libraryType: null, isOneshot: null, metadata: null, library: null, _and: null, _not: null, _or: null}, orderBy: [SeriesOrderBy!]! = [{series: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedSeriesResponse!
+	series(filter: SeriesFilterInput! = {name: null, path: null, libraryId: null, readingStatus: null, libraryType: null, isOneshot: null, metadata: null, library: null, search: null, _and: null, _not: null, _or: null}, orderBy: [SeriesOrderBy!]! = [{series: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedSeriesResponse!
 	seriesById(id: ID!): Series
 	"Returns the available alphabet for all series in the server"
 	seriesAlphabet: JSONObject!
@@ -3274,6 +3279,11 @@ input SeriesFilterInput {
 	isOneshot: Boolean = null
 	metadata: SeriesMetadataFilterInput = null
 	library: LibraryFilterInput = null
+	"""
+	Free-text search: every word must appear in the series name or title, ignoring case
+	and accents
+	"""
+	search: String = null
 	_and: [SeriesFilterInput!] = null
 	_not: [SeriesFilterInput!] = null
 	_or: [SeriesFilterInput!] = null

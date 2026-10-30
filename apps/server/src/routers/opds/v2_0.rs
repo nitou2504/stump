@@ -167,12 +167,8 @@ impl OPDSBrowseFilter {
 		let mut has_filter = false;
 
 		if let Some(query) = self.query.filter(|q| !q.trim().is_empty()) {
-			condition = condition.add(
-				Condition::any()
-					.add(media::Column::Name.contains(query.clone()))
-					.add(media_metadata::Column::Title.contains(query.clone()))
-					.add(media_metadata::Column::Writers.contains(query)),
-			);
+			condition =
+				condition.add(graphql::filter::search::media_search_condition(&query));
 			has_filter = true;
 		}
 

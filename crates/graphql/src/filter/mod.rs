@@ -13,6 +13,7 @@ pub mod library;
 pub mod log;
 pub mod media;
 pub mod media_metadata;
+pub mod search;
 pub mod series;
 pub mod series_metadata;
 

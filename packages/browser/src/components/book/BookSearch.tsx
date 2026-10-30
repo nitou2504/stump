@@ -58,20 +58,8 @@ export default function BookSearch({ onBookSelect }: Props) {
 		query,
 		['bookOverlay', debouncedValue],
 		{
-			filter: {
-				_or: [
-					{
-						name: {
-							like: `%${debouncedValue}%`,
-						},
-						metadata: {
-							title: {
-								like: `%${debouncedValue}%`,
-							},
-						},
-					},
-				],
-			},
+			// every word in the name, title, writers, series, tags, ... (see `MediaFilterInput.search`)
+			filter: { search: debouncedValue },
 		},
 		{
 			enabled: !!debouncedValue,

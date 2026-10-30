@@ -12,11 +12,11 @@ use chrono::Utc;
 use graphql::{data::AuthContext, pagination::OffsetPagination};
 use models::{
 	domain::reading_progress::compute_page_based_percentage,
-	entity::{library, media, media_metadata, reading_session, series, series_metadata},
+	entity::{library, media, reading_session, series, series_metadata},
 	services::reading_progress::{upsert_reading_session, NormalizedProgression},
 	shared::image_processor_options::{ImageProcessorOptions, SupportedImageFormat},
 };
-use sea_orm::{prelude::*, ExprTrait, QueryOrder, QuerySelect, QueryTrait};
+use sea_orm::{prelude::*, QueryOrder, QuerySelect, QueryTrait};
 use serde::{Deserialize, Serialize};
 use stump_core::{
 	config::StumpConfig,
@@ -551,11 +551,9 @@ async fn get_series(
 	let search_cpy = search.clone();
 	let series = series::Entity::find_for_user(&user)
 		.apply_if(search_cpy, |query, search| {
-			query.left_join(series_metadata::Entity).filter(
-				series::Column::Name
-					.contains(search.clone())
-					.or(series_metadata::Column::Title.contains(search)),
-			)
+			query
+				.left_join(series_metadata::Entity)
+				.filter(graphql::filter::search::series_search_condition(&search))
 		})
 		.order_by_asc(series::Column::Name)
 		.offset(pagination.offset())
@@ -565,11 +563,9 @@ async fn get_series(
 	let search_cpy = search.clone();
 	let count = series::Entity::find_for_user(&user)
 		.apply_if(search_cpy, |query, search| {
-			query.left_join(series_metadata::Entity).filter(
-				series::Column::Name
-					.contains(search.clone())
-					.or(series_metadata::Column::Title.contains(search)),
-			)
+			query
+				.left_join(series_metadata::Entity)
+				.filter(graphql::filter::search::series_search_condition(&search))
 		})
 		.count(ctx.conn.as_ref())
 		.await?;
@@ -699,11 +695,7 @@ async fn search_feed(
 	// Search series
 	let series = series::Entity::find_for_user(&user)
 		.left_join(series_metadata::Entity)
-		.filter(
-			series::Column::Name
-				.contains(&search)
-				.or(series_metadata::Column::Title.contains(&search)),
-		)
+		.filter(graphql::filter::search::series_search_condition(&search))
 		.order_by_asc(series::Column::Name)
 		.all(ctx.conn.as_ref())
 		.await?;
@@ -715,15 +707,9 @@ async fn search_feed(
 		);
 	}
 
-	// Search books by name, metadata title, summary, and writers
+	// Search books: every word in the name, title, series, writers, publisher, genres or tags
 	let books = OPDSPublicationEntity::find_for_user(&user)
-		.filter(
-			media::Column::Name
-				.contains(&search)
-				.or(media_metadata::Column::Title.contains(&search))
-				.or(media_metadata::Column::Summary.contains(&search))
-				.or(media_metadata::Column::Writers.contains(&search)),
-		)
+		.filter(graphql::filter::search::media_search_condition(&search))
 		.order_by_asc(media::Column::Name)
 		.into_model::<OPDSPublicationEntity>()
 		.all(ctx.conn.as_ref())

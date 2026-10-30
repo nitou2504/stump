@@ -6,6 +6,7 @@ import { CellContext } from '@tanstack/react-table'
 import { format, intlFormat, isValid } from 'date-fns'
 
 import { usePaths } from '@/paths'
+import { matchesSearch } from '@/utils/textSearch'
 
 import BookLinksCell from './BookLinksCell'
 import CoverImageCell from './CoverImageCell'
@@ -453,65 +454,31 @@ export const buildColumns = (columns?: ColumnSort[]) => {
 		.filter(Boolean) as ColumnDef<Media>[]
 }
 
-// TODO: make not so scuffed/verbose lol
+/**
+ * Whether a book matches a smart list search: every word in its name, title, people,
+ * series, publisher, genres, tags, path and a few numbers, ignoring case and accents
+ */
 export const bookFuzzySearch = (book: Media, search: string): boolean => {
 	const { resolvedName, metadata } = book
-
-	if (resolvedName.toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.title?.toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.publisher?.toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.ageRating?.toString().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.genres?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.volume?.toString().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.inkers?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.writers?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.pencillers?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.colorists?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.letterers?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.coverArtists?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (metadata?.links?.join(', ').toLowerCase().includes(search.toLowerCase())) {
-		return true
-	}
-
-	if (book.tags?.some((tag) => tag.name.toLowerCase().includes(search.toLowerCase()))) {
-		return true
-	}
-
-	return false
+	return matchesSearch(search, [
+		resolvedName,
+		book.name,
+		book.path,
+		metadata?.title,
+		metadata?.series,
+		metadata?.publisher,
+		metadata?.ageRating,
+		metadata?.volume,
+		metadata?.number,
+		...(metadata?.writers ?? []),
+		...(metadata?.pencillers ?? []),
+		...(metadata?.inkers ?? []),
+		...(metadata?.colorists ?? []),
+		...(metadata?.letterers ?? []),
+		...(metadata?.coverArtists ?? []),
+		...(metadata?.editors ?? []),
+		...(metadata?.genres ?? []),
+		...(metadata?.links ?? []),
+		...(book.tags ?? []).map((tag) => tag.name),
+	])
 }

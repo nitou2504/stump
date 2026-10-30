@@ -42,6 +42,10 @@ pub struct SeriesFilterInput {
 	pub metadata: Option<SeriesMetadataFilterInput>,
 	#[graphql(default)]
 	pub library: Option<LibraryFilterInput>,
+	/// Free-text search: every word must appear in the series name or title, ignoring case
+	/// and accents
+	#[graphql(default)]
+	pub search: Option<String>,
 
 	#[graphql(name = "_and", default)]
 	pub _and: Option<Vec<SeriesFilterInput>>,
@@ -232,6 +236,10 @@ impl SeriesFilterInput {
 			.add_option(self.library_type.map(|filter| {
 				apply_library_type_filter(series::Column::LibraryId, filter)
 			}))
+			.add_option(
+				self.search
+					.map(|q| super::search::series_search_condition(&q)),
+			)
 			.add_option(self.metadata.map(|f| f.into_filter()))
 			.add_option(self.library.map(|f| f.into_filter()))
 	}

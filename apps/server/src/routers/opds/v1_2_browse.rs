@@ -267,15 +267,11 @@ impl BookScope {
 	}
 }
 
-/// The condition used for free-text search within a feed: file name, title, series,
-/// summary and writers
+/// The condition used for free-text search within a feed: every word in the file name,
+/// title, series, writers, publisher, genres or tags, ignoring case and accents (the same
+/// search as the web UI)
 pub(crate) fn book_search_condition(search: &str) -> Condition {
-	Condition::any()
-		.add(media::Column::Name.contains(search))
-		.add(media_metadata::Column::Title.contains(search))
-		.add(media_metadata::Column::Series.contains(search))
-		.add(media_metadata::Column::Summary.contains(search))
-		.add(media_metadata::Column::Writers.contains(search))
+	graphql::filter::search::media_search_condition(search)
 }
 
 /// Applies the scope and every param filter. Some filters can be skipped, which is used

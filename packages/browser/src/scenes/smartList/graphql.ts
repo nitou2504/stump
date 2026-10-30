@@ -98,6 +98,11 @@ const smartListItemsQuery = graphql(`
 					books {
 						...BookCard
 						...BookMetadata
+						path
+						tags {
+							id
+							name
+						}
 					}
 				}
 			}
@@ -105,6 +110,7 @@ const smartListItemsQuery = graphql(`
 				books {
 					...BookCard
 					...SmartListItemBookMetadata
+					path
 					tags {
 						id
 						name

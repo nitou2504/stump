@@ -100,6 +100,10 @@ pub struct MediaFilterInput {
 
 	#[graphql(default)]
 	pub tags: Option<StringLikeFilter<String>>,
+	/// Free-text search: every word must appear in the file name or path, title, series,
+	/// writers, publisher, genres or tags, ignoring case and accents
+	#[graphql(default)]
+	pub search: Option<String>,
 	#[graphql(name = "_and", default)]
 	pub _and: Option<Vec<MediaFilterInput>>,
 	#[graphql(name = "_not", default)]
@@ -201,6 +205,10 @@ impl IntoFilter for MediaFilterInput {
 				let subquery = media_tag_name_subquery(f);
 				Condition::all().add(media::Column::Id.in_subquery(subquery))
 			}))
+			.add_option(
+				self.search
+					.map(|q| super::search::media_search_condition(&q)),
+			)
 			.add_option(self.metadata.map(|f| f.into_filter()))
 			.add_option(self.series.map(|f| f.into_filter()))
 	}

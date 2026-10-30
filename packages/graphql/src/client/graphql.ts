@@ -1627,6 +1627,11 @@ export type MediaFilterInput = {
   pages?: InputMaybe<NumericFilterI32>;
   path?: InputMaybe<FieldFilterString>;
   readingStatus?: InputMaybe<ComputedFilterReadingStatus>;
+  /**
+   * Free-text search: every word must appear in the file name or path, title, series,
+   * writers, publisher, genres or tags, ignoring case and accents
+   */
+  search?: InputMaybe<Scalars['String']['input']>;
   series?: InputMaybe<SeriesFilterInput>;
   seriesId?: InputMaybe<FieldFilterString>;
   size?: InputMaybe<NumericFilterI64>;
@@ -4586,6 +4591,11 @@ export type SeriesFilterInput = {
   name?: InputMaybe<FieldFilterString>;
   path?: InputMaybe<FieldFilterString>;
   readingStatus?: InputMaybe<ComputedFilterReadingStatus>;
+  /**
+   * Free-text search: every word must appear in the series name or title, ignoring case
+   * and accents
+   */
+  search?: InputMaybe<Scalars['String']['input']>;
 };
 
 export enum SeriesKind {
@@ -7759,10 +7769,10 @@ export type SmartListItemsQueryVariables = Exact<{
 
 
 export type SmartListItemsQuery = { __typename?: 'Query', smartListItems: { __typename: 'SmartListGrouped', items: Array<{ __typename?: 'SmartListGroupedItem', entity?: { __typename: 'Library', id: string, name: string } | { __typename: 'Series', id: string, name: string } | null, books: Array<(
-        { __typename?: 'Media' }
+        { __typename?: 'Media', path: string, tags: Array<{ __typename?: 'Tag', id: number, name: string }> }
         & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment;'BookMetadataFragment': BookMetadataFragment } }
       )> }> } | { __typename: 'SmartListUngrouped', books: Array<(
-      { __typename?: 'Media', tags: Array<{ __typename?: 'Tag', id: number, name: string }> }
+      { __typename?: 'Media', path: string, tags: Array<{ __typename?: 'Tag', id: number, name: string }> }
       & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment;'SmartListItemBookMetadataFragment': SmartListItemBookMetadataFragment } }
     )> } };
 
@@ -15857,6 +15867,11 @@ export const SmartListItemsDocument = new TypedDocumentString(`
         books {
           ...BookCard
           ...BookMetadata
+          path
+          tags {
+            id
+            name
+          }
         }
       }
     }
@@ -15864,6 +15879,7 @@ export const SmartListItemsDocument = new TypedDocumentString(`
       books {
         ...BookCard
         ...SmartListItemBookMetadata
+        path
         tags {
           id
           name
