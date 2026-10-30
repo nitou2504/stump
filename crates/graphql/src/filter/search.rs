@@ -1,9 +1,10 @@
 //! Free-text search shared by the web UI (the `search` filter field) and OPDS.
 //!
-//! A query is split into words; a book matches when **every** word appears in at least one
-//! of its fields (file name and path, title, series, writers, publisher, genres or tags), so
-//! `pearson brown` finds a Pearson book by Brown in any field order. Matching ignores case
-//! and accents (`fisica` finds `Física`).
+//! A query is split into words; a book matches when **every** word starts a word in at least
+//! one of its fields (file name, title, series, writers, publisher, genres or tags), so
+//! `brown chemistry` finds a chemistry book by Brown in any field order and `quim` finds
+//! `Química`, while `ib` doesn't match inside `biblioteca`. Matching ignores case and
+//! accents (`fisica` finds `Física`).
 
 use models::entity::{media_tag, tag};
 use sea_orm::{
@@ -72,11 +73,12 @@ pub fn fold(value: &str) -> String {
 		.collect()
 }
 
-/// The words of a search query, folded and deduplicated. `_` separates words too, since
-/// file names use it instead of spaces.
+/// The words of a search query, folded and deduplicated. [`SEPARATORS`] split words like
+/// spaces, as they do in the searched text.
 pub fn search_words(query: &str) -> Vec<String> {
 	let mut words: Vec<String> = Vec::new();
-	for word in fold(query).split(|c: char| c.is_whitespace() || c == '_') {
+	for word in fold(query).split(|c: char| c.is_whitespace() || SEPARATORS.contains(&c))
+	{
 		let word = word.trim_matches(|c: char| !c.is_alphanumeric());
 		if !word.is_empty() && !words.iter().any(|w| w == word) {
 			words.push(word.to_string());
@@ -88,20 +90,31 @@ pub fn search_words(query: &str) -> Vec<String> {
 	words
 }
 
-/// `column` lowercased with its accents stripped, as an SQL expression
+/// Characters treated as spaces between words, e.g. in `Física_(IB)` or `Asignatura: Física`
+const SEPARATORS: &[char] = &[
+	'_', '-', '(', ')', '[', ']', ':', ',', '.', ';', '/', '"', '«', '»', '¿', '?', '¡',
+	'!', '—', '–', '·', '|',
+];
+
+/// `column` lowercased, without accents and with separators as spaces, after a leading
+/// space, as an SQL expression: ` fisica diploma del ib ` for `Física (Diploma del IB)`
 fn folded_sql(column: &str) -> String {
-	ACCENTS
+	let folded = ACCENTS
 		.iter()
 		.fold(format!("LOWER({column})"), |sql, (accented, plain)| {
 			format!("REPLACE({sql}, '{accented}', '{plain}')")
-		})
+		});
+	let spaced = SEPARATORS.iter().fold(folded, |sql, separator| {
+		format!("REPLACE({sql}, '{separator}', ' ')")
+	});
+	format!("(' ' || {spaced})")
 }
 
-/// `folded(column) LIKE %word%`
+/// Whether some word of `column` starts with `word`
 fn column_contains(column: &str, word: &str) -> Expr {
 	Expr::cust_with_values(
 		format!("{} LIKE ? ESCAPE '\\'", folded_sql(column)),
-		[format!("%{}%", escape_like_fragment(word))],
+		[format!("% {}%", escape_like_fragment(word))],
 	)
 }
 
@@ -123,7 +136,6 @@ fn tag_contains_subquery(word: &str) -> SelectStatement {
 /// The book fields searched, as SQL column references. The query must join `media_metadata`.
 const MEDIA_COLUMNS: &[&str] = &[
 	r#""media"."name""#,
-	r#""media"."path""#,
 	r#""media_metadata"."title""#,
 	r#""media_metadata"."series""#,
 	r#""media_metadata"."writers""#,
@@ -182,6 +194,7 @@ mod tests {
 		assert_eq!(search_words("  Pearson   brown "), vec!["pearson", "brown"]);
 		assert_eq!(search_words("Catrin_Brown brown"), vec!["catrin", "brown"]);
 		assert_eq!(search_words("¿Física?"), vec!["fisica"]);
+		assert_eq!(search_words("Física (IB)"), vec!["fisica", "ib"]);
 		assert!(search_words("   ").is_empty());
 	}
 
@@ -191,8 +204,8 @@ mod tests {
 			.filter(media_search_condition("pearson brown"))
 			.build(sea_orm::DatabaseBackend::Sqlite)
 			.to_string();
-		assert!(sql.contains("'%pearson%'"), "{sql}");
-		assert!(sql.contains("'%brown%'"), "{sql}");
+		assert!(sql.contains("'% pearson%'"), "{sql}");
+		assert!(sql.contains("'% brown%'"), "{sql}");
 		assert!(sql.contains(") AND ("), "{sql}");
 		assert!(sql.contains(r#""media_metadata"."writers""#), "{sql}");
 		assert!(sql.contains(r#""tags"."name""#), "{sql}");

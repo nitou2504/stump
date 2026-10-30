@@ -19,4 +19,11 @@ describe('textSearch', () => {
 		expect(matchesSearch('quimica', ['Asignatura: Química'])).toBe(true)
 		expect(matchesSearch('  ', texts)).toBe(true)
 	})
+
+	it('matches the start of words only', () => {
+		expect(matchesSearch('quim', ['Asignatura: Química'])).toBe(true)
+		expect(matchesSearch('ib', ['Física (Diploma del IB)'])).toBe(true)
+		expect(matchesSearch('ib', ['/biblioteca/libros'])).toBe(false)
+		expect(matchesSearch('istry', ['Chemistry'])).toBe(false)
+	})
 })

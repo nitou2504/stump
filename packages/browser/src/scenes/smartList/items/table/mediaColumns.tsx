@@ -455,15 +455,15 @@ export const buildColumns = (columns?: ColumnSort[]) => {
 }
 
 /**
- * Whether a book matches a smart list search: every word in its name, title, people,
- * series, publisher, genres, tags, path and a few numbers, ignoring case and accents
+ * Whether a book matches a smart list search: every word starts a word in its name, file
+ * name, title, people, series, publisher, genres, tags or a few numbers, ignoring case and
+ * accents
  */
 export const bookFuzzySearch = (book: Media, search: string): boolean => {
 	const { resolvedName, metadata } = book
 	return matchesSearch(search, [
 		resolvedName,
-		book.name,
-		book.path,
+		book.path?.split('/').pop(),
 		metadata?.title,
 		metadata?.series,
 		metadata?.publisher,
