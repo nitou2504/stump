@@ -53,6 +53,10 @@ export const useURLPageParams = () => {
 
 	const setPage = useCallback(
 		(page: number) => {
+			// Resets to the page already shown (e.g. after a new search) must not add a
+			// history entry, or the back button seems to do nothing
+			const current = parseInt(new URLSearchParams(window.location.search).get('page') ?? '1')
+			if (page === current) return
 			setSearchParams((prev) => {
 				prev.set('page', page.toString())
 				return prev
@@ -209,6 +213,10 @@ export function useFilterScene({
 
 	const setPage = useCallback(
 		(page: number) => {
+			// Resets to the page already shown (e.g. after a new search) must not add a
+			// history entry, or the back button seems to do nothing
+			const current = parseInt(new URLSearchParams(window.location.search).get('page') ?? '1')
+			if (page === current) return
 			setSearchParams((prev) => {
 				prev.set('page', page.toString())
 				return prev

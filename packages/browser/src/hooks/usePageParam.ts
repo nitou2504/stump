@@ -15,9 +15,11 @@ export function usePageParam() {
 		return 1
 	}, [search])
 
-	const setPage = (page: number) => {
+	const setPage = (newPage: number) => {
+		// no history entry for "changing" to the current page
+		if (newPage === page) return
 		setSearchParams((prev) => {
-			prev.set('page', page.toString())
+			prev.set('page', newPage.toString())
 			return prev
 		})
 	}
