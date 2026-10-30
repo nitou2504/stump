@@ -110,11 +110,38 @@ fn folded_sql(column: &str) -> String {
 	format!("(' ' || {spaced})")
 }
 
-/// Whether some word of `column` starts with `word`
-fn column_contains(column: &str, word: &str) -> Expr {
+/// The columns joined into one text, so it is folded once per row and word
+fn concat_sql(columns: &[&str]) -> String {
+	columns
+		.iter()
+		.map(|column| format!("COALESCE({column}, '')"))
+		.collect::<Vec<_>>()
+		.join(" || ' ' || ")
+}
+
+/// A cheap pre-check for [`text_contains_word`]: `%word%` on the raw text with the letters
+/// that may carry an accent (`a e i o u n c`) as `_` wildcards, so `fisica` checks
+/// `%f_s___%`. It skips folding most rows, which is what makes the search fast.
+fn loose_pattern(word: &str) -> String {
+	let loose: String = escape_like_fragment(word)
+		.chars()
+		.map(|c| if "aeiounc".contains(c) { '_' } else { c })
+		.collect();
+	format!("%{loose}%")
+}
+
+/// Whether some word of the `columns` (taken as one text) starts with `word`
+fn text_contains_word(columns: &[&str], word: &str) -> Expr {
+	let concat = concat_sql(columns);
 	Expr::cust_with_values(
-		format!("{} LIKE ? ESCAPE '\\'", folded_sql(column)),
-		[format!("% {}%", escape_like_fragment(word))],
+		format!(
+			"(({concat}) LIKE ? ESCAPE '\\' AND {} LIKE ? ESCAPE '\\')",
+			folded_sql(&format!("({concat})"))
+		),
+		[
+			loose_pattern(word),
+			format!("% {}%", escape_like_fragment(word)),
+		],
 	)
 }
 
@@ -123,7 +150,7 @@ fn tag_contains_subquery(word: &str) -> SelectStatement {
 	let tag_ids = Query::select()
 		.column(tag::Column::Id)
 		.from(tag::Entity)
-		.and_where(column_contains(r#""tags"."name""#, word))
+		.and_where(text_contains_word(&[r#""tags"."name""#], word))
 		.to_owned();
 	Query::select()
 		.distinct()
@@ -148,11 +175,8 @@ pub fn media_search_condition(query: &str) -> Condition {
 	search_words(query)
 		.iter()
 		.fold(Condition::all(), |all_words, word| {
-			let any_field = MEDIA_COLUMNS
-				.iter()
-				.fold(Condition::any(), |any, column| {
-					any.add(column_contains(column, word))
-				})
+			let any_field = Condition::any()
+				.add(text_contains_word(MEDIA_COLUMNS, word))
 				.add(
 					Expr::col((
 						models::entity::media::Entity,
@@ -172,9 +196,7 @@ pub fn series_search_condition(query: &str) -> Condition {
 	search_words(query)
 		.iter()
 		.fold(Condition::all(), |all_words, word| {
-			all_words.add(SERIES_COLUMNS.iter().fold(Condition::any(), |any, column| {
-				any.add(column_contains(column, word))
-			}))
+			all_words.add(text_contains_word(SERIES_COLUMNS, word))
 		})
 }
 
@@ -187,6 +209,12 @@ mod tests {
 	#[test]
 	fn folds_case_and_accents() {
 		assert_eq!(fold("Física CUÁNTICA Ñandú"), "fisica cuantica nandu");
+	}
+
+	#[test]
+	fn loose_pattern_wildcards_accentable_letters() {
+		assert_eq!(loose_pattern("fisica"), "%f_s___%");
+		assert_eq!(loose_pattern("50%"), r"%50\%%");
 	}
 
 	#[test]
@@ -206,6 +234,7 @@ mod tests {
 			.to_string();
 		assert!(sql.contains("'% pearson%'"), "{sql}");
 		assert!(sql.contains("'% brown%'"), "{sql}");
+		assert!(sql.contains("'%p__rs__%'"), "{sql}");
 		assert!(sql.contains(") AND ("), "{sql}");
 		assert!(sql.contains(r#""media_metadata"."writers""#), "{sql}");
 		assert!(sql.contains(r#""tags"."name""#), "{sql}");
