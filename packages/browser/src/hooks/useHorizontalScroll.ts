@@ -20,6 +20,7 @@ export function useHorizontalScroll(options: UseHorizontalScrollOptions = {}): R
 
 	const elementRef = useRef<HTMLDivElement | null>(null)
 	const resizeObserverRef = useRef<ResizeObserver | null>(null)
+	const mutationObserverRef = useRef<MutationObserver | null>(null)
 	const [canSkipBackward, setCanSkipBackward] = useState(false)
 	const [canSkipForward, setCanSkipForward] = useState(false)
 
@@ -41,6 +42,8 @@ export function useHorizontalScroll(options: UseHorizontalScrollOptions = {}): R
 				resizeObserverRef.current.disconnect()
 				resizeObserverRef.current = null
 			}
+			mutationObserverRef.current?.disconnect()
+			mutationObserverRef.current = null
 
 			// Note: This hook is really only intended for Virtuoso scrollers, and this
 			// type check is because the `scrollerRef` can be a Window. We don't care
@@ -49,10 +52,31 @@ export function useHorizontalScroll(options: UseHorizontalScrollOptions = {}): R
 				elementRef.current = ref
 				ref.addEventListener('scroll', updateScrollState)
 
-				resizeObserverRef.current = new ResizeObserver(() => {
+				// Watch the scroller and its content: the scroller keeps its size while the
+				// cards render in, so observing only it left "Seek ahead" disabled until the
+				// list was scrolled by hand
+				const resizeObserver = new ResizeObserver(() => {
 					updateScrollState()
 				})
-				resizeObserverRef.current.observe(ref)
+				// the scroller, Virtuoso's viewport and its item list (whose width grows with the cards)
+				const observeTree = () => {
+					resizeObserver.observe(ref)
+					for (const child of Array.from(ref.children)) {
+						resizeObserver.observe(child)
+						for (const grandchild of Array.from(child.children)) {
+							resizeObserver.observe(grandchild)
+						}
+					}
+				}
+				observeTree()
+				resizeObserverRef.current = resizeObserver
+
+				const mutationObserver = new MutationObserver(() => {
+					observeTree()
+					updateScrollState()
+				})
+				mutationObserver.observe(ref, { childList: true, subtree: true })
+				mutationObserverRef.current = mutationObserver
 
 				updateScrollState()
 			} else {
@@ -71,6 +95,7 @@ export function useHorizontalScroll(options: UseHorizontalScrollOptions = {}): R
 			if (resizeObserverRef.current) {
 				resizeObserverRef.current.disconnect()
 			}
+			mutationObserverRef.current?.disconnect()
 		}
 	}, [updateScrollState])
 
