@@ -24,9 +24,12 @@ change small and upstreamable.
 | Web | Filter drawer gains **language**, **tags**, **minimum rating** and **age** (general / adult); sort by rating or age rating; rating columns in tables; `rating` in smart list rules |
 | Web | Book cards show **★ rating** and an **18+** badge; in a series they show the book's **#number** on the cover; the book page shows rating and age |
 | Web | **More by <author>** row on book pages (standalone books lost the folder-based "Next in series") |
+| Web / OPDS | **Search**: split into words, every word must start a word of the book's file name, title, series, writers, publisher, genres or tags (any order, case- and accent-insensitive: `brown chemistry`, `quim`, `fisica diploma`); series match on name/title. Same rules in the web lists, the home box, smart lists (in the browser) and OPDS 1.2/2 |
+| Web | **Back returns to the search**: searches live in the URL (`?search=`, home `?q=`, Authors/Genres `?q=`), typing doesn't add history entries; grouped smart lists open the matching groups and show only the matching books |
 | Web | **EPUB reader**: themes (auto / light / sepia / dark / black) that colour the whole reader page (bars, margins, dialogs), a one-tap day/night button, and text alignment (book default / justified with hyphenation / left), kept across books |
 | Web | **Remove books** from their book page (opt-in per user: *Settings → Preferences*, needs *Manage library*): the file stays on disk, the book is hidden everywhere (web, search, smart lists, OPDS) and survives rescans; restore it from the library's *Settings → Danger zone → Deletion* |
 | Web | Polish: book summaries expand inline; unimplemented controls are hidden (book *Reading timeline* tab, smart list *List rules* drawer, empty saved-view controls) |
+| Fixes | Home rows' seek buttons work right away (they waited for a manual scroll); tables show a Writers column by default |
 | Fixes | The EPUB reader no longer crashes with React error #185 when going back into it (book → reader → book → browser back); the error screen's *Copy report* stack maps to source with `scripts/fork/map_stack.py` |
 | Fixes | Continue-reading cards show titles again (metadata was lost since the SeaORM 2 upgrade); `?page=0` no longer crashes the server (offset underflow + `panic = "abort"`); OPDS 2 search group links no longer 404; OPDS 1.2 page-stream links keep the API key; Docker apt cache mounts are locked |
 
