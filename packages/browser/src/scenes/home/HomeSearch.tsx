@@ -2,8 +2,8 @@ import { useGraphQL } from '@stump/client'
 import { cn, Text } from '@stump/components'
 import { graphql, MediaFilterInput } from '@stump/graphql'
 import { SearchIcon } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useDebouncedValue } from 'rooks'
 
 import { useSearchMediaFilter } from '@/components/filters/useFilterScene'
@@ -44,9 +44,27 @@ export default function HomeSearch() {
 	const navigate = useNavigate()
 	const containerRef = useRef<HTMLDivElement>(null)
 
-	const [value, setValue] = useState('')
-	const [isOpen, setIsOpen] = useState(false)
+	// The query is kept in the URL (`?q=`), so coming back from a result reopens the search
+	const [searchParams, setSearchParams] = useSearchParams()
+	const initialQuery = searchParams.get('q') ?? ''
+	const [value, setValue] = useState(initialQuery)
+	const [isOpen, setIsOpen] = useState(!!initialQuery)
 	const [debounced] = useDebouncedValue(value.trim(), 300)
+
+	useEffect(() => {
+		if ((searchParams.get('q') ?? '') === (debounced ?? '')) return
+		setSearchParams(
+			(prev) => {
+				if (debounced) {
+					prev.set('q', debounced)
+				} else {
+					prev.delete('q')
+				}
+				return prev
+			},
+			{ replace: true },
+		)
+	}, [debounced, searchParams, setSearchParams])
 	const searchFilter = useSearchMediaFilter(debounced || undefined)
 	const filter = useMemo<MediaFilterInput>(() => ({ _or: searchFilter ?? [] }), [searchFilter])
 

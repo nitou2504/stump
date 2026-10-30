@@ -3,12 +3,13 @@ import { Badge, Button, cn, Heading, Input, Text } from '@stump/components'
 import { graphql, MetadataFacetField } from '@stump/graphql'
 import { useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet'
-import { Navigate, useParams } from 'react-router'
+import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
 import { Link } from '@/context'
 import { BrowseIndex, usePaths } from '@/paths'
 import { sortKey } from '@/utils/sortKey'
+import { matchesSearch } from '@/utils/textSearch'
 
 const query = graphql(`
 	query BrowseIndexScene($field: MetadataFacetField!) {
@@ -99,13 +100,26 @@ function BrowseIndexContent({ index }: { index: BrowseIndex }) {
 		data: { metadataValueCounts },
 	} = useSuspenseGraphQL(query, ['browseIndex', field], { field })
 
-	const [search, setSearch] = useState('')
+	// The filter is kept in the URL (`?q=`), so going back to the index restores it
+	const [searchParams, setSearchParams] = useSearchParams()
+	const search = searchParams.get('q') ?? ''
+	const setSearch = (value: string) =>
+		setSearchParams(
+			(prev) => {
+				if (value) {
+					prev.set('q', value)
+				} else {
+					prev.delete('q')
+				}
+				return prev
+			},
+			{ replace: true },
+		)
 	const [sort, setSort] = useState<SortMode>('name')
 
 	const values = useMemo(() => {
-		const needle = sortKey(search.trim())
 		return metadataValueCounts
-			.filter(({ value }) => !needle || sortKey(value).includes(needle))
+			.filter(({ value }) => matchesSearch(search, [value, sortKey(value)]))
 			.map(({ value, count }) => ({ value, label: value, count }))
 	}, [metadataValueCounts, search])
 

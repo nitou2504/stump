@@ -8,8 +8,8 @@ import {
 	SeriesModelOrdering,
 	SeriesOrderBy,
 } from '@stump/graphql'
-import { toObjectParams, toUrlParams } from '@stump/sdk'
-import { useCallback, useMemo, useState } from 'react'
+import { toUrlParams } from '@stump/sdk'
+import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
 import { useMediaMatch } from 'rooks'
 
@@ -74,89 +74,71 @@ export const useURLPageParams = () => {
 	return { ...pagination, setPage, setPageSize }
 }
 
+/**
+ * The `search` URL param. It is stored URL-encoded once more than URLSearchParams does
+ * (links like the home search's "See all" rely on that); values that aren't valid encoded
+ * strings are read as they are.
+ */
+export function readSearchParam(params: URLSearchParams): string {
+	const value = params.get('search')
+	if (!value) return ''
+	try {
+		return decodeURIComponent(value)
+	} catch {
+		return value
+	}
+}
+
+export function writeSearchParam(params: URLSearchParams, value: string | undefined) {
+	if (value) {
+		params.set('search', encodeURIComponent(value))
+	} else {
+		params.delete('search')
+	}
+}
+
 export const useURLKeywordSearch = () => {
 	const [searchParams, setSearchParams] = useSearchParams()
 
-	const search = useMemo(() => {
-		const searchValue = searchParams.get('search')
-		return searchValue ? decodeURIComponent(searchValue) : ''
-	}, [searchParams])
+	const search = useMemo(() => readSearchParam(searchParams), [searchParams])
 
 	const setSearch = useCallback(
 		(newSearch: string) => {
-			setSearchParams((prev) => {
-				if (newSearch) {
-					prev.set('search', encodeURIComponent(newSearch))
-				} else {
-					prev.delete('search')
-				}
-				return prev
-			})
+			setSearchParams(
+				(prev) => {
+					writeSearchParam(prev, newSearch)
+					return prev
+				},
+				{ replace: true },
+			)
 		},
 		[setSearchParams],
 	)
 
 	const removeSearch = useCallback(() => {
-		setSearchParams((prev) => {
-			prev.delete('search')
-			return prev
-		})
+		setSearchParams(
+			(prev) => {
+				prev.delete('search')
+				return prev
+			},
+			{ replace: true },
+		)
 	}, [setSearchParams])
 
 	return { search, setSearch, removeSearch }
 }
 
+/**
+ * The server-side search for books: every word of `search` must appear in the file name or
+ * path, title, series, writers, publisher, genres or tags, ignoring case and accents
+ */
 export function useSearchMediaFilter(search: string | undefined): MediaFilterInput[] | undefined {
-	return useMemo(() => {
-		if (!search) return undefined
-		return [
-			{
-				name: { contains: search },
-			},
-			{
-				metadata: {
-					summary: { contains: search },
-				},
-			},
-			{
-				metadata: {
-					title: { contains: search },
-				},
-			},
-			// authors and series names too, like the OPDS search
-			{
-				metadata: {
-					writers: { contains: search },
-				},
-			},
-			{
-				metadata: {
-					series: { contains: search },
-				},
-			},
-		] as MediaFilterInput[]
-	}, [search])
+	return useMemo(() => (search?.trim() ? [{ search }] : undefined), [search])
 }
 
+/** The server-side search for series: every word in the series name or title */
 export function useSearchSeriesFilter(search: string | undefined): SeriesFilterInput[] | undefined {
-	return useMemo(() => {
-		if (!search) return undefined
-		return [
-			{
-				name: { contains: search },
-			},
-			{
-				metadata: {
-					summary: { contains: search },
-				},
-			},
-			{
-				metadata: {
-					title: { contains: search },
-				},
-			},
-		] as SeriesFilterInput[]
-	}, [search])
+	return useMemo(() => (search?.trim() ? [{ search }] : undefined), [search])
 }
 
 export function useFilterScene({
@@ -165,7 +147,8 @@ export function useFilterScene({
 	defaultOrdering,
 }: UseFilterSceneOptions = {}): Return {
 	const [searchParams, setSearchParams] = useSearchParams()
-	const [search, setSearch] = useState<string | undefined>(undefined)
+	// The search lives in the URL, so going back to the page restores it
+	const search = useMemo(() => readSearchParam(searchParams) || undefined, [searchParams])
 
 	const is3XLScreenOrBigger = useMediaMatch('(min-width: 1600px)')
 	const defaultPageSize = is3XLScreenOrBigger ? 40 : 20
@@ -214,13 +197,14 @@ export function useFilterScene({
 						...pagination,
 						...newOrdering,
 						filters: JSON.stringify(filters),
+						search: searchParams.get('search') ?? undefined,
 					},
 					undefined,
 					{ removeEmpty: true },
 				),
 			)
 		},
-		[setSearchParams, pagination, filters, setPersistedOrdering],
+		[setSearchParams, searchParams, pagination, filters, setPersistedOrdering],
 	)
 
 	const setPage = useCallback(
@@ -244,13 +228,14 @@ export function useFilterScene({
 						...ordering,
 						...pagination,
 						filters: JSON.stringify(newFilters),
+						search: searchParams.get('search') ?? undefined,
 					},
 					undefined,
 					{ removeEmpty: true },
 				),
 			)
 		},
-		[ordering, pagination, setSearchParams],
+		[ordering, pagination, searchParams, setSearchParams],
 	)
 
 	/**
@@ -258,12 +243,15 @@ export function useFilterScene({
 	 */
 	const handleSetSearch = useCallback(
 		(value: string) => {
-			setSearchParams((prev) => {
-				const params = toObjectParams<Record<string, unknown>>(prev)
-				params['search'] = value
-				setSearch(value)
-				return toUrlParams(params)
-			})
+			setSearchParams(
+				(prev) => {
+					writeSearchParam(prev, value)
+					prev.delete('page')
+					return prev
+				},
+				// typing doesn't add history entries; back leaves the page with its search
+				{ replace: true },
+			)
 		},
 		[setSearchParams],
 	)
@@ -272,10 +260,14 @@ export function useFilterScene({
 	 * Removes a filter from the url
 	 */
 	const removeSearch = useCallback(() => {
-		setSearchParams((prev) => {
-			prev.delete('search')
-			return prev
-		})
+		setSearchParams(
+			(prev) => {
+				prev.delete('search')
+				prev.delete('page')
+				return prev
+			},
+			{ replace: true },
+		)
 	}, [setSearchParams])
 
 	return {

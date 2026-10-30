@@ -1,6 +1,8 @@
-import { ReactNode, useCallback } from 'react'
+import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router'
 
 import { Search, URLFilterDrawer } from '@/components/filters'
+import { readSearchParam, writeSearchParam } from '@/components/filters/useFilterScene'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { useSafeWorkingView, useSmartListContext } from '../../context'
@@ -33,9 +35,31 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 	const hasSavedViews = !!views?.length
 	const canSaveView = !!workingView || !!selectedView
 
+	// The search is mirrored in the URL (`?search=`), so going back to the list restores it
+	const [searchParams, setSearchParams] = useSearchParams()
+	const urlSearch = readSearchParam(searchParams)
+	const restoredRef = useRef(false)
+	useEffect(() => {
+		// only once, when arriving with a search in the URL
+		if (restoredRef.current) return
+		restoredRef.current = true
+		if (urlSearch && !search) {
+			updateWorkingView({ search: urlSearch })
+		}
+	}, [urlSearch, search, updateWorkingView])
+
 	const setFilter = useCallback(
-		(value?: string) => updateWorkingView({ search: value || undefined }),
-		[updateWorkingView],
+		(value?: string) => {
+			updateWorkingView({ search: value || undefined })
+			setSearchParams(
+				(prev) => {
+					writeSearchParam(prev, value)
+					return prev
+				},
+				{ replace: true },
+			)
+		},
+		[updateWorkingView, setSearchParams],
 	)
 
 	return (
@@ -45,7 +69,7 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 			{showColumnControls && <TableColumnsBottomDrawer />}
 			<Search
 				key={selectedView?.id ?? 'default'}
-				initialValue={search ?? undefined}
+				initialValue={search ?? (urlSearch || undefined)}
 				onChange={(value) => setFilter(value)}
 				placeholder={t('userSmartListScene.itemsScene.actionHeader.search.placeholder')}
 			/>
