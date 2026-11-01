@@ -3791,6 +3791,41 @@
         "search": "Search the Book"
       }
     },
+    "pdfReader": {
+      "openFailed": "This PDF couldn't be opened.",
+      "retry": "Try Again",
+      "pageFailed": "Page {{page}} didn't load. Tap to retry.",
+      "openAs": "Other Ways to Open It",
+      "openAsPages": "Show as Pages (Comic Reader)",
+      "openAsText": "Open in the PDF Reader (Selectable Text)",
+      "openInBrowser": "Open in the Browser's PDF Viewer",
+      "theme": "Theme",
+      "invertPages": "Invert Pages in Dark Themes",
+      "invertPagesHint": "Turn this off for illustrated books to keep pictures as they are",
+      "fit": {
+        "label": "Fit",
+        "width": "Fit Width",
+        "page": "Fit Page"
+      },
+      "singlePage": "Single Page",
+      "zoom": "Zoom",
+      "zoomIn": "Zoom In",
+      "zoomOut": "Zoom Out",
+      "zoomReset": "Reset",
+      "fullscreen": "Full Screen",
+      "goToPage": "Go to Page",
+      "go": "Go",
+      "noSuchPage": "There is no such page",
+      "noOutline": "No Table of Contents",
+      "noTextHint": "This PDF has no text (it is a scan without OCR), so only bookmarks are available.",
+      "noTextShort": "No text: bookmarks only",
+      "bookmarksDisabledInIncognito": "Bookmarks are disabled in incognito mode",
+      "shortcuts": {
+        "screen": "Scroll a Screen",
+        "zoom": "Zoom In / Out / Reset",
+        "fit": "Fit Width / Fit Page"
+      }
+    },
     "serverSettings": {
       "title": "Server Settings",
       "updateAvailable": {

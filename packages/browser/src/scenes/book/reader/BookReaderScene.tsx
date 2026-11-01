@@ -8,10 +8,11 @@ import {
 } from '@stump/client'
 import { BookReaderSceneQuery, graphql, ReadingMode } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
-import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { ImageBasedReader } from '@/components/readers/imageBased'
+import { usePdfReaderStore } from '@/components/readers/pdf/store'
 import { usePaths } from '@/paths'
 
 import { useBookPreferences } from './useBookPreferences'
@@ -80,6 +81,8 @@ export default function BookReaderSceneContainer() {
 		</Suspense>
 	)
 }
+
+const PdfReader = lazy(() => import('@/components/readers/pdf/PdfReader'))
 
 const mutation = graphql(`
 	mutation UpdateReadProgress($id: ID!, $input: MediaProgressInput!) {
@@ -153,6 +156,12 @@ function BookReaderScene({ book }: Props) {
 
 	const initialPage = useMemo(() => (page ? parseInt(page, 10) : undefined), [page])
 
+	const isPdf = !!book.extension.match(PDF_EXTENSION)
+	// PDFs open in the PDF reader (selectable text, annotations) unless the book is set to
+	// open as plain pages, e.g. a comic or manga PDF (double spreads, right to left)
+	const pdfReaderKind = usePdfReaderStore((state) => state.books[book.id]?.reader ?? 'pdf')
+	const opensInPdfReader = isPdf && isStreaming && pdfReaderKind === 'pdf'
+
 	useEffect(() => {
 		if (book.extension.match(EBOOK_EXTENSION)) {
 			navigate(
@@ -163,6 +172,10 @@ function BookReaderScene({ book }: Props) {
 			)
 		} else if (book.extension.match(PDF_EXTENSION) && !isStreaming) {
 			navigate(paths.bookReader(book.id, { isPdf: true, isStreaming: false }), { replace: true })
+		} else if (opensInPdfReader) {
+			if (!!initialPage && initialPage > book.pages) {
+				navigate(paths.bookReader(book.id, { page: book.pages }), { replace: true })
+			}
 		} else if (book.extension.match(ARCHIVE_EXTENSION) || book.extension.match(PDF_EXTENSION)) {
 			if (!initialPage && readingMode === ReadingMode.Paged && !animatedReader) {
 				navigate(paths.bookReader(book.id, { page: 1 }), { replace: true })
@@ -170,7 +183,27 @@ function BookReaderScene({ book }: Props) {
 				navigate(paths.bookReader(book.id, { page: book.pages }), { replace: true })
 			}
 		}
-	}, [book, initialPage, readingMode, navigate, isStreaming, animatedReader, paths])
+	}, [
+		book,
+		initialPage,
+		readingMode,
+		navigate,
+		isStreaming,
+		animatedReader,
+		paths,
+		opensInPdfReader,
+	])
+
+	if (opensInPdfReader) {
+		return (
+			<PdfReader
+				media={book}
+				isIncognito={isIncognito}
+				initialPage={initialPage}
+				onProgress={updateProgress}
+			/>
+		)
+	}
 
 	if (book.extension.match(ARCHIVE_EXTENSION) || book.extension.match(PDF_EXTENSION)) {
 		return (
