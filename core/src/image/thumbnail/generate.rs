@@ -503,7 +503,7 @@ pub async fn safely_generate_batch(
 	let mut output = ThumbnailGenerationOutput::default();
 	let mut logs = vec![];
 
-	let max_concurrency = options.core_config.cpu_concurrency_limit();
+	let max_concurrency = options.core_config.thumbnail_concurrency_limit();
 	let batch_size = max_concurrency;
 	let total_sources = sources.len();
 	tracing::debug!(
