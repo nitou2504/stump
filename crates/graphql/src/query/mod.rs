@@ -91,7 +91,6 @@ struct ContentQueries(
 	ReadingSessionQuery,
 	ReadingTimelineQuery,
 	ReadingStatsQuery,
-	IntakeQuery,
 );
 
 #[derive(async_graphql::MergedObject, Default)]
@@ -110,6 +109,7 @@ struct SystemQueries(
 
 #[derive(async_graphql::MergedObject, Default)]
 struct ListQueries(
+	IntakeQuery,
 	SmartListsQuery,
 	SmartListViewQuery,
 	ReadingListQuery,

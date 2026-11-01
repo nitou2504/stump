@@ -86,7 +86,6 @@ struct ContentMutations(
 	EpubMutation,
 	TagMutation,
 	UploadMutation,
-	IntakeMutation,
 );
 
 #[derive(async_graphql::MergedObject, Default)]
@@ -105,6 +104,7 @@ struct SystemMutations(
 
 #[derive(async_graphql::MergedObject, Default)]
 struct ListMutations(
+	IntakeMutation,
 	SmartListMutation,
 	SmartListViewMutation,
 	ReadingListMutation,
