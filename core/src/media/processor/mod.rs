@@ -179,7 +179,7 @@ async fn get_processor(
 	}
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn process_file(
 	path: impl AsRef<Path>,
 	options: MediaProcessorOptions,
@@ -190,7 +190,7 @@ pub async fn process_file(
 	spawn_blocking(move || processor.process(&path, options)).await?
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn process_metadata(
 	path: impl AsRef<Path>,
 	organization_mode: OrganizationMode,
@@ -201,7 +201,7 @@ pub async fn process_metadata(
 	spawn_blocking(move || processor.process_metadata(&path, organization_mode)).await?
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn generate_hashes(
 	path: impl AsRef<Path>,
 	options: MediaProcessorOptions,
@@ -212,14 +212,27 @@ pub async fn generate_hashes(
 	spawn_blocking(move || processor.generate_hashes(&path, options)).await?
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(skip(config), fields(path = %path.as_ref().display()))]
 pub async fn get_page(
 	path: impl AsRef<Path>,
 	page: i32,
 	config: &StumpConfig,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
-	let path = path.as_ref().to_path_buf();
+	let result = read_page(path.as_ref().to_path_buf(), page, config).await;
+	match &result {
+		// A cover is optional in EPUB: callers fall back to a default cover
+		Err(error @ MediaProcessorError::CoverNotFound) => tracing::debug!(%error),
+		Err(error) => tracing::error!(%error),
+		Ok(_) => {},
+	}
+	result
+}
 
+async fn read_page(
+	path: PathBuf,
+	page: i32,
+	config: &StumpConfig,
+) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
 	let mime = ContentType::from_extension(
 		path.extension().and_then(|ext| ext.to_str()).unwrap_or(""),
 	)
@@ -235,7 +248,7 @@ pub async fn get_page(
 	spawn_blocking(move || processor.get_page(&path, page)).await?
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn get_page_count(
 	path: impl AsRef<Path>,
 	config: &StumpConfig,
@@ -245,7 +258,7 @@ pub async fn get_page_count(
 	spawn_blocking(move || processor.get_page_count(&path)).await?
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn get_content_types_for_pages(
 	path: impl AsRef<Path>,
 	pages: Vec<i32>,
@@ -256,7 +269,7 @@ pub async fn get_content_types_for_pages(
 	spawn_blocking(move || processor.get_page_content_types(&path, pages)).await?
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn get_content_type_for_page(
 	path: impl AsRef<Path>,
 	page: i32,
@@ -273,7 +286,7 @@ pub async fn get_content_type_for_page(
 		.unwrap_or(ContentType::UNKNOWN))
 }
 
-#[tracing::instrument(err, fields(path = %path.as_ref().display()))]
+#[tracing::instrument(err, skip(config), fields(path = %path.as_ref().display()))]
 pub async fn analyze_page(
 	path: impl AsRef<Path>,
 	page: i32,
