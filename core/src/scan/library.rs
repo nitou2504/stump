@@ -496,6 +496,15 @@ impl JobLifecycle for LibraryScanJob {
 			tracing::error!(error = ?error, "Failed to handle scan completion");
 		}
 
+		if did_create_media {
+			crate::postproc::enqueue_for_new_books(
+				ctx,
+				Some(self.id.clone()),
+				self.config.as_ref(),
+			)
+			.await;
+		}
+
 		match image_options {
 			Some(options) if did_create || did_update => {
 				tracing::trace!("Thumbnail generation job should be enqueued");

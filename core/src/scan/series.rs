@@ -220,6 +220,15 @@ impl JobLifecycle for SeriesScanJob {
 		let did_create = output.created_media > 0;
 		let did_update = output.updated_media > 0;
 
+		if did_create {
+			crate::postproc::enqueue_for_new_books(
+				ctx,
+				self.library_id(),
+				self.config.as_ref(),
+			)
+			.await;
+		}
+
 		let image_options = self
 			.config
 			.as_ref()

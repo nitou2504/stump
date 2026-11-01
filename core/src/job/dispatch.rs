@@ -22,6 +22,7 @@ use crate::{
 	metadata::provider::{
 		MetadataFetchJob, MetadataFetchJobOutput, MetadataFetchJobParams,
 	},
+	postproc::{PostProcessJob, PostProcessJobConfig, PostProcessOutput},
 	scan::{
 		library::{LibraryScanJob, LibraryScanOutput},
 		options::ScanOptions,
@@ -35,6 +36,9 @@ use crate::{
 pub enum CoreJobOutput {
 	LibraryScan(LibraryScanOutput),
 	SeriesScan(SeriesScanOutput),
+	// before the outputs whose fields all have defaults (untagged: the first match wins), so a
+	// stored post-processing output is not read back as a thumbnail generation output
+	PostProcess(PostProcessOutput),
 	ThumbnailGeneration(ThumbnailGenerationOutput),
 	PlaceholderGeneration(PlaceholderGenerationOutput),
 	MetadataFetch(MetadataFetchJobOutput),
@@ -94,6 +98,9 @@ pub enum StumpJob {
 	AnalyzeMedia {
 		config: AnalysisJobConfig,
 	},
+	PostProcess {
+		config: PostProcessJobConfig,
+	},
 }
 
 impl StumpJob {
@@ -106,6 +113,7 @@ impl StumpJob {
 			StumpJob::PlaceholderGeneration { .. } => "placeholder_generation",
 			StumpJob::MetadataFetch { .. } => "metadata_fetch",
 			StumpJob::AnalyzeMedia { .. } => "analyze_media",
+			StumpJob::PostProcess { .. } => "post_processing",
 		}
 	}
 
@@ -127,7 +135,18 @@ impl StumpJob {
 			StumpJob::AnalyzeMedia { config } => {
 				Some(format!("Analyze media: {:?}", config.scope))
 			},
+			StumpJob::PostProcess { config } => Some(config.describe()),
 		}
+	}
+
+	/// Post-processing jobs run on their own worker, so a long 16-grey pass never holds up
+	/// scans and the other jobs
+	pub fn runs_on_post_processing_worker(&self) -> bool {
+		matches!(self, StumpJob::PostProcess { .. })
+	}
+
+	pub fn post_process(config: PostProcessJobConfig) -> Self {
+		StumpJob::PostProcess { config }
 	}
 
 	pub fn library_scan(id: String, path: String, options: Option<ScanOptions>) -> Self {
@@ -276,6 +295,9 @@ pub async fn dispatch_job(
 		},
 		StumpJob::AnalyzeMedia { config } => {
 			run_job(&job_ctx, &mut AnalyzeMediaJob { config }).await
+		},
+		StumpJob::PostProcess { config } => {
+			run_job(&job_ctx, &mut PostProcessJob { config }).await
 		},
 	};
 

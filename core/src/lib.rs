@@ -19,6 +19,7 @@ pub mod kobo;
 pub mod media;
 pub mod metadata;
 pub mod opds;
+pub mod postproc;
 pub mod readium;
 pub mod scan;
 pub mod utils;
@@ -299,5 +300,11 @@ impl StumpCore {
 
 	pub async fn init_library_watcher(&self) -> CoreResult<()> {
 		self.ctx.library_watcher.init().await
+	}
+
+	/// Start applying the PDF host runner's results (a directory listing a minute). Keep the
+	/// handle alive for as long as the server runs
+	pub fn init_post_processing(&self) -> tokio::task::JoinHandle<()> {
+		postproc::pdf_queue::spawn_collector(self.ctx.arced())
 	}
 }

@@ -174,6 +174,11 @@ pub struct StumpConfig {
 	/// Whether to trust proxy headers for determining client IP and scheme (e.g., X-Forwarded-For)
 	#[setting(default = false)]
 	pub trust_proxy_headers: bool,
+
+	/// Where post-processing (16 greys for manga, PDF OCR and shrinking) keeps the originals it
+	/// replaces, in dated batch folders with a `restore_log.csv`. Nothing is ever deleted, so
+	/// post-processing replaces no file until this is set
+	pub quarantine_dir: Option<String>,
 }
 
 impl StumpConfig {
@@ -239,6 +244,25 @@ impl StumpConfig {
 
 	pub fn pdf_cache_directory(&self) -> PathBuf {
 		self.cache_directory().join("pdf_pages")
+	}
+
+	/// Work files of post-processing (a converted CBZ before it replaces the original)
+	pub fn post_processing_work_directory(&self) -> PathBuf {
+		self.cache_directory().join("post_processing")
+	}
+
+	/// The PDF queue shared with the host runner (`scripts/fork/workers/pdf_runner.py`):
+	/// `queue/`, `running/`, `done/` and `archive/`
+	pub fn pdf_worker_directory(&self) -> PathBuf {
+		self.config_directory().join("workers").join("pdf")
+	}
+
+	pub fn quarantine_directory(&self) -> Option<PathBuf> {
+		self.quarantine_dir
+			.as_deref()
+			.map(str::trim)
+			.filter(|dir| !dir.is_empty())
+			.map(PathBuf::from)
 	}
 
 	pub fn log_file(&self) -> PathBuf {

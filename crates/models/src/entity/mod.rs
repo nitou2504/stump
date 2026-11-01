@@ -36,6 +36,7 @@ pub mod media_tag;
 pub mod metadata_fetch_record;
 pub mod metadata_provider_config;
 pub mod notifier;
+pub mod post_processing_task;
 pub mod reading_device;
 pub mod reading_list;
 pub mod reading_list_item;

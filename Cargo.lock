@@ -9577,6 +9577,7 @@ dependencies = [
  "notify 8.0.0",
  "palette",
  "pdfium-render",
+ "png 0.18.0",
  "prefixed-api-key",
  "quick-xml",
  "rand 0.9.2",

@@ -12,6 +12,7 @@ use crate::shared::{
 	},
 	ignore_rules::IgnoreRules,
 	image_processor_options::ImageProcessorOptions,
+	post_processing::PostProcessingConfig,
 };
 
 use super::library;
@@ -58,6 +59,11 @@ pub struct Model {
 	#[sea_orm(column_type = "Json", nullable)]
 	#[graphql(skip)]
 	pub ignore_rules: Option<IgnoreRules>,
+	/// Post-processing settings (16 greys for manga, PDF OCR and shrinking), see
+	/// [`PostProcessingConfig`]. `None` means every step is off
+	#[sea_orm(column_type = "Json", nullable)]
+	#[graphql(skip)]
+	pub post_processing: Option<PostProcessingConfig>,
 	#[sea_orm(column_type = "Text", nullable)]
 	pub library_id: Option<String>,
 	/// the **relative path** to the directory where oneshots are stored,
@@ -76,6 +82,10 @@ impl Model {
 
 	pub fn ignore_rules(&self) -> IgnoreRules {
 		self.ignore_rules.clone().unwrap_or_default()
+	}
+
+	pub fn post_processing(&self) -> PostProcessingConfig {
+		self.post_processing.clone().unwrap_or_default()
 	}
 }
 

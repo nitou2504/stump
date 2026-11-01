@@ -9,5 +9,6 @@ pub mod image;
 pub mod image_processor_options;
 pub mod ordering;
 pub mod permission_set;
+pub mod post_processing;
 pub mod readium;
 pub mod series_metadata;
