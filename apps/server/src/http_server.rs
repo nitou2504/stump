@@ -66,6 +66,8 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 		.await
 		.map_err(|e| ServerError::ServerStartError(e.to_string()))?;
 
+	let _post_processing_collector = core.init_post_processing();
+
 	let oidc_provider: Option<Arc<OidcProvider>> = {
 		if let Some(oidc_config) = config.oidc.as_ref().filter(|c| c.is_valid()) {
 			let state = OidcProvider::new(oidc_config).await.map_err(|e| {
@@ -144,6 +146,15 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 				.data(server_ctx.apalis_state.clone())
 				.concurrency(1)
 				.backend(server_ctx.job_storage.clone())
+				.build_fn(dispatch_job),
+		)
+		// post-processing (16 greys, PDF queue) on its own worker so it never holds up scans
+		.register(
+			WorkerBuilder::new("stump-post-processing")
+				.enable_tracing()
+				.data(server_ctx.apalis_state.clone())
+				.concurrency(1)
+				.backend(server_ctx.apalis_state.post_processing_storage.clone())
 				.build_fn(dispatch_job),
 		)
 		.with_terminator(tokio::time::sleep(Duration::from_secs(30)))

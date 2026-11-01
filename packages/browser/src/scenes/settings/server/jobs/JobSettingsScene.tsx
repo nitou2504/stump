@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 import { Helmet } from 'react-helmet'
 
 import { SceneContainer } from '@/components/container'
+import PostProcessingTasks from '@/components/postProcessing/PostProcessingTasks'
 import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -56,6 +57,18 @@ export default function JobSettingsScene() {
 				<Suspense>
 					<JobTable />
 				</Suspense>
+			</div>
+
+			<div className="gap-4 flex flex-col">
+				<div>
+					<Heading size="sm">Post-processing</Heading>
+					<Text size="sm" variant="muted" className="mt-1">
+						16 grey levels for manga and OCR / size reduction for scanned PDFs, per book. PDFs wait
+						in the queue until the host runner picks them up. Set it up per library in its settings.
+					</Text>
+				</div>
+
+				<PostProcessingTasks limit={100} />
 			</div>
 		</SceneContainer>
 	)

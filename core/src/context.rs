@@ -169,7 +169,7 @@ impl Ctx {
 
 	/// Enqueue a job into apalis storage
 	pub async fn enqueue(&self, job: StumpJob) -> CoreResult<()> {
-		let mut storage = self.job_storage.clone();
+		let mut storage = self.apalis_state.storage_for(&job);
 		storage
 			.enqueue(job)
 			.await

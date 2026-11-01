@@ -351,6 +351,7 @@ impl PatchLibraryConfigInput {
 				.map(Set)
 				.unwrap_or(Unchanged(model.default_reading_image_scale_fit)),
 			ignore_rules,
+			post_processing: Unchanged(model.post_processing),
 			library_id: Unchanged(model.library_id),
 			oneshots_directory: match oneshots_directory {
 				MaybeUndefined::Undefined => Unchanged(model.oneshots_directory),
@@ -410,6 +411,7 @@ mod tests {
 			thumbnail_config: None,
 			process_thumbnail_colors_even_without_config: false,
 			ignore_rules: None,
+			post_processing: None,
 			library_id: None,
 			oneshots_directory: None,
 		}

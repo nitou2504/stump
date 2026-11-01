@@ -45,6 +45,7 @@ mod m20261028_000000_media_metadata_rating;
 mod m20261029_000000_user_book_removal_preference;
 mod m20261101_000000_book_removal_permission;
 mod m20261102_000000_annotation_style;
+mod m20261102_000000_post_processing;
 
 pub struct Migrator;
 
@@ -96,6 +97,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261029_000000_user_book_removal_preference::Migration),
 			Box::new(m20261101_000000_book_removal_permission::Migration),
 			Box::new(m20261102_000000_annotation_style::Migration),
+			Box::new(m20261102_000000_post_processing::Migration),
 		]
 	}
 }

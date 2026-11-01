@@ -26,6 +26,7 @@ futures.workspace = true
 globset = "0.4.14"
 image = { version = "0.25.2" }
 imagesize = "0.14.0"
+png = "0.18.0"
 infer.workspace = true
 itertools.workspace = true
 metadata_integrations = { path = "../crates/integrations/metadata" }

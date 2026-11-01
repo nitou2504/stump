@@ -1,0 +1,3 @@
+# Alternative to the systemd path unit (crontab -e): look at the queue every 10 minutes.
+# flock keeps one runner at a time; an empty queue costs one directory listing.
+*/10 * * * * /usr/bin/flock -n /tmp/stump-pdf-runner.lock env STUMP_CONTAINER=stump-fork BOOK_CURATOR=/mnt/data2/Code/book-curator /mnt/data2/Code/book-curator/.venv/bin/python /mnt/data2/Code/stump/scripts/fork/workers/pdf_runner.py drain >> /mnt/data2/containers/stump-fork/config/workers/pdf/runner.log 2>&1

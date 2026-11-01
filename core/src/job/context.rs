@@ -30,6 +30,8 @@ pub struct ApalisWorkerState {
 	pub core_event_tx: broadcast::Sender<CoreEvent>,
 	pub cancellation_tokens: Arc<DashMap<String, CancellationToken>>,
 	pub job_storage: MemoryStorage<StumpJob>,
+	/// The queue of the post-processing worker (see [`StumpJob::runs_on_post_processing_worker`])
+	pub post_processing_storage: MemoryStorage<StumpJob>,
 }
 
 impl ApalisWorkerState {
@@ -45,6 +47,16 @@ impl ApalisWorkerState {
 			core_event_tx,
 			cancellation_tokens: Arc::new(DashMap::new()),
 			job_storage,
+			post_processing_storage: MemoryStorage::new(),
+		}
+	}
+
+	/// The queue a job belongs on
+	pub fn storage_for(&self, job: &StumpJob) -> MemoryStorage<StumpJob> {
+		if job.runs_on_post_processing_worker() {
+			self.post_processing_storage.clone()
+		} else {
+			self.job_storage.clone()
 		}
 	}
 
@@ -256,7 +268,7 @@ impl JobContext {
 
 	/// A convenience method to enqueue a follow-up job from this job's execution
 	pub async fn enqueue(&self, job: StumpJob) -> Result<(), JobError> {
-		let mut storage = self.apalis_state.job_storage.clone();
+		let mut storage = self.apalis_state.storage_for(&job);
 		storage.enqueue(job).await.map_err(|error| {
 			tracing::error!(?error, "Failed to enqueue follow-up job!");
 			JobError::Unknown(format!("Failed to enqueue follow-up job! {error:?}"))

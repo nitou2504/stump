@@ -934,6 +934,7 @@
           "reading": "Reading",
           "scanning": "Scanning",
           "thumbnails": "Thumbnails",
+          "post-processing": "Post-processing",
           "ignore-rules": "Ignore Rules",
           "label": "Configuration"
         },
@@ -1030,6 +1031,10 @@
       "options/thumbnails": {
         "title": "Thumbnails",
         "description": "Settings and management options for thumbnails in this library"
+      },
+      "options/post-processing": {
+        "title": "Post-processing",
+        "description": "Save space: 16 grey levels for manga, OCR and size reduction for scanned PDFs"
       },
       "integrations/analysis": {
         "title": "Analysis",
