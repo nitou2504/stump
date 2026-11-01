@@ -1,3 +1,4 @@
+import { DEFAULT_EPUB_FONT_SIZE } from '@stump/client'
 import { Input } from '@stump/components'
 import React from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -29,7 +30,7 @@ export default function DefaultFontSize() {
 			<Input
 				label={translate('shared.epubSettings.fontSize.label')}
 				description={translate('shared.epubSettings.fontSize.description')}
-				value={fontSize ?? 13}
+				value={fontSize ?? DEFAULT_EPUB_FONT_SIZE}
 				onChange={onValueChange}
 				type="number"
 				min={0}

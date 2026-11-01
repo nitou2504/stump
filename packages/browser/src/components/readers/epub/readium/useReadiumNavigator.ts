@@ -6,12 +6,13 @@ import {
 	EpubPreferences,
 	type IEpubPreferences,
 } from '@readium/navigator'
-import type { BasicTextSelection } from '@readium/navigator-html-injectables'
+import type { BasicTextSelection, FrameClickEvent } from '@readium/navigator-html-injectables'
 import { Link, Locator, Publication } from '@readium/shared'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
+import { forwardFrameKeyEvents } from '../../annotations/shortcuts'
 import { clearFramesSelection } from '../annotations/clearSelection'
 import { locatorToHref, resolvePublicationLinkLocator } from './locator'
 import {
@@ -35,6 +36,11 @@ type UseReadiumNavigatorArgs = {
 	onTextSelected?: (selection: BasicTextSelection) => void
 	onTextCleared?: () => void
 	onDecorationActivated?: DecorationObserver['onDecorationActivated']
+	/**
+	 * A tap or click on the page that wasn't on a link, an annotation or a text selection
+	 * (Readium handles those), with where it landed across the page (0-1)
+	 */
+	onTap?: (tap: { xFraction: number }) => void
 }
 
 export type UseReadiumNavigatorResult = {
@@ -85,6 +91,7 @@ export function useReadiumNavigator({
 	onTextSelected,
 	onTextCleared,
 	onDecorationActivated,
+	onTap,
 }: UseReadiumNavigatorArgs): UseReadiumNavigatorResult {
 	const { translate } = useTranslate()
 	const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
@@ -96,6 +103,7 @@ export function useReadiumNavigator({
 	const onTextSelectedRef = useRef(onTextSelected)
 	const onTextClearedRef = useRef(onTextCleared)
 	const onDecorationActivatedRef = useRef(onDecorationActivated)
+	const onTapRef = useRef(onTap)
 	const preferencesRef = useRef(preferences)
 	const decorationObserverRef = useRef<DecorationObserver | null>(null)
 	const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -108,6 +116,7 @@ export function useReadiumNavigator({
 		onTextSelectedRef.current = onTextSelected
 		onTextClearedRef.current = onTextCleared
 		onDecorationActivatedRef.current = onDecorationActivated
+		onTapRef.current = onTap
 		preferencesRef.current = preferences
 	}, [
 		onPositionChanged,
@@ -115,6 +124,7 @@ export function useReadiumNavigator({
 		onTextSelected,
 		onTextCleared,
 		onDecorationActivated,
+		onTap,
 		preferences,
 	])
 
@@ -192,7 +202,10 @@ export function useReadiumNavigator({
 		}, 100)
 	}, [])
 
-	const attachSelectionClearListeners = useCallback(() => {
+	/** Frames whose key presses are already forwarded to the host document */
+	const keyForwardedDocsRef = useRef(new WeakSet<Document>())
+
+	const attachFrameListeners = useCallback(() => {
 		const nav = navigatorRef.current
 		if (!nav) return
 		for (const frame of nav._cframes) {
@@ -201,6 +214,12 @@ export function useReadiumNavigator({
 				if (!doc) continue
 				doc.removeEventListener('selectionchange', handleSelectionChange)
 				doc.addEventListener('selectionchange', handleSelectionChange)
+				// After selecting text the focus is inside the frame: forward its key presses so
+				// the reader's shortcuts still work. Lives as long as the frame's document
+				if (!keyForwardedDocsRef.current.has(doc)) {
+					keyForwardedDocsRef.current.add(doc)
+					forwardFrameKeyEvents(doc, document)
+				}
 			} catch {
 				// Cross-origin or destroyed frame, ignore.
 			}
@@ -240,14 +259,20 @@ export function useReadiumNavigator({
 						setCurrentLocator(locator)
 						syncNavButtons(navigatorRef.current)
 						onPositionChangedRef.current(locator)
-						attachSelectionClearListeners()
+						attachFrameListeners()
 					},
 					// Return true to suppress Readium's built-in quarter-based tap
 					// navigation (left quarter = back, right quarter = forward).
 					// Stump's own controls handle all navigation; link clicks inside
 					// the iframe are handled before this listener fires.
-					tap: () => true,
-					click: () => true,
+					tap: (event: FrameClickEvent) => {
+						onTapRef.current?.({ xFraction: tapFraction(navigator, event) })
+						return true
+					},
+					click: (event: FrameClickEvent) => {
+						onTapRef.current?.({ xFraction: tapFraction(navigator, event) })
+						return true
+					},
 					zoom: () => {},
 					miscPointer: () => {},
 					scroll: () => {},
@@ -337,7 +362,7 @@ export function useReadiumNavigator({
 				setCurrentLocator(navigator.currentLocator)
 				syncNavButtons(navigator)
 				setLoadState({ status: 'ready' })
-				attachSelectionClearListeners()
+				attachFrameListeners()
 			} catch (error) {
 				console.error('[useReadiumNavigator] open failed', error)
 				if (!cancelled) {
@@ -388,7 +413,7 @@ export function useReadiumNavigator({
 		positions,
 		initialLocator,
 		allowedDomains,
-		attachSelectionClearListeners,
+		attachFrameListeners,
 		containerRef,
 		enqueueNavigation,
 		syncNavButtons,
@@ -508,4 +533,16 @@ function wrapResizeWithRecovery(navigator: EpubNavigator) {
 			}
 		}
 	}
+}
+
+/**
+ * Where a frame tap landed across the page, from 0 (left) to 1 (right). Readium reports `x`
+ * in device pixels, relative to the frames shown side by side (two for a fixed-layout spread)
+ */
+function tapFraction(navigator: EpubNavigator | null, event: FrameClickEvent): number {
+	const frames = (navigator?._cframes ?? []).filter((frame) => !!frame)
+	const width = frames.reduce((total, frame) => total + (frame?.window?.innerWidth ?? 0), 0)
+	if (!width) return 0.5
+	const fraction = event.x / (width * (window.devicePixelRatio || 1))
+	return Math.min(1, Math.max(0, fraction))
 }

@@ -4,8 +4,8 @@ import { useCallback, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
-import AnnotationsList from '../annotations/AnnotationsList'
 import ControlButton from '../controls/ControlButton'
+import Annotations from './Annotations'
 import Bookmarks from './Bookmarks'
 import TableOfContents from './TableOfContents'
 
@@ -35,7 +35,7 @@ export default function LocationManager() {
 		if (activeTab === 'contents') {
 			return <TableOfContents onLocationChanged={handleLocationChanged} />
 		} else if (activeTab === 'annotations') {
-			return <AnnotationsList onLocationChanged={handleLocationChanged} />
+			return <Annotations onLocationChanged={handleLocationChanged} />
 		} else if (activeTab === 'bookmarks') {
 			return <Bookmarks onLocationChanged={handleLocationChanged} />
 		}

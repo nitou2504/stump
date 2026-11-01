@@ -39,6 +39,19 @@ type AnalyzeMediaOutput {
 	mediaUpdated: Int!
 }
 
+"""
+How an annotation is drawn over its text in a reader, like KOReader's highlight styles.
+Each style can carry a note.
+"""
+enum AnnotationStyle {
+	"A coloured background behind the text"
+	HIGHLIGHT
+	UNDERLINE
+	STRIKETHROUGH
+	"The text and background colours swapped"
+	INVERT
+}
+
 type Apikey {
 	id: Int!
 	name: String!
@@ -428,6 +441,7 @@ input CreateAnnotationInput {
 	mediaId: String!
 	locator: ReadiumLocatorInput!
 	annotationText: String
+	style: AnnotationStyle! = HIGHLIGHT
 }
 
 input CreateBookClubInput {
@@ -1462,6 +1476,8 @@ type MediaAnnotation {
 	id: String!
 	locator: ReadiumLocator!
 	annotationText: String
+	"How the annotated text is drawn"
+	style: AnnotationStyle!
 	mediaId: String!
 	userId: String!
 	createdAt: DateTime!
@@ -1473,11 +1489,16 @@ type MediaAnnotation {
 	sessionId: Int
 }
 
-"A media annotation represents a highlight and/or note"
+"""
+A media annotation represents a highlight (or underline, strikethrough, invert) and/or
+a note. Annotations are private to the user who made them
+"""
 type MediaAnnotationModel {
 	id: String!
 	locator: ReadiumLocator!
 	annotationText: String
+	"How the annotated text is drawn"
+	style: AnnotationStyle!
 	mediaId: String!
 	userId: String!
 	createdAt: DateTime!
@@ -2149,11 +2170,14 @@ type Mutation {
 	createBookmark(input: BookmarkInput!): Bookmark!
 	"Delete a bookmark by ID, only if the user created it"
 	deleteBookmark(id: String!): Bookmark!
-	"Create an annotation (highlight/note)"
+	"""
+	Create an annotation (a highlight, underline, strikethrough or invert, with an
+	optional note)
+	"""
 	createAnnotation(input: CreateAnnotationInput!): MediaAnnotation!
-	"Update an annotation's note text"
+	"Change an annotation's note and/or style, only if the user created it"
 	updateAnnotation(input: UpdateAnnotationInput!): MediaAnnotation!
-	"Delete an annotation by ID"
+	"Delete an annotation by ID, only if the user created it"
 	deleteAnnotation(id: String!): MediaAnnotation!
 	"""
 	Returns a list containing the newly created tags, or an error if creation failed.
@@ -3009,6 +3033,12 @@ type ReadiumLocation {
 	totalProgression: Decimal
 	cssSelector: String
 	partialCfi: String
+	"""
+	The boxes a selection covers on a fixed-layout page (e.g. a PDF page, whose number is
+	`position`), so an annotation can be drawn without re-finding its text. Not part of the
+	Readium spec, unused for reflowable EPUBs
+	"""
+	rects: [ReadiumRect!]
 }
 
 input ReadiumLocationInput {
@@ -3018,6 +3048,12 @@ input ReadiumLocationInput {
 	totalProgression: Decimal
 	cssSelector: String
 	partialCfi: String
+	"""
+	The boxes a selection covers on a fixed-layout page (e.g. a PDF page, whose number is
+	`position`), so an annotation can be drawn without re-finding its text. Not part of the
+	Readium spec, unused for reflowable EPUBs
+	"""
+	rects: [ReadiumRectInput!]
 }
 
 type ReadiumLocator {
@@ -3036,6 +3072,28 @@ input ReadiumLocatorInput {
 	locations: ReadiumLocationInput
 	text: ReadiumTextInput
 	type: String! = "application/xhtml+xml"
+}
+
+"""
+A box on a fixed-layout page, as fractions (0-1) of the page's width and height from its
+top-left corner, so it stays put at any zoom
+"""
+type ReadiumRect {
+	x: Decimal!
+	y: Decimal!
+	width: Decimal!
+	height: Decimal!
+}
+
+"""
+A box on a fixed-layout page, as fractions (0-1) of the page's width and height from its
+top-left corner, so it stays put at any zoom
+"""
+input ReadiumRectInput {
+	x: Decimal!
+	y: Decimal!
+	width: Decimal!
+	height: Decimal!
 }
 
 type ReadiumText {
@@ -3800,9 +3858,14 @@ input Unpaginated {
 	unpaginated: Boolean!
 }
 
+"""
+Changes an annotation's note and/or style. An omitted field is left unchanged, and a
+null `annotationText` removes the note
+"""
 input UpdateAnnotationInput {
 	id: String!
 	annotationText: String
+	style: AnnotationStyle
 }
 
 input UpdateBookClubInput {

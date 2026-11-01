@@ -153,3 +153,85 @@ function safeNumber(value: unknown): number | undefined {
 	const num = Number(value)
 	return Number.isFinite(num) ? num : undefined
 }
+
+type ViewportRect = { x: number; y: number; width: number; height: number }
+
+/**
+ * The reader frame showing the page: the one whose document is `targetFrameSrc` when given,
+ * otherwise the first visible frame (the navigator keeps neighbouring chapters loaded but
+ * hidden).
+ */
+export function findReaderFrame(
+	container: HTMLElement,
+	targetFrameSrc?: string,
+): HTMLIFrameElement | null {
+	const frames = Array.from(container.querySelectorAll('iframe'))
+	if (targetFrameSrc) {
+		const match = frames.find(
+			(frame) =>
+				frame.src === targetFrameSrc || frame.contentWindow?.location.href === targetFrameSrc,
+		)
+		if (match) return match
+	}
+	return (
+		frames.find((frame) => {
+			const style = frame.ownerDocument.defaultView?.getComputedStyle(frame)
+			const rect = frame.getBoundingClientRect()
+			return (
+				style?.visibility !== 'hidden' &&
+				style?.display !== 'none' &&
+				style?.opacity !== '0' &&
+				rect.width > 0 &&
+				rect.height > 0
+			)
+		}) ?? null
+	)
+}
+
+/**
+ * The selected text's bounding box in viewport coordinates (every line of it, unlike the
+ * navigator's `textSelected` event, which reports the first line relative to its frame)
+ */
+export function selectionViewportRect(
+	container: HTMLElement,
+	targetFrameSrc?: string,
+): ViewportRect | null {
+	try {
+		const frame = findReaderFrame(container, targetFrameSrc)
+		const selection = frame?.contentDocument?.getSelection()
+		if (!frame || !selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+
+		const rect = selection.getRangeAt(0).getBoundingClientRect()
+		if (!rect.width && !rect.height) return null
+
+		const frameRect = frame.getBoundingClientRect()
+		return {
+			x: frameRect.left + rect.left,
+			y: frameRect.top + rect.top,
+			width: rect.width,
+			height: rect.height,
+		}
+	} catch {
+		// Cross-origin or destroyed iframe
+		return null
+	}
+}
+
+/**
+ * Converts a rect from a navigator decoration event (frame coordinates, in device pixels) to
+ * viewport coordinates
+ */
+export function decorationEventViewportRect(
+	container: HTMLElement,
+	rect: { top: number; left: number; width: number; height: number },
+): ViewportRect {
+	const frame = findReaderFrame(container)
+	const offset = (frame ?? container).getBoundingClientRect()
+	const ratio = window.devicePixelRatio || 1
+	return {
+		x: offset.left + rect.left / ratio,
+		y: offset.top + rect.top / ratio,
+		width: rect.width / ratio,
+		height: rect.height / ratio,
+	}
+}

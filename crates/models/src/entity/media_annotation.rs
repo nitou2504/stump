@@ -1,11 +1,12 @@
 use async_graphql::SimpleObject;
 use sea_orm::{entity::prelude::*, ActiveValue};
 
-use crate::shared::readium::ReadiumLocator;
+use crate::shared::{enums::AnnotationStyle, readium::ReadiumLocator};
 
 use super::{media, reading_session, user};
 
-/// A media annotation represents a highlight and/or note
+/// A media annotation represents a highlight (or underline, strikethrough, invert) and/or
+/// a note. Annotations are private to the user who made them
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, SimpleObject)]
 #[graphql(name = "MediaAnnotationModel")]
@@ -17,6 +18,9 @@ pub struct Model {
 	pub locator: ReadiumLocator,
 	#[sea_orm(column_type = "Text", nullable)]
 	pub annotation_text: Option<String>,
+	/// How the annotated text is drawn
+	#[sea_orm(default_value = "HIGHLIGHT")]
+	pub style: AnnotationStyle,
 	#[sea_orm(column_type = "Text")]
 	pub media_id: String,
 	#[sea_orm(column_type = "Text")]

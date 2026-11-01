@@ -1,7 +1,10 @@
 use async_graphql::{InputObject, MaybeUndefined, OneofObject};
 use models::{
 	entity::{bookmark, media_annotation, media_metadata, user::AuthUser},
-	shared::{enums::MetadataProvider, readium::ReadiumLocator},
+	shared::{
+		enums::{AnnotationStyle, MetadataProvider},
+		readium::ReadiumLocator,
+	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel};
 
@@ -165,6 +168,8 @@ pub struct CreateAnnotationInput {
 	pub media_id: String,
 	pub locator: ReadiumLocator,
 	pub annotation_text: Option<String>,
+	#[graphql(default)]
+	pub style: AnnotationStyle,
 }
 
 impl CreateAnnotationInput {
@@ -172,6 +177,7 @@ impl CreateAnnotationInput {
 		media_annotation::ActiveModel {
 			locator: Set(self.locator),
 			annotation_text: Set(self.annotation_text),
+			style: Set(self.style),
 			media_id: Set(self.media_id),
 			user_id: Set(user.id.clone()),
 			..Default::default()
@@ -179,10 +185,28 @@ impl CreateAnnotationInput {
 	}
 }
 
+/// Changes an annotation's note and/or style. An omitted field is left unchanged, and a
+/// null `annotationText` removes the note
 #[derive(Debug, Clone, InputObject)]
 pub struct UpdateAnnotationInput {
 	pub id: String,
-	pub annotation_text: Option<String>,
+	pub annotation_text: MaybeUndefined<String>,
+	pub style: Option<AnnotationStyle>,
+}
+
+impl UpdateAnnotationInput {
+	pub fn apply(self, active_model: &mut media_annotation::ActiveModel) {
+		match self.annotation_text {
+			MaybeUndefined::Undefined => {},
+			MaybeUndefined::Null => active_model.annotation_text = Set(None),
+			MaybeUndefined::Value(text) => {
+				active_model.annotation_text = Set(Some(text).filter(|t| !t.is_empty()))
+			},
+		}
+		if let Some(style) = self.style {
+			active_model.style = Set(style);
+		}
+	}
 }
 
 /// A manual override for searching metadata providers for a single media item. When

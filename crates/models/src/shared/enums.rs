@@ -209,6 +209,38 @@ pub enum InterfaceLayout {
 	Table,
 }
 
+/// How an annotation is drawn over its text in a reader, like KOReader's highlight styles.
+/// Each style can carry a note.
+#[derive(
+	Eq,
+	Copy,
+	Hash,
+	Debug,
+	Default,
+	Clone,
+	EnumIter,
+	Enum,
+	PartialEq,
+	Serialize,
+	Deserialize,
+	DeriveActiveEnum,
+)]
+#[sea_orm(
+	rs_type = "String",
+	rename_all = "SCREAMING_SNAKE_CASE",
+	db_type = "String(StringLen::None)"
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AnnotationStyle {
+	/// A coloured background behind the text
+	#[default]
+	Highlight,
+	Underline,
+	Strikethrough,
+	/// The text and background colours swapped
+	Invert,
+}
+
 /// The roundness of certain UI elements in the client interface, such as cards, buttons, inputs, etc
 #[derive(
 	Eq,

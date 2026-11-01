@@ -93,6 +93,8 @@ function mockControls(overrides: Partial<EpubReaderControls> = {}) {
 			visible: false,
 			setFullscreen: vi.fn(),
 			setVisible: vi.fn(),
+			shortcutsHelpOpen: false,
+			setShortcutsHelpOpen: vi.fn(),
 			onMouseEnterControls: vi.fn(),
 			onMouseLeaveControls: vi.fn(),
 			onLinkClick: vi.fn(),
