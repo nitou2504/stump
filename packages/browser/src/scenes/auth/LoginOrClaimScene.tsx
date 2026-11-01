@@ -139,7 +139,7 @@ export default function LoginOrClaimScene() {
 			>
 				<div className="gap-8 p-4 flex h-full w-full flex-col items-center justify-center bg-background">
 					<div className="gap-4 px-2 flex shrink-0 items-center justify-center">
-						<img src="/assets/favicon.png" width="80" height="80" />
+						<img src="/assets/stump-logo--irregular-256.webp" width="80" height="80" alt="" />
 						<Heading variant="gradient" size="3xl" className="font-bold">
 							Stump
 						</Heading>
