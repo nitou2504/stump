@@ -259,7 +259,7 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 				<RemoveBookConfirmation
 					bookId={book.id}
 					name={book.resolvedName}
-					redirectTo={
+					fallbackPath={
 						book.series ? paths.seriesOverview(book.series.id) : paths.libraryBooks(book.library.id)
 					}
 					isOpen={showRemoveConfirmation}
