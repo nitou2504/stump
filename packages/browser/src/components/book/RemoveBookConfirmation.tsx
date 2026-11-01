@@ -1,10 +1,12 @@
 import { useGraphQLMutation } from '@stump/client'
 import { Alert, AlertDescription, ConfirmationModal } from '@stump/components'
-import { graphql } from '@stump/graphql'
+import { graphql, UserPermission } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
+
+import { useAppContext } from '@/context'
 
 const mutation = graphql(`
 	mutation RemoveBookFromLibrary($id: ID!) {
@@ -36,6 +38,7 @@ export default function RemoveBookConfirmation({
 }: Props) {
 	const navigate = useNavigate()
 	const client = useQueryClient()
+	const { checkPermission } = useAppContext()
 	const { mutate, isPending } = useGraphQLMutation(mutation, {
 		onSuccess: () => {
 			toast.success(`Removed “${name}”`)
@@ -45,6 +48,8 @@ export default function RemoveBookConfirmation({
 		},
 		onError: () => toast.error('Failed to remove the book'),
 	})
+
+	const canRestore = checkPermission(UserPermission.ManageLibrary)
 
 	return (
 		<ConfirmationModal
@@ -61,8 +66,8 @@ export default function RemoveBookConfirmation({
 				<Info />
 				<AlertDescription>
 					The file is not deleted from disk. The book disappears from Stump (including OPDS and
-					smart lists) and can be restored from the library&apos;s settings → Danger zone →
-					Deletion.
+					smart lists) and {canRestore ? 'can be restored' : 'a library manager can restore it'}{' '}
+					from the library&apos;s settings → Danger zone → Deletion.
 				</AlertDescription>
 			</Alert>
 		</ConfirmationModal>

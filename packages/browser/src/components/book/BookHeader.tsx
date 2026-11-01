@@ -19,7 +19,6 @@ import { toast } from 'sonner'
 
 import { EntityHeader } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
-import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -99,17 +98,14 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 	const [showEmailDialog, setShowEmailDialog] = useState(false)
 	const [showDeleteHistoryConfirmation, setShowDeleteHistoryConfirmation] = useState(false)
 	const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false)
-	const {
-		preferences: { enableBookRemoval },
-	} = usePreferences()
 
 	const canManage = MANAGE_PERMISSIONS.some((permission) => checkPermission(permission))
 	const canDownload = checkPermission(UserPermission.DownloadFile)
 	const canAnalyze = checkPermission(UserPermission.ManageLibrary)
 	const canEditThumbnail = checkPermission(UserPermission.EditThumbnails)
 	const canUpload = thumbnail.canUpload
-	// opt-in per user (Settings → Preferences), and the server requires library management
-	const canRemove = !!enableBookRemoval && checkPermission(UserPermission.ManageLibrary)
+	// granted per user by an admin (the user's permissions in Settings → Users)
+	const canRemove = checkPermission(UserPermission.RemoveBook)
 	const canEmail =
 		checkPermission(UserPermission.EmailSend) || checkPermission(UserPermission.EmailArbitrarySend)
 

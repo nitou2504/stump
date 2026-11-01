@@ -2928,6 +2928,10 @@
         "label": "Read Users",
         "description": "Allows the user to view user account information"
       },
+      "REMOVE_BOOK": {
+        "label": "Remove Books",
+        "description": "Allows the user to remove books from their library. The files stay on disk, and anyone who can manage libraries can restore them"
+      },
       "SCAN_LIBRARY": {
         "label": "Scan Libraries",
         "description": "Allows the user to trigger library scans to discover new content"

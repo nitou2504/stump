@@ -2217,6 +2217,11 @@ export type Mutation = {
   deleteLogFile: Scalars['Boolean']['output'];
   deleteLoginActivity: Scalars['Int']['output'];
   deleteLogs: LogDeleteOutput;
+  /**
+   * Removes a book from its library (soft delete: the file stays on disk). Requires the
+   * `REMOVE_BOOK` permission, which an admin grants per user; library managers can bring
+   * the book back with `restoreMedia`
+   */
   deleteMedia: Media;
   /** trashes all completed readthroughs for the media */
   deleteMediaReadingHistory: Scalars['Int']['output'];
@@ -5182,8 +5187,6 @@ export type UpdateUserPreferencesInput = {
   appTheme: Scalars['String']['input'];
   dayResetHourOffset: Scalars['Int']['input'];
   enableAlphabetSelect: Scalars['Boolean']['input'];
-  /** Clients which don't know this preference leave it off */
-  enableBookRemoval?: Scalars['Boolean']['input'];
   enableDiscordPresence: Scalars['Boolean']['input'];
   enableFancyAnimations: Scalars['Boolean']['input'];
   enableGradients: Scalars['Boolean']['input'];
@@ -5350,6 +5353,11 @@ export enum UserPermission {
    * This would not affect relational queries, such as members in a common book club.
    */
   ReadUsers = 'READ_USERS',
+  /**
+   * Grant access to remove books from their library. Removed books are hidden everywhere
+   * but their files stay on disk, and a library manager can restore them
+   */
+  RemoveBook = 'REMOVE_BOOK',
   /** Grant access to scan the library for new files */
   ScanLibrary = 'SCAN_LIBRARY',
   /** Grant access to upload files to a library */
@@ -5377,8 +5385,6 @@ export type UserPreferences = {
    */
   dayResetHourOffset: Scalars['Int']['output'];
   enableAlphabetSelect: Scalars['Boolean']['output'];
-  /** Offer "Remove from library" on book pages (still requires library management rights) */
-  enableBookRemoval: Scalars['Boolean']['output'];
   enableDiscordPresence: Scalars['Boolean']['output'];
   enableFancyAnimations: Scalars['Boolean']['output'];
   enableGradients: Scalars['Boolean']['output'];
