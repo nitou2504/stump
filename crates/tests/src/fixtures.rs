@@ -132,6 +132,74 @@ pub fn write_test_epub(path: impl AsRef<Path>, title: &str, metadata: &str) {
 	zip.finish().expect("finish zip");
 }
 
+/// Writes an EPUB whose package document is `OEBPS/content.opf`, with the given XHTML
+/// manifest items (`id`, `href` relative to `OEBPS/`), spine (item ids) and zip entries
+/// (full name in the archive, content). A manifest item without an entry is a file the
+/// EPUB lists but does not contain
+pub fn write_epub_with_spine(
+	path: impl AsRef<Path>,
+	manifest: &[(&str, &str)],
+	spine: &[&str],
+	entries: &[(&str, &str)],
+) {
+	let file = File::create(path).expect("create epub");
+	let mut zip = zip::ZipWriter::new(file);
+	let zip_options = zip::write::FileOptions::<()>::default();
+	let mimetype_options = zip::write::FileOptions::<()>::default()
+		.compression_method(zip::CompressionMethod::Stored);
+
+	zip.start_file("mimetype", mimetype_options)
+		.expect("mimetype");
+	zip.write_all(b"application/epub+zip")
+		.expect("mimetype bytes");
+	zip.start_file("META-INF/container.xml", zip_options)
+		.expect("container");
+	zip.write_all(
+		br#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+	<rootfiles>
+		<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+	</rootfiles>
+</container>"#,
+	)
+	.expect("container bytes");
+
+	let items: String = manifest
+		.iter()
+		.map(|(id, href)| {
+			format!(
+				r#"<item id="{id}" href="{href}" media-type="application/xhtml+xml"/>"#
+			)
+		})
+		.collect();
+	let itemrefs: String = spine
+		.iter()
+		.map(|id| format!(r#"<itemref idref="{id}"/>"#))
+		.collect();
+	zip.start_file("OEBPS/content.opf", zip_options)
+		.expect("opf");
+	write!(
+		zip,
+		r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+	<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+		<dc:identifier id="uid">urn:uuid:stump-spine-test</dc:identifier>
+		<dc:title>Spine Test</dc:title>
+		<dc:language>en</dc:language>
+	</metadata>
+	<manifest>{items}</manifest>
+	<spine>{itemrefs}</spine>
+</package>"#,
+	)
+	.expect("opf bytes");
+
+	for (name, content) in entries {
+		zip.start_file(*name, zip_options).expect("entry");
+		zip.write_all(content.as_bytes()).expect("entry bytes");
+	}
+	zip.finish().expect("finish zip");
+}
+
 /// Note: each page should be 96623 bytes. The macOS metadata files should be 220 bytes, but
 /// ignored by the processor. Commenting the sizes for posterity.
 pub fn get_nested_macos_compressed_cbz_path() -> String {

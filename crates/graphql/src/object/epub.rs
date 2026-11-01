@@ -6,6 +6,7 @@ use sea_orm::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek};
 use std::{collections::HashMap, path::PathBuf};
+use stump_core::media::processor::epub::open_epub;
 
 use super::bookmark::Bookmark;
 use super::media::Media;
@@ -119,7 +120,7 @@ impl Epub {
 	}
 
 	pub fn try_from(ident: media::MediaIdentSelect) -> Result<Self> {
-		let epub_file = EpubDoc::new(ident.path.as_str()).map_err(|e| {
+		let epub_file = open_epub(ident.path.as_str()).map_err(|e| {
 			tracing::error!("Error parsing epub file: {:?}", e);
 			"Error parsing epub file"
 		})?;

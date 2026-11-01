@@ -11,7 +11,7 @@ use std::{
 const ACCEPTED_EPUB_COVER_MIMES: [&str; 2] = ["image/jpeg", "image/png"];
 const DEFAULT_EPUB_COVER_ID: &str = "cover";
 
-use epub::doc::EpubDoc;
+use epub::doc::{DocError, EpubDoc};
 
 use crate::{
 	fs_utils::{
@@ -28,30 +28,86 @@ use crate::{
 /// A file processor for EPUB files
 pub struct EpubProcessor;
 
+/// Opens an EPUB with the `.` and `..` of its manifest paths resolved. epub-rs joins each
+/// `href` to the package folder as written, so an item like `../toc.xhtml` becomes
+/// `OEBPS/../toc.xhtml`, which is no name in the zip, and the file looks missing
+pub fn open_epub(path: impl AsRef<Path>) -> Result<EpubDoc<BufReader<File>>, DocError> {
+	let mut epub_file = EpubDoc::new(path)?;
+	for resource in epub_file.resources.values_mut() {
+		if let Some(resolved) = resolve_dot_segments(&resource.path) {
+			resource.path = resolved;
+		}
+	}
+	Ok(epub_file)
+}
+
+/// Resolves the `.` and `..` of a path inside the archive. Returns `None` when there is
+/// nothing to resolve, or when the path climbs above the archive root
+fn resolve_dot_segments(path: &Path) -> Option<PathBuf> {
+	use std::path::Component;
+
+	let mut parts = Vec::new();
+	for component in path.components() {
+		match component {
+			Component::Normal(part) => parts.push(part.to_string_lossy()),
+			Component::CurDir => {},
+			// Above the archive root: no name in the zip either
+			Component::ParentDir => {
+				parts.pop()?;
+			},
+			Component::RootDir | Component::Prefix(_) => return None,
+		}
+	}
+	// Zip entry names always use `/`, whatever the platform
+	let resolved = PathBuf::from(parts.join("/"));
+	// `components` already drops a `.` inside the path, so compare the whole path
+	(resolved.as_os_str() != path.as_os_str()).then_some(resolved)
+}
+
+/// The reading order (spine) files that the EPUB lists but does not contain, e.g. a
+/// `cover.xhtml` dropped by the tool that made the book. Readers skip them, and so does
+/// Stump. Checking the zip directory is enough, nothing is decompressed
+fn missing_spine_files(epub_file: &mut EpubDoc<BufReader<File>>) -> Vec<String> {
+	let mut missing = Vec::new();
+	for item in epub_file.spine.clone() {
+		if epub_file
+			.get_resource_compressed_size(&item.idref)
+			.is_some()
+		{
+			continue;
+		}
+		missing.push(
+			epub_file
+				.resources
+				.get(&item.idref)
+				.map_or(item.idref, |resource| {
+					resource.path.to_string_lossy().to_string()
+				}),
+		);
+	}
+	missing
+}
+
 impl MediaProcessor for EpubProcessor {
 	fn generate_stump_hash(&self, path: &Path) -> Result<String, MediaProcessorError> {
-		let mut epub_file = EpubDoc::new(path)?;
+		let mut epub_file = open_epub(path)?;
 
 		let mut sample_size = 0;
-		let page_count = epub_file.get_num_chapters();
+		let mut read_any_chapter = false;
+		let chapters = epub_file.get_num_chapters().min(6);
 
-		for i in 0..page_count {
-			if i > 5 {
-				break;
+		for i in 0..chapters {
+			epub_file.set_current_chapter(i);
+			// A chapter the EPUB lists but does not contain is skipped, like readers do
+			if let Some((chapter_buffer, _)) = epub_file.get_current() {
+				sample_size += chapter_buffer.len() as u64;
+				read_any_chapter = true;
 			}
+		}
 
-			if i > 0 {
-				epub_file.set_current_chapter(i);
-			}
-
-			let (chapter_buffer, _) = epub_file.get_current().ok_or_else(|| {
-				MediaProcessorError::EpubRead(
-					"Failed to get chapter from epub file".to_string(),
-				)
-			})?;
-			let chapter_size = chapter_buffer.len() as u64;
-
-			sample_size += chapter_size;
+		if !read_any_chapter {
+			// Sampling no bytes would give every such book the same hash
+			sample_size = std::fs::metadata(path)?.len();
 		}
 
 		Ok(hash::generate(path, sample_size)?)
@@ -84,7 +140,7 @@ impl MediaProcessor for EpubProcessor {
 		path: &Path,
 		organization_mode: OrganizationMode,
 	) -> Result<Option<ProcessedMediaMetadata>, MediaProcessorError> {
-		let mut epub_file = EpubDoc::new(path)?;
+		let mut epub_file = open_epub(path)?;
 		let metadata_map = metadata_to_map(epub_file.metadata.clone());
 		let mut embedded_metadata = ProcessedMediaMetadata::from(metadata_map);
 
@@ -141,7 +197,16 @@ impl MediaProcessor for EpubProcessor {
 			None
 		};
 
-		let mut epub_file = EpubDoc::new(path)?;
+		let mut epub_file = open_epub(path)?;
+		let missing = missing_spine_files(&mut epub_file);
+		if !missing.is_empty() {
+			// Logged when the book is processed, i.e. once per version of its file
+			tracing::warn!(
+				path = %path.display(),
+				?missing,
+				"The EPUB lists chapters that are not in the file, they are skipped"
+			);
+		}
 		let pages = compute_synthetic_page_count(&mut epub_file)?;
 
 		let hashes = self.generate_hashes(path, options)?;
@@ -169,7 +234,7 @@ impl MediaProcessor for EpubProcessor {
 	}
 
 	fn get_page_count(&self, path: &Path) -> Result<i32, MediaProcessorError> {
-		let mut epub_file = EpubDoc::new(path)?;
+		let mut epub_file = open_epub(path)?;
 		compute_synthetic_page_count(&mut epub_file)
 	}
 
@@ -178,7 +243,7 @@ impl MediaProcessor for EpubProcessor {
 		path: &Path,
 		pages: Vec<i32>,
 	) -> Result<HashMap<i32, ContentType>, MediaProcessorError> {
-		let mut epub_file = EpubDoc::new(path)?;
+		let mut epub_file = open_epub(path)?;
 
 		let mut content_types = HashMap::new();
 
@@ -387,7 +452,7 @@ fn get_cover_internal(
 ///    returned.
 /// 4. Find the image with the alphabetically sorted first name.
 pub fn get_cover(path: &Path) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
-	let mut epub_file = EpubDoc::new(path)?;
+	let mut epub_file = open_epub(path)?;
 	get_cover_internal(&mut epub_file)
 }
 
@@ -395,7 +460,7 @@ pub fn get_chapter(
 	path: &Path,
 	chapter: usize,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
-	let mut epub_file = EpubDoc::new(path)?;
+	let mut epub_file = open_epub(path)?;
 
 	if !epub_file.set_current_chapter(chapter) {
 		tracing::error!(?path, chapter, "Failed to get chapter from epub file!");
@@ -427,7 +492,7 @@ pub fn get_resource_by_id(
 	path: &Path,
 	resource_id: &str,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
-	let mut epub_file = EpubDoc::new(path)?;
+	let mut epub_file = open_epub(path)?;
 
 	let (buf, mime) = epub_file.get_resource(resource_id).ok_or_else(|| {
 		tracing::error!("Failed to get resource: {resource_id}");
@@ -443,7 +508,7 @@ pub fn get_resource_by_path(
 	root: &str,
 	resource_path: PathBuf,
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
-	let mut epub_file = EpubDoc::new(path)?;
+	let mut epub_file = open_epub(path)?;
 
 	let adjusted_path = normalize_resource_path(resource_path.clone(), root);
 
@@ -913,7 +978,9 @@ pub(crate) fn normalize_resource_path(path: PathBuf, root: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::media::fixtures::{get_test_epub_path, write_test_epub};
+	use crate::media::fixtures::{
+		get_test_epub_path, write_epub_with_spine, write_test_epub,
+	};
 
 	#[test]
 	fn test_get_cover_from_xhtml_svg_cover() {
@@ -1511,6 +1578,133 @@ mod tests {
 		assert!(cover.is_ok());
 		let chapter = get_chapter(path, 1);
 		assert!(chapter.is_ok());
+	}
+
+	const CHAPTER: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body><p>Hello</p></body></html>"#;
+
+	/// An EPUB like the broken ones found in a real library: its spine starts with a
+	/// `cover.xhtml` the zip does not contain, and lists `../toc.xhtml`, a file at the zip
+	/// root that epub-rs alone can't find
+	fn build_epub_with_broken_spine() -> (tempfile::TempDir, PathBuf) {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let path = temp.path().join("broken.epub");
+		write_epub_with_spine(
+			&path,
+			&[
+				("cover", "cover.xhtml"),
+				("toc", "../toc.xhtml"),
+				("ch1", "Text/ch1.xhtml"),
+			],
+			&["cover", "toc", "ch1"],
+			&[("toc.xhtml", CHAPTER), ("OEBPS/Text/ch1.xhtml", CHAPTER)],
+		);
+		(temp, path)
+	}
+
+	#[test]
+	fn test_resolve_dot_segments() {
+		let resolve = |path: &str| resolve_dot_segments(Path::new(path));
+
+		assert_eq!(
+			resolve("OEBPS/../toc.xhtml"),
+			Some(PathBuf::from("toc.xhtml"))
+		);
+		assert_eq!(
+			resolve("OEBPS/Text/../Images/a.png"),
+			Some(PathBuf::from("OEBPS/Images/a.png"))
+		);
+		assert_eq!(
+			resolve("OEBPS/./Text/a.xhtml"),
+			Some(PathBuf::from("OEBPS/Text/a.xhtml"))
+		);
+		// Nothing to resolve, or above the archive root
+		assert_eq!(resolve("OEBPS/Text/a.xhtml"), None);
+		assert_eq!(resolve("../a.xhtml"), None);
+		assert_eq!(resolve("OEBPS/../../a.xhtml"), None);
+	}
+
+	#[test]
+	fn test_open_epub_finds_files_above_the_package_folder() {
+		let (_temp, path) = build_epub_with_broken_spine();
+
+		// epub-rs alone keeps `OEBPS/../toc.xhtml`, which is no name in the zip
+		let mut raw = EpubDoc::new(&path).unwrap();
+		assert!(raw.get_resource("toc").is_none());
+
+		let mut epub_file = open_epub(&path).unwrap();
+		assert_eq!(epub_file.resources["toc"].path, PathBuf::from("toc.xhtml"));
+		assert!(epub_file.get_resource("toc").is_some());
+		assert!(epub_file.set_current_chapter(1));
+		assert!(epub_file.get_current().is_some());
+	}
+
+	#[test]
+	fn test_missing_spine_files() {
+		let (_temp, path) = build_epub_with_broken_spine();
+
+		let mut epub_file = open_epub(&path).unwrap();
+		assert_eq!(
+			missing_spine_files(&mut epub_file),
+			vec!["OEBPS/cover.xhtml"]
+		);
+
+		let path_str = get_test_epub_path();
+		let mut complete = open_epub(&path_str).unwrap();
+		assert!(missing_spine_files(&mut complete).is_empty());
+	}
+
+	#[test]
+	fn test_process_skips_chapters_missing_from_the_file() {
+		let (_temp, path) = build_epub_with_broken_spine();
+
+		let processed = EpubProcessor
+			.process(
+				&path,
+				MediaProcessorOptions {
+					generate_file_hashes: true,
+					process_metadata: true,
+					..Default::default()
+				},
+			)
+			.expect("a missing chapter must not fail the book");
+
+		assert!(processed.hash.is_some());
+		// One page for each of the two chapters the file contains
+		assert_eq!(processed.pages, 2);
+		assert_eq!(
+			processed.metadata.and_then(|m| m.title),
+			Some("Spine Test".to_string())
+		);
+	}
+
+	#[test]
+	fn test_hash_samples_the_file_when_no_chapter_can_be_read() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let path = temp.path().join("empty.epub");
+		write_epub_with_spine(&path, &[("cover", "cover.xhtml")], &["cover"], &[]);
+
+		let hash = EpubProcessor.generate_stump_hash(&path).unwrap();
+		assert_ne!(hash, hash::generate(&path, 0).unwrap());
+	}
+
+	#[test]
+	fn test_hash_unchanged_for_complete_books() {
+		let path_str = get_test_epub_path();
+		let path = Path::new(&path_str);
+
+		// The sample size the hash was always computed with: the first 6 chapters
+		let mut epub_file = EpubDoc::new(path).unwrap();
+		let mut sample_size = 0;
+		for i in 0..epub_file.get_num_chapters().min(6) {
+			epub_file.set_current_chapter(i);
+			sample_size += epub_file.get_current().unwrap().0.len() as u64;
+		}
+
+		assert_eq!(
+			EpubProcessor.generate_stump_hash(path).unwrap(),
+			hash::generate(path, sample_size).unwrap()
+		);
 	}
 
 	fn opf(metadata: &str) -> String {

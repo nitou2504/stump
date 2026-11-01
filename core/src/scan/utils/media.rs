@@ -750,6 +750,41 @@ pub(crate) async fn build_and_insert_media(
 	Ok(output)
 }
 
+/// A book whose changed file can't be read keeps its previous data, and the file's
+/// modification time is saved, so later scans don't read it again (failing the same way
+/// each time) until the file changes again or a rebuild is forced
+async fn remember_failed_rebuilds(
+	conn: &DatabaseConnection,
+	library_id: &str,
+	paths: &[String],
+) {
+	for path in paths {
+		let modified = tokio::fs::metadata(path).await.and_then(|m| m.modified());
+		let modified_at = match modified {
+			Ok(modified) => DateTimeWithTimeZone::from(DateTimeUtc::from(modified)),
+			Err(error) => {
+				tracing::debug!(?error, %path, "Failed to read the modification time");
+				continue;
+			},
+		};
+		let result = media::Entity::update_many()
+			.col_expr(media::Column::ModifiedAt, Expr::value(modified_at))
+			.filter(media::Column::Path.eq(path.as_str()))
+			.filter(media::Column::LibraryId.eq(library_id))
+			.exec(conn)
+			.await;
+		match result {
+			Ok(_) => tracing::info!(
+				%path,
+				"The book could not be read, it keeps its previous data until its file changes"
+			),
+			Err(error) => {
+				tracing::warn!(?error, %path, "Failed to remember an unreadable book")
+			},
+		}
+	}
+}
+
 /// Visits the media on disk and updates the database with the latest information
 pub(crate) async fn visit_and_update_media(
 	MediaBuildOperation {
@@ -812,6 +847,8 @@ pub(crate) async fn visit_and_update_media(
 	let mut futures: BuiltEntityFutures<BookVisitResult, String> =
 		BuiltEntityFutures::new();
 	let mut cursor = 0i32;
+	// Books rebuilt because their file changed, that could not be read
+	let mut failed_rebuilds = Vec::new();
 
 	for book in media {
 		let path = book.media.path.clone();
@@ -834,6 +871,11 @@ pub(crate) async fn visit_and_update_media(
 							))
 							.with_ctx(format!("Path: {path:?}")),
 						);
+						if paths_to_operation.get(&path)
+							== Some(&BookVisitOperation::Rebuild)
+						{
+							failed_rebuilds.push(path);
+						}
 					},
 				}
 				cursor += 1;
@@ -873,6 +915,9 @@ pub(crate) async fn visit_and_update_media(
 					))
 					.with_ctx(format!("Path: {path:?}")),
 				);
+				if paths_to_operation.get(&path) == Some(&BookVisitOperation::Rebuild) {
+					failed_rebuilds.push(path);
+				}
 			},
 		}
 		cursor += 1;
@@ -883,6 +928,8 @@ pub(crate) async fn visit_and_update_media(
 	let success_count = build_results.len();
 	let error_count = output.logs.len();
 	tracing::debug!(elapsed = ?start.elapsed(), success_count, error_count, "Handled books from disk");
+
+	remember_failed_rebuilds(conn, library_id, &failed_rebuilds).await;
 
 	worker_ctx.report_progress(JobProgress::msg("Updating media in database"));
 	let task_count = build_results.len() as i32;
@@ -1036,5 +1083,47 @@ mod tests {
 			"there should only be one metadata record for the media"
 		);
 		// ^ i.e., it should have entered the on_conflict upsert path
+	}
+
+	#[tokio::test]
+	async fn test_failed_rebuild_remembers_the_file_modification_time() {
+		let db = test_database().await;
+		let temp = tempfile::tempdir().expect("tempdir");
+		let book_path = temp.path().join("broken.epub");
+		std::fs::write(&book_path, b"not an epub").expect("write book");
+
+		let library = fake_data::Library::default().insert(&db).await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let scanned_long_ago = DateTimeUtc::from(std::time::UNIX_EPOCH).fixed_offset();
+		let media = fake_data::Media {
+			series_id: series.id.clone(),
+			path: Some(book_path.to_string_lossy().to_string()),
+			modified_at: Some(scanned_long_ago),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+
+		remember_failed_rebuilds(&db, &library.id, std::slice::from_ref(&media.path))
+			.await;
+
+		let row = media::Entity::find_by_id(media.id)
+			.one(&db)
+			.await
+			.expect("query failed")
+			.expect("media should exist");
+		let file_modified_at = DateTimeUtc::from(
+			std::fs::metadata(&book_path)
+				.and_then(|m| m.modified())
+				.expect("mtime"),
+		);
+		// The walker compares the file's mtime to this: equal means unchanged, so the
+		// next scan does not rebuild (and fail on) the book again
+		assert_eq!(row.modified_at, Some(file_modified_at.fixed_offset()));
 	}
 }
