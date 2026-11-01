@@ -7,12 +7,14 @@ import { useMediaMatch } from 'rooks'
 import { useHorizontalScroll, usePreferences } from '../hooks'
 
 type Props = {
-	title: string
+	title: React.ReactNode
 	items: React.ReactElement[]
 	onFetchMore: () => void
 	emptyState?: React.ReactNode
 	height?: number
 	footerHeight?: number
+	/** An item to show centred when the list mounts (e.g. the current book of its series) */
+	initialFocusIndex?: number
 }
 
 export default function HorizontalCardList({
@@ -22,6 +24,7 @@ export default function HorizontalCardList({
 	emptyState,
 	height: heightProp,
 	footerHeight = 96,
+	initialFocusIndex,
 }: Props) {
 	const {
 		preferences: { thumbnailRatio },
@@ -65,6 +68,11 @@ export default function HorizontalCardList({
 			return (
 				<Virtuoso
 					scrollerRef={scrollerRef}
+					initialTopMostItemIndex={
+						initialFocusIndex != null && initialFocusIndex >= 0
+							? { index: initialFocusIndex, align: 'center' }
+							: 0
+					}
 					style={{ height }}
 					horizontalDirection
 					data={items}
@@ -83,7 +91,9 @@ export default function HorizontalCardList({
 	return (
 		<div className="space-y-2 flex flex-col">
 			<div className="flex flex-row items-center justify-between">
-				<Heading size="sm">{title}</Heading>
+				<Heading size="sm" className="min-w-0">
+					{title}
+				</Heading>
 				<div className={cn('self-end', { hidden: !items.length })}>
 					<div className="gap-2 flex">
 						<ToolTip content="Seek backwards" isDisabled={!canSkipBackward} align="end">

@@ -8,7 +8,7 @@ import { useFancyAnimations } from '@/hooks/useFancyAnimations'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTheme } from '@/hooks/useTheme'
 import { usePaths } from '@/paths'
-import { usePrefetchBooksAfterCursor } from '@/scenes/book'
+import { usePrefetchBooksInSeries } from '@/scenes/book'
 
 import { usePrefetchBook } from '../book'
 import { ThumbnailImage } from '../thumbnail/ThumbnailImage'
@@ -85,11 +85,11 @@ export function StackedSeriesCard({
 	const prefetchSeriesBooks = usePrefetchSeriesBooks()
 	// for when oneshot, it leads to book pages
 	const prefetchBook = usePrefetchBook()
-	const prefetchBooksAfterCursor = usePrefetchBooksAfterCursor()
+	const prefetchBooksInSeries = usePrefetchBooksInSeries()
 
 	const prefetch = () => {
 		if (oneshotBookId) {
-			Promise.all([prefetchBook(oneshotBookId), prefetchBooksAfterCursor(oneshotBookId)])
+			Promise.all([prefetchBook(oneshotBookId), prefetchBooksInSeries(oneshotBookId)])
 		} else {
 			Promise.all([prefetchSeries(id), prefetchSeriesBooks(id)])
 		}

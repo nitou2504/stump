@@ -6783,21 +6783,23 @@ export type UsePreferencesMutation = { __typename?: 'Mutation', updateViewerPref
 
 export type BookMetadataFragment = { __typename?: 'Media', metadata?: { __typename?: 'MediaMetadata', ageRating?: number | null, rating?: any | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, editors: Array<string>, genres: Array<string>, inkers: Array<string>, letterers: Array<string>, links: Array<string>, pencillers: Array<string>, publisher?: string | null, series?: string | null, teams: Array<string>, writers: Array<string>, year?: number | null, month?: number | null, day?: number | null, volume?: number | null, number?: any | null } | null } & { ' $fragmentName'?: 'BookMetadataFragment' };
 
-export type BooksAfterCurrentQueryQueryVariables = Exact<{
-  id: Scalars['ID']['input'];
-  pagination?: InputMaybe<Pagination>;
-}>;
-
-
-export type BooksAfterCurrentQueryQuery = { __typename?: 'Query', mediaById?: { __typename?: 'Media', nextInSeries: { __typename?: 'PaginatedMediaResponse', nodes: Array<(
-        { __typename?: 'Media', id: string }
-        & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment } }
-      )>, pageInfo: { __typename: 'CursorPaginationInfo', currentCursor?: string | null, nextCursor?: string | null, limit: number } | { __typename: 'OffsetPaginationInfo' } } } | null };
-
 export type BooksAlphabetQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type BooksAlphabetQuery = { __typename?: 'Query', mediaAlphabet: any };
+
+export type BooksInSeriesQueryVariables = Exact<{
+  seriesId: Scalars['ID']['input'];
+  filter: MediaFilterInput;
+  orderBy: Array<MediaOrderBy> | MediaOrderBy;
+  pagination: Pagination;
+}>;
+
+
+export type BooksInSeriesQuery = { __typename?: 'Query', seriesById?: { __typename?: 'Series', id: string, resolvedName: string } | null, media: { __typename?: 'PaginatedMediaResponse', nodes: Array<(
+      { __typename?: 'Media', id: string }
+      & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment } }
+    )>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', currentPage: number, totalPages: number, totalItems: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
 
 export type MoreByAuthorQueryQueryVariables = Exact<{
   filter: MediaFilterInput;
@@ -13677,21 +13679,31 @@ export const UsePreferencesDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UsePreferencesMutation, UsePreferencesMutationVariables>;
-export const BooksAfterCurrentQueryDocument = new TypedDocumentString(`
-    query BooksAfterCurrentQuery($id: ID!, $pagination: Pagination) {
-  mediaById(id: $id) {
-    nextInSeries(pagination: $pagination) {
-      nodes {
-        id
-        ...BookCard
-      }
-      pageInfo {
-        __typename
-        ... on CursorPaginationInfo {
-          currentCursor
-          nextCursor
-          limit
-        }
+export const BooksAlphabetDocument = new TypedDocumentString(`
+    query BooksAlphabet {
+  mediaAlphabet
+}
+    `) as unknown as TypedDocumentString<BooksAlphabetQuery, BooksAlphabetQueryVariables>;
+export const BooksInSeriesDocument = new TypedDocumentString(`
+    query BooksInSeries($seriesId: ID!, $filter: MediaFilterInput!, $orderBy: [MediaOrderBy!]!, $pagination: Pagination!) {
+  seriesById(id: $seriesId) {
+    id
+    resolvedName
+  }
+  media(filter: $filter, orderBy: $orderBy, pagination: $pagination) {
+    nodes {
+      id
+      ...BookCard
+    }
+    pageInfo {
+      __typename
+      ... on OffsetPaginationInfo {
+        currentPage
+        totalPages
+        totalItems
+        pageSize
+        pageOffset
+        zeroBased
       }
     }
   }
@@ -13737,12 +13749,7 @@ export const BooksAfterCurrentQueryDocument = new TypedDocumentString(`
     rating
     ageRating
   }
-}`) as unknown as TypedDocumentString<BooksAfterCurrentQueryQuery, BooksAfterCurrentQueryQueryVariables>;
-export const BooksAlphabetDocument = new TypedDocumentString(`
-    query BooksAlphabet {
-  mediaAlphabet
-}
-    `) as unknown as TypedDocumentString<BooksAlphabetQuery, BooksAlphabetQueryVariables>;
+}`) as unknown as TypedDocumentString<BooksInSeriesQuery, BooksInSeriesQueryVariables>;
 export const MoreByAuthorQueryDocument = new TypedDocumentString(`
     query MoreByAuthorQuery($filter: MediaFilterInput!, $pagination: Pagination) {
   media(filter: $filter, pagination: $pagination) {
