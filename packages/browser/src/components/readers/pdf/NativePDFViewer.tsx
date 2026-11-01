@@ -54,10 +54,11 @@ export default function NativePDFViewer({ id }: Props) {
 
 	return (
 		<object data={pdfObjectUrl} type="application/pdf" width="100%" height="100%">
-			<Text>
-				PDF failed to load. <Link href={sdk.media.downloadURL(id)}>Click here</Link> attempt
-				downloading it directly.
-			</Text>
+			{/* Shown by browsers without a built-in PDF viewer, e.g. most phones */}
+			<div className="gap-2 p-6 flex h-full flex-col items-center justify-center text-center">
+				<Text>This browser can&apos;t show the PDF here.</Text>
+				<Link href={sdk.media.downloadURL(id)}>Download it instead</Link>
+			</div>
 		</object>
 	)
 }
