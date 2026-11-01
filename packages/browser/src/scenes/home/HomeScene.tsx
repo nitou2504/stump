@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Helmet } from 'react-helmet'
 
 import { SceneContainer } from '@/components/container'
+import { FilterHeader } from '@/components/filters'
 import { NoLibraries } from '@/components/library'
 import { OwlEmptyState } from '@/components/Owl'
 import { PageHeader } from '@/components/sharedLayout'
@@ -109,9 +110,10 @@ export default function HomeScene() {
 		<>
 			{helmet}
 
-			<SceneContainer className="gap-6 flex flex-1 flex-col">
-				<HomeSearch />
+			{/* The search sits in the same toolbar as on the list pages (library books, explore) */}
+			<FilterHeader search={<HomeSearch />} navOffset />
 
+			<SceneContainer className="gap-6 flex flex-1 flex-col">
 				{sections.map((section) => {
 					const id = getHomeSectionId(section)
 					if (!id || !section.visible) return null

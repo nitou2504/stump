@@ -1,11 +1,10 @@
 import { useGraphQL } from '@stump/client'
 import { cn, Text } from '@stump/components'
 import { graphql, MediaFilterInput } from '@stump/graphql'
-import { SearchIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { useDebouncedValue } from 'rooks'
 
+import { Search } from '@/components/filters'
 import { useSearchMediaFilter } from '@/components/filters/useFilterScene'
 import { ThumbnailImage } from '@/components/thumbnail/ThumbnailImage'
 import { Link } from '@/context'
@@ -36,8 +35,9 @@ const query = graphql(`
 `)
 
 /**
- * A search box at the top of the home page: shows the first few matching books while
- * typing, and opens the full results (the books page) on Enter or "See all".
+ * The home page's search, in the same toolbar and box as the list pages' searches: shows the
+ * first few matching books while typing, and opens the full results (the books page) on Enter
+ * or "See all".
  */
 export default function HomeSearch() {
 	const paths = usePaths()
@@ -47,16 +47,16 @@ export default function HomeSearch() {
 	// The query is kept in the URL (`?q=`), so coming back from a result reopens the search
 	const [searchParams, setSearchParams] = useSearchParams()
 	const initialQuery = searchParams.get('q') ?? ''
-	const [value, setValue] = useState(initialQuery)
+	// Already debounced by the search box
+	const [term, setTerm] = useState(initialQuery)
 	const [isOpen, setIsOpen] = useState(!!initialQuery)
-	const [debounced] = useDebouncedValue(value.trim(), 300)
 
 	useEffect(() => {
-		if ((searchParams.get('q') ?? '') === (debounced ?? '')) return
+		if ((searchParams.get('q') ?? '') === term) return
 		setSearchParams(
 			(prev) => {
-				if (debounced) {
-					prev.set('q', debounced)
+				if (term) {
+					prev.set('q', term)
 				} else {
 					prev.delete('q')
 				}
@@ -64,20 +64,20 @@ export default function HomeSearch() {
 			},
 			{ replace: true },
 		)
-	}, [debounced, searchParams, setSearchParams])
-	const searchFilter = useSearchMediaFilter(debounced || undefined)
+	}, [term, searchParams, setSearchParams])
+	const searchFilter = useSearchMediaFilter(term || undefined)
 	const filter = useMemo<MediaFilterInput>(() => ({ _or: searchFilter ?? [] }), [searchFilter])
 
 	const { data, isFetching } = useGraphQL(
 		query,
-		['homeSearch', debounced],
+		['homeSearch', term],
 		{ filter },
 		{
-			enabled: debounced.length >= 2,
+			enabled: term.length >= 2,
 			placeholderData: (prev) => prev,
 		},
 	)
-	const books = debounced.length >= 2 ? (data?.media.nodes ?? []) : []
+	const books = term.length >= 2 ? (data?.media.nodes ?? []) : []
 	const totalPages =
 		data?.media.pageInfo.__typename === 'OffsetPaginationInfo' ? data.media.pageInfo.totalPages : 0
 
@@ -85,46 +85,40 @@ export default function HomeSearch() {
 	const resultsHref = (search: string) =>
 		`${paths.bookSearch()}?${new URLSearchParams({ search: encodeURIComponent(search) })}`
 
-	const showDropdown = isOpen && debounced.length >= 2
+	const showDropdown = isOpen && term.length >= 2
 
 	return (
 		<div
 			ref={containerRef}
-			className="max-w-2xl relative w-full"
+			role="search"
+			className="min-w-0 relative flex flex-1 items-center"
+			onFocus={() => setIsOpen(true)}
+			onInput={() => setIsOpen(true)}
 			onBlur={(e) => {
 				if (!containerRef.current?.contains(e.relatedTarget as Node)) setIsOpen(false)
 			}}
+			onKeyDown={(e) => {
+				if (e.key === 'Escape') {
+					setIsOpen(false)
+				} else if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+					// Enter opens the full results right away, without waiting for the debounce
+					const value = e.target.value.trim()
+					if (value) navigate(resultsHref(value))
+				}
+			}}
 		>
-			<form
-				role="search"
-				onSubmit={(e) => {
-					e.preventDefault()
-					if (value.trim()) navigate(resultsHref(value.trim()))
-				}}
-			>
-				<label className="gap-2 px-3 h-10 flex items-center rounded-lg border border-input bg-background focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30">
-					<SearchIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-					<input
-						type="search"
-						value={value}
-						placeholder="Search books, authors…"
-						aria-label="Search books"
-						className="text-sm min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-						onChange={(e) => {
-							setValue(e.target.value)
-							setIsOpen(true)
-						}}
-						onFocus={() => setIsOpen(true)}
-						onKeyDown={(e) => e.key === 'Escape' && setIsOpen(false)}
-					/>
-				</label>
-			</form>
+			<Search
+				initialValue={initialQuery}
+				placeholder="Search books, authors…"
+				onChange={(value) => setTerm(value.trim())}
+				isLoading={isFetching && term.length >= 2}
+			/>
 
 			{showDropdown && (
-				<div className="left-0 right-0 mt-1 p-1 shadow-lg absolute z-50 rounded-lg border border-border bg-popover">
+				<div className="left-0 mt-1 p-1 shadow-lg sm:w-2/5 sm:min-w-96 absolute top-full z-50 w-full rounded-lg border border-border bg-popover">
 					{books.length === 0 ? (
 						<Text size="sm" variant="muted" className="px-3 py-2">
-							{isFetching ? 'Searching…' : `No books match “${debounced}”`}
+							{isFetching ? 'Searching…' : `No books match “${term}”`}
 						</Text>
 					) : (
 						<>
@@ -160,7 +154,7 @@ export default function HomeSearch() {
 								)
 							})}
 							<Link
-								to={resultsHref(debounced)}
+								to={resultsHref(term)}
 								className={cn(
 									'mt-1 px-2 py-1.5 text-sm block rounded-md border-t border-border text-muted-foreground',
 									'hover:bg-accent hover:text-foreground',

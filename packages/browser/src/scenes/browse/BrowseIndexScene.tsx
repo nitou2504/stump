@@ -1,11 +1,14 @@
 import { useSuspenseGraphQL } from '@stump/client'
-import { Badge, Button, cn, Heading, Input, Text } from '@stump/components'
+import { Badge, Button, cn, Heading, Text } from '@stump/components'
 import { graphql, MetadataFacetField } from '@stump/graphql'
-import { useMemo, useState } from 'react'
+import { Tags, Users } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { Helmet } from 'react-helmet'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
+import { FilterHeader, Search } from '@/components/filters'
+import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { Link } from '@/context'
 import { BrowseIndex, usePaths } from '@/paths'
 import { sortKey } from '@/utils/sortKey'
@@ -128,6 +131,18 @@ function BrowseIndexContent({ index }: { index: BrowseIndex }) {
 		[values, sort, index],
 	)
 
+	// Scrolls a section's heading to just below the sticky page header, toolbar and letters,
+	// whatever their height (the letters wrap on wide screens)
+	const navRef = useRef<HTMLElement>(null)
+	const jumpTo = (title: string) => {
+		const section = document.getElementById(`browse-${title}`)
+		if (!section) return
+		const nav = navRef.current
+		const covered = nav ? parseFloat(getComputedStyle(nav).top) + nav.offsetHeight : 0
+		section.style.scrollMarginTop = `${covered + 8}px`
+		section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+	}
+
 	const hrefFor = (value: string) =>
 		paths.bookSearchWithFilter({
 			metadata:
@@ -135,91 +150,105 @@ function BrowseIndexContent({ index }: { index: BrowseIndex }) {
 		})
 
 	return (
-		<SceneContainer className="gap-4">
+		<>
 			<Helmet>
 				<title>Stump | {title}</title>
 			</Helmet>
 
-			<div className="gap-3 md:flex-row md:items-end md:justify-between flex flex-col">
-				<div>
-					<Heading size="lg">{title}</Heading>
-					<Text size="sm" variant="muted">
-						{metadataValueCounts.length} {noun}
-					</Text>
-				</div>
+			{/* Laid out like the list pages: the title, then the search with the sorting next to it */}
+			<CollectionSceneHeader
+				title={title}
+				stats={[
+					{ key: noun, icon: index === 'genres' ? Tags : Users, value: metadataValueCounts.length },
+				]}
+			/>
 
-				<div className="gap-2 flex items-center">
-					<Input
-						placeholder={`Filter ${noun}…`}
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						className="md:w-64"
+			<FilterHeader
+				navOffset
+				search={
+					<Search
+						initialValue={search}
+						placeholder={`Search ${noun}…`}
+						onChange={(value) => setSearch(value.trim())}
 					/>
-					<Button
-						size="sm"
-						variant={sort === 'name' ? 'secondary' : 'ghost'}
-						onClick={() => setSort('name')}
-					>
-						A–Z
-					</Button>
-					<Button
-						size="sm"
-						variant={sort === 'count' ? 'secondary' : 'ghost'}
-						onClick={() => setSort('count')}
-					>
-						Most books
-					</Button>
-				</div>
-			</div>
-
-			{sort === 'name' && sections.length > 1 && (
-				<nav className="gap-1 top-0 py-2 sticky z-10 flex flex-wrap bg-background">
-					{sections.map(({ title }) => (
-						<a
-							key={title}
-							href={`#browse-${title}`}
-							className="px-2 py-0.5 text-sm rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-							onClick={(e) => {
-								e.preventDefault()
-								document
-									.getElementById(`browse-${title}`)
-									?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-							}}
+				}
+				orderControls={
+					<div className="gap-1 flex items-center">
+						<Button
+							size="sm"
+							variant={sort === 'name' ? 'secondary' : 'ghost'}
+							aria-pressed={sort === 'name'}
+							onClick={() => setSort('name')}
 						>
-							{title}
-						</a>
-					))}
-				</nav>
-			)}
-
-			{!sections.length && (
-				<Text variant="muted" className="py-8 text-center">
-					Nothing matches “{search}”
-				</Text>
-			)}
-
-			{sections.map(({ title, entries }) => (
-				<section key={title} id={`browse-${title}`} className="gap-2 scroll-mt-14 flex flex-col">
-					<Heading size="sm" className={cn('pb-1 border-b border-border')}>
-						{title}
-						<span className="ml-2 text-sm font-normal text-muted-foreground">{entries.length}</span>
-					</Heading>
-					<div className="gap-1.5 flex flex-wrap">
-						{entries.map(({ value, label, count }) => (
-							<Link key={value} to={hrefFor(value)}>
-								<Badge
-									variant="secondary"
-									rounded="full"
-									className="gap-1.5 cursor-pointer hover:bg-accent"
-								>
-									<span>{label}</span>
-									<span className="text-xs text-muted-foreground">{count}</span>
-								</Badge>
-							</Link>
-						))}
+							A–Z
+						</Button>
+						<Button
+							size="sm"
+							variant={sort === 'count' ? 'secondary' : 'ghost'}
+							aria-pressed={sort === 'count'}
+							onClick={() => setSort('count')}
+						>
+							Most books
+						</Button>
 					</div>
-				</section>
-			))}
-		</SceneContainer>
+				}
+			/>
+
+			<SceneContainer className="gap-4">
+				{sort === 'name' && sections.length > 1 && (
+					// One scrollable row on a phone: wrapped, the letters (plus the genre prefixes)
+					// took several lines under the page header and toolbar, a third of the screen
+					<nav
+						ref={navRef}
+						className="gap-1 py-2 top-24 md:top-12 md:flex-wrap md:overflow-visible sticky z-10 scrollbar-hide flex overflow-x-auto bg-background"
+					>
+						{sections.map(({ title }) => (
+							<a
+								key={title}
+								href={`#browse-${title}`}
+								className="px-2 py-0.5 text-sm shrink-0 rounded-md whitespace-nowrap text-muted-foreground hover:bg-accent hover:text-foreground"
+								onClick={(e) => {
+									e.preventDefault()
+									jumpTo(title)
+								}}
+							>
+								{title}
+							</a>
+						))}
+					</nav>
+				)}
+
+				{!sections.length && (
+					<Text variant="muted" className="py-8 text-center">
+						Nothing matches “{search}”
+					</Text>
+				)}
+
+				{sections.map(({ title, entries }) => (
+					<section key={title} id={`browse-${title}`} className="gap-2 flex flex-col">
+						<Heading size="sm" className={cn('pb-1 border-b border-border')}>
+							{title}
+							<span className="ml-2 text-sm font-normal text-muted-foreground">
+								{entries.length}
+							</span>
+						</Heading>
+						<div className="gap-1.5 flex flex-wrap">
+							{entries.map(({ value, label, count }) => (
+								<Link key={value} to={hrefFor(value)} className="max-w-full" title={label}>
+									<Badge
+										variant="secondary"
+										rounded="full"
+										className="gap-1.5 max-w-full cursor-pointer hover:bg-accent"
+									>
+										<span className="truncate">{label}</span>
+										<span className="text-xs text-muted-foreground">{count}</span>
+									</Badge>
+								</Link>
+							))}
+						</div>
+					</section>
+				))}
+			</SceneContainer>
+		</>
 	)
 }

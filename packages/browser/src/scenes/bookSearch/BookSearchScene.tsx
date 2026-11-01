@@ -1,5 +1,5 @@
 import { PREFETCH_STALE_TIME, useSDK, useSuspenseGraphQL } from '@stump/client'
-import { usePrevious } from '@stump/components'
+import { Breadcrumbs, usePrevious } from '@stump/components'
 import { graphql, InterfaceLayout, MediaFilterInput, MediaOrderBy } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
@@ -32,6 +32,7 @@ import TableOrGridLayout from '@/components/TableOrGridLayout'
 import useIsInView from '@/hooks/useIsInView'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useTranslate } from '@/hooks/useTranslate'
 import { useBooksLayout } from '@/stores/layout'
 
 import BooksAlphabet from '../book/BooksAlphabet'
@@ -131,6 +132,7 @@ function getQueryKey(
 }
 
 function BookSearchScene() {
+	const { t } = useTranslate()
 	const [containerRef, isInView] = useIsInView<HTMLDivElement>()
 	const { columns, setColumns, persistedOrdering, setPersistedOrdering } = useBooksLayout(
 		'global',
@@ -343,16 +345,21 @@ function BookSearchScene() {
 
 				<section ref={containerRef} id="grid-top-indicator" className="h-0" />
 
+				{/* Laid out like a library's books: the page's title, then the search and its controls */}
 				<PageHeader>
-					<FilterHeader
-						isInPageHeader
-						isSearching={isLoading}
-						layoutControls={<TableOrGridLayout />}
-						orderControls={<URLOrdering entity="media" />}
-						sizeControls={layoutMode === InterfaceLayout.Grid ? <GridSizeSlider /> : undefined}
-						filterControls={<URLFilterDrawer entity="media" />}
-					/>
+					<PageHeader.Start>
+						<Breadcrumbs segments={[{ label: t('sidebar.buttons.books') }]} />
+					</PageHeader.Start>
 				</PageHeader>
+
+				<FilterHeader
+					isSearching={isLoading}
+					layoutControls={<TableOrGridLayout />}
+					orderControls={<URLOrdering entity="media" />}
+					sizeControls={layoutMode === InterfaceLayout.Grid ? <GridSizeSlider /> : undefined}
+					filterControls={<URLFilterDrawer entity="media" />}
+					navOffset
+				/>
 
 				{enableAlphabetSelect && (
 					<BooksAlphabet
