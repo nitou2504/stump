@@ -137,6 +137,33 @@ pub struct ReadiumLocation {
 	pub total_progression: Option<Decimal>,
 	pub css_selector: Option<String>,
 	pub partial_cfi: Option<String>,
+	/// The boxes a selection covers on a fixed-layout page (e.g. a PDF page, whose number is
+	/// `position`), so an annotation can be drawn without re-finding its text. Not part of the
+	/// Readium spec, unused for reflowable EPUBs
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub rects: Option<Vec<ReadiumRect>>,
+}
+
+/// A box on a fixed-layout page, as fractions (0-1) of the page's width and height from its
+/// top-left corner, so it stays put at any zoom
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	SimpleObject,
+	InputObject,
+	Deserialize,
+	Serialize,
+	FromJsonQueryResult,
+	PartialEq,
+	Eq,
+)]
+#[graphql(input_name = "ReadiumRectInput")]
+pub struct ReadiumRect {
+	pub x: Decimal,
+	pub y: Decimal,
+	pub width: Decimal,
+	pub height: Decimal,
 }
 
 #[derive(
