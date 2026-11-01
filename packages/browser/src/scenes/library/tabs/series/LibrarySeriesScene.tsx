@@ -33,6 +33,7 @@ import { defaultSeriesColumnSort } from '@/components/series/table'
 import { EntityTableColumnConfiguration } from '@/components/table'
 import TableOrGridLayout from '@/components/TableOrGridLayout'
 import useIsInView from '@/hooks/useIsInView'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useSeriesLayout } from '@/stores/layout'
 
@@ -70,18 +71,16 @@ export default function LibrarySeriesScene({
 		library: { id, name },
 	} = useLibraryContext()
 	const layoutKey = `library-${id}-series${layoutKeyPostfix ? `-${layoutKeyPostfix}` : ''}`
-	const { layoutMode, setLayout, columns, setColumns, persistedOrdering, setPersistedOrdering } =
-		useSeriesLayout(
-			layoutKey,
-			useShallow((state) => ({
-				columns: state.columns,
-				layoutMode: state.layout,
-				persistedOrdering: state.ordering,
-				setColumns: state.setColumns,
-				setLayout: state.setLayout,
-				setPersistedOrdering: state.setOrdering,
-			})),
-		)
+	const { columns, setColumns, persistedOrdering, setPersistedOrdering } = useSeriesLayout(
+		layoutKey,
+		useShallow((state) => ({
+			columns: state.columns,
+			persistedOrdering: state.ordering,
+			setColumns: state.setColumns,
+			setPersistedOrdering: state.setOrdering,
+		})),
+	)
+	const { layoutMode } = useLayoutMode()
 	const {
 		filters: seriesFilters,
 		ordering,
@@ -304,7 +303,7 @@ export default function LibrarySeriesScene({
 
 				<FilterHeader
 					isSearching={isLoading}
-					layoutControls={<TableOrGridLayout layout={layoutMode} setLayout={setLayout} />}
+					layoutControls={<TableOrGridLayout />}
 					orderControls={<URLOrdering entity="series" />}
 					filterControls={<URLFilterDrawer entity="series" />}
 					sizeControls={layoutMode === InterfaceLayout.Grid ? <GridSizeSlider /> : undefined}

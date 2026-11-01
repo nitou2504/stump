@@ -13,13 +13,14 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useMemo, useRef } from 'react'
 
 import { SortIcon } from '@/components/table'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView } from '../../context'
 import { naturalBookOrder } from './bookOrder'
 import { bookFuzzySearch, buildColumns } from './mediaColumns'
 import SmartListBookGrid from './SmartListBookGrid'
-import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
+import SmartListLayoutControls from './SmartListLayoutControls'
 import { SmartListTableItem } from './SmartListTableItem'
 import TableHeaderActions from './TableHeaderActions'
 
@@ -87,7 +88,7 @@ export default function VirtualSmartListTable({ books: unsortedBooks }: Props) {
 	const virtualItems = rowVirtualizer.getVirtualItems()
 	const totalSize = rowVirtualizer.getTotalSize()
 
-	const { isGrid } = useSmartListItemsLayout()
+	const { isGrid } = useLayoutMode()
 	const layoutControls = <SmartListLayoutControls />
 
 	if (isGrid) {

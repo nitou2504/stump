@@ -1,28 +1,18 @@
-import { InterfaceLayout } from '@stump/graphql'
 import { useState } from 'react'
 
 import { GridSizeSlider } from '@/components/container/GridSizeSlider'
 import TableOrGridLayout from '@/components/TableOrGridLayout'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 
-import { useSmartListContext } from '../../context'
-import { useSmartListLayout } from '../../layout'
 import GroupByDialog, { GroupByButton } from './GroupByDialog'
-
-/** The table/grid layout state for the current smart list */
-export function useSmartListItemsLayout() {
-	const {
-		list: { id },
-	} = useSmartListContext()
-	const { layout, setLayout } = useSmartListLayout(id)
-	return { isGrid: layout === InterfaceLayout.Grid, layout, setLayout }
-}
 
 /**
  * The view controls of a smart list's items: grouping, grid size and table/grid layout.
- * These are the viewer's own choices and don't modify the list.
+ * These are the viewer's own choices and don't modify the list. Table or grid is the
+ * global layout preference, shared with every other book and series list.
  */
 export default function SmartListLayoutControls() {
-	const { isGrid, layout, setLayout } = useSmartListItemsLayout()
+	const { isGrid } = useLayoutMode()
 	const [isGroupingOpen, setIsGroupingOpen] = useState(false)
 
 	return (
@@ -34,7 +24,7 @@ export default function SmartListLayoutControls() {
 					<GridSizeSlider />
 				</div>
 			)}
-			<TableOrGridLayout layout={layout} setLayout={setLayout} />
+			<TableOrGridLayout />
 		</div>
 	)
 }

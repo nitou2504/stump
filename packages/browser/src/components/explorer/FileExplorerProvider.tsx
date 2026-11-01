@@ -1,8 +1,10 @@
 import { useDirectoryListing, UseDirectoryListingFile, useSDK } from '@stump/client'
-import { useCallback, useState } from 'react'
+import { InterfaceLayout } from '@stump/graphql'
+import { useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { usePaths } from '@/paths'
 
 import { ExplorerContext, ExplorerLayout, IExplorerContext } from './context'
@@ -20,7 +22,9 @@ export default function FileExplorerProvider({ rootPath, ...ctx }: Props) {
 	const navigate = useNavigate()
 	const { sdk } = useSDK()
 
-	const [layout, setLayout] = useState<ExplorerLayout>(() => getDefaultLayout())
+	// Grid or table follows the global layout preference, like every other list
+	const { layoutMode, setLayoutMode } = useLayoutMode()
+	const layout: ExplorerLayout = layoutMode === InterfaceLayout.Table ? 'table' : 'grid'
 
 	// TODO: I need to store location.state somewhere so that when the user uses native navigation,
 	// their history, or at the very least where they left off, is persisted.
@@ -62,10 +66,8 @@ export default function FileExplorerProvider({ rootPath, ...ctx }: Props) {
 		}
 	}
 
-	const changeLayout = (newLayout: 'grid' | 'table') => {
-		setDefaultLayout(newLayout)
-		setLayout(newLayout)
-	}
+	const changeLayout = (newLayout: ExplorerLayout) =>
+		setLayoutMode(newLayout === 'table' ? InterfaceLayout.Table : InterfaceLayout.Grid)
 
 	const onLoadMore = useCallback(() => {
 		if (canLoadMore) {
@@ -107,16 +109,4 @@ export default function FileExplorerProvider({ rootPath, ...ctx }: Props) {
 			</div>
 		</ExplorerContext.Provider>
 	)
-}
-
-const LOCAL_STORAGE_LAYOUT_KEY = 'stump-explorer-layout'
-const getDefaultLayout = () => {
-	const storedLayout = localStorage.getItem(LOCAL_STORAGE_LAYOUT_KEY)
-	if (storedLayout === 'grid' || storedLayout === 'table') {
-		return storedLayout
-	}
-	return 'grid'
-}
-const setDefaultLayout = (layout: ExplorerLayout) => {
-	localStorage.setItem(LOCAL_STORAGE_LAYOUT_KEY, layout)
 }

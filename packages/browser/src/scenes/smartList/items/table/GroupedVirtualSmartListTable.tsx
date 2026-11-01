@@ -16,6 +16,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { SortIcon } from '@/components/table'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
@@ -24,7 +25,7 @@ import { naturalBookOrder, naturalGroupOrder } from './bookOrder'
 import { buildColumns as buildGroupColumns } from './groupColumns'
 import GroupedSmartListGrid, { BookGroup, useGroupHref } from './GroupedSmartListGrid'
 import { bookFuzzySearch, buildColumns as buildBookColumns } from './mediaColumns'
-import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
+import SmartListLayoutControls from './SmartListLayoutControls'
 import { SmartListTableItem } from './SmartListTableItem'
 import TableHeaderActions from './TableHeaderActions'
 
@@ -211,7 +212,7 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 
 	// The same groups for the grid layout: every group's (search-matching) books, in the
 	// table's group and book order
-	const { isGrid } = useSmartListItemsLayout()
+	const { isGrid } = useLayoutMode()
 	const groupHref = useGroupHref()
 	const gridGroups = useMemo<BookGroup[]>(
 		() =>
