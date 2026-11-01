@@ -1,10 +1,14 @@
-import { cn, SheetPrimitive as Sheet, useBoolean } from '@stump/components'
-import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { cn, SheetPrimitive as Sheet, Text, useBoolean } from '@stump/components'
+import { lazy, memo, Suspense, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { DEBUG_ENV } from '../index.ts'
-import Markdown from './markdown/MarkdownPreview.tsx'
+
+// The Markdown/HTML renderer (react-markdown, rehype-raw with parse5, ...) is a large download;
+// loading it on demand keeps it out of every page's first load. Until it arrives the text is
+// shown plain, so the description is readable at once and barely moves when it is formatted
+const Markdown = lazy(() => import('./markdown/MarkdownPreview.tsx'))
 
 type Props = {
 	text?: string | null
@@ -29,9 +33,42 @@ const COLLAPSED_HEIGHT = 240
  */
 const OVERFLOW_GRACE = 48
 
+const BLOCK_END = /<\/(p|div|li|h[1-6]|blockquote)>|<br\s*\/?>/gi
+const ENTITIES: Record<string, string> = {
+	'&amp;': '&',
+	'&lt;': '<',
+	'&gt;': '>',
+	'&quot;': '"',
+	'&#39;': "'",
+	'&nbsp;': ' ',
+}
+
+/** The description without HTML tags, for the moment before the renderer has loaded */
+const toPlainText = (text: string) =>
+	text
+		.replace(BLOCK_END, '\n')
+		.replace(/<[^>]*>/g, '')
+		.replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (entity) => ENTITIES[entity] ?? entity)
+		.replace(/\n{3,}/g, '\n\n')
+		.trim()
+
+type MarkdownProps = { children: string; className?: string }
+
 // Memoized so toggling expanded/collapsed doesn't re-parse (and visibly
 // re-render/flicker) potentially large markdown descriptions.
-const MemoizedMarkdown = memo(Markdown)
+const MemoizedMarkdown = memo(function LazyMarkdown({ children, className }: MarkdownProps) {
+	return (
+		<Suspense
+			fallback={
+				<div className={cn('text-foreground', className)}>
+					<Text className="whitespace-pre-line">{toPlainText(children)}</Text>
+				</div>
+			}
+		>
+			<Markdown className={className}>{children}</Markdown>
+		</Suspense>
+	)
+})
 
 export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }: Props) {
 	const { translate } = useTranslate()

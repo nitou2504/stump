@@ -1,6 +1,10 @@
 {
 	"name": "@stump/components",
 	"version": "0.1.5",
+	"sideEffects": [
+		"*.css",
+		"**/*.css"
+	],
 	"exports": {
 		".": "./src/index.ts",
 		"./styles/overrides.css": "./src/styles/overrides.css",

@@ -4,6 +4,10 @@
 	"description": "",
 	"license": "MIT",
 	"private": true,
+	"sideEffects": [
+		"*.css",
+		"**/*.css"
+	],
 	"main": "src/index.ts",
 	"scripts": {
 		"check-types": "tsc -b tsconfig.json",

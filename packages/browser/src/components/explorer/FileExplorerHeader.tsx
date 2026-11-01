@@ -1,7 +1,11 @@
+import { lazy, Suspense } from 'react'
+
 import { useFileExplorerContext } from './context'
 import FileExplorerNavigation from './FileExplorerNavigation'
 import LayoutButtons from './LayoutButtons'
-import { UploadModal } from './upload'
+
+// Loaded on demand: it brings react-dropzone and the upload queue along
+const UploadModal = lazy(() => import('./upload/UploadModal'))
 
 export const HEADER_HEIGHT = 40
 
@@ -16,7 +20,11 @@ export default function FileExplorerHeader() {
 
 			<div className="gap-3 flex shrink-0 items-center">
 				<LayoutButtons />
-				{uploadConfig?.enabled && <UploadModal />}
+				{uploadConfig?.enabled && (
+					<Suspense fallback={null}>
+						<UploadModal />
+					</Suspense>
+				)}
 			</div>
 		</header>
 	)

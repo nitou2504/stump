@@ -1,4 +1,4 @@
-import { noop } from 'lodash'
+import noop from 'lodash/noop'
 import { lazy, Suspense, useCallback } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 

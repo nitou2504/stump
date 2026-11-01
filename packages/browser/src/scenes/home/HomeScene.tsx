@@ -1,7 +1,8 @@
 import { PREFETCH_STALE_TIME, useSDK, useSuspenseGraphQL } from '@stump/client'
 import { Breadcrumbs, ButtonOrLink } from '@stump/components'
 import { graphql } from '@stump/graphql'
-import { useQueryClient } from '@tanstack/react-query'
+import { Api } from '@stump/sdk'
+import { QueryClient, QueryKey, useQueryClient } from '@tanstack/react-query'
 import { Helmet } from 'react-helmet'
 
 import { SceneContainer } from '@/components/container'
@@ -15,6 +16,7 @@ import { usePaths } from '@/paths'
 import {
 	getHomeSectionId,
 	homeArrangementQuery,
+	HomeSectionId,
 	useHomeArrangement,
 	useHomeArrangementKey,
 } from './arrangement'
@@ -30,6 +32,34 @@ const query = graphql(`
 	}
 `)
 
+type HomeSectionPrefetchers = Record<HomeSectionId, () => Promise<unknown>>
+
+/**
+ * Prefetches the home sections the user has turned on. Shared by the hook below and by the
+ * sidebar, which loads it (with `./prefetch`) only when the Home link is hovered
+ */
+export async function prefetchHomeSections(
+	client: QueryClient,
+	sdk: Api,
+	queryKey: QueryKey,
+	prefetch: HomeSectionPrefetchers,
+) {
+	const data = await client
+		.fetchQuery({
+			queryKey,
+			queryFn: () => sdk.execute(homeArrangementQuery),
+			staleTime: PREFETCH_STALE_TIME,
+		})
+		.catch(() => undefined)
+	if (!data) return
+	await Promise.all(
+		data.me.preferences.homeArrangement.sections.map((section) => {
+			const id = getHomeSectionId(section)
+			return section.visible && id ? prefetch[id]() : undefined
+		}),
+	)
+}
+
 export const usePrefetchHomeScene = () => {
 	const prefetchRecentMedia = usePrefetchRecentlyAddedMedia()
 	const prefetchContinueReading = usePrefetchContinueReading()
@@ -39,28 +69,13 @@ export const usePrefetchHomeScene = () => {
 	const { sdk } = useSDK()
 	const client = useQueryClient()
 	const queryKey = useHomeArrangementKey()
-	return async () => {
-		const data = await client
-			.fetchQuery({
-				queryKey,
-				queryFn: () => sdk.execute(homeArrangementQuery),
-				staleTime: PREFETCH_STALE_TIME,
-			})
-			.catch(() => undefined)
-		if (!data) return
-		const prefetch = {
+	return () =>
+		prefetchHomeSections(client, sdk, queryKey, {
 			continueReading: prefetchContinueReading,
 			onDeck: prefetchOnDeck,
 			recentlyAddedBooks: prefetchRecentMedia,
 			recentlyAddedSeries: prefetchRecentSeries,
-		}
-		await Promise.all(
-			data.me.preferences.homeArrangement.sections.map((section) => {
-				const id = getHomeSectionId(section)
-				return section.visible && id ? prefetch[id]() : undefined
-			}),
-		)
-	}
+		})
 }
 
 export default function HomeScene() {
