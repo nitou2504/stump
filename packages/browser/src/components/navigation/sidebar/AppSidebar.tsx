@@ -15,6 +15,7 @@ import { useAppContext, useRouterContext } from '@/context'
 import { useTheme } from '@/hooks'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
+import { BOOK_CLUBS_AVAILABLE } from '@/scenes/bookClub/availability'
 import { usePrefetchHomeScene } from '@/scenes/home/HomeScene'
 import { useLocalPreferencesStore } from '@/stores/user'
 
@@ -78,7 +79,7 @@ export default function AppSidebar() {
 	const checkSectionPermission = useCallback(
 		(variant: SystemArrangement) => {
 			if (variant === SystemArrangement.BookClubs) {
-				return checkPermission(UserPermission.AccessBookClub)
+				return BOOK_CLUBS_AVAILABLE && checkPermission(UserPermission.AccessBookClub)
 			} else if (variant === SystemArrangement.SmartLists) {
 				return checkPermission(UserPermission.AccessSmartList)
 			} else {

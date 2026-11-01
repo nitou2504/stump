@@ -5,6 +5,7 @@ import { Navigate, Route, Routes, useNavigate } from 'react-router'
 import { UnderConstruction } from '@/components/unimplemented'
 
 import { useAppContext } from '../../context'
+import { BOOK_CLUBS_AVAILABLE } from './availability'
 import BookClubHomeLayout from './BookClubLayout.tsx'
 import BookClubSettingsRouter from './tabs/settings'
 
@@ -16,8 +17,6 @@ const BookClubExplorerScene = lazy(() => import('./explore/BookClubExploreScene.
 const BookClubHomeScene = lazy(() => import('./tabs/home'))
 const BookClubDiscussionScene = lazy(() => import('./tabs/discussion/index.ts'))
 const BookClubMembersScene = lazy(() => import('./tabs/members'))
-
-const IS_DEVELOPMENT = import.meta.env.DEV
 
 export default function BookClubRouter() {
 	const { checkPermission } = useAppContext()
@@ -34,7 +33,7 @@ export default function BookClubRouter() {
 		return null
 	}
 
-	if (!IS_DEVELOPMENT) {
+	if (!BOOK_CLUBS_AVAILABLE) {
 		return (
 			<Routes>
 				<Route path="*" element={<UnderConstruction issue={120} />} />

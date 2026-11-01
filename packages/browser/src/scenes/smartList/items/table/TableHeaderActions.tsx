@@ -63,6 +63,8 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 	)
 
 	return (
+		// Wraps on a phone: an active search takes the whole width there and pushed the save
+		// and grouping/layout controls off-screen
 		<header className="-mt-2 mb-2 gap-x-2 gap-y-2 px-4 flex w-full flex-wrap items-center bg-background">
 			{hasSavedViews && <SavedViewSelector />}
 			<URLFilterDrawer entity="media" />

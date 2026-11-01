@@ -115,8 +115,10 @@ export default function GroupByDialog({ isOpen, onClose }: Props) {
 
 	return (
 		<Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-			<Dialog.Content size="xl">
-				<Dialog.Header>
+			{/* Taller than a phone screen once a list has many `Key:` schemes: keep the title and
+			    the buttons in view and scroll the options between them */}
+			<Dialog.Content size="xl" className="flex max-h-[calc(100dvh-2rem)] flex-col">
+				<Dialog.Header className="shrink-0">
 					<Dialog.Title>Group books by</Dialog.Title>
 					<Dialog.Description>
 						Only changes how you see this list. Double-click an option to apply it at once.
@@ -124,7 +126,7 @@ export default function GroupByDialog({ isOpen, onClose }: Props) {
 					<Dialog.Close onClick={onClose} />
 				</Dialog.Header>
 
-				<div className="gap-4 md:grid-cols-[1fr_1fr] grid grid-cols-1">
+				<div className="-mx-4 gap-4 px-4 py-0.5 md:grid-cols-[1fr_1fr] grid min-h-0 flex-1 grid-cols-1 overflow-y-auto">
 					<div className="gap-4 flex flex-col">
 						<OptionSection title="Collections">
 							{SERVER_OPTIONS.map(({ label, value }) => {
@@ -252,7 +254,7 @@ export default function GroupByDialog({ isOpen, onClose }: Props) {
 					</div>
 				</div>
 
-				<Dialog.Footer>
+				<Dialog.Footer className="shrink-0">
 					<Button variant="ghost" onClick={onClose}>
 						Cancel
 					</Button>

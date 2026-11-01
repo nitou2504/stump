@@ -98,8 +98,9 @@ export default function FilterHeader({
 				isDisabled={isSearchDisabled}
 			/>
 
-			<div className="gap-x-4 flex items-center">
-				{sizeControls}
+			<div className="gap-x-4 flex shrink-0 items-center">
+				{/* No room on a phone, where grids already fit the screen (as in smart lists) */}
+				{sizeControls && <div className="md:flex hidden items-center">{sizeControls}</div>}
 
 				<div className="gap-x-1 flex items-center">
 					{orderControls}

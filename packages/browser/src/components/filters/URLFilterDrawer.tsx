@@ -48,7 +48,7 @@ export default function URLFilterDrawer({ entity }: Props) {
 			open={isOpen}
 			onClose={() => setIsOpen(false)}
 			onOpen={() => setIsOpen(true)}
-			title="Configure URL filters"
+			title="Filters"
 			description="Adjust the filters applied to the current view"
 			trigger={
 				<ToolTip content="Configure filters" size="sm">

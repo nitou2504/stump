@@ -44,6 +44,17 @@ export function FieldSelector({ idx }: Props) {
 		[update, fieldDef, idx],
 	)
 
+	/** The same label as the attribute's option in the list below */
+	const fieldLabel = useCallback(
+		(source: FilterSource, field: string) => {
+			const sharedKey = getSharedBookMetadataKey(source, field)
+			return sharedKey
+				? translate(`shared.bookMetadata.${sharedKey}`)
+				: t(getAttributeKey(source, field))
+		},
+		[t, translate],
+	)
+
 	const renderSource = () => {
 		if (!source) {
 			return (
@@ -91,24 +102,19 @@ export function FieldSelector({ idx }: Props) {
 			const options = sourceOptions[source] || []
 			return (
 				<div>
-					{options.map((option) => {
-						const sharedKey = getSharedBookMetadataKey(source, option.value)
-						return (
-							<Command.Item
-								key={option.value}
-								onSelect={() => {
-									updateField({ field: option.value, source })
-									setOpen(false)
-								}}
-								className={cn('transition-all duration-75', { 'text-brand': false })}
-								value={option.value}
-							>
-								{sharedKey
-									? translate(`shared.bookMetadata.${sharedKey}`)
-									: t(getAttributeKey(source, option.value))}
-							</Command.Item>
-						)
-					})}
+					{options.map((option) => (
+						<Command.Item
+							key={option.value}
+							onSelect={() => {
+								updateField({ field: option.value, source })
+								setOpen(false)
+							}}
+							className={cn('transition-all duration-75', { 'text-brand': false })}
+							value={option.value}
+						>
+							{fieldLabel(source, option.value)}
+						</Command.Item>
+					))}
 				</div>
 			)
 		}
@@ -131,12 +137,19 @@ export function FieldSelector({ idx }: Props) {
 	}
 
 	const renderSelected = () => {
-		if (fieldDef?.field) {
-			// return fieldDef.field
-			return source
-				? // ? `${t(getSourceKey(source, 'label'))}.${t(getAttributeKey(source, fieldDef.field))}`
-					`${source}.${fieldDef.field}`
-				: fieldDef.field
+		const selectedSource = fieldDef?.source ?? source
+		if (fieldDef?.field && selectedSource) {
+			// e.g. "Book Meta › Genre", not the form path `book_meta.genres`
+			return (
+				<span className="truncate">
+					<span className="text-muted-foreground">
+						{t(getSourceKey(selectedSource, 'label'))} ›{' '}
+					</span>
+					{fieldLabel(selectedSource, fieldDef.field)}
+				</span>
+			)
+		} else if (fieldDef?.field) {
+			return fieldDef.field
 		} else {
 			return <span className="text-muted-foreground">{t(getKey('placeholder'))}</span>
 		}

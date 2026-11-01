@@ -60,7 +60,7 @@ export default function OperatorSelect({ idx }: Props) {
 				)
 				.when(
 					(field) => isStringField(field),
-					() => ['contains', 'excludes', 'neq', 'eq'] as StringOperation[],
+					() => operatorGroups.string,
 				)
 				.when(
 					(field) => isNumberField(field) || isDateField(field),
@@ -70,8 +70,14 @@ export default function OperatorSelect({ idx }: Props) {
 		[fieldDef],
 	)
 
+	// string fields also take the fork's exact (`has*`) and pattern (`like*`) list operators
+	const listOperators = useMemo<Operation[]>(
+		() => (isStringField(fieldDef.field) ? operatorGroups.stringList : operatorGroups.list),
+		[fieldDef],
+	)
+
 	const selectGroups = useMemo(() => {
-		const arrayGroup = operatorGroups.list
+		const arrayGroup = listOperators
 		const isConceptual = isConceptualField(fieldDef.field)
 
 		return [
@@ -88,15 +94,15 @@ export default function OperatorSelect({ idx }: Props) {
 					]
 				: []),
 		].filter(({ operators }) => operators.length)
-	}, [operators, fieldDef])
+	}, [operators, fieldDef, listOperators])
 
 	useEffect(() => {
-		const allOperators = [...operators, ...operatorGroups.list]
+		const allOperators: Operation[] = [...operators, ...listOperators]
 		const shouldReset = !allOperators.includes(fieldDef.operation)
 		if (shouldReset && fieldDef.operation) {
 			updateField({ operation: undefined }, false)
 		}
-	}, [fieldDef, operators, updateField])
+	}, [fieldDef, operators, listOperators, updateField])
 
 	if (!fieldDef) return null
 
@@ -149,23 +155,46 @@ export default function OperatorSelect({ idx }: Props) {
 const operatorGroups = {
 	list: ['anyOf', 'noneOf'] satisfies ListOperation[],
 	number: ['gt', 'gte', 'lt', 'lte', 'neq', 'eq', 'range'] satisfies NumberOperation[],
-	string: ['contains', 'excludes', 'neq', 'eq'] satisfies StringOperation[],
+	string: [
+		'contains',
+		'excludes',
+		'neq',
+		'eq',
+		'startsWith',
+		'endsWith',
+		'like',
+	] satisfies StringOperation[],
+	stringList: [
+		'anyOf',
+		'noneOf',
+		'hasAnyOf',
+		'hasNoneOf',
+		'likeAnyOf',
+		'likeNoneOf',
+	] satisfies ListOperation[],
 }
 
 const operatorMap: Record<Operation, string> = {
 	anyOf: 'any in list',
 	contains: 'contains string',
+	endsWith: 'ends with',
 	eq: 'equal to',
 	excludes: 'excludes string',
+	hasAnyOf: 'has any of (whole item)',
+	hasNoneOf: 'has none of (whole item)',
 	is: 'is',
 	isNot: 'is not',
 	isAnyOf: 'is any of',
 	isNoneOf: 'is none of',
 	gt: 'greater than',
 	gte: 'greater than or equal to',
+	like: 'matches pattern (%)',
+	likeAnyOf: 'matches any pattern',
+	likeNoneOf: 'matches no pattern',
 	lt: 'less than',
 	lte: 'less than or equal to',
 	noneOf: 'none in list',
 	neq: 'not equal to',
 	range: 'in range',
+	startsWith: 'starts with',
 }

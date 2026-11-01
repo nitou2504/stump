@@ -37,6 +37,15 @@ const stringFilters = [
 	{
 		noneOf: ['baz', 'qux'],
 	},
+	{
+		hasAnyOf: ['Science', 'Estante: Ciencia'],
+	},
+	{
+		hasNoneOf: ['Horror'],
+	},
+	{
+		startsWith: '/library/_Manga/',
+	},
 ] satisfies FieldFilterString[]
 const numericFilters = [
 	{

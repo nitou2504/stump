@@ -74,28 +74,29 @@ export default function FilterGroup({ idx, group }: Props) {
 					})}
 				</div>
 
-				<div className="h-12 space-x-4 px-4 flex items-center bg-muted/45">
+				{/* Wraps on a phone: the buttons ran past the card's right edge */}
+				<div className="min-h-12 gap-x-4 gap-y-2 px-4 py-2 flex flex-wrap items-center bg-muted/45">
 					<GroupJoiner />
 
-					<div className="flex-1" />
+					<div className="gap-2 ml-auto flex shrink-0 items-center">
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => append({} as FilterSchema)}
+							className="h-7 px-2.5 shrink-0"
+						>
+							{t(getKey('actions.addFilter'))}
+						</Button>
 
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={() => append({} as FilterSchema)}
-						className="h-7 px-2.5 shrink-0"
-					>
-						{t(getKey('actions.addFilter'))}
-					</Button>
-
-					<Button
-						variant="ghost"
-						size="sm"
-						className="h-7 px-2.5 shrink-0 hover:bg-destructive/15"
-						onClick={() => removeGroup(idx)}
-					>
-						{t(getKey('actions.deleteGroup'))}
-					</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 px-2.5 shrink-0 hover:bg-destructive/15"
+							onClick={() => removeGroup(idx)}
+						>
+							{t(getKey('actions.deleteGroup'))}
+						</Button>
+					</div>
 				</div>
 			</Card>
 		</FilterGroupContext.Provider>

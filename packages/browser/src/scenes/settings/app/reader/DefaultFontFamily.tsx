@@ -39,6 +39,8 @@ export default function DefaultFontFamily() {
 					SUPPORTED_FONT_OPTIONS,
 				)}
 				value={fontFamily ?? ''}
+				// '' is the "Default" option: show it instead of "Select..."
+				placeholder="Default"
 				onChange={changeFont}
 			/>
 		</div>
