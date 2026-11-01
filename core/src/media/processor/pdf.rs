@@ -182,14 +182,16 @@ fn extract_metadata_from_open_document(
 			PdfDocumentMetadataTagType::Subject => "summary".to_string(),
 			PdfDocumentMetadataTagType::Keywords => {
 				// PDFs have no series, age or rating fields: the book curator writes them as
-				// `bcurator:<field>=<value>` keywords (see split_curator_keywords)
+				// `bcurator:<field>=<value>` keywords (see split_curator_keywords). The other
+				// keywords are the book's genres/subjects, read like EPUB dc:subject, so PDFs
+				// share the Genres pages, genre filters and genre smart-list rules with EPUBs
 				let (tags, fields) = split_curator_keywords(&value);
 				for (field, field_value) in fields {
 					metadata_map.entry(field).or_default().push(field_value);
 				}
 				if !tags.is_empty() {
 					metadata_map
-						.entry("tags".to_string())
+						.entry("genres".to_string())
 						.or_default()
 						.push(tags.join(", "));
 				}
@@ -822,6 +824,16 @@ mod tests {
 		assert_eq!(metadata.number, Some(3.0));
 		assert_eq!(metadata.age_rating, Some(0));
 		assert_eq!(metadata.rating, Some(3.98));
+
+		// the plain keywords become genres (one comma-joined entry, split like EPUB subjects)
+		let metadata = ProcessedMediaMetadata::from(std::collections::HashMap::from_iter([(
+			"genres".to_string(),
+			vec![tags.join(", ")],
+		)]));
+		assert_eq!(
+			metadata.genres.as_deref().map(|g| g.join(", ")),
+			Some("Estante: Historia, Canon de referencia, bcurator:unknown=x".to_string())
+		);
 	}
 
 	#[test]
