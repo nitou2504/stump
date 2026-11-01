@@ -7,7 +7,6 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import DebugSettings from './DebugSettings'
 import EnableAlphabetFiltering from './EnableAlphabetFiltering'
-import EnableBookRemoval from './EnableBookRemoval'
 import EnableFancyAnimations from './EnableFancyAnimations'
 import EnableJobOverlayToggle from './EnableJobOverlayToggle'
 import FontSelect from './FontSelect'
@@ -106,7 +105,6 @@ export default function AppearanceSettingsScene() {
 					description={t(getKey('contentBrowsing.description'))}
 				>
 					<EnableAlphabetFiltering />
-					<EnableBookRemoval />
 				</NewCard>
 
 				<NewCard

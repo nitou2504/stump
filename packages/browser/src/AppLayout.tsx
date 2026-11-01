@@ -19,6 +19,7 @@ import RouteLoadingIndicator from '@/components/RouteLoadingIndicator'
 import { AppContext, PermissionEnforcerOptions } from './context'
 import { useTheme } from './hooks'
 import { useCoreEvent } from './hooks/useCoreEvent'
+import { useRecordHistoryTrail } from './hooks/useHistoryTrail'
 import { useAppStore, useUserStore } from './stores'
 
 export function AppLayout() {
@@ -31,6 +32,9 @@ export function AppLayout() {
 	const { showBoundary } = useErrorBoundary()
 
 	const { sdk } = useSDK()
+
+	// lets pages that stop existing (e.g. a removed book) send the user back where they were
+	useRecordHistoryTrail()
 
 	const showConfetti = useAppStore((state) => state.showConfetti)
 	const setShowConfetti = useAppStore((state) => state.setShowConfetti)

@@ -4,10 +4,10 @@ import { graphql, UserPermission } from '@stump/graphql'
 import { isAxiosError } from '@stump/sdk'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { useAppContext } from '@/context'
+import { useLeavePages } from '@/hooks/useHistoryTrail'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -38,21 +38,45 @@ export default function DeleteLibraryConfirmation({
 	trigger,
 }: Props) {
 	const paths = usePaths()
-	const navigate = useNavigate()
 	const client = useQueryClient()
+	const leavePages = useLeavePages()
 	const { translate } = useTranslate()
+
+	/**
+	 * The library's pages, and those of any book or series: they may belong to the library
+	 * and be gone with it
+	 */
+	const isGonePage = useCallback(
+		(path: string) => {
+			const libraryPath = paths.library(libraryId)
+			const appPath = path.slice(paths.home().length - 1)
+			return (
+				path === libraryPath ||
+				path.startsWith(`${libraryPath}/`) ||
+				path.startsWith(`${libraryPath}?`) ||
+				/^\/(books|series)\/[^/?]/.test(appPath)
+			)
+		},
+		[paths, libraryId],
+	)
 
 	const {
 		mutate: deleteLibrary,
 		isPending,
 		error,
 	} = useGraphQLMutation(mutation, {
-		onSuccess: async () => {
-			await client.invalidateQueries({
-				predicate: () => true,
-			})
+		onSuccess: () => {
 			onClose()
-			navigate(paths.home())
+			// Pages not on screen are fetched again when shown, so they no longer list the library
+			client.removeQueries({ type: 'inactive' })
+			// Back to the page the user was on before the library's, as if they had pressed back
+			// (the home page replaces them when there is none)
+			leavePages(isGonePage, paths.home())
+			// The library's pages stay on screen until that page is ready, so they are not
+			// refetched: they would not find the library anymore and send the user to a 404
+			client.invalidateQueries({
+				predicate: (query) => !query.queryHash.includes(libraryId),
+			})
 		},
 	})
 	const { checkPermission } = useAppContext()

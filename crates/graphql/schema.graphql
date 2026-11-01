@@ -2021,6 +2021,11 @@ type Mutation {
 	updateSuggestionStatus(suggestionId: ID!, status: BookClubSuggestionStatus!, notes: String): BookClubBookSuggestion!
 	analyzeMedia(id: ID!, forceReanalysis: Boolean! = false): Boolean!
 	convertMedia(id: ID!): Boolean!
+	"""
+	Removes a book from its library (soft delete: the file stays on disk). Requires the
+	`REMOVE_BOOK` permission, which an admin grants per user; library managers can bring
+	the book back with `restoreMedia`
+	"""
 	deleteMedia(id: ID!): Media!
 	"Brings back a book removed with `deleteMedia`"
 	restoreMedia(id: ID!): Boolean!
@@ -3856,8 +3861,6 @@ input UpdateUserPreferencesInput {
 	thumbnailRatio: Float!
 	thumbnailPlaceholderStyle: ThumbnailPlaceholderStyle!
 	enableAlphabetSelect: Boolean!
-	"Clients which don't know this preference leave it off"
-	enableBookRemoval: Boolean! = false
 	enableReadingJournal: Boolean!
 	dayResetHourOffset: Int!
 	readingSessionGracePeriodSecs: Int!
@@ -3981,6 +3984,11 @@ enum UserPermission {
 	"Grant access to delete the library (manage library)"
 	DELETE_LIBRARY
 	"""
+	Grant access to remove books from their library. Removed books are hidden everywhere
+	but their files stay on disk, and a library manager can restore them
+	"""
+	REMOVE_BOOK
+	"""
 	Grant access to read users.
 	
 	Note that this is explicitly for querying users via user-specific endpoints.
@@ -4037,8 +4045,6 @@ type UserPreferences {
 	thumbnailPlaceholderStyle: ThumbnailPlaceholderStyle!
 	enableJobOverlay: Boolean!
 	enableAlphabetSelect: Boolean!
-	"Offer \"Remove from library\" on book pages (still requires library management rights)"
-	enableBookRemoval: Boolean!
 	interfaceRoundness: InterfaceRoundness!
 	thumbnailRoundness: InterfaceRoundness!
 	enableReadingJournal: Boolean!
