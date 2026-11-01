@@ -14,6 +14,10 @@ const RESTORE_BOOK: &str = r#"mutation RestoreBook($id: ID!) {
 const BOOK: &str = r#"query Book($id: ID!) {
 	mediaById(id: $id) { id }
 }"#;
+const STATS: &str = r#"query Stats($libraryId: ID!, $seriesId: ID!) {
+	libraryById(id: $libraryId) { stats { bookCount } }
+	seriesById(id: $seriesId) { stats { bookCount } }
+}"#;
 
 async fn setup_book(app: &TestApp) -> String {
 	let library = fake_data::Library::default().insert(app.conn()).await;
@@ -114,4 +118,39 @@ async fn test_remove_book_permission_removes_and_managers_restore() {
 		.await;
 	assert_no_errors(&response);
 	assert!(is_visible(&app, &book_id).await);
+}
+
+/// removed books no longer count in their library's and series' stats (e.g. the book
+/// count in the library header)
+#[tokio::test]
+async fn test_removed_books_leave_library_and_series_stats() {
+	let app = TestApp::new_with_default_user().await;
+	let library = fake_data::Library::default().insert(app.conn()).await;
+	let (series, books) = setup_single_series_with_n_books(
+		&app,
+		fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		},
+		2,
+	)
+	.await;
+	let variables = json!({ "libraryId": library.id, "seriesId": series.id });
+	let book_counts = |response: Value| {
+		(
+			response["data"]["libraryById"]["stats"]["bookCount"].clone(),
+			response["data"]["seriesById"]["stats"]["bookCount"].clone(),
+		)
+	};
+
+	let response = app.execute_gql(STATS, Some(variables.clone())).await;
+	assert_eq!(book_counts(response), (json!(2), json!(2)));
+
+	let response = app
+		.execute_gql(REMOVE_BOOK, Some(json!({ "id": books[0].id })))
+		.await;
+	assert_no_errors(&response);
+
+	let response = app.execute_gql(STATS, Some(variables)).await;
+	assert_eq!(book_counts(response), (json!(1), json!(1)));
 }

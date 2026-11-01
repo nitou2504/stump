@@ -42,6 +42,8 @@ impl LibraryStats {
 					SELECT media.id, media.size
 					FROM media
 					WHERE ($1 IS NULL OR media.library_id = $1)
+						-- removed books (soft-deleted) are not part of the library anymore
+						AND media.deleted_at IS NULL
 				),
 				base_counts AS (
 					SELECT
@@ -158,12 +160,15 @@ impl SeriesStats {
 						COUNT(*) AS book_count,
 						COALESCE(CAST(SUM(media.size) AS BIGINT), 0) AS total_bytes
 					FROM media
-					WHERE media.series_id = $1
+					-- removed books (soft-deleted) are not part of the series anymore
+					WHERE media.series_id = $1 AND media.deleted_at IS NULL
 				),
 				filtered_sessions AS (
 					SELECT *
 					FROM reading_sessions
-					WHERE media_id IN (SELECT id FROM media WHERE series_id = $1)
+					WHERE media_id IN (
+							SELECT id FROM media WHERE series_id = $1 AND deleted_at IS NULL
+						)
 						AND ($2 IS TRUE OR user_id = $3)
 				),
 				latest_readthrough_sessions AS (
