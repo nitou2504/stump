@@ -60,6 +60,10 @@ uuid.workspace = true
 walkdir = "2.5.0"
 webp = "0.3.0"
 xml-rs = "1.0.0" # XML reader/writer
+csv = "1.3.0"
+reqwest.workspace = true
+strsim = "0.11"
+unidecode = "0.3.0"
 zip.workspace = true
 quick-xml = { version = "0.38.3", features = ["serialize"] }
 merge = "0.1.0"

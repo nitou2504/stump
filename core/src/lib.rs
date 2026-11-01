@@ -14,6 +14,7 @@ pub mod error;
 mod event;
 pub mod fs_utils;
 pub mod image;
+pub mod intake;
 pub mod job;
 pub mod kobo;
 pub mod media;

@@ -2,7 +2,7 @@
 //! on `intake_items` rows and exposed as-is through GraphQL.
 
 use async_graphql::{Enum, InputObject, SimpleObject};
-use sea_orm::{DeriveActiveEnum, EnumIter, FromJsonQueryResult};
+use sea_orm::{prelude::*, DeriveActiveEnum, EnumIter, FromJsonQueryResult};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 
