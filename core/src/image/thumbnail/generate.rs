@@ -10,8 +10,8 @@ use models::{
 	},
 };
 use sea_orm::{
-	prelude::*, sea_query::Query, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
-	QuerySelect,
+	prelude::*, sea_query::Query, ConnectionTrait, EntityTrait, Order, QueryFilter,
+	QueryOrder, QuerySelect,
 };
 use tokio::{fs, task::spawn_blocking};
 
@@ -22,14 +22,15 @@ use crate::{
 		is_generated_thumbnail,
 		process::ImageProcessor,
 		processor::{GenericImageProcessor, WebpProcessor},
-		thumbnail::placeholder::{
-			generate_image_metadata, generate_image_metadata_from_bytes,
+		thumbnail::{
+			no_cover::{is_known_coverless, remember_coverless},
+			placeholder::{generate_image_metadata, generate_image_metadata_from_bytes},
 		},
 		PlaceholderGenerationJob, PlaceholderGenerationOutput, ThumbnailGenerationJob,
 		ThumbnailGenerationOutput,
 	},
 	job::{JobContext, JobExecuteLog, JobTaskOutput},
-	media::processor::get_page,
+	media::processor::{error::MediaProcessorError, get_page},
 };
 
 /// An error enum for thumbnail generation errors
@@ -47,8 +48,20 @@ pub enum ThumbnailGenerateError {
 	DbError(#[from] sea_orm::DbErr),
 	#[error("Failed to pull image from file: {0}")]
 	ImagePullFailed(String),
+	#[error("The book has no cover image")]
+	NoCover,
 	#[error("Something unexpected went wrong: {0}")]
 	Unknown(String),
+}
+
+impl From<MediaProcessorError> for ThumbnailGenerateError {
+	fn from(error: MediaProcessorError) -> Self {
+		match error {
+			// A cover is optional in EPUB: such a book keeps the default cover
+			MediaProcessorError::CoverNotFound => Self::NoCover,
+			error => Self::ImagePullFailed(error.to_string()),
+		}
+	}
 }
 
 /// The options for generating a thumbnail
@@ -194,9 +207,27 @@ async fn generate_book_thumbnail(
 		}
 	}
 
+	let book_path = Path::new(&book.path);
+	if !force_regen && is_known_coverless(&core_config, &book.id, book_path).await {
+		tracing::trace!(book_id = %book.id, "Skipping a book known to have no cover image");
+		return Err(ThumbnailGenerateError::NoCover);
+	}
+
 	let (thumbnail, thumbnail_path, thumbnail_metadata) =
-		generate_thumbnail_from_book(&book.path, &file_name, &core_config, image_options)
-			.await?;
+		match generate_thumbnail_from_book(
+			&book.path,
+			&file_name,
+			&core_config,
+			image_options,
+		)
+		.await
+		{
+			Err(ThumbnailGenerateError::NoCover) => {
+				remember_coverless(&core_config, &book.id, book_path).await;
+				return Err(ThumbnailGenerateError::NoCover);
+			},
+			result => result?,
+		};
 
 	media::Entity::update_many()
 		.filter(media::Column::Id.eq(&book.id))
@@ -228,9 +259,7 @@ pub async fn generate_thumbnail_from_book(
 	image_options: ImageProcessorOptions,
 ) -> Result<(Vec<u8>, PathBuf, Option<ImageMetadata>), ThumbnailGenerateError> {
 	let page = image_options.page.unwrap_or(1);
-	let (_, page_data) = get_page(book_path, page, core_config)
-		.await
-		.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
+	let (_, page_data) = get_page(book_path, page, core_config).await?;
 
 	let file_name_owned = file_name.to_owned();
 	let core_config_clone = core_config.clone();
@@ -260,11 +289,17 @@ pub async fn generate_thumbnail_from_book(
 	Ok((thumbnail, thumbnail_path, thumbnail_metadata))
 }
 
+/// Sorts books that already have a thumbnail first, so a series or library takes its cover
+/// from a book that has one (e.g. not from a first book without a cover image)
+fn has_no_thumbnail() -> Expr {
+	media::Column::ThumbnailPath.is_null()
+}
+
 /// Copy a book's thumbnail to a target entity (series or library) and update the database.
 /// The happy path is assumed to be that the book already has a thumbnail generated, which should
 /// be the case from the ordering of operations in the thumbnail generation job, however if not it
 /// will attempt to generate the thumbnail from the book as a fallback.
-#[tracing::instrument(skip(ctx, update_fn, first_book))]
+#[tracing::instrument(skip(ctx, update_fn, first_book, options))]
 async fn copy_thumbnail_to_entity<E>(
 	entity_id: &str,
 	first_book: media::MediaThumbSelect,
@@ -281,6 +316,12 @@ where
 		Some(path) => (path.clone(), fs::read(path).await.unwrap_or_default()),
 		None => {
 			// Note that this shouldn't really happen but figured better to handle instead
+			let book_path = Path::new(&first_book.path);
+			// Not reopened even when forced: a forced job's book pass already retried it,
+			// and an unchanged file still has no cover
+			if is_known_coverless(&options.core_config, &first_book.id, book_path).await {
+				return Err(ThumbnailGenerateError::NoCover);
+			}
 			let (data, path, _) =
 				generate_book_thumbnail(&first_book, ctx.conn(), options.clone()).await?;
 			did_regenerate = true;
@@ -378,6 +419,7 @@ async fn generate_series_thumbnail(
 		.select_only()
 		.columns(media::MediaThumbSelect::columns())
 		.filter(media::Column::SeriesId.eq(&series.id))
+		.order_by(has_no_thumbnail(), Order::Asc)
 		.order_by_asc(media::Column::Name)
 		.into_model::<media::MediaThumbSelect>()
 		.one(ctx.conn())
@@ -451,6 +493,7 @@ async fn generate_library_thumbnail(
 		.columns(media::MediaThumbSelect::columns())
 		.left_join(series::Entity)
 		.filter(media::Column::LibraryId.eq(&library.id))
+		.order_by(has_no_thumbnail(), Order::Asc)
 		.order_by_asc(series::Column::Name)
 		.order_by_asc(media::Column::Name)
 		.into_model::<media::MediaThumbSelect>()
@@ -562,6 +605,10 @@ pub async fn safely_generate_batch(
 						output.skipped_files += 1;
 					}
 				},
+				// A book without a cover image keeps the default cover, which isn't a failure
+				Err((ThumbnailGenerateError::NoCover, _)) => {
+					output.skipped_files += 1;
+				},
 				Err((error, path)) => {
 					logs.push(
 						JobExecuteLog::error(format!(
@@ -592,6 +639,27 @@ pub async fn safely_generate_batch(
 	}
 }
 
+/// Reads a book's first page (its cover) for placeholder colors. Like thumbnail generation, a
+/// book known to have no cover image isn't reopened unless forced, and a new one is remembered
+async fn read_book_cover(
+	book: &media::MediaThumbSelect,
+	config: &StumpConfig,
+	force_regen: bool,
+) -> Result<Vec<u8>, ThumbnailGenerateError> {
+	let book_path = Path::new(&book.path);
+	if !force_regen && is_known_coverless(config, &book.id, book_path).await {
+		return Err(ThumbnailGenerateError::NoCover);
+	}
+	match get_page(book_path, 1, config).await {
+		Ok((_, data)) => Ok(data),
+		Err(MediaProcessorError::CoverNotFound) => {
+			remember_coverless(config, &book.id, book_path).await;
+			Err(ThumbnailGenerateError::NoCover)
+		},
+		Err(error) => Err(error.into()),
+	}
+}
+
 /// Generate placeholder metadata (ImageMetadata) for a book's existing thumbnail
 #[tracing::instrument(skip_all)]
 pub async fn generate_book_placeholder(
@@ -612,12 +680,7 @@ pub async fn generate_book_placeholder(
 			let path = PathBuf::from(thumbnail_path);
 			fs::read(&path).await?
 		},
-		_ => {
-			let (_, data) = get_page(&book.path, 1, ctx.config())
-				.await
-				.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
-			data
-		},
+		_ => read_book_cover(book, ctx.config(), force_regen).await?,
 	};
 
 	let thumbnail_metadata = match generate_image_metadata_from_bytes(image_data).await {
@@ -646,6 +709,7 @@ async fn get_series_thumbnail_candidate(
 ) -> Result<Option<Vec<u8>>, ThumbnailGenerateError> {
 	let Some(first_book) = media::Entity::find()
 		.filter(media::Column::SeriesId.eq(series.id.clone()))
+		.order_by(has_no_thumbnail(), Order::Asc)
 		.order_by_asc(media::Column::Name)
 		.into_model::<media::MediaThumbSelect>()
 		.one(ctx.conn())
@@ -660,12 +724,7 @@ async fn get_series_thumbnail_candidate(
 			let path = PathBuf::from(thumbnail_path);
 			fs::read(&path).await?
 		},
-		_ => {
-			let (_, data) = get_page(&first_book.path, 1, ctx.config())
-				.await
-				.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
-			data
-		},
+		_ => read_book_cover(&first_book, ctx.config(), false).await?,
 	};
 
 	Ok(Some(image_data))
@@ -724,6 +783,7 @@ async fn get_library_thumbnail_candidate(
 	let first_book = media::Entity::find()
 		.left_join(series::Entity)
 		.filter(media::Column::LibraryId.eq(&library.id))
+		.order_by(has_no_thumbnail(), Order::Asc)
 		.order_by_asc(series::Column::Name)
 		.order_by_asc(media::Column::Name)
 		.into_model::<media::MediaThumbSelect>()
@@ -740,12 +800,7 @@ async fn get_library_thumbnail_candidate(
 			let path = PathBuf::from(thumbnail_path);
 			fs::read(&path).await?
 		},
-		_ => {
-			let (_, data) = get_page(&book.path, 1, ctx.config())
-				.await
-				.map_err(|e| ThumbnailGenerateError::ImagePullFailed(e.to_string()))?;
-			data
-		},
+		_ => read_book_cover(&book, ctx.config(), false).await?,
 	};
 
 	Ok(Some(image_data))
@@ -857,7 +912,8 @@ pub async fn safely_generate_placeholder_batch(
 					output.generated_metadata += 1;
 				},
 				Err((error, path)) => match error {
-					ThumbnailGenerateError::NothingToGenerate => {
+					ThumbnailGenerateError::NothingToGenerate
+					| ThumbnailGenerateError::NoCover => {
 						output.skipped_entities += 1;
 					},
 					_ => {
@@ -888,5 +944,128 @@ pub async fn safely_generate_placeholder_batch(
 		output,
 		logs,
 		subtasks: vec![],
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::media::fixtures::write_test_epub;
+	use ::tests::db::test_database;
+
+	/// A config whose thumbnails live in `dir`, and a book there without a cover image
+	fn coverless_book(dir: &Path) -> (StumpConfig, media::MediaThumbSelect) {
+		let config = StumpConfig {
+			config_dir: dir.to_string_lossy().to_string(),
+			..StumpConfig::debug()
+		};
+		std::fs::create_dir_all(config.thumbnails_directory()).expect("thumbnails dir");
+		let path = dir.join("book.epub");
+		write_test_epub(&path, "No Cover", "");
+
+		let book = media::MediaThumbSelect {
+			id: "book-id".to_string(),
+			path: path.to_string_lossy().to_string(),
+			library_id: "library-id".to_string(),
+			series_id: None,
+			thumbnail_path: None,
+			thumbnail_meta: None,
+		};
+		(config, book)
+	}
+
+	/// Replaces the book with zeros of the same size and modification time: reopening it
+	/// would fail with another error, so a `NoCover` can only come from the marker
+	fn break_book_keeping_signature(path: &Path) {
+		let metadata = std::fs::metadata(path).expect("book metadata");
+		std::fs::write(path, vec![0u8; metadata.len() as usize]).expect("rewrite book");
+		set_modified(path, metadata.modified().expect("modification time"));
+	}
+
+	fn set_modified(path: &Path, time: std::time::SystemTime) {
+		std::fs::File::options()
+			.write(true)
+			.open(path)
+			.and_then(|file| file.set_modified(time))
+			.expect("set modification time");
+	}
+
+	#[test]
+	fn test_missing_cover_is_not_a_failure() {
+		assert!(matches!(
+			ThumbnailGenerateError::from(MediaProcessorError::CoverNotFound),
+			ThumbnailGenerateError::NoCover
+		));
+		assert!(matches!(
+			ThumbnailGenerateError::from(MediaProcessorError::FileNotFound),
+			ThumbnailGenerateError::ImagePullFailed(_)
+		));
+	}
+
+	#[tokio::test]
+	async fn test_coverless_book_is_reopened_only_when_forced_or_changed() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let (core_config, book) = coverless_book(temp.path());
+		let path = PathBuf::from(&book.path);
+		let conn = test_database().await;
+		let options = GenerateThumbnailOptions {
+			image_options: ImageProcessorOptions::default(),
+			core_config,
+			force_regen: false,
+		};
+
+		let first = generate_book_thumbnail(&book, &conn, options.clone()).await;
+		assert!(matches!(first, Err(ThumbnailGenerateError::NoCover)));
+
+		break_book_keeping_signature(&path);
+		let second = generate_book_thumbnail(&book, &conn, options.clone()).await;
+		assert!(matches!(second, Err(ThumbnailGenerateError::NoCover)));
+
+		// A forced regeneration reads the file again
+		let forced = generate_book_thumbnail(
+			&book,
+			&conn,
+			GenerateThumbnailOptions {
+				force_regen: true,
+				..options.clone()
+			},
+		)
+		.await;
+		assert!(matches!(
+			forced,
+			Err(ThumbnailGenerateError::ImagePullFailed(_))
+		));
+
+		// So does a changed file
+		let modified = std::fs::metadata(&path)
+			.and_then(|metadata| metadata.modified())
+			.expect("modification time");
+		set_modified(&path, modified + std::time::Duration::from_secs(10));
+		let changed = generate_book_thumbnail(&book, &conn, options).await;
+		assert!(matches!(
+			changed,
+			Err(ThumbnailGenerateError::ImagePullFailed(_))
+		));
+	}
+
+	#[tokio::test]
+	async fn test_placeholder_read_remembers_a_coverless_book() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let (config, book) = coverless_book(temp.path());
+		let path = PathBuf::from(&book.path);
+
+		let first = read_book_cover(&book, &config, false).await;
+		assert!(matches!(first, Err(ThumbnailGenerateError::NoCover)));
+		assert!(is_known_coverless(&config, &book.id, &path).await);
+
+		break_book_keeping_signature(&path);
+		let second = read_book_cover(&book, &config, false).await;
+		assert!(matches!(second, Err(ThumbnailGenerateError::NoCover)));
+
+		let forced = read_book_cover(&book, &config, true).await;
+		assert!(matches!(
+			forced,
+			Err(ThumbnailGenerateError::ImagePullFailed(_))
+		));
 	}
 }
