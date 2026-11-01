@@ -13,13 +13,15 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useMemo, useRef } from 'react'
 
 import { SortIcon } from '@/components/table'
+import { columnStyle, tableMinWidth, useTableScroll } from '@/components/table/columnLayout'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView } from '../../context'
 import { naturalBookOrder } from './bookOrder'
 import { bookFuzzySearch, buildColumns } from './mediaColumns'
 import SmartListBookGrid from './SmartListBookGrid'
-import SmartListLayoutControls, { useSmartListItemsLayout } from './SmartListLayoutControls'
+import SmartListLayoutControls from './SmartListLayoutControls'
 import { SmartListTableItem } from './SmartListTableItem'
 import TableHeaderActions from './TableHeaderActions'
 
@@ -28,7 +30,7 @@ type Props = {
 }
 
 const HEADER_HEIGHT = 40
-const ROW_HEIGHT = 48
+const ROW_HEIGHT = 44
 
 export default function VirtualSmartListTable({ books: unsortedBooks }: Props) {
 	// Start from the natural (title) order instead of the query's arbitrary order
@@ -87,8 +89,12 @@ export default function VirtualSmartListTable({ books: unsortedBooks }: Props) {
 	const virtualItems = rowVirtualizer.getVirtualItems()
 	const totalSize = rowVirtualizer.getTotalSize()
 
-	const { isGrid } = useSmartListItemsLayout()
+	const { isGrid } = useLayoutMode()
 	const layoutControls = <SmartListLayoutControls />
+
+	// Fill the width; scroll sideways only when the columns don't fit
+	const minWidth = tableMinWidth(table.getVisibleLeafColumns())
+	const { ref: scrollRef, scrolls } = useTableScroll(minWidth)
 
 	if (isGrid) {
 		return (
@@ -104,63 +110,69 @@ export default function VirtualSmartListTable({ books: unsortedBooks }: Props) {
 			<TableHeaderActions layoutControls={layoutControls} />
 
 			<div
-				className="top-0 sticky z-30 flex w-full border-b border-border bg-background"
-				style={{ height: HEADER_HEIGHT }}
+				ref={scrollRef}
+				className={cn('w-full', scrolls ? 'overflow-x-auto' : 'overflow-x-clip')}
 			>
-				{table.getHeaderGroups().map((headerGroup) => (
-					<div key={headerGroup.id} className="flex w-full bg-muted">
-						{headerGroup.headers.map((header) => {
-							const isSortable = header.column.getCanSort()
+				<div style={{ minWidth }}>
+					<div
+						className={cn('z-30 flex w-full border-b border-border bg-muted', {
+							'top-0 sticky': !scrolls,
+						})}
+						style={{ height: HEADER_HEIGHT }}
+					>
+						{table.getHeaderGroups().map((headerGroup) => (
+							<div key={headerGroup.id} className="flex w-full">
+								{headerGroup.headers.map((header) => {
+									const isSortable = header.column.getCanSort()
+									return (
+										<div
+											key={header.id}
+											className={cn(
+												'px-3 py-2 text-sm font-medium first:pl-4 last:pr-4 min-w-0 flex items-center overflow-hidden text-foreground',
+												{
+													'gap-x-2 cursor-pointer select-none': isSortable,
+												},
+											)}
+											onClick={header.column.getToggleSortingHandler()}
+											style={columnStyle(header.column)}
+										>
+											{header.isPlaceholder
+												? null
+												: flexRender(header.column.columnDef.header, header.getContext())}
+											{isSortable && (
+												<SortIcon
+													direction={(header.column.getIsSorted() as SortDirection) ?? null}
+												/>
+											)}
+										</div>
+									)
+								})}
+							</div>
+						))}
+					</div>
+
+					<div className="relative w-full" style={{ height: totalSize }}>
+						{/* Spacer to push items down to their virtual position */}
+						{virtualItems.length > 0 && virtualItems[0] && (
+							<div style={{ height: virtualItems[0].start }} />
+						)}
+
+						{virtualItems.map((virtualItem) => {
+							const row = rows[virtualItem.index]
+							if (!row) return null
+
 							return (
 								<div
-									key={header.id}
-									className={cn(
-										'px-4 py-2 text-sm font-medium flex items-center overflow-hidden bg-muted text-foreground',
-										{
-											'gap-x-2 cursor-pointer select-none': isSortable,
-										},
-									)}
-									onClick={header.column.getToggleSortingHandler()}
-									style={{
-										flex: `0 0 ${header.getSize()}px`,
-										width: header.getSize(),
-										minWidth: header.column.columnDef.minSize,
-										maxWidth: header.column.columnDef.maxSize,
-									}}
+									key={virtualItem.key}
+									ref={rowVirtualizer.measureElement}
+									data-index={virtualItem.index}
 								>
-									{header.isPlaceholder
-										? null
-										: flexRender(header.column.columnDef.header, header.getContext())}
-									{isSortable && (
-										<SortIcon direction={(header.column.getIsSorted() as SortDirection) ?? null} />
-									)}
+									<SmartListTableItem cells={row.getVisibleCells()} />
 								</div>
 							)
 						})}
 					</div>
-				))}
-			</div>
-
-			<div className="relative w-full" style={{ height: totalSize }}>
-				{/* Spacer to push items down to their virtual position */}
-				{virtualItems.length > 0 && virtualItems[0] && (
-					<div style={{ height: virtualItems[0].start }} />
-				)}
-
-				{virtualItems.map((virtualItem) => {
-					const row = rows[virtualItem.index]
-					if (!row) return null
-
-					return (
-						<div
-							key={virtualItem.key}
-							ref={rowVirtualizer.measureElement}
-							data-index={virtualItem.index}
-						>
-							<SmartListTableItem row={row} />
-						</div>
-					)
-				})}
+				</div>
 			</div>
 		</div>
 	)

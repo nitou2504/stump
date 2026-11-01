@@ -1,32 +1,45 @@
 import { InterfaceLayout } from '@stump/graphql'
-import { useEffect, useMemo, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { useCallback } from 'react'
+import { toast } from 'sonner'
 
 import { useUserStore } from '@/stores'
 
+import { usePreferences } from './usePreferences'
+
+/**
+ * The grid/table layout of every book and series list (libraries, series, search, smart
+ * lists, files). It is one per-user preference (`preferredLayoutMode`, saved on the server),
+ * so switching it on any screen switches every screen. The change applies immediately and
+ * is reverted if the server rejects it.
+ */
 export function useLayoutMode() {
-	const { userPreferences } = useUserStore(
-		useShallow((state) => ({
-			userPreferences: state.userPreferences,
-		})),
+	const layoutMode = useUserStore(
+		(state) => state.userPreferences?.preferredLayoutMode ?? InterfaceLayout.Grid,
 	)
+	const hasPreferences = useUserStore((state) => !!state.userPreferences)
+	const { update, store } = usePreferences()
 
-	const preferredLayoutMode = useMemo(
-		() => userPreferences?.preferredLayoutMode,
-		[userPreferences?.preferredLayoutMode],
+	const setLayoutMode = useCallback(
+		(layout: InterfaceLayout) => {
+			if (layout === layoutMode || !hasPreferences) return
+			const previous = layoutMode
+			store({ preferredLayoutMode: layout })
+			update(
+				{ preferredLayoutMode: layout },
+				{
+					onError: () => {
+						store({ preferredLayoutMode: previous })
+						toast.error('Failed to save the layout')
+					},
+				},
+			)
+		},
+		[layoutMode, hasPreferences, store, update],
 	)
-
-	const [localLayout, setLocalLayout] = useState(() => preferredLayoutMode || InterfaceLayout.Grid)
-
-	useEffect(() => {
-		if (preferredLayoutMode) {
-			setLocalLayout(preferredLayoutMode)
-		}
-	}, [preferredLayoutMode])
 
 	return {
-		layoutMode: localLayout,
-		preferredLayout: preferredLayoutMode,
-		setLayoutMode: setLocalLayout,
+		layoutMode,
+		isGrid: layoutMode === InterfaceLayout.Grid,
+		setLayoutMode,
 	}
 }

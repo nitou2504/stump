@@ -63,7 +63,7 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 	)
 
 	return (
-		<header className="-mt-2 mb-2 gap-x-2 px-4 flex w-full items-center bg-background">
+		<header className="-mt-2 mb-2 gap-x-2 gap-y-2 px-4 flex w-full flex-wrap items-center bg-background">
 			{hasSavedViews && <SavedViewSelector />}
 			<URLFilterDrawer entity="media" />
 			{showColumnControls && <TableColumnsBottomDrawer />}

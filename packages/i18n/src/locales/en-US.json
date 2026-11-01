@@ -1953,6 +1953,18 @@
             "saveFailed": "Failed to save your changes",
             "unsupported": "Invalid Configuration",
             "unsupportedDescription": "Please reset to defaults and try again"
+          },
+          "lists": {
+            "title": "Book and Series Lists",
+            "description": "How libraries, series, searches, smart lists and files are shown"
+          },
+          "preferredLayout": {
+            "label": "Layout",
+            "description": "A cover grid or a table, for every list. The grid and table buttons of the lists change this too",
+            "options": {
+              "GRID": "Grid",
+              "TABLE": "Table"
+            }
           }
         }
       },

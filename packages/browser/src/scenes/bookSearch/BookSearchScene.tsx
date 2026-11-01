@@ -30,6 +30,7 @@ import { PageHeader } from '@/components/sharedLayout'
 import { EntityTableColumnConfiguration } from '@/components/table'
 import TableOrGridLayout from '@/components/TableOrGridLayout'
 import useIsInView from '@/hooks/useIsInView'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useBooksLayout } from '@/stores/layout'
 
@@ -131,18 +132,16 @@ function getQueryKey(
 
 function BookSearchScene() {
 	const [containerRef, isInView] = useIsInView<HTMLDivElement>()
-	const { layoutMode, setLayout, columns, setColumns, persistedOrdering, setPersistedOrdering } =
-		useBooksLayout(
-			'global',
-			useShallow((state) => ({
-				columns: state.columns,
-				layoutMode: state.layout,
-				persistedOrdering: state.ordering,
-				setColumns: state.setColumns,
-				setLayout: state.setLayout,
-				setPersistedOrdering: state.setOrdering,
-			})),
-		)
+	const { columns, setColumns, persistedOrdering, setPersistedOrdering } = useBooksLayout(
+		'global',
+		useShallow((state) => ({
+			columns: state.columns,
+			persistedOrdering: state.ordering,
+			setColumns: state.setColumns,
+			setPersistedOrdering: state.setOrdering,
+		})),
+	)
+	const { layoutMode } = useLayoutMode()
 	const {
 		filters: mediaFilters,
 		ordering,
@@ -348,7 +347,7 @@ function BookSearchScene() {
 					<FilterHeader
 						isInPageHeader
 						isSearching={isLoading}
-						layoutControls={<TableOrGridLayout layout={layoutMode} setLayout={setLayout} />}
+						layoutControls={<TableOrGridLayout />}
 						orderControls={<URLOrdering entity="media" />}
 						sizeControls={layoutMode === InterfaceLayout.Grid ? <GridSizeSlider /> : undefined}
 						filterControls={<URLFilterDrawer entity="media" />}

@@ -16,6 +16,7 @@ import HomeArrangementPreference from './HomeArrangementPreference'
 import InterfaceRoundnessPreference from './InterfaceRoundnessPreference'
 import LiveRefetchToggle from './LiveRefetchToggle'
 import { NavigationArrangement } from './navigation-arrangement'
+import PreferredLayoutSelect from './PreferredLayoutSelect'
 import QueryIndicatorToggle from './QueryIndicatorToggle'
 import { SidebarCollapseBehavior } from './SidebarCollapseBehavior'
 import { SidebarStyle } from './SidebarStyle'
@@ -88,6 +89,10 @@ export default function AppearanceSettingsScene() {
 				<Suspense>
 					<HomeArrangementPreference />
 				</Suspense>
+
+				<NewCard label={t(getKey('lists.title'))} description={t(getKey('lists.description'))}>
+					<PreferredLayoutSelect />
+				</NewCard>
 			</div>
 
 			<div className="gap-y-8 flex flex-col">

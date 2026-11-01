@@ -181,25 +181,29 @@ export default function TableColumnsBottomDrawer() {
 		<Drawer open={isOpen} onOpenChange={handleOpenChanged}>
 			<ToolTip content="Adjust columns">
 				<Drawer.Trigger asChild onClick={() => setIsOpen(true)}>
-					<IconButton variant="ghost">
+					<IconButton variant="ghost" aria-label="Adjust columns">
 						<TableProperties className="h-4 w-4 text-muted-foreground" />
 					</IconButton>
 				</Drawer.Trigger>
 			</ToolTip>
-			<Drawer.Content>
-				<div className="max-w-2xl mx-auto w-full">
-					<Drawer.Header>
-						<Drawer.Title>Table configuration</Drawer.Title>
-						<Drawer.Description>Choose which columns to display or hide</Drawer.Description>
+			<Drawer.Content
+				className="max-h-[90dvh]"
+				// Don't refocus the trigger on close: its tooltip would pop up and stay
+				onCloseAutoFocus={(event) => event.preventDefault()}
+			>
+				<div className="max-w-2xl min-h-0 mx-auto flex w-full flex-col">
+					<Drawer.Header className="shrink-0">
+						<Drawer.Title>Adjust columns</Drawer.Title>
+						<Drawer.Description>Choose the columns of this list&apos;s table</Drawer.Description>
 					</Drawer.Header>
-					<div className="gap-y-6 p-4 pb-0 flex flex-col">
+					<div className="gap-y-6 p-4 pb-0 min-h-0 flex flex-col overflow-y-auto">
 						{isGrouped && (
 							<div>
 								<Label>Group columns</Label>
 								<Text size="sm" variant="muted">
 									This only affects the parent table by which books are grouped
 								</Text>
-								<div className="mt-3 gap-x-2 gap-y-4 grid grid-cols-5">
+								<div className="mt-3 gap-x-2 gap-y-4 sm:grid-cols-3 md:grid-cols-4 grid grid-cols-2">
 									{groupColumnOptions.map(({ label, value, isSelected }) => (
 										<CheckBox
 											id={value}
@@ -218,7 +222,7 @@ export default function TableColumnsBottomDrawer() {
 							<Text size="sm" variant="muted">
 								This only affects the nested book table(s)
 							</Text>
-							<div className="mt-3 gap-x-2 gap-y-4 grid grid-cols-5">
+							<div className="mt-3 gap-x-2 gap-y-4 sm:grid-cols-3 md:grid-cols-4 grid grid-cols-2">
 								{bookColumnOptions.map(({ label, value, isSelected }) => (
 									<CheckBox
 										id={value}
@@ -249,13 +253,15 @@ export default function TableColumnsBottomDrawer() {
 							/>
 						</div>
 					</div>
-					<Drawer.Footer className="w-full flex-row">
-						<Button className="w-full" onClick={handleSave}>
+					<Drawer.Footer className="shrink-0 flex-row">
+						<Drawer.Close asChild>
+							<Button variant="outline" className="flex-1">
+								Cancel
+							</Button>
+						</Drawer.Close>
+						<Button className="flex-1" onClick={handleSave}>
 							Save
 						</Button>
-						<Drawer.Close asChild className="w-full">
-							<Button variant="outline">Cancel</Button>
-						</Drawer.Close>
 					</Drawer.Footer>
 				</div>
 			</Drawer.Content>

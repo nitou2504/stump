@@ -32,19 +32,25 @@ export function usePreferences() {
 	})
 
 	const update = useCallback(
-		(input: Partial<UpdateUserPreferencesInput>) => {
+		(
+			input: Partial<UpdateUserPreferencesInput>,
+			options?: { onError?: (error: unknown) => void },
+		) => {
 			if (preferences) {
-				return mutate({
-					input: {
-						...(omit(preferences, [
-							'id',
-							'navigationArrangement',
-							'homeArrangement',
-							'userId',
-						]) as UpdateUserPreferencesInput),
-						...input,
+				return mutate(
+					{
+						input: {
+							...(omit(preferences, [
+								'id',
+								'navigationArrangement',
+								'homeArrangement',
+								'userId',
+							]) as UpdateUserPreferencesInput),
+							...input,
+						},
 					},
-				})
+					options,
+				)
 			} else {
 				return Promise.reject(new Error('Preferences not loaded'))
 			}

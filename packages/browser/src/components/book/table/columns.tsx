@@ -1,9 +1,9 @@
 import { formatBytes } from '@stump/client'
-import { Badge, Link, Text } from '@stump/components'
+import { Link, Text } from '@stump/components'
 import { FragmentType, Media, MediaMetadataModelOrdering, MediaModelOrdering } from '@stump/graphql'
 import { ColumnSort } from '@stump/sdk'
 import { CellContext, ColumnDef, createColumnHelper } from '@tanstack/react-table'
-import { format, intlFormat } from 'date-fns'
+import { format, intlFormat, isValid } from 'date-fns'
 
 import { usePaths } from '@/paths'
 import { isEbookExtension } from '@/utils/readingProgress'
@@ -13,31 +13,31 @@ import BookLinksCell from './BookLinksCell'
 import CoverImageCell from './CoverImageCell'
 
 const columnHelper = createColumnHelper<Media>()
-const MAX_LIST_BADGES = 8
 
-function MetadataBadgeListCell({ values }: { values?: string[] | null }) {
-	if (!values?.length) {
-		return null
-	}
-
-	const visible = values.slice(0, MAX_LIST_BADGES)
-	const remaining = Math.max(values.length - visible.length, 0)
-
+/** A single-line cell: long values end with an ellipsis and show in full on hover */
+function TextCell({ value }: { value?: string | number | null }) {
+	if (value == null || value === '') return null
 	return (
-		<div className="max-h-12.5 gap-1 flex flex-wrap overflow-hidden">
-			{visible.map((value) => (
-				<Badge key={value} size="sm" className="line-clamp-1 max-w-full">
-					{value}
-				</Badge>
-			))}
-			{remaining > 0 && (
-				<Badge size="sm" variant="secondary">
-					+{remaining}
-				</Badge>
-			)}
-		</div>
+		<Text size="sm" variant="muted" className="truncate" title={String(value)}>
+			{value}
+		</Text>
 	)
 }
+
+/** A list of values (people, genres) on a single line */
+function ListCell({ values }: { values?: string[] | null }) {
+	if (!values?.length) return null
+	return <TextCell value={values.join(', ')} />
+}
+
+const header = (label: string) =>
+	function Header() {
+		return (
+			<Text size="sm" variant="secondary" className="truncate">
+				{label}
+			</Text>
+		)
+	}
 
 const coverColumn = columnHelper.display({
 	cell: ({ row: { original: book } }) => (
@@ -46,7 +46,7 @@ const coverColumn = columnHelper.display({
 	enableGlobalFilter: true,
 	header: () => null,
 	id: 'cover',
-	size: 40,
+	size: 44,
 })
 
 function NameColumnCell({
@@ -66,7 +66,8 @@ function NameColumnCell({
 						})
 					: paths.bookOverview(id)
 			}
-			className="text-sm line-clamp-2 no-underline hover:text-foreground/90"
+			title={getValue()}
+			className="text-sm min-w-0 truncate no-underline hover:text-foreground/90"
 		>
 			{getValue()}
 		</Link>
@@ -77,64 +78,37 @@ const nameColumn = columnHelper.accessor(({ resolvedName }) => resolvedName, {
 	cell: (ctx) => <NameColumnCell {...ctx} />,
 	enableGlobalFilter: true,
 	enableSorting: true,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Name
-		</Text>
-	),
+	header: header('Name'),
 	id: MediaModelOrdering.Name, // TODO (graphql): should this be resovledName?, sorting by `name` is different from sorting by `resolvedName`
-	minSize: 285,
+	meta: { isGrow: true },
+	size: 240,
 })
 
 const pagesColumn = columnHelper.accessor('pages', {
-	cell: ({ getValue }) => (
-		<Text size="sm" variant="muted">
-			{getValue()}
-		</Text>
-	),
+	cell: ({ getValue }) => <TextCell value={getValue()} />,
 	enableGlobalFilter: true,
 	enableSorting: true,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Pages
-		</Text>
-	),
+	header: header('Pages'),
 	id: MediaModelOrdering.Pages,
-	size: 60,
+	size: 84,
 })
 
 const fileSizeColumn = columnHelper.accessor('size', {
-	cell: ({ getValue }) => (
-		<Text size="sm" variant="muted">
-			{formatBytes(getValue())}
-		</Text>
-	),
+	cell: ({ getValue }) => <TextCell value={formatBytes(getValue())} />,
 	enableGlobalFilter: true,
 	enableSorting: true,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			File Size
-		</Text>
-	),
+	header: header('File Size'),
 	id: MediaModelOrdering.Size,
 	size: 100,
 })
 
 const extensionColumn = columnHelper.accessor('extension', {
-	cell: ({ getValue }) => (
-		<Text size="sm" variant="muted">
-			{getValue()}
-		</Text>
-	),
+	cell: ({ getValue }) => <TextCell value={getValue()} />,
 	enableGlobalFilter: true,
 	enableSorting: true,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Extension
-		</Text>
-	),
+	header: header('Extension'),
 	id: MediaModelOrdering.Extension,
-	size: 90,
+	size: 108,
 })
 
 const publishedColumn = columnHelper.accessor(
@@ -153,207 +127,145 @@ const publishedColumn = columnHelper.accessor(
 		return ''
 	},
 	{
-		cell: ({ getValue }) => (
-			<Text size="sm" variant="muted">
-				{getValue()}
-			</Text>
-		),
+		cell: ({ getValue }) => <TextCell value={getValue()} />,
 		enableGlobalFilter: true,
 		// TODO(sorting): Consider better null/empty handling (e.g., placing nulls last or excluding them when sorting)
 		enableSorting: true,
-		header: () => (
-			<Text size="sm" variant="secondary">
-				Published
-			</Text>
-		),
+		header: header('Published'),
 		id: MediaMetadataModelOrdering.Year,
+		size: 116,
 	},
 )
 
 const addedColumn = columnHelper.accessor(
-	({ createdAt }) =>
-		intlFormat(new Date(createdAt), {
-			year: 'numeric',
-			month: 'numeric',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-		}),
+	({ createdAt }) => {
+		const date = new Date(createdAt)
+		return isValid(date)
+			? intlFormat(date, { year: 'numeric', month: 'numeric', day: 'numeric' })
+			: ''
+	},
 	{
-		cell: ({ getValue }) => (
-			<Text size="sm" variant="muted">
-				{getValue()}
-			</Text>
-		),
+		cell: ({
+			getValue,
+			row: {
+				original: { createdAt },
+			},
+		}) => {
+			const date = new Date(createdAt)
+			return (
+				<Text
+					size="sm"
+					variant="muted"
+					className="truncate"
+					title={isValid(date) ? intlFormat(date, { dateStyle: 'long', timeStyle: 'short' }) : ''}
+				>
+					{getValue()}
+				</Text>
+			)
+		},
 		enableGlobalFilter: true,
 		enableSorting: true,
-		header: () => (
-			<Text size="sm" variant="secondary">
-				Added
-			</Text>
-		),
+		header: header('Added'),
 		id: MediaModelOrdering.CreatedAt,
+		size: 108,
 	},
 )
 
 const publisherColumn = columnHelper.accessor(({ metadata }) => metadata?.publisher, {
-	cell: ({ getValue }) => (
-		<Text size="sm" variant="muted">
-			{getValue()}
-		</Text>
-	),
+	cell: ({ getValue }) => <TextCell value={getValue()} />,
 	enableGlobalFilter: true,
 	// TODO(relation-ordering): Support order by relation
 	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Publisher
-		</Text>
-	),
+	header: header('Publisher'),
 	id: 'publisher',
+	meta: { isGrow: true },
+	size: 140,
 })
 
 const ageRatingColumn = columnHelper.accessor(({ metadata }) => metadata?.ageRating, {
-	cell: ({ getValue }) => (
-		<Text size="sm" variant="muted">
-			{getValue()}
-		</Text>
-	),
+	cell: ({ getValue }) => <TextCell value={getValue()} />,
 	enableGlobalFilter: true,
 	// TODO(relation-ordering): Support order by relation
 	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Age Rating
-		</Text>
-	),
+	header: header('Age Rating'),
 	id: 'age_rating',
+	size: 96,
 })
 
 const genresColumn = columnHelper.accessor(({ metadata }) => metadata?.genres, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
+	cell: ({ getValue }) => <ListCell values={getValue()} />,
 	enableGlobalFilter: true,
 	// TODO(relation-ordering): Support order by relation
 	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Genres
-		</Text>
-	),
+	header: header('Genres'),
 	id: 'genres',
+	meta: { isGrow: true },
+	size: 200,
 })
+
+const seriesColumn = columnHelper.accessor(
+	({ metadata }) => {
+		if (!metadata?.series) return undefined
+		const number = metadata.number != null ? Number(metadata.number) : NaN
+		return isNaN(number) ? metadata.series : `${metadata.series} #${number}`
+	},
+	{
+		cell: ({ getValue }) => <TextCell value={getValue()} />,
+		enableGlobalFilter: true,
+		// TODO(relation-ordering): Support order by relation
+		enableSorting: false,
+		header: header('Series'),
+		id: 'series',
+		meta: { isGrow: true },
+		size: 160,
+	},
+)
 
 const volumeColumn = columnHelper.accessor(({ metadata }) => metadata?.volume, {
-	cell: ({ getValue }) => (
-		<Text size="sm" variant="muted">
-			{getValue()}
-		</Text>
-	),
+	cell: ({ getValue }) => <TextCell value={getValue()} />,
 	enableGlobalFilter: true,
 	// TODO(relation-ordering): Support order by relation
 	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Volume
-		</Text>
-	),
+	header: header('Volume'),
 	id: 'volume',
+	size: 80,
 })
 
-const inkersColumn = columnHelper.accessor(({ metadata }) => metadata?.inkers, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Inkers
-		</Text>
-	),
-	id: 'inkers',
-})
+const peopleColumn = (id: string, label: string, pick: (book: Media) => string[] | undefined) =>
+	columnHelper.accessor((book) => pick(book), {
+		cell: ({ getValue }) => <ListCell values={getValue()} />,
+		enableGlobalFilter: true,
+		// TODO(relation-ordering): Support order by relation
+		enableSorting: false,
+		header: header(label),
+		id,
+		meta: { isGrow: true },
+		size: id === 'writers' ? 160 : 140,
+	})
 
-const writersColumn = columnHelper.accessor(({ metadata }) => metadata?.writers, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Writers
-		</Text>
-	),
-	id: 'writers',
-})
-
-const pencillersColumn = columnHelper.accessor(({ metadata }) => metadata?.pencillers, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Pencillers
-		</Text>
-	),
-	id: 'pencillers',
-})
-
-const coloristsColumn = columnHelper.accessor(({ metadata }) => metadata?.colorists, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Colorists
-		</Text>
-	),
-	id: 'colorists',
-})
-
-const letterersColumn = columnHelper.accessor(({ metadata }) => metadata?.letterers, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Letterers
-		</Text>
-	),
-	id: 'letterers',
-})
-
-const artistsColumn = columnHelper.accessor(({ metadata }) => metadata?.coverArtists, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Artists
-		</Text>
-	),
-	id: 'artists',
-})
-
-const charactersColumn = columnHelper.accessor(({ metadata }) => metadata?.characters, {
-	cell: ({ getValue }) => <MetadataBadgeListCell values={getValue()} />,
-
-	enableGlobalFilter: true,
-	// TODO(relation-ordering): Support order by relation
-	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Characters
-		</Text>
-	),
-	id: 'characters',
-})
+const writersColumn = peopleColumn('writers', 'Writers', ({ metadata }) => metadata?.writers)
+const inkersColumn = peopleColumn('inkers', 'Inkers', ({ metadata }) => metadata?.inkers)
+const pencillersColumn = peopleColumn(
+	'pencillers',
+	'Pencillers',
+	({ metadata }) => metadata?.pencillers,
+)
+const coloristsColumn = peopleColumn(
+	'colorists',
+	'Colorists',
+	({ metadata }) => metadata?.colorists,
+)
+const letterersColumn = peopleColumn(
+	'letterers',
+	'Letterers',
+	({ metadata }) => metadata?.letterers,
+)
+const artistsColumn = peopleColumn('artists', 'Artists', ({ metadata }) => metadata?.coverArtists)
+const charactersColumn = peopleColumn(
+	'characters',
+	'Characters',
+	({ metadata }) => metadata?.characters,
+)
 
 const linksColumn = columnHelper.accessor(({ metadata }) => metadata?.links?.join(', '), {
 	cell: ({
@@ -365,12 +277,10 @@ const linksColumn = columnHelper.accessor(({ metadata }) => metadata?.links?.joi
 	enableGlobalFilter: true,
 	// TODO(relation-ordering): Support order by relation
 	enableSorting: false,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Links
-		</Text>
-	),
+	header: header('Links'),
 	id: 'links',
+	meta: { isGrow: true },
+	size: 160,
 })
 
 const ratingColumn = columnHelper.accessor(
@@ -379,20 +289,13 @@ const ratingColumn = columnHelper.accessor(
 		cell: ({ getValue }) => {
 			const value = getValue()
 			if (value == null || isNaN(value) || value <= 0) return null
-			return (
-				<Text size="sm" variant="muted">
-					★ {value.toFixed(1)}
-				</Text>
-			)
+			return <TextCell value={`★ ${value.toFixed(1)}`} />
 		},
 		enableGlobalFilter: false,
 		enableSorting: true,
-		header: () => (
-			<Text size="sm" variant="secondary">
-				Rating
-			</Text>
-		),
+		header: header('Rating'),
 		id: MediaMetadataModelOrdering.Rating,
+		size: 92,
 	},
 )
 
@@ -404,7 +307,7 @@ const positionColumn = columnHelper.accessor(
 			if (value == null || isNaN(value)) return null
 
 			return (
-				<Text size="sm" variant="muted" className="text-right">
+				<Text size="sm" variant="muted" className="w-full truncate text-right">
 					{value}
 				</Text>
 			)
@@ -418,7 +321,7 @@ const positionColumn = columnHelper.accessor(
 			</Text>
 		),
 		id: 'position',
-		size: 0,
+		size: 48,
 	},
 )
 
@@ -428,65 +331,71 @@ export type MediaTableColumnDef = ColumnDef<Media>
  * A map of all columns that can be selected for the table. The key is the column ID, and the value is the column, itself.
  */
 export const columnMap = {
-	added: addedColumn,
+	cover: coverColumn,
+	name: nameColumn,
+	position: positionColumn,
+	writers: writersColumn,
+	series: seriesColumn,
+	genres: genresColumn,
+	rating: ratingColumn,
 	age_rating: ageRatingColumn,
+	pages: pagesColumn,
+	published: publishedColumn,
+	added: addedColumn,
+	publisher: publisherColumn,
+	volume: volumeColumn,
 	artists: artistsColumn,
 	characters: charactersColumn,
 	colorists: coloristsColumn,
-	cover: coverColumn,
-	extension: extensionColumn,
-	file_size: fileSizeColumn,
-	genres: genresColumn,
 	inkers: inkersColumn,
 	letterers: letterersColumn,
-	links: linksColumn,
-	name: nameColumn,
-	pages: pagesColumn,
 	pencillers: pencillersColumn,
-	published: publishedColumn,
-	publisher: publisherColumn,
-	volume: volumeColumn,
-	writers: writersColumn,
-	position: positionColumn,
-	rating: ratingColumn,
+	links: linksColumn,
+	extension: extensionColumn,
+	file_size: fileSizeColumn,
 } as Record<string, ColumnDef<Media>>
 
 // TODO: localization keys instead of hardcoded strings
+/** The columns offered in the column configuration, in the order they are listed */
 export const columnOptionMap: Record<keyof typeof columnMap, string> = {
-	added: 'Added',
+	cover: 'Cover',
+	name: 'Name',
+	position: 'Series position',
+	writers: 'Writers',
+	series: 'Series',
+	genres: 'Genres',
+	rating: 'Rating',
 	age_rating: 'Age Rating',
+	pages: 'Pages',
+	published: 'Published',
+	added: 'Added',
+	publisher: 'Publisher',
+	volume: 'Volume',
 	artists: 'Artists',
 	characters: 'Characters',
 	colorists: 'Colorists',
-	cover: 'Cover',
-	extension: 'Extension',
-	file_size: 'File Size',
-	genres: 'Genres',
 	inkers: 'Inkers',
 	letterers: 'Letterers',
-	links: 'Links',
-	name: 'Name',
-	pages: 'Pages',
 	pencillers: 'Pencillers',
-	published: 'Published',
-	publisher: 'Publisher',
-	volume: 'Volume',
-	writers: 'Writers',
-	position: 'Position',
-	rating: 'Rating',
+	links: 'Links',
+	extension: 'Extension',
+	file_size: 'File Size',
 }
 
-export const defaultColumns = [
-	coverColumn,
-	nameColumn,
-	pagesColumn,
-	publishedColumn,
-	addedColumn,
-] as ColumnDef<FragmentType<typeof BookCardFragment>>[]
+/** The columns shown until the viewer picks their own (keys of `columnMap`) */
+const defaultColumnKeys = ['cover', 'name', 'writers', 'pages', 'published', 'added']
 
-export const defaultColumnSort: ColumnSort[] = defaultColumns.map((column, idx) => ({
-	id: column.id || '',
-	position: idx,
+export const defaultColumns = defaultColumnKeys.map((key) => columnMap[key]) as ColumnDef<
+	FragmentType<typeof BookCardFragment>
+>[]
+
+/**
+ * The default selection, by `columnMap` key (the column configuration and `buildColumns`
+ * work with keys, the column IDs are the server's ordering fields)
+ */
+export const defaultColumnSort: ColumnSort[] = defaultColumnKeys.map((id, position) => ({
+	id,
+	position,
 }))
 
 /**
@@ -498,10 +407,11 @@ export const buildColumns = (columns?: ColumnSort[]) => {
 		return defaultColumns
 	}
 
-	const sortedColumns = columns.sort((a, b) => a.position - b.position)
+	const sortedColumns = [...columns].sort((a, b) => a.position - b.position)
 	const selectedColumnIds = sortedColumns.map(({ id }) => id)
 
-	return selectedColumnIds
+	const selected = selectedColumnIds
 		.map((id) => columnMap[id as keyof typeof columnMap])
 		.filter(Boolean) as ColumnDef<FragmentType<typeof BookCardFragment>>[]
+	return selected.length ? selected : defaultColumns
 }
