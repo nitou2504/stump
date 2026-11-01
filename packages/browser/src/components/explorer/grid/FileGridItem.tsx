@@ -2,7 +2,7 @@ import { UseDirectoryListingFile, useSDK } from '@stump/client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { usePrefetchBook } from '@/components/book'
-import { usePrefetchBooksAfterCursor } from '@/scenes/book/BooksAfterCursor'
+import { usePrefetchBooksInSeries } from '@/scenes/book/BooksInSeries'
 
 import { useFileExplorerContext } from '../context'
 import FileThumbnail, { getBook, MediaAtPath } from '../FileThumbnail'
@@ -35,13 +35,13 @@ export default function FileGridItem({ file }: Props) {
 	}, [path, isDirectory, sdk])
 
 	const prefetchBook = usePrefetchBook()
-	const prefetchBooksAfterCursor = usePrefetchBooksAfterCursor()
+	const prefetchBooksInSeries = usePrefetchBooksInSeries()
 	const prefetch = useCallback(
 		() =>
 			book
-				? Promise.all([prefetchBook(book.id), prefetchBooksAfterCursor(book.id)])
+				? Promise.all([prefetchBook(book.id), prefetchBooksInSeries(book.id)])
 				: Promise.resolve(),
-		[prefetchBook, prefetchBooksAfterCursor, book],
+		[prefetchBook, prefetchBooksInSeries, book],
 	)
 
 	return (

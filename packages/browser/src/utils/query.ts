@@ -7,7 +7,7 @@ const THUMBNAIL_QUERY_KEYS = new Set([
 	'bookOverview',
 	'bookOverviewHeader',
 	'bookReader',
-	'booksAfterCursor',
+	'booksInSeries',
 	'booksSearch',
 	'continueReading',
 	'getMediaByPath',

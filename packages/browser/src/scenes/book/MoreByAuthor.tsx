@@ -20,7 +20,7 @@ const query = graphql(`
 
 type Props = {
 	bookId: string
-	/** The book's series, whose books are already listed under "Next in series" */
+	/** The book's series, whose books are already listed in its "Books in this series" row */
 	seriesId?: string | null
 	author: string
 }

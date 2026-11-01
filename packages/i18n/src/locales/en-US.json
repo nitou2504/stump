@@ -432,6 +432,7 @@
           }
         }
       },
+      "booksInSeries": "Books in This Series",
       "nextInSeries": "Next in Series"
     },
     "createOrUpdateBookClubForm": {

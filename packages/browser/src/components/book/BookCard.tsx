@@ -9,7 +9,7 @@ import { Link } from '@/context'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTheme } from '@/hooks/useTheme'
 import { usePaths } from '@/paths'
-import { usePrefetchBooksAfterCursor } from '@/scenes/book/BooksAfterCursor'
+import { usePrefetchBooksInSeries } from '@/scenes/book/BooksInSeries'
 import { isEbookExtension, isEbookReadProgress, readProgressPercent } from '@/utils/readingProgress'
 
 import { ThumbnailImage } from '../thumbnail/ThumbnailImage'
@@ -73,6 +73,8 @@ type Props = {
 	fullWidth?: boolean
 	/** Show the book's number in its series (e.g. `#3`) on the cover */
 	showSeriesPosition?: boolean
+	/** Outline the card as the book being viewed (e.g. in its series' row) */
+	isCurrent?: boolean
 }
 
 const BookCard = memo(function BookCard({
@@ -81,6 +83,7 @@ const BookCard = memo(function BookCard({
 	onSelect,
 	fullWidth = true,
 	showSeriesPosition,
+	isCurrent,
 }: Props) {
 	const data = useFragment(BookCardFragment, fragment)
 	const paths = usePaths()
@@ -91,11 +94,11 @@ const BookCard = memo(function BookCard({
 	const { isDarkVariant, getColor: getThemeColor } = useTheme()
 
 	const prefetchBook = usePrefetchBook()
-	const prefetchBooksAfterCursor = usePrefetchBooksAfterCursor()
+	const prefetchBooksInSeries = usePrefetchBooksInSeries()
 
 	const prefetch = useCallback(
-		() => Promise.all([prefetchBook(data.id), prefetchBooksAfterCursor(data.id)]),
-		[prefetchBook, prefetchBooksAfterCursor, data.id],
+		() => Promise.all([prefetchBook(data.id), prefetchBooksInSeries(data.id)]),
+		[prefetchBook, prefetchBooksInSeries, data.id],
 	)
 
 	const progress = useMemo(() => {
@@ -224,10 +227,12 @@ const BookCard = memo(function BookCard({
 			{...props}
 			onClick={handleClick}
 			onMouseEnter={prefetch}
+			aria-current={isCurrent ? 'page' : undefined}
 			className={cn(
 				'group gap-1 relative flex flex-col',
 				'p-1 rounded-lg border border-transparent transition-colors duration-100',
 				'focus-visible:outline-none',
+				isCurrent && 'ring-2 ring-primary ring-inset',
 				fullWidth ? 'w-full' : 'w-40 sm:w-[10.666rem] md:w-48 shrink-0',
 			)}
 		>

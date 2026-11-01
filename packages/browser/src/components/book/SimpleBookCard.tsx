@@ -6,7 +6,7 @@ import { useMediaMatch } from 'rooks'
 
 import { usePreferences } from '@/hooks/usePreferences'
 import { usePaths } from '@/paths'
-import { usePrefetchBooksAfterCursor } from '@/scenes/book'
+import { usePrefetchBooksInSeries } from '@/scenes/book'
 
 import { ThumbnailImage, ThumbnailPlaceholderData } from '../thumbnail'
 import { usePrefetchBook } from './useBookOverview'
@@ -57,9 +57,9 @@ export const SimpleBookCard = memo(function SimpleBookCard({ book, ...props }: P
 	}
 
 	const prefetchBook = usePrefetchBook()
-	const prefetchBooksAfterCursor = usePrefetchBooksAfterCursor()
+	const prefetchBooksInSeries = usePrefetchBooksInSeries()
 
-	const prefetch = () => Promise.all([prefetchBook(data.id), prefetchBooksAfterCursor(data.id)])
+	const prefetch = () => Promise.all([prefetchBook(data.id), prefetchBooksInSeries(data.id)])
 
 	return (
 		<Link

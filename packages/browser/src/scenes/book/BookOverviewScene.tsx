@@ -10,7 +10,7 @@ import { BookReadActions } from '@/components/book/BookReadActions'
 import { SceneContainer } from '@/components/container'
 import { ProminentThumbnailImage } from '@/components/thumbnail'
 
-import BooksAfterCursor from './BooksAfterCursor'
+import BooksInSeries from './BooksInSeries'
 import MoreByAuthor from './MoreByAuthor'
 
 export default function BookOverviewScene() {
@@ -53,7 +53,10 @@ export default function BookOverviewScene() {
 					<BookOverviewDetails fragment={media} />
 				</div>
 
-				{media.seriesId && <BooksAfterCursor cursor={media.id} />}
+				{media.seriesId && (
+					// remounted per book so the row starts at it (keys must differ from MoreByAuthor's)
+					<BooksInSeries key={`series-${media.id}`} bookId={media.id} seriesId={media.seriesId} />
+				)}
 
 				{!!media.metadata?.writers?.[0] && (
 					<MoreByAuthor
