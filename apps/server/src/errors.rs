@@ -317,7 +317,10 @@ impl From<mpsc::error::SendError<CoreEvent>> for APIError {
 
 impl From<ThumbnailGenerateError> for APIError {
 	fn from(value: ThumbnailGenerateError) -> Self {
-		APIError::InternalServerError(value.to_string())
+		match value {
+			ThumbnailGenerateError::NoCover => APIError::NotFound(value.to_string()),
+			_ => APIError::InternalServerError(value.to_string()),
+		}
 	}
 }
 
@@ -351,7 +354,12 @@ impl IntoResponse for APIErrorResponse {
 			"message": self.message,
 		});
 
-		tracing::error!(error = ?self, "API error response");
+		if self.status == StatusCode::NOT_FOUND {
+			// An expected outcome (e.g. a book without a cover image), not a server failure
+			tracing::debug!(error = ?self, "API error response");
+		} else {
+			tracing::error!(error = ?self, "API error response");
+		}
 
 		let base_response = Json(body).into_response();
 
@@ -395,6 +403,9 @@ mod tests {
 	#[test]
 	fn test_missing_cover_is_not_found() {
 		let error = APIError::from(MediaProcessorError::CoverNotFound);
+		assert_eq!(error.status_code(), StatusCode::NOT_FOUND);
+
+		let error = APIError::from(ThumbnailGenerateError::NoCover);
 		assert_eq!(error.status_code(), StatusCode::NOT_FOUND);
 	}
 
