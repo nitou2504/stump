@@ -30,6 +30,7 @@ import { match } from 'ts-pattern'
 
 import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
+import { BOOK_CLUBS_AVAILABLE } from '@/scenes/bookClub/availability'
 
 import NavigationArrangementItem from './NavigationArrangementItem'
 
@@ -327,7 +328,8 @@ const applyPermissionGuard = (
 		)
 		.with(
 			{ config: { __typename: 'SystemArrangementConfig', variant: SystemArrangement.BookClubs } },
-			() => (checkPermission(UserPermission.AccessBookClub) ? section : null),
+			() =>
+				BOOK_CLUBS_AVAILABLE && checkPermission(UserPermission.AccessBookClub) ? section : null,
 		)
 		.otherwise(() => section)
 

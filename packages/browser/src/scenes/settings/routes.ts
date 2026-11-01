@@ -3,7 +3,6 @@ import { Api } from '@stump/sdk'
 import { QueryClient } from '@tanstack/react-query'
 import {
 	AlarmClock,
-	Bell,
 	BookOpen,
 	Brush,
 	KeyRound,
@@ -159,14 +158,6 @@ export const createRouteGroups = (client: QueryClient, api: Api): RouteGroup[] =
 				localeKey: 'server/metadataIntegrations',
 				permissions: [UserPermission.MetadataProviderRead],
 				to: '/settings/metadata-integrations',
-			},
-			{
-				disabled: true,
-				icon: Bell,
-				label: 'Notifications',
-				localeKey: 'server/notifications',
-				permissions: [UserPermission.ReadNotifier],
-				to: '/settings/notifications',
 			},
 			{
 				icon: Tag,

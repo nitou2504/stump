@@ -1,5 +1,5 @@
 import { Avatar, cn, ConfirmationModal, Dropdown, Text } from '@stump/components'
-import { Bell, LogOut, Server, Settings } from 'lucide-react'
+import { LogOut, Server, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import AutoSizer from 'react-virtualized-auto-sizer'
@@ -22,7 +22,10 @@ export default function UserMenu() {
 	const platform = useAppStore((store) => store.platform)
 	const paths = usePaths()
 
-	const avatarUrl = user.avatarUrl || user.avatar.url || undefined
+	// `avatar.url` is set even when the user has no avatar, and that request 404s on every
+	// page; the REST user only says whether one exists through `avatarPath`
+	const hasAvatar = !!(user.avatarPath || user.avatarUrl)
+	const avatarUrl = hasAvatar ? user.avatar.url || user.avatarUrl || undefined : undefined
 	const fallback = user.username.slice(0, 2).toUpperCase()
 	const isIconMode = useIsSidebarIconMode()
 
@@ -76,11 +79,6 @@ export default function UserMenu() {
 							style={{ width: isIconMode ? 224 : width }}
 						>
 							<Dropdown.Group>
-								<Dropdown.Item disabled className={cn(itemClasses(), 'opacity-40')}>
-									<Bell className="h-4 w-4" />
-									Notifications
-								</Dropdown.Item>
-
 								<Dropdown.Item onClick={() => navigate(paths.settings())} className={itemClasses()}>
 									<Settings className="h-4 w-4" />
 									Settings
