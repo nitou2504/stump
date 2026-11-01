@@ -398,13 +398,25 @@ The maximum size, in bytes, for images uploaded as thumbnails for users, librari
 
 ### STUMP_PARALLELISM_MULTIPLIER
 
-A multiplier applied to the number of logical CPUs available to the process to derive concurrency limits for processing-heavy tasks (e.g., the scanner and thumbnail generator).
+A multiplier applied to the number of logical CPUs available to the process to derive concurrency limits for processing-heavy tasks (e.g., the scanner). Thumbnail generation, which holds a decoded image per task, uses half the logical CPUs (at least 2) instead.
 
 For example, a value of `2` on a 6-CPU machine yields a concurrency of `12`. Increasing this value may improve speeds at the cost of increased CPU usage, while decreasing it may reduce CPU usage at the cost of slower processing times. It depends on your host machine and workload.
 
 | Type    | Default Value | TOML Key                 |
 | ------- | ------------- | ------------------------ |
 | Integer | `2`           | `parallelism_multiplier` |
+
+### STUMP_MAX_BLOCKING_THREADS
+
+The maximum number of threads used for blocking work: file reads, archive and EPUB parsing, image processing and scans. When they are all busy, extra work waits for one to finish. Lower it to bound memory use further on a small host.
+
+| Type    | Default Value                                | TOML Key                  |
+| ------- | -------------------------------------------- | ------------------------- |
+| Integer | 4 × logical CPUs, at least 16 and at most 64 | Not configurable via TOML |
+
+### Memory allocator
+
+On Linux the server allocates memory with [jemalloc](https://jemalloc.net), which returns freed memory to the system about a second after it is released (glibc's allocator keeps most of it, so the server would stay at its peak). Its settings can be overridden with the `MALLOC_CONF` environment variable, e.g. `MALLOC_CONF=narenas:4`. The defaults are `background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:0,narenas:2`.
 
 ## Developer / Advanced
 

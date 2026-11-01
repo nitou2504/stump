@@ -252,6 +252,17 @@ impl StumpConfig {
 			.unwrap_or(multiplier)
 	}
 
+	/// How many thumbnails are generated at once. Each one holds a decoded cover (tens of MiB
+	/// for a large image) while it is resized, so this is half the logical CPUs rather than the
+	/// scanner's limit: generating thumbnails for a few hundred books peaked near 2 GiB at 16 at
+	/// once on an 8-thread machine
+	pub fn thumbnail_concurrency_limit(&self) -> usize {
+		std::thread::available_parallelism()
+			.map(|n| n.get() / 2)
+			.unwrap_or(1)
+			.max(2)
+	}
+
 	pub fn get_pdf_render_format(
 		&self,
 	) -> models::shared::image_processor_options::SupportedImageFormat {

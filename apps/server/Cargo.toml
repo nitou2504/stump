@@ -73,6 +73,12 @@ tests = { path = "../../crates/tests" }
 [build-dependencies]
 chrono.workspace = true
 
+# glibc's malloc keeps a separate arena per thread and rarely gives freed memory back, so a
+# burst of work (thumbnails, scans, OPDS feeds) leaves the server holding hundreds of MiB.
+# jemalloc returns it. Unprefixed, it also serves the C libraries; see main.rs for its settings
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = { version = "0.6.1", features = ["unprefixed_malloc_on_supported_platforms"] }
+
 [target.aarch64-unknown-linux-musl.dependencies]
 openssl = { version = "0.10.66", features = ["vendored"] }
 

@@ -9,6 +9,7 @@ use axum::{
 	Extension, Router,
 };
 use chrono::Utc;
+use futures_util::StreamExt;
 use graphql::{data::AuthContext, pagination::OffsetPagination};
 use models::{
 	domain::reading_progress::compute_page_based_percentage,
@@ -51,6 +52,25 @@ use crate::{
 		serve_media,
 	},
 };
+
+/// How many book entries a feed builds at once. Each one opens the book's file on the blocking
+/// pool (to tell the content type of its cover and current page), so a feed opens a few books at
+/// a time rather than every book it lists at once
+const BOOK_ENTRY_CONCURRENCY: usize = 4;
+
+/// Builds the entries of a list of books, a few at a time, keeping their order
+pub(super) async fn book_entries(
+	books: Vec<OPDSPublicationEntity>,
+	api_key: Option<String>,
+) -> Vec<OpdsEntry> {
+	futures_util::stream::iter(books.into_iter().map(|book| {
+		OPDSEntryBuilder::<OPDSPublicationEntity>::new(book, api_key.clone())
+			.into_opds_entry()
+	}))
+	.buffered(BOOK_ENTRY_CONCURRENCY)
+	.collect()
+	.await
+}
 
 pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 	let primary_router = Router::new() //
@@ -334,10 +354,7 @@ async fn keep_reading(
 		.all(ctx.conn.as_ref())
 		.await?;
 
-	let entries = futures_util::future::join_all(books.into_iter().map(|m| {
-		OPDSEntryBuilder::<OPDSPublicationEntity>::new(m, req.api_key()).into_opds_entry()
-	}))
-	.await;
+	let entries = book_entries(books, req.api_key()).await;
 
 	let feed = OpdsFeed::new(
 		"keepReading".to_string(),
@@ -714,13 +731,7 @@ async fn search_feed(
 		.into_model::<OPDSPublicationEntity>()
 		.all(ctx.conn.as_ref())
 		.await?;
-	for book in books {
-		entries.push(
-			OPDSEntryBuilder::<OPDSPublicationEntity>::new(book, req.api_key())
-				.into_opds_entry()
-				.await,
-		);
-	}
+	entries.extend(book_entries(books, req.api_key()).await);
 
 	let feed = OpdsFeed::new(
 		"searchFeed".to_string(),
@@ -773,10 +784,7 @@ async fn get_latest_books(
 		.count(ctx.conn.as_ref())
 		.await?;
 
-	let entries = futures_util::future::join_all(books.into_iter().map(|m| {
-		OPDSEntryBuilder::<OPDSPublicationEntity>::new(m, req.api_key()).into_opds_entry()
-	}))
-	.await;
+	let entries = book_entries(books, req.api_key()).await;
 
 	let feed = OPDSFeedBuilder::new(req.api_key()).paginated(OPDSFeedBuilderParams {
 		id: "latestBooks".to_string(),
