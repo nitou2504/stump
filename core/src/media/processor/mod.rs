@@ -18,7 +18,7 @@ use crate::{
 
 pub mod epub;
 pub mod error;
-mod pdf;
+pub(crate) mod pdf;
 mod rar;
 mod zip;
 

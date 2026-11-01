@@ -47,6 +47,9 @@ impl MediaProgressInput {
 	}
 }
 
+/// The locator `type` of a PDF page (annotations and bookmarks of the PDF reader)
+pub const PDF_LOCATOR_TYPE: &str = "application/pdf";
+
 #[derive(InputObject)]
 pub struct BookmarkInput {
 	pub media_id: String,
@@ -62,7 +65,13 @@ impl BookmarkInput {
 			preview_content: Set(self.preview_content.clone()),
 			media_id: Set(self.media_id.clone()),
 			user_id: Set(user.id.clone()),
-			page: Set(Some(-1)),
+			// PDF bookmarks record their page (1-based) so paged clients can use it; EPUB
+			// bookmarks keep -1 (a Readium position is not a page)
+			page: Set(Some(if self.locator.r#type == PDF_LOCATOR_TYPE {
+				self.locator.page().unwrap_or(-1)
+			} else {
+				-1
+			})),
 			..Default::default()
 		}
 	}

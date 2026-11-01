@@ -166,6 +166,16 @@ pub struct StumpConfig {
 	#[setting(default = true)]
 	pub pdf_high_quality: bool,
 
+	/// The size cap of the rendered PDF page cache in MB (0 = no cap). The oldest pages are
+	/// removed when it is reached
+	#[setting(default = 1024)]
+	pub pdf_cache_max_mb: u64,
+
+	/// The widest page picture (px) the PDF reader may request: 720, 1000, 1400, 2000 or 2800.
+	/// Wider pictures are sharper on big HiDPI screens but take more memory to render
+	#[setting(default = 2000)]
+	pub pdf_max_tier: u32,
+
 	/// OIDC authentication configuration
 	#[setting(nested)]
 	#[graphql(skip)]

@@ -3,7 +3,7 @@ use std::{
 	collections::HashMap,
 	io::Cursor,
 	path::{Path, PathBuf},
-	sync::{Mutex, MutexGuard, OnceLock},
+	sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
 
 use models::shared::image_processor_options::SupportedImageFormat;
@@ -25,6 +25,7 @@ use crate::{
 		MediaProcessorOptions, ProcessedMediaFile,
 	},
 	metadata::ProcessedMediaMetadata,
+	pdf_reader::{PdfReaderError, PdfReaderService, Priority},
 };
 
 /// alright so tldr; this is a temporary workaround (the mutex) until upstream fixes issues with
@@ -221,7 +222,11 @@ fn extract_metadata_from_open_document(
 fn split_curator_keywords(keywords: &str) -> (Vec<String>, Vec<(String, String)>) {
 	let mut tags = Vec::new();
 	let mut fields = Vec::new();
-	for item in keywords.split([',', ';']).map(str::trim).filter(|s| !s.is_empty()) {
+	for item in keywords
+		.split([',', ';'])
+		.map(str::trim)
+		.filter(|s| !s.is_empty())
+	{
 		let field = item
 			.strip_prefix("bcurator:")
 			.and_then(|rest| rest.split_once('='))
@@ -384,7 +389,13 @@ pub fn render_page_with_quality(
 	Ok((content_type, buffer.into_inner()))
 }
 
-/// Async version of get_page with caching support
+/// The image reader's page (`GET /api/v2/media/{id}/page/{n}`, also OPDS page streaming and
+/// thumbnails), with the disk cache.
+///
+/// Rendering goes through the PDF reader's render thread ([`PdfReaderService`]): requests no
+/// longer fight over PDFium's lock, identical requests render once, and pages are lossy WebP.
+/// The read-ahead is at most 2 pages ahead and 1 behind at background priority (it used to be
+/// ±`pdf_prerender_range` pages at print quality on every request, cached or not).
 pub async fn get_page_async(
 	path: &Path,
 	page: i32,
@@ -392,39 +403,77 @@ pub async fn get_page_async(
 ) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
 	if config.pdf_cache_pages {
 		if let Ok(Some(cached)) = get_cached_page(path, page, config).await {
-			if config.pdf_prerender_range > 0 {
-				let path_owned = path.to_path_buf();
-				let config_owned = config.clone();
-				tokio::spawn(async move {
-					prerender_adjacent_pages(&path_owned, page, &config_owned).await;
-				});
-			}
+			schedule_read_ahead(path, page, config);
 			return Ok(cached);
 		}
 	}
 
-	let path_owned = path.to_path_buf();
-	let config_owned = config.clone();
-
-	let result = tokio::task::spawn_blocking(move || {
-		render_page_with_quality(&path_owned, page, &config_owned, false)
-	})
-	.await??;
+	let (content_type, bytes) =
+		render_legacy_page(path, page, config, Priority::Foreground).await?;
 
 	if config.pdf_cache_pages {
 		// non-fatal, does not rly matter if caching fails
-		let _ = cache_page(path, page, &result.1, config).await;
+		let _ = cache_page(path, page, &bytes, config).await;
 	}
+	schedule_read_ahead(path, page, config);
 
-	if config.pdf_cache_pages && config.pdf_prerender_range > 0 {
-		let path_owned = path.to_path_buf();
-		let config_owned = config.clone();
-		tokio::spawn(async move {
-			prerender_adjacent_pages(&path_owned, page, &config_owned).await;
-		});
+	Ok((content_type, bytes))
+}
+
+async fn render_legacy_page(
+	path: &Path,
+	page: i32,
+	config: &StumpConfig,
+	priority: Priority,
+) -> Result<(ContentType, Vec<u8>), MediaProcessorError> {
+	let service = PdfReaderService::global(config);
+	let (content_type, bytes) =
+		service
+			.legacy_page(path, page, priority)
+			.await
+			.map_err(|error| match error {
+				PdfReaderError::PageNotFound => MediaProcessorError::PageNotFound,
+				other => MediaProcessorError::Unknown(other.to_string()),
+			})?;
+	let bytes = Arc::try_unwrap(bytes).unwrap_or_else(|shared| (*shared).clone());
+	Ok((content_type, bytes))
+}
+
+/// Renders the next pages (and the previous one) into the cache in the background
+fn schedule_read_ahead(path: &Path, page: i32, config: &StumpConfig) {
+	if !config.pdf_cache_pages || config.pdf_prerender_range == 0 {
+		return;
 	}
-
-	Ok(result)
+	let ahead = config.pdf_prerender_range.min(2) as i32;
+	let pages: Vec<i32> = (1..=ahead)
+		.map(|offset| page + offset)
+		.chain(std::iter::once(page - 1))
+		.filter(|candidate| *candidate >= 1)
+		.collect();
+	let path = path.to_path_buf();
+	let config = config.clone();
+	tokio::spawn(async move {
+		for candidate in pages {
+			if let Ok(Some(_)) = get_cached_page(&path, candidate, &config).await {
+				continue;
+			}
+			match render_legacy_page(&path, candidate, &config, Priority::Background)
+				.await
+			{
+				Ok((_, bytes)) => {
+					let _ = cache_page(&path, candidate, &bytes, &config).await;
+				},
+				Err(MediaProcessorError::PageNotFound) => break,
+				Err(error) => {
+					tracing::debug!(
+						?error,
+						page = candidate,
+						"Failed to read ahead a PDF page"
+					);
+				},
+			}
+		}
+	});
 }
 
 // TODO: part of the reorg and realized this was never actually used, use it or remove it
@@ -637,6 +686,9 @@ async fn cache_page(
 	match tokio::fs::write(&temp_file, content).await {
 		Ok(_) => match tokio::fs::rename(&temp_file, &cache_file).await {
 			Ok(_) => {
+				PdfReaderService::global(config)
+					.cache()
+					.add(content.len() as u64);
 				tracing::debug!(
 					?cache_file,
 					size = content.len(),
@@ -654,97 +706,6 @@ async fn cache_page(
 	}
 
 	Ok(())
-}
-
-async fn prerender_adjacent_pages(
-	pdf_path: &Path,
-	current_page: i32,
-	config: &StumpConfig,
-) {
-	if !config.pdf_cache_pages || config.pdf_prerender_range == 0 {
-		return;
-	}
-
-	let total_pages = match pdf_page_count(pdf_path, &config.pdfium_path) {
-		Ok(count) => count,
-		Err(e) => {
-			tracing::debug!(
-				pdf_path = %pdf_path.display(),
-				error = ?e,
-				"Failed to get page count for pre-rendering, skipping"
-			);
-			return;
-		},
-	};
-
-	let range = config.pdf_prerender_range as i32;
-	let start_page = (current_page - range).max(1);
-	let end_page = (current_page + range).min(total_pages);
-
-	tracing::debug!(
-		pdf_path = %pdf_path.display(),
-		current_page,
-		start_page,
-		end_page,
-		total_pages,
-		"Pre-rendering adjacent pages"
-	);
-
-	// sort closest-first so the most useful pages render first
-	let mut pages_to_render: Vec<i32> = (start_page..=end_page)
-		.filter(|&page| page != current_page)
-		.collect();
-	pages_to_render.sort_by_key(|&page| (page - current_page).abs());
-
-	// TODO: once the upstream issue is resolved revisit whether we can parallelize
-	// a bit instead of sequentially processing each page
-	for page in pages_to_render {
-		if let Ok(Some(_)) = get_cached_page(pdf_path, page, config).await {
-			continue; // already cached = no work
-		}
-
-		let path_clone = pdf_path.to_path_buf();
-		let config_clone = config.clone();
-		let render_result = tokio::task::spawn_blocking(move || {
-			render_page_with_quality(&path_clone, page, &config_clone, true)
-		})
-		.await;
-
-		match render_result {
-			Ok(Ok((_, content))) => {
-				if let Err(e) = cache_page(pdf_path, page, &content, config).await {
-					tracing::debug!(
-						pdf_path = %pdf_path.display(),
-						page,
-						error = ?e,
-						"Failed to cache pre-rendered page"
-					);
-				} else {
-					tracing::debug!(
-						pdf_path = %pdf_path.display(),
-						page,
-						"Pre-rendered and cached page successfully"
-					);
-				}
-			},
-			Ok(Err(e)) => {
-				tracing::debug!(
-					pdf_path = %pdf_path.display(),
-					page,
-					error = ?e,
-					"Failed to render page during pre-rendering"
-				);
-			},
-			Err(e) => {
-				tracing::debug!(
-					pdf_path = %pdf_path.display(),
-					page,
-					error = ?e,
-					"Pre-rendering task panicked"
-				);
-			},
-		}
-	}
 }
 
 #[cfg(test)]
@@ -805,34 +766,48 @@ mod tests {
 		);
 		assert_eq!(
 			tags,
-			vec!["Estante: Historia", "Canon de referencia", "bcurator:unknown=x"]
+			vec![
+				"Estante: Historia",
+				"Canon de referencia",
+				"bcurator:unknown=x"
+			]
 		);
 		assert_eq!(
 			fields,
 			vec![
-				("series".to_string(), "Cambridge Concise Histories".to_string()),
+				(
+					"series".to_string(),
+					"Cambridge Concise Histories".to_string()
+				),
 				("series_index".to_string(), "3".to_string()),
 				("typicalagerange".to_string(), "All ages".to_string()),
 				("bcurator:rating".to_string(), "3.98".to_string()),
 			]
 		);
 
-		let metadata = ProcessedMediaMetadata::from(std::collections::HashMap::from_iter(
-			fields.into_iter().map(|(k, v)| (k, vec![v])),
-		));
-		assert_eq!(metadata.series.as_deref(), Some("Cambridge Concise Histories"));
+		let metadata =
+			ProcessedMediaMetadata::from(std::collections::HashMap::from_iter(
+				fields.into_iter().map(|(k, v)| (k, vec![v])),
+			));
+		assert_eq!(
+			metadata.series.as_deref(),
+			Some("Cambridge Concise Histories")
+		);
 		assert_eq!(metadata.number, Some(3.0));
 		assert_eq!(metadata.age_rating, Some(0));
 		assert_eq!(metadata.rating, Some(3.98));
 
 		// the plain keywords become genres (one comma-joined entry, split like EPUB subjects)
-		let metadata = ProcessedMediaMetadata::from(std::collections::HashMap::from_iter([(
-			"genres".to_string(),
-			vec![tags.join(", ")],
-		)]));
+		let metadata =
+			ProcessedMediaMetadata::from(std::collections::HashMap::from_iter([(
+				"genres".to_string(),
+				vec![tags.join(", ")],
+			)]));
 		assert_eq!(
 			metadata.genres.as_deref().map(|g| g.join(", ")),
-			Some("Estante: Historia, Canon de referencia, bcurator:unknown=x".to_string())
+			Some(
+				"Estante: Historia, Canon de referencia, bcurator:unknown=x".to_string()
+			)
 		);
 	}
 
