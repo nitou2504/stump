@@ -153,6 +153,9 @@ const SYNONYMS: &[(&str, &str)] = &[
 	("essays", "Form: Essays"),
 ];
 
+/// Facets only the curator assigns (awards, canons, courses, collections, sources)
+const CURATOR_FACETS: &[&str] = &["Award", "Laureate", "Canon", "Course", "Collection", "Source"];
+
 /// Publishers whose EPUBs are light novels
 const LIGHT_NOVEL_PUBLISHERS: &[&str] = &[
 	"yen press", "yen on", "j-novel club", "seven seas", "one peace books", "vertical",
@@ -408,25 +411,31 @@ pub fn suggest_genres(
 	});
 
 	let mut out: Vec<IntakeGenreSuggestion> = vec![];
-	let (mut big, mut small, mut origin, mut era) = (0, 0, false, false);
+	let (mut big, mut small) = (0, 0);
+	let mut taken_facets: Vec<String> = vec![];
+	let other_shelf = match series_kind {
+		Some(IntakeSeriesKind::Manga) => Some("Light Novels"),
+		Some(IntakeSeriesKind::LightNovel) => Some("Manga & Comics"),
+		None => None,
+	};
 	for (tag, score) in ranked.into_iter().take(16) {
 		let entry = &index.vocabulary[tag as usize];
 		let confidence = score.value.min(1.0);
 		let mut selected = confidence >= 0.5;
 		if selected {
 			if entry.facet {
-				// one origin and one era at most
-				match entry.value.split(':').next().unwrap_or("") {
-					"Origin" => {
-						selected = !origin;
-						origin = true;
-					},
-					"Era" => {
-						selected = !era;
-						era = true;
-					},
-					_ => {},
+				let prefix = entry.value.split(':').next().unwrap_or("").trim().to_string();
+				if CURATOR_FACETS.contains(&prefix.as_str()) {
+					// awards, canons, courses, collections: the curator's call, never a default
+					selected = false;
+				} else {
+					// one origin, one era, one level, ... at most
+					selected = !taken_facets.contains(&prefix);
+					taken_facets.push(prefix);
 				}
+			} else if Some(entry.value.as_str()) == other_shelf {
+				// a light novel is not a manga (and vice versa), whatever a catalogue says
+				selected = false;
 			} else if entry.value.contains(':') {
 				small += 1;
 				selected = small <= 3;
