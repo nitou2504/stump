@@ -80,7 +80,10 @@ impl MediaMutation {
 		Err("Not implemented".into())
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	/// Removes a book from its library (soft delete: the file stays on disk). Requires the
+	/// `REMOVE_BOOK` permission, which an admin grants per user; library managers can bring
+	/// the book back with `restoreMedia`
+	#[graphql(guard = "PermissionGuard::one(UserPermission::RemoveBook)")]
 	async fn delete_media(&self, ctx: &Context<'_>, id: ID) -> Result<Media> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;

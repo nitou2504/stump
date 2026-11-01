@@ -52,9 +52,6 @@ pub struct UpdateUserPreferencesInput {
 	pub thumbnail_ratio: f32,
 	pub thumbnail_placeholder_style: ThumbnailPlaceholderStyle,
 	pub enable_alphabet_select: bool,
-	/// Clients which don't know this preference leave it off
-	#[graphql(default)]
-	pub enable_book_removal: bool,
 	pub enable_reading_journal: bool,
 	pub day_reset_hour_offset: i32,
 	pub reading_session_grace_period_secs: i64,

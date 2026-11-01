@@ -43,9 +43,6 @@ pub struct Model {
 	pub thumbnail_placeholder_style: ThumbnailPlaceholderStyle,
 	pub enable_job_overlay: bool,
 	pub enable_alphabet_select: bool,
-	/// Offer "Remove from library" on book pages (still requires library management rights)
-	#[serde(default)]
-	pub enable_book_removal: bool,
 	#[sea_orm(column_type = "Text")]
 	pub interface_roundness: InterfaceRoundness,
 	#[sea_orm(column_type = "Text")]
@@ -114,7 +111,6 @@ impl ActiveModelBehavior for ActiveModel {
 				ActiveValue::Set(ThumbnailPlaceholderStyle::default());
 			self.enable_job_overlay = ActiveValue::Set(true);
 			self.enable_alphabet_select = ActiveValue::Set(false);
-			self.enable_book_removal = ActiveValue::Set(false);
 			self.enable_reading_journal = ActiveValue::Set(true);
 			self.day_reset_hour_offset = ActiveValue::Set(0); // midnight
 			self.reading_session_grace_period_secs = ActiveValue::Set(1800); // 30 minutes
