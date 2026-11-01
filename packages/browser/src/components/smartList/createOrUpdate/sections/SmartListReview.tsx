@@ -20,11 +20,25 @@ export default function SmartListReview() {
 
 				<ReviewItem label={t(getLabelKey('description'))} value={state.description} />
 
-				<ReviewItem label={t(getLabelKey('visibility'))} value={state.visibility} />
+				<ReviewItem
+					label={t(getLabelKey('visibility'))}
+					value={
+						state.visibility &&
+						t(`${FIELDS_KEY}.visibility.options.${state.visibility.toLowerCase()}.label`)
+					}
+				/>
 			</ReviewSection>
 
 			<ReviewSection stepIndex={1}>
-				<ReviewItem label={t(getLabelKey('grouping'))} value={state.grouping} />
+				<ReviewItem
+					label={t(getLabelKey('grouping'))}
+					value={
+						state.grouping &&
+						t(
+							`${FIELDS_KEY}.queryBuilder.grouping.options.${state.grouping.toLowerCase()}.label`,
+						)
+					}
+				/>
 			</ReviewSection>
 
 			<NewCard>
@@ -36,6 +50,8 @@ export default function SmartListReview() {
 	)
 }
 
+// The labels the form's own selects show, not the raw enum values (PRIVATE, BY_SERIES)
+const FIELDS_KEY = 'createOrUpdateSmartListForm.fields'
 const LOCALE_KEY = 'createSmartListScene.form'
 const getKey = (key: string) => `${LOCALE_KEY}.review.${key}`
 const getLabelKey = (key: string) => getKey(`labels.${key}`)

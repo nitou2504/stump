@@ -17,10 +17,27 @@ import { z } from 'zod'
 
 import { SmartListParsed } from '@/scenes/smartList/graphql'
 
-export const stringOperation = z.enum(['contains', 'excludes', 'neq', 'eq'])
+export const stringOperation = z.enum([
+	'contains',
+	'excludes',
+	'neq',
+	'eq',
+	'startsWith',
+	'endsWith',
+	'like',
+])
 export type StringOperation = z.infer<typeof stringOperation>
 
-export const listOperation = z.enum(['anyOf', 'noneOf'])
+// `has*` match whole elements of a comma-separated list column (genres, writers, ...), the
+// fork's exact list matching; `like*` are SQL LIKE patterns. Only string fields support them
+export const listOperation = z.enum([
+	'anyOf',
+	'noneOf',
+	'hasAnyOf',
+	'hasNoneOf',
+	'likeAnyOf',
+	'likeNoneOf',
+])
 export type ListOperation = z.infer<typeof listOperation>
 export const isListOperator = (value: string): value is ListOperation =>
 	listOperation.safeParse(value).success
