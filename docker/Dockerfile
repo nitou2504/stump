@@ -126,7 +126,10 @@ ENV STUMP_CONFIG_DIR=/config \
     STUMP_PORT=${PORT} \
     STUMP_IN_DOCKER=true \
     PDFIUM_PATH=/opt/pdfium/lib/libpdfium.so \
-    API_VERSION=v1
+    API_VERSION=v1 \
+    # The server allocates with jemalloc. Safety net in case glibc's malloc is used instead
+    # (another build or platform): uncapped, it keeps a growing arena per thread
+    MALLOC_ARENA_MAX=2
 
 WORKDIR /app
 
