@@ -646,7 +646,7 @@ impl UploadMutation {
 	}
 }
 
-fn enforce_max_size(value: &UploadValue, max_size: usize) -> Result<()> {
+pub(crate) fn enforce_max_size(value: &UploadValue, max_size: usize) -> Result<()> {
 	let size = value.size();
 	match size {
 		Ok(size) if size as usize > max_size => Err(format!(
@@ -890,7 +890,7 @@ fn validate_zip_file(zip_file: &mut ZipFile) -> Result<()> {
 
 /// A helper function to validate the file used for a books upload, this function
 /// will return an error if the file is not the appropriate file type.
-fn validate_book_file(value: &mut UploadValue) -> Result<()> {
+pub(crate) fn validate_book_file(value: &mut UploadValue) -> Result<()> {
 	/// Any file extension not in this list will trigger an error
 	const ALLOWED_EXTENSIONS: &[&str] = &["cbr", "cbz", "epub", "pdf"];
 
