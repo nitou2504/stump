@@ -43,11 +43,21 @@ export class PdfAPI extends APIBase {
 	}
 
 	/**
-	 * The text layer of a page (1-based `page`)
+	 * The text layer of a page (1-based `page`). A `prefetch` is low priority and may be
+	 * dropped by the server (503) when the reader has moved elsewhere
 	 */
-	async text(id: string, page: number, v?: string, signal?: AbortSignal): Promise<PdfPageText> {
+	async text(
+		id: string,
+		page: number,
+		v?: string,
+		signal?: AbortSignal,
+		{ prefetch }: { prefetch?: boolean } = {},
+	): Promise<PdfPageText> {
 		const { data } = await this.api.axios.get<PdfPageText>(
-			pdfURL(`/${id}/text/${page}`, v ? { v } : undefined),
+			pdfURL(`/${id}/text/${page}`, {
+				...(v ? { v } : {}),
+				...(prefetch ? { p: 'prefetch' } : {}),
+			}),
 			{ signal },
 		)
 		return data

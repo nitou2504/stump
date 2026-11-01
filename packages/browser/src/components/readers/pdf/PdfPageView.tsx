@@ -1,5 +1,5 @@
 import { cn } from '@stump/components'
-import { type CSSProperties, memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -29,7 +29,9 @@ type Props = {
 	selectedAnnotationId?: string | null
 	flashRects?: FractionRect[] | null
 	onOpenAnnotation: (annotationId: string, anchor: DOMRect) => void
-	style?: CSSProperties
+	/** Position in the scrolling content (numbers, so the memo holds while scrolling) */
+	top: number
+	left: number
 	className?: string
 }
 
@@ -51,7 +53,8 @@ function PdfPageView({
 	selectedAnnotationId,
 	flashRects,
 	onOpenAnnotation,
-	style,
+	top,
+	left,
 	className,
 }: Props) {
 	const { translate } = useTranslate()
@@ -108,7 +111,8 @@ function PdfPageView({
 			{...{ [PAGE_ATTRIBUTE]: page }}
 			className={cn('pdf-page', className)}
 			style={{
-				...style,
+				top,
+				left,
 				width: size.width,
 				height: size.height,
 				backgroundColor: look.pagePlaceholder,

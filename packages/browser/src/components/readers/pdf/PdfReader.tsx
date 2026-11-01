@@ -261,24 +261,39 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		[],
 	)
 
+	/**
+	 * Goes to a 1-based page. With a `target` (0-1 down the page, e.g. a search hit or an
+	 * annotation) the target is shown a third of the way down the screen; otherwise the
+	 * page's top is.
+	 */
 	const goToPage = useCallback(
-		(page: number, progression = 0) => {
+		(page: number, target?: number) => {
 			const index = Math.min(pageCount - 1, Math.max(0, Math.round(page) - 1))
-			// keep a little context above a target inside the page
-			const within = progression > 0 ? Math.max(0, progression - 0.04) : 0
+			const slot = scrollLayout.slots[index]
+			const element = scrollRef.current
+			let within = 0
+			if (target != null && target > 0 && slot && element) {
+				within = Math.max(0, target - (element.clientHeight * 0.3) / Math.max(1, slot.height))
+			}
 			anchorRef.current = { index, progression: within }
 			if (continuous) {
-				const element = scrollRef.current
 				if (!element) return
 				programmaticScrollRef.current = true
 				element.scrollTop = scrollTopFor(scrollLayout, index, within)
 				setScrollTop(element.scrollTop)
 			} else {
 				setPagedIndex(index)
-				scrollRef.current?.scrollTo({ top: 0 })
+				const size = sizes[index]
+				// a zoomed page taller than the screen: scroll to the target inside it
+				element?.scrollTo({
+					top:
+						target != null && size
+							? Math.max(0, target * size.height - element.clientHeight * 0.3)
+							: 0,
+				})
 			}
 		},
-		[continuous, pageCount, scrollLayout],
+		[continuous, pageCount, scrollLayout, sizes],
 	)
 
 	const goRelative = useCallback(
@@ -848,7 +863,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			: [startIndex, startIndex]
 		: [pagedIndex, pagedIndex]
 
-	const renderPage = (index: number, style: React.CSSProperties) => {
+	const renderPage = (index: number, top: number, left: number) => {
 		const size = sizes[index]
 		const pageSize = layout.pages[index]
 		if (!size || !pageSize || size.width <= 0) return null
@@ -868,7 +883,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				selectedAnnotationId={target?.kind === 'annotation' ? target.annotationId : null}
 				flashRects={flash?.page === page ? flash.rects : null}
 				onOpenAnnotation={openAnnotation}
-				style={style}
+				top={top}
+				left={left}
 			/>
 		)
 	}
@@ -880,19 +896,17 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				const slot = scrollLayout.slots[index]
 				if (!slot) continue
 				pages.push(
-					renderPage(index, {
-						top: slot.top,
-						left: Math.max(sidePadding, (contentWidth - slot.width) / 2),
-					}),
+					renderPage(index, slot.top, Math.max(sidePadding, (contentWidth - slot.width) / 2)),
 				)
 			} else {
 				const size = sizes[index]
 				if (!size) continue
 				pages.push(
-					renderPage(index, {
-						top: Math.max(gap, (viewport.height - size.height) / 2),
-						left: Math.max(sidePadding, (contentWidth - size.width) / 2),
-					}),
+					renderPage(
+						index,
+						Math.max(gap, (viewport.height - size.height) / 2),
+						Math.max(sidePadding, (contentWidth - size.width) / 2),
+					),
 				)
 			}
 		}

@@ -50,8 +50,9 @@ export function usePrefetchPdfText(id: string, v: string | undefined) {
 			client
 				.prefetchQuery({
 					queryKey: pdfTextQueryKey(id, v, page),
-					queryFn: ({ signal }) => sdk.pdf.text(id, page, v, signal),
+					queryFn: ({ signal }) => sdk.pdf.text(id, page, v, signal, { prefetch: true }),
 					staleTime: Infinity,
+					retry: false,
 				})
 				.catch(() => undefined),
 		[client, id, sdk, v],
