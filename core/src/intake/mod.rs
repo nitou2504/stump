@@ -139,7 +139,8 @@ async fn analyse_item(
 	let mut per_file: Vec<IntakeMetadata> = vec![];
 	let mut series_hint = None;
 	for file in files.iter_mut() {
-		let extracted = extract_file(&staging.join(&file.staged_name), &ctx.config).await;
+		let extracted =
+			extract_file(&staging.join(&file.staged_name), &file.original_name, &ctx.config).await;
 		file.hash = extracted.hash.clone();
 		let meta = metadata_of(&extracted);
 		file.title = meta.title.clone();
@@ -732,16 +733,12 @@ pub async fn file_item(
 		if decision.series_kind.is_some() {
 			meta.series_index = decision.volumes.get(i).copied().flatten();
 			// volumes keep their own title when they have one
-			meta.title = file
-				.title
-				.clone()
-				.or_else(|| decision.metadata.title.clone())
-				.or_else(|| {
-					decision.metadata.series.as_ref().map(|s| match meta.series_index {
-						Some(v) => format!("{s} {}", series_volume_label(v)),
-						None => s.clone(),
-					})
-				});
+			meta.title = volume_title(
+				file.title.as_deref(),
+				decision.metadata.series.as_deref(),
+				meta.series_index,
+			)
+			.or_else(|| decision.metadata.title.clone());
 		}
 		let staged = staging.join(&file.staged_name);
 		let format = file.format.clone();
@@ -801,6 +798,21 @@ pub async fn file_item(
 	library_index::invalidate_index(&library.id);
 	enqueue_scan(ctx, &library, config.as_ref(), &dir).await;
 	Ok(updated)
+}
+
+/// A volume's own title, unless it is just the series name: then `<Series> vNN`
+pub fn volume_title(title: Option<&str>, series: Option<&str>, volume: Option<f64>) -> Option<String> {
+	let own = title.filter(|t| {
+		series.is_none_or(|s| library_index::norm(t) != library_index::norm(s))
+	});
+	match (own, series) {
+		(Some(title), _) => Some(title.to_string()),
+		(None, Some(series)) => Some(match volume {
+			Some(v) => format!("{series} {}", series_volume_label(v)),
+			None => series.to_string(),
+		}),
+		(None, None) => None,
+	}
 }
 
 fn series_volume_label(v: f64) -> String {
@@ -932,6 +944,19 @@ mod tests {
 		assert_eq!(destination.relative_dir, "_Manga/Yotsuba&!");
 		assert_eq!(destination.files[1].relative_path, "_Manga/Yotsuba&!/Yotsuba&! v16.cbz");
 		assert!(decision_problems(&decision, &destination).is_empty());
+	}
+
+	#[test]
+	fn volumes_named_like_their_series_get_a_volume_title() {
+		assert_eq!(
+			volume_title(Some("Yotsuba&!"), Some("Yotsuba&!"), Some(3.0)).as_deref(),
+			Some("Yotsuba&! v03")
+		);
+		assert_eq!(
+			volume_title(Some("Spice and Wolf, Vol. 3"), Some("Spice and Wolf"), Some(3.0)).as_deref(),
+			Some("Spice and Wolf, Vol. 3")
+		);
+		assert_eq!(volume_title(None, Some("Dr. Stone"), None).as_deref(), Some("Dr. Stone"));
 	}
 
 	#[test]

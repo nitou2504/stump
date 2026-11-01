@@ -9,7 +9,7 @@ use models::shared::{
 };
 
 use super::naming::{
-	display_name, language_code, parse_file_name, split_authors, ParsedFileName,
+	display_name, language_code, name_keys, parse_file_name, split_authors, ParsedFileName,
 };
 use crate::{
 	config::StumpConfig,
@@ -25,8 +25,10 @@ pub struct ExtractedFile {
 	pub hash: Option<String>,
 }
 
-pub async fn extract_file(path: &Path, config: &StumpConfig) -> ExtractedFile {
-	let stem = path
+/// Reads a staged file. `original_name` is the name it was uploaded with (the staged copy
+/// has a safe, folded name that would lose `Yotsuba&!` or add a position prefix).
+pub async fn extract_file(path: &Path, original_name: &str, config: &StumpConfig) -> ExtractedFile {
+	let stem = Path::new(original_name)
 		.file_stem()
 		.map(|s| s.to_string_lossy().into_owned())
 		.unwrap_or_default();
@@ -136,6 +138,19 @@ pub fn metadata_of(file: &ExtractedFile) -> IntakeMetadata {
 		meta.rating = e.rating;
 	}
 
+	if let Some(title) = meta.title.clone() {
+		let (cleaned, year) = clean_title(&title, &meta.authors);
+		if cleaned != title {
+			meta.title = Some(cleaned);
+		}
+		if meta.year.is_none() {
+			if let Some(year) = year {
+				meta.year = Some(year);
+				meta.set_source("year", IntakeSource::File);
+			}
+		}
+	}
+
 	let parsed = &file.parsed_name;
 	if meta.title.is_none() {
 		if let Some(title) = &parsed.title {
@@ -162,9 +177,52 @@ pub fn metadata_of(file: &ExtractedFile) -> IntakeMetadata {
 	meta
 }
 
+/// Titles carried over from file names: `László Polgár - Bring Up Genius! (1989)` ->
+/// (`Bring Up Genius!`, 1989) when the part before the dash is one of the authors
+pub fn clean_title(title: &str, authors: &[String]) -> (String, Option<i32>) {
+	let mut title = title.trim().to_string();
+	if let Some((left, right)) = title.split_once(" - ") {
+		let left_keys = name_keys(left);
+		if !right.trim().is_empty()
+			&& authors.iter().any(|a| {
+				let keys = name_keys(a);
+				keys.ordered == left_keys.ordered || keys.sorted == left_keys.sorted
+			}) {
+			title = right.trim().to_string();
+		}
+	}
+	let mut year = None;
+	if title.ends_with(')') {
+		if let Some(start) = title.rfind('(') {
+			let inside = &title[start + 1..title.len() - 1];
+			if inside.len() == 4 && inside.chars().all(|c| c.is_ascii_digit()) {
+				year = inside.parse().ok().filter(|y| (1000..=2100).contains(y));
+				if year.is_some() {
+					title = title[..start].trim().to_string();
+				}
+			}
+		}
+	}
+	(title, year)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn cleans_titles_that_carry_the_author_and_year() {
+		let authors = vec!["László Polgár".to_string()];
+		assert_eq!(
+			clean_title("László Polgár - Bring Up Genius! (Nevelj zsenit!) (1989)", &authors),
+			("Bring Up Genius! (Nevelj zsenit!)".to_string(), Some(1989))
+		);
+		// a dash that is part of the title stays
+		assert_eq!(
+			clean_title("Cosmos - ensayo de una descripción física del mundo", &authors).0,
+			"Cosmos - ensayo de una descripción física del mundo"
+		);
+	}
 
 	#[test]
 	fn embedded_values_win_and_the_file_name_fills_gaps() {
