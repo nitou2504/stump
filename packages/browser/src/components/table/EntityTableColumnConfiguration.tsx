@@ -6,7 +6,8 @@ import {
 	DragOverlay,
 	DragStartEvent,
 	KeyboardSensor,
-	PointerSensor,
+	MouseSensor,
+	TouchSensor,
 	useDroppable,
 	useSensor,
 	useSensors,
@@ -19,16 +20,18 @@ import {
 	useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Button, IconButton, Sheet, Text, ToolTip } from '@stump/components'
+import { Button, cn, IconButton, SheetPrimitive, Text, ToolTip } from '@stump/components'
 import { ColumnSort } from '@stump/sdk'
 import partition from 'lodash/partition'
-import { Columns, Eye, EyeOff } from 'lucide-react'
+import { Columns, Eye, EyeOff, GripVertical } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useMediaMatch } from 'rooks'
+import { toast } from 'sonner'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { bookTableColumnMap } from '../book/table'
+import { seriesTableColumnMap } from '../series/table'
 
 type Props = {
 	entity: 'media' | 'series' | 'library'
@@ -36,6 +39,12 @@ type Props = {
 	onSave: (columns: ColumnSort[]) => void
 }
 
+const TITLE = 'Adjust columns'
+
+/**
+ * The column picker of the book and series tables: which columns are shown (drag between
+ * Visible and Hidden, or use the eye buttons) and in which order (drag within Visible).
+ */
 export default function EntityTableColumnConfiguration({ entity, configuration, onSave }: Props) {
 	const { translate } = useTranslate()
 
@@ -43,21 +52,27 @@ export default function EntityTableColumnConfiguration({ entity, configuration, 
 
 	const isMobile = useMediaMatch('(max-width: 768px)')
 	const sensors = useSensors(
-		useSensor(PointerSensor, {
+		useSensor(MouseSensor, {
 			activationConstraint: {
 				// Require pointer to move by 5 pixels before activating draggable
 				// Allows nested onClicks/buttons/interactions to be accessed
 				distance: 5,
 			},
 		}),
+		// On touch screens a long press starts a drag, so the list can still be scrolled
+		useSensor(TouchSensor, {
+			activationConstraint: { delay: 250, tolerance: 5 },
+		}),
 		useSensor(KeyboardSensor, {
 			coordinateGetter: sortableKeyboardCoordinates,
 		}),
 	)
 
-	const columnMap = useMemo(() => {
+	const columnMap = useMemo<Record<string, string>>(() => {
 		if (entity === 'media') {
 			return bookTableColumnMap
+		} else if (entity === 'series') {
+			return seriesTableColumnMap
 		}
 
 		return {}
@@ -79,6 +94,17 @@ export default function EntityTableColumnConfiguration({ entity, configuration, 
 		() => allColumns.find((column) => column.id === activeColumnId) ?? null,
 		[allColumns, activeColumnId],
 	)
+
+	/**
+	 * Opens the picker on the current configuration, dropping unsaved changes of a
+	 * previous visit
+	 */
+	const handleOpenChange = (open: boolean) => {
+		if (open) {
+			setBuckets(toBuckets(resolveConfiguration(configuration, columnMap)))
+		}
+		setIsOpen(open)
+	}
 
 	/**
 	 * Moves a column into either visible or hidden list
@@ -105,6 +131,10 @@ export default function EntityTableColumnConfiguration({ entity, configuration, 
 	 * A callback to persist the current local state to the parent component.
 	 */
 	const handleSave = useCallback(() => {
+		if (!visible.length) {
+			toast.error('Show at least one column')
+			return
+		}
 		const onlySelected = visible.map(({ id }, idx) => ({
 			id,
 			position: idx,
@@ -262,67 +292,67 @@ export default function EntityTableColumnConfiguration({ entity, configuration, 
 	const hiddenIdentifiers = useMemo(() => hidden.map((column) => column.id), [hidden])
 
 	return (
-		<Sheet
-			title="Configure columns"
-			description="Adjust which columns are displayed in book-exploration tables"
-			open={isOpen}
-			onClose={() => setIsOpen(false)}
-			onOpen={() => setIsOpen(true)}
-			trigger={
-				<ToolTip content="Configure columns" size="sm" align="start">
-					<IconButton size="xs" variant="ghost" onClick={() => setIsOpen(true)}>
+		<SheetPrimitive open={isOpen} onOpenChange={handleOpenChange}>
+			<ToolTip content={TITLE} size="sm" align="start">
+				<SheetPrimitive.Trigger asChild>
+					<IconButton size="xs" variant="ghost" aria-label={TITLE}>
 						<Columns className="h-4 w-4" />
 					</IconButton>
-				</ToolTip>
-			}
-			size={isMobile ? 'xl' : 'lg'}
-			footer={
-				<div className="-mt-4 gap-x-4 py-2 flex w-full items-center">
-					<Button className="w-full" onClick={handleSave}>
-						{translate('shared.common.save')}
-					</Button>
-					<Button
-						variant="outline"
-						className="w-full"
-						onClick={() => {
-							setBuckets(toBuckets(resolveConfiguration(configuration, columnMap)))
-							setIsOpen(false)
-						}}
+				</SheetPrimitive.Trigger>
+			</ToolTip>
+			<SheetPrimitive.Content
+				size={isMobile ? 'full' : 'default'}
+				className="gap-0 md:max-w-xl md:min-w-md"
+				closeIcon
+				// Don't refocus the trigger on close: its tooltip would pop up and stay
+				onCloseAutoFocus={(event) => event.preventDefault()}
+			>
+				<SheetPrimitive.Header className="pr-10 shrink-0">
+					<SheetPrimitive.Title>{TITLE}</SheetPrimitive.Title>
+					<SheetPrimitive.Description>
+						Choose the columns of this table. Drag them to change their order.
+					</SheetPrimitive.Description>
+				</SheetPrimitive.Header>
+
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					<DndContext
+						sensors={sensors}
+						collisionDetection={closestCenter}
+						onDragStart={handleDragStart}
+						onDragOver={handleDragOver}
+						onDragCancel={handleDragCancel}
+						onDragEnd={handleDragEnd}
 					>
+						<div className="gap-3 p-4 sm:grid-cols-2 grid grid-cols-1 items-start">
+							<ColumnBucket
+								title="Visible"
+								containerId="visible-container"
+								items={visible}
+								identifiers={visibleIdentifiers}
+								onMoveToOtherList={(id) => handleMoveColumn(id, false)}
+							/>
+							<ColumnBucket
+								title="Hidden"
+								containerId="hidden-container"
+								items={hidden}
+								identifiers={hiddenIdentifiers}
+								onMoveToOtherList={(id) => handleMoveColumn(id, true)}
+							/>
+						</div>
+						<DragOverlay>{activeColumn && <ColumnOverlay column={activeColumn} />}</DragOverlay>
+					</DndContext>
+				</div>
+
+				<div className="gap-3 p-4 flex shrink-0 border-t border-border">
+					<Button variant="outline" className="flex-1" onClick={() => setIsOpen(false)}>
 						{translate('shared.common.cancel')}
 					</Button>
+					<Button className="flex-1" onClick={handleSave}>
+						{translate('shared.common.save')}
+					</Button>
 				</div>
-			}
-		>
-			<div className="flex-1">
-				<DndContext
-					sensors={sensors}
-					collisionDetection={closestCenter}
-					onDragStart={handleDragStart}
-					onDragOver={handleDragOver}
-					onDragCancel={handleDragCancel}
-					onDragEnd={handleDragEnd}
-				>
-					<div className="gap-3 p-4 md:grid-cols-2 grid grid-cols-1">
-						<ColumnBucket
-							title="Visible"
-							containerId="visible-container"
-							items={visible}
-							identifiers={visibleIdentifiers}
-							onMoveToOtherList={(id) => handleMoveColumn(id, false)}
-						/>
-						<ColumnBucket
-							title="Hidden"
-							containerId="hidden-container"
-							items={hidden}
-							identifiers={hiddenIdentifiers}
-							onMoveToOtherList={(id) => handleMoveColumn(id, true)}
-						/>
-					</div>
-					<DragOverlay>{activeColumn && <ColumnOverlay column={activeColumn} />}</DragOverlay>
-				</DndContext>
-			</div>
-		</Sheet>
+			</SheetPrimitive.Content>
+		</SheetPrimitive>
 	)
 }
 
@@ -369,12 +399,23 @@ function DraggableColumn({ column, moveToOtherList, buttonLabel }: DraggableColu
 			style={style}
 			{...attributes}
 			{...listeners}
-			className={`px-2 py-1 flex shrink-0 items-center justify-between rounded-md border border-border bg-muted ${
-				isDragging ? 'opacity-40' : ''
-			}`}
+			className={cn(
+				'gap-2 py-1 pl-2 pr-1 flex shrink-0 cursor-grab items-center rounded-md border border-border bg-muted active:cursor-grabbing',
+				{ 'opacity-40': isDragging },
+			)}
 		>
-			<Text size="sm">{column.label}</Text>
-			<IconButton size="xs" title={buttonLabel} onClick={moveToOtherList}>
+			<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+			<Text size="sm" className="min-w-0 flex-1 truncate">
+				{column.label}
+			</Text>
+			<IconButton
+				size="xs"
+				variant="ghost"
+				title={buttonLabel}
+				aria-label={`${buttonLabel}: ${column.label}`}
+				onClick={moveToOtherList}
+				className={column.selected ? 'text-foreground' : 'text-muted-foreground'}
+			>
 				<VisibilityIcon className="h-4 w-4" />
 			</IconButton>
 		</div>
@@ -383,7 +424,8 @@ function DraggableColumn({ column, moveToOtherList, buttonLabel }: DraggableColu
 
 function ColumnOverlay({ column }: { column: ReturnType<typeof resolveConfiguration>[number] }) {
 	return (
-		<div className="min-w-40 px-2 py-1 shadow-sm flex items-center justify-between rounded-md border border-border bg-muted">
+		<div className="min-w-40 gap-2 py-1 pl-2 pr-1 shadow-sm h-9 flex cursor-grabbing items-center rounded-md border border-border bg-muted">
+			<GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
 			<Text size="sm">{column.label}</Text>
 		</div>
 	)
@@ -405,7 +447,7 @@ function ColumnBucket({
 	onMoveToOtherList,
 }: ColumnBucketProps) {
 	const { setNodeRef } = useDroppable({ id: containerId })
-	const moveLabel = title === 'Visible' ? 'Move to hidden' : 'Move to visible'
+	const moveLabel = title === 'Visible' ? 'Hide' : 'Show'
 
 	return (
 		<div ref={setNodeRef} className="p-3 rounded-md border border-border bg-background">
@@ -419,7 +461,7 @@ function ColumnBucket({
 			</div>
 
 			<SortableContext items={identifiers} strategy={rectSortingStrategy}>
-				<div className="min-h-20 gap-2 flex flex-col">
+				<div className="min-h-20 gap-1.5 flex flex-col">
 					{items.map((column) => (
 						<DraggableColumn
 							column={column}
