@@ -32,6 +32,7 @@ change small and upstreamable.
 | Fixes | Home rows' seek buttons work right away (they waited for a manual scroll); tables show a Writers column by default; removing a book or deleting a library no longer ends on a 404 page (deleting a library goes back to the page before it) |
 | Fixes | The EPUB reader no longer crashes with React error #185 when going back into it (book → reader → book → browser back); the error screen's *Copy report* stack maps to source with `scripts/fork/map_stack.py` |
 | Fixes | Continue-reading cards show titles again (metadata was lost since the SeaORM 2 upgrade); `?page=0` no longer crashes the server (offset underflow + `panic = "abort"`); OPDS 2 search group links no longer 404; OPDS 1.2 page-stream links keep the API key; Docker apt cache mounts are locked |
+| Fixes | EPUBs without a cover image (it is optional) are no longer retried and logged as errors (with the whole server config) after every scan: the miss is logged once and remembered (`thumbnails/.no-cover/`) until the file changes or thumbnails are force-regenerated; they keep the default cover, a series or library takes its cover from a book that has one, and *not found* API responses (no cover, no avatar) are no longer logged as errors |
 
 ## KOReader tips
 
