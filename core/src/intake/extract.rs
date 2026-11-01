@@ -8,7 +8,9 @@ use models::shared::{
 	intake::{IntakeMetadata, IntakeSource},
 };
 
-use super::naming::{language_code, parse_file_name, split_authors, ParsedFileName};
+use super::naming::{
+	display_name, language_code, parse_file_name, split_authors, ParsedFileName,
+};
 use crate::{
 	config::StumpConfig,
 	media::processor::{generate_hashes, process_metadata, MediaProcessorOptions},
@@ -88,6 +90,8 @@ pub fn metadata_of(file: &ExtractedFile) -> IntakeMetadata {
 			.into_iter()
 			.flat_map(|w| split_authors(&w))
 			.filter(|w| !w.trim().is_empty())
+			// "Eco, Umberto" -> "Umberto Eco": Stump splits writers on commas
+			.map(|w| display_name(&w))
 			.collect();
 		if !writers.is_empty() {
 			meta.authors = writers;
@@ -140,7 +144,7 @@ pub fn metadata_of(file: &ExtractedFile) -> IntakeMetadata {
 		}
 	}
 	if meta.authors.is_empty() && !parsed.authors.is_empty() {
-		meta.authors = parsed.authors.clone();
+		meta.authors = parsed.authors.iter().map(|a| display_name(a)).collect();
 		meta.set_source("authors", IntakeSource::FileName);
 	}
 	if meta.series.is_none() {
@@ -197,5 +201,15 @@ mod tests {
 		assert_eq!(meta.source_of("title"), Some(IntakeSource::FileName));
 		assert_eq!(meta.authors, vec!["Umberto Eco"]);
 		assert_eq!(meta.source_of("authors"), Some(IntakeSource::FileName));
+
+		let file = ExtractedFile {
+			embedded: Some(ProcessedMediaMetadata {
+				writers: Some(vec!["Eco, Umberto".into()]),
+				..Default::default()
+			}),
+			parsed_name: parse_file_name("x"),
+			hash: None,
+		};
+		assert_eq!(metadata_of(&file).authors, vec!["Umberto Eco"]);
 	}
 }

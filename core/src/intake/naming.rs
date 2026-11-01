@@ -71,6 +71,20 @@ pub fn reorder_last_first(name: &str) -> String {
 	}
 }
 
+/// How the library writes an author: `Eco, Umberto` -> `Umberto Eco` (Stump splits writers
+/// on commas), keeping suffixes such as `King, Jr.` and names with more than one comma
+pub fn display_name(name: &str) -> String {
+	let trimmed = name.trim();
+	let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
+	if let [last, first] = parts.as_slice() {
+		let suffix = ["jr", "jr.", "sr", "sr.", "ii", "iii", "iv"].contains(&first.to_lowercase().as_str());
+		if !suffix && !last.is_empty() && !first.is_empty() && last.split_whitespace().count() <= 3 {
+			return format!("{first} {last}");
+		}
+	}
+	trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The keys an author name or folder can be matched by: the words squashed together in
 /// order (`umbertoeco`, also absorbing dropped hyphens and spaces) and in sorted order
 /// (`ecoumberto`, absorbing `Last First` without a comma)
@@ -410,6 +424,14 @@ mod tests {
 		let p = parse_file_name("El_nombre_de_la_rosa");
 		assert_eq!(p.title.as_deref(), Some("El nombre de la rosa"));
 		assert!(p.authors.is_empty());
+	}
+
+	#[test]
+	fn writes_authors_first_name_first() {
+		assert_eq!(display_name("Eco, Umberto"), "Umberto Eco");
+		assert_eq!(display_name("Grayling, A. C."), "A. C. Grayling");
+		assert_eq!(display_name("Umberto  Eco"), "Umberto Eco");
+		assert_eq!(display_name("Martin Luther King, Jr."), "Martin Luther King, Jr.");
 	}
 
 	#[test]
