@@ -24,7 +24,12 @@ export default function EnableJobOverlayToggle() {
 			onClick={handleChange}
 			className="flex-row items-center justify-between"
 		>
-			<RawSwitch id="enableJobOverlay" checked={enableJobOverlay} onCheckedChange={handleChange} />
+			<RawSwitch
+				aria-label={t(getKey('label'))}
+				id="enableJobOverlay"
+				checked={enableJobOverlay}
+				onCheckedChange={handleChange}
+			/>
 		</NewCard.Row>
 	)
 }

@@ -81,6 +81,7 @@ export default function BasicLibraryInformation({ onSetShowDirectoryPicker }: Pr
 										variant="ghost"
 										size="icon-xs"
 										onClick={() => onSetShowDirectoryPicker(true)}
+										aria-label="Choose a folder"
 									>
 										<Folder className="h-4 w-4 text-muted-foreground" />
 									</InputGroup.Button>

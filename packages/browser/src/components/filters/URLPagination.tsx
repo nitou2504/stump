@@ -67,8 +67,9 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 				<Input
 					type="number"
 					size="sm"
-					className="h-7 w-7 p-0 text-xs sm:h-6 sm:w-6 [appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+					className="h-7 w-7 p-0 text-xs sm:h-6 sm:w-6 pointer-coarse:size-10 [appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 					disabled={pages <= 1}
+					aria-label="Page"
 					value={inputPage ?? ''}
 					onChange={handleInputChange}
 					onBlur={handleInputBlur}
@@ -84,9 +85,11 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 					<IconButton
 						size="xs"
 						variant="ghost"
+						className="pointer-coarse:size-10"
 						disabled={currentPage <= 1}
 						onClick={handlePreviousPage}
 						onMouseEnter={handlePrefetchPreviousPage}
+						aria-label="Previous page"
 					>
 						<ChevronLeft className="h-4 w-4" />
 					</IconButton>
@@ -96,9 +99,11 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 					<IconButton
 						size="xs"
 						variant="ghost"
+						className="pointer-coarse:size-10"
 						disabled={currentPage >= pages}
 						onClick={handleNextPage}
 						onMouseEnter={handlePrefetchNextPage}
+						aria-label="Next page"
 					>
 						<ChevronRight className="h-4 w-4" />
 					</IconButton>

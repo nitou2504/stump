@@ -58,6 +58,7 @@ export default function URLFilterDrawer({ entity }: Props) {
 							size="sm"
 							className="hover:bg-accent"
 							onClick={() => setIsOpen(true)}
+							aria-label="Configure filters"
 						>
 							<ListFilter className="h-4 w-4" />
 						</IconButton>

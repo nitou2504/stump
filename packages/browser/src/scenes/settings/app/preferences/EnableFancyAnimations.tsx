@@ -24,6 +24,7 @@ export default function EnableFancyAnimations() {
 			className="flex-row items-center justify-between"
 		>
 			<RawSwitch
+				aria-label={t(getKey('label'))}
 				id="enableFancyAnimations"
 				checked={enableFancyAnimations}
 				onCheckedChange={handleChange}

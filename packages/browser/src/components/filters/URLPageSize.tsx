@@ -31,7 +31,8 @@ export default function URLPageSize() {
 			<Input
 				type="number"
 				size="sm"
-				className="h-7 w-7 p-0 text-xs sm:h-6 sm:w-6 [appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+				className="h-7 w-7 p-0 text-xs sm:h-6 sm:w-6 pointer-coarse:size-10 [appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+				aria-label="Books per page"
 				value={inputPageSize ?? ''}
 				onChange={handleInputChange}
 				min={1}

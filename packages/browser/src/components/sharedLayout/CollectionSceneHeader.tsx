@@ -31,7 +31,12 @@ export function CollectionSceneHeader({ title, actions, stats, docsLink }: Props
 						align="start"
 						contentWrapperClassName="w-48"
 						trigger={
-							<Button variant="ghost" size="icon" className="size-7 shrink-0">
+							<Button
+								variant="ghost"
+								size="icon"
+								className="size-7 pointer-coarse:size-10 shrink-0"
+								aria-label="Options"
+							>
 								<EllipsisVertical className="h-4 w-4" />
 							</Button>
 						}

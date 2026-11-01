@@ -43,7 +43,8 @@ export default function TablePagination({
 				disabled={currentPage <= 1}
 				onClick={() => onChangePage(currentPage - 1)}
 				onMouseEnter={onPrefetchPage ? () => onPrefetchPage(currentPage - 1) : undefined}
-				className="h-5 w-5"
+				className="h-5 w-5 pointer-coarse:size-10"
+				aria-label="Previous page"
 			>
 				<ArrowLeft className="h-4 w-4" />
 			</Button>
@@ -83,7 +84,8 @@ export default function TablePagination({
 				disabled={currentPage >= pages}
 				onClick={() => onChangePage(currentPage + 1)}
 				onMouseEnter={onPrefetchPage ? () => onPrefetchPage(currentPage + 1) : undefined}
-				className="h-5 w-5"
+				className="h-5 w-5 pointer-coarse:size-10"
+				aria-label="Next page"
 			>
 				<ArrowRight className="h-4 w-4" />
 			</Button>

@@ -147,7 +147,7 @@ export default function UserActionMenu({ user, onSelectForInspect, onSelectForDe
 		<DropdownMenu
 			groups={groups}
 			trigger={
-				<IconButton size="xs" variant="ghost">
+				<IconButton size="xs" variant="ghost" aria-label="User actions">
 					<MoreVertical className="h-4 w-4" />
 				</IconButton>
 			}

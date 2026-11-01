@@ -14,8 +14,8 @@ const iconButtonVariants = cva(BUTTON_BASE_CLASSES, {
 		rounded: BUTTON_ROUNDED_VARIANTS,
 		size: {
 			lg: 'size-10',
-			md: 'size-9',
-			sm: 'size-8',
+			md: 'size-9 pointer-coarse:size-10',
+			sm: 'size-8 pointer-coarse:size-10',
 			xs: "size-6 [&_svg:not([class*='size-'])]:size-3",
 			xxs: "size-5 [&_svg:not([class*='size-'])]:size-3",
 		},
