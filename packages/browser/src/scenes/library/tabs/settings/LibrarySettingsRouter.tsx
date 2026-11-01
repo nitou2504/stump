@@ -27,6 +27,7 @@ const ScannerBehaviorScene = lazy(() => import('./options/scanner'))
 const LibraryAnalysisScene = lazy(() => import('./integrations/analysis'))
 const LibraryMetadataScene = lazy(() => import('./integrations/metadata'))
 const LibraryReadingDefaultsScene = lazy(() => import('./options/readingDefaults'))
+const AddBooksSettingsScene = lazy(() => import('./options/addBooks'))
 
 const AccessControlScene = lazy(() => import('./danger/accessControl'))
 const DeletionScene = lazy(() => import('./danger/deletion'))
@@ -184,6 +185,7 @@ export default function LibrarySettingsRouter() {
 					<Route path="reading" element={<LibraryReadingDefaultsScene />} />
 					<Route path="scanning" element={<ScannerBehaviorScene />} />
 					<Route path="thumbnails" element={<ThumbnailSettingsScene />} />
+					<Route path="add-books" element={<AddBooksSettingsScene />} />
 					<Route path="analysis" element={<LibraryAnalysisScene />} />
 					{canAccessMetadata && <Route path="metadata" element={<LibraryMetadataScene />} />}
 

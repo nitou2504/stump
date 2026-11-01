@@ -4,6 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import {
 	AlarmClock,
 	BookOpen,
+	BookPlus,
 	Brush,
 	KeyRound,
 	Mail,
@@ -165,6 +166,13 @@ export const createRouteGroups = (client: QueryClient, api: Api): RouteGroup[] =
 				localeKey: 'server/tags',
 				permissions: [UserPermission.ManageLibrary],
 				to: '/settings/tags',
+			},
+			{
+				icon: BookPlus,
+				label: 'Recently added',
+				localeKey: 'server/recentlyAdded',
+				permissions: [UserPermission.ReadUsers],
+				to: '/settings/recently-added',
 			},
 		],
 		label: 'Management',

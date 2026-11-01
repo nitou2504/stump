@@ -18,6 +18,7 @@ const ServerConnectionErrorScene = lazy(
 )
 const LoginOrClaimScene = lazy(() => import('./scenes/auth'))
 const BrowseIndexScene = lazy(() => import('./scenes/browse'))
+const IntakeScene = lazy(() => import('./scenes/intake'))
 
 type AppRouterProps = {
 	basePath?: string
@@ -49,6 +50,7 @@ export function AppRouter({ basePath }: AppRouterProps = {}) {
 					<Route path="series/*" element={<SeriesRouter />} />
 					<Route path="books/*" element={<BookRouter />} />
 					<Route path="browse/:index" element={<BrowseIndexScene />} />
+					<Route path="add-books" element={<IntakeScene />} />
 					<Route path="clubs/*" element={<BookClubRouter />} />
 					<Route path="/smart-lists/*" element={<SmartListRouter />} />
 					<Route path="settings/*" element={<SettingsRouter />} />

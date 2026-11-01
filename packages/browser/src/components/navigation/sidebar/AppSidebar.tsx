@@ -6,7 +6,7 @@ import {
 	SystemArrangement,
 	UserPermission,
 } from '@stump/graphql'
-import { Book, Home, Tags, Users } from 'lucide-react'
+import { Book, BookPlus, Home, Tags, Users } from 'lucide-react'
 import { Fragment, Suspense, useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router'
 import { match } from 'ts-pattern'
@@ -89,6 +89,7 @@ export default function AppSidebar() {
 		[checkPermission],
 	)
 
+	const canAddBooks = checkPermission(UserPermission.AddBooks)
 	const prefetchHome = usePrefetchHomeScene()
 	const isIconMode = useIsSidebarIconMode()
 
@@ -129,6 +130,15 @@ export default function AppSidebar() {
 						>
 							Genres
 						</SideBarButtonLink>
+						{canAddBooks && (
+							<SideBarButtonLink
+								to={paths.addBooks()}
+								icon={BookPlus}
+								isActive={location.pathname === paths.addBooks()}
+							>
+								Add books
+							</SideBarButtonLink>
+						)}
 					</Fragment>
 				))
 				.with(SystemArrangement.Libraries, () => (
@@ -147,7 +157,7 @@ export default function AppSidebar() {
 					</Suspense>
 				))
 				.otherwise(() => null),
-		[t, location.pathname, prefetchHome, isMobile, paths, basePath, translate],
+		[t, location.pathname, prefetchHome, isMobile, paths, basePath, translate, canAddBooks],
 	)
 
 	const sections = useMemo(

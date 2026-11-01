@@ -1,12 +1,12 @@
 import { formatBytesSeparate, usePrefetchFiles } from '@stump/client'
 import { UserPermission } from '@stump/graphql'
 import { formatHumanDurationSeparate } from '@stump/i18n'
-import { BookCheck, BookOpen, Clock, HardDrive, Layers } from 'lucide-react'
+import { BookCheck, BookOpen, BookPlus, Clock, HardDrive, Layers } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation } from 'react-router'
 
 import { DEFAULT_SERIES_ORDER_BY } from '@/components/filters/useFilterScene'
-import { EntityHeader } from '@/components/sharedLayout'
+import { EntityHeader, HeaderIconButton } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
@@ -37,6 +37,7 @@ export default function LibraryHeader() {
 	}
 
 	const canAccessFiles = checkPermission(UserPermission.FileExplorer)
+	const canAddBooks = checkPermission(UserPermission.AddBooks)
 	const hideSeriesView = config?.hideSeriesView ?? false
 	const showOneshots = !!config?.oneshotsDirectory
 
@@ -142,6 +143,11 @@ export default function LibraryHeader() {
 				stats={resolvedStats}
 				settingsLink={paths.libraryManage(id)}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
+				endActions={
+					canAddBooks ? (
+						<HeaderIconButton label="Add books" icon={BookPlus} to={paths.addBooks(id)} />
+					) : undefined
+				}
 			/>
 
 			<LibraryOverviewSheet

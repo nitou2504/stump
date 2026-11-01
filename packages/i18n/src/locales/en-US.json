@@ -935,7 +935,8 @@
           "scanning": "Scanning",
           "thumbnails": "Thumbnails",
           "ignore-rules": "Ignore Rules",
-          "label": "Configuration"
+          "label": "Configuration",
+          "add-books": "Add books"
         },
         "integrations": {
           "label": "Integrations",
@@ -1122,6 +1123,10 @@
             ]
           }
         }
+      },
+      "options/add-books": {
+        "title": "Add books",
+        "description": "Where books added through \"Add books\" are filed in this library"
       }
     },
     "errorScene": {
@@ -1690,7 +1695,8 @@
           "metadata": "Metadata",
           "notifications": "Notifications",
           "tags": "Tags",
-          "label": "Management"
+          "label": "Management",
+          "recently added": "Recently added"
         }
       },
       "app/account": {
@@ -2735,6 +2741,10 @@
             "description": "This tag will be removed from all books, series, and libraries. This cannot be undone."
           }
         }
+      },
+      "server/recentlyAdded": {
+        "title": "Recently added",
+        "description": "Books added through \"Add books\": who added what, when and where"
       }
     },
     "jobOverlay": {
@@ -2944,6 +2954,10 @@
       "REMOVE_BOOK": {
         "label": "Remove Books",
         "description": "Allows the user to remove books from their library. The files stay on disk, and anyone who can manage libraries can restore them"
+      },
+      "ADD_BOOKS": {
+        "label": "Add Books",
+        "description": "Allows the user to upload books to their own \"Add books\" inbox, review the proposed folder, metadata and tags, and add them to the libraries they can access. No approval step"
       },
       "SCAN_LIBRARY": {
         "label": "Scan Libraries",
