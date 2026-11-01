@@ -6,7 +6,7 @@ import {
 	EpubPreferences,
 	type IEpubPreferences,
 } from '@readium/navigator'
-import type { BasicTextSelection } from '@readium/navigator-html-injectables'
+import type { BasicTextSelection, FrameClickEvent } from '@readium/navigator-html-injectables'
 import { Link, Locator, Publication } from '@readium/shared'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -36,8 +36,11 @@ type UseReadiumNavigatorArgs = {
 	onTextSelected?: (selection: BasicTextSelection) => void
 	onTextCleared?: () => void
 	onDecorationActivated?: DecorationObserver['onDecorationActivated']
-	/** A tap or click on the page that wasn't on an annotation */
-	onTap?: () => void
+	/**
+	 * A tap or click on the page that wasn't on a link, an annotation or a text selection
+	 * (Readium handles those), with where it landed across the page (0-1)
+	 */
+	onTap?: (tap: { xFraction: number }) => void
 }
 
 export type UseReadiumNavigatorResult = {
@@ -262,12 +265,12 @@ export function useReadiumNavigator({
 					// navigation (left quarter = back, right quarter = forward).
 					// Stump's own controls handle all navigation; link clicks inside
 					// the iframe are handled before this listener fires.
-					tap: () => {
-						onTapRef.current?.()
+					tap: (event: FrameClickEvent) => {
+						onTapRef.current?.({ xFraction: tapFraction(navigator, event) })
 						return true
 					},
-					click: () => {
-						onTapRef.current?.()
+					click: (event: FrameClickEvent) => {
+						onTapRef.current?.({ xFraction: tapFraction(navigator, event) })
 						return true
 					},
 					zoom: () => {},
@@ -530,4 +533,16 @@ function wrapResizeWithRecovery(navigator: EpubNavigator) {
 			}
 		}
 	}
+}
+
+/**
+ * Where a frame tap landed across the page, from 0 (left) to 1 (right). Readium reports `x`
+ * in device pixels, relative to the frames shown side by side (two for a fixed-layout spread)
+ */
+function tapFraction(navigator: EpubNavigator | null, event: FrameClickEvent): number {
+	const frames = (navigator?._cframes ?? []).filter((frame) => !!frame)
+	const width = frames.reduce((total, frame) => total + (frame?.window?.innerWidth ?? 0), 0)
+	if (!width) return 0.5
+	const fraction = event.x / (width * (window.devicePixelRatio || 1))
+	return Math.min(1, Math.max(0, fraction))
 }

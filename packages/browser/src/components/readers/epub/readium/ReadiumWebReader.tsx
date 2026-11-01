@@ -50,6 +50,7 @@ import { ANNOTATION_DECORATION_GROUP } from '../annotations/types'
 import { useEpubAnnotations } from '../annotations/useEpubAnnotations'
 import { EpubContent, type ReaderLocator } from '../context'
 import EpubReaderShortcuts from '../controls/EpubReaderShortcuts'
+import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from '../controls/pageTap'
 import EpubReaderContainer from '../EpubReaderContainer'
 import {
 	hrefsMatch,
@@ -544,9 +545,22 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		setTarget((current) => (current?.kind === 'selection' ? null : current))
 	}, [])
 
-	// A tap elsewhere on the page closes a tapped annotation's toolbar
-	const onTap = useCallback(() => {
-		setTarget((current) => (current?.kind === 'annotation' ? null : current))
+	const targetRef = useRef(target)
+	useEffect(() => {
+		targetRef.current = target
+	}, [target])
+
+	// A tap on the page (not on a link, an annotation or a selection) closes the toolbar if one
+	// is open. Otherwise it is the page's own tap, which the navigation controls turn into a
+	// page turn or showing the reader controls on phones
+	const onTap = useCallback((tap: ReaderPageTapDetail) => {
+		if (targetRef.current) {
+			setTarget(null)
+			return
+		}
+		containerRef.current?.dispatchEvent(
+			new CustomEvent<ReaderPageTapDetail>(READER_PAGE_TAP_EVENT, { bubbles: true, detail: tap }),
+		)
 	}, [])
 
 	const { loadState, api } = useReadiumNavigator({
