@@ -83,6 +83,19 @@ export type AnalyzeMediaOutput = {
   pagesAnalyzed: Scalars['Int']['output'];
 };
 
+/**
+ * How an annotation is drawn over its text in a reader, like KOReader's highlight styles.
+ * Each style can carry a note.
+ */
+export enum AnnotationStyle {
+  /** A coloured background behind the text */
+  Highlight = 'HIGHLIGHT',
+  /** The text and background colours swapped */
+  Invert = 'INVERT',
+  Strikethrough = 'STRIKETHROUGH',
+  Underline = 'UNDERLINE'
+}
+
 export type Apikey = {
   __typename?: 'Apikey';
   createdAt: Scalars['DateTime']['output'];
@@ -485,6 +498,7 @@ export type CreateAnnotationInput = {
   annotationText?: InputMaybe<Scalars['String']['input']>;
   locator: ReadiumLocatorInput;
   mediaId: Scalars['String']['input'];
+  style?: AnnotationStyle;
 };
 
 export type CreateBookClubInput = {
@@ -1592,11 +1606,16 @@ export type MediaAnnotation = {
    * reader this should always be set
    */
   sessionId?: Maybe<Scalars['Int']['output']>;
+  /** How the annotated text is drawn */
+  style: AnnotationStyle;
   updatedAt: Scalars['DateTime']['output'];
   userId: Scalars['String']['output'];
 };
 
-/** A media annotation represents a highlight and/or note */
+/**
+ * A media annotation represents a highlight (or underline, strikethrough, invert) and/or
+ * a note. Annotations are private to the user who made them
+ */
 export type MediaAnnotationModel = {
   __typename?: 'MediaAnnotationModel';
   annotationText?: Maybe<Scalars['String']['output']>;
@@ -1609,6 +1628,8 @@ export type MediaAnnotationModel = {
    * reader this should always be set
    */
   sessionId?: Maybe<Scalars['Int']['output']>;
+  /** How the annotated text is drawn */
+  style: AnnotationStyle;
   updatedAt: Scalars['DateTime']['output'];
   userId: Scalars['String']['output'];
 };
@@ -2152,7 +2173,10 @@ export type Mutation = {
   /** Mark the current book as completed */
   completeBook: BookClub;
   convertMedia: Scalars['Boolean']['output'];
-  /** Create an annotation (highlight/note) */
+  /**
+   * Create an annotation (a highlight, underline, strikethrough or invert, with an
+   * optional note)
+   */
   createAnnotation: MediaAnnotation;
   createApiKey: CreatedApiKey;
   createBookClub: BookClub;
@@ -2192,7 +2216,7 @@ export type Mutation = {
    */
   createTags: Array<Tag>;
   createUser: User;
-  /** Delete an annotation by ID */
+  /** Delete an annotation by ID, only if the user created it */
   deleteAnnotation: MediaAnnotation;
   deleteApiKey: Apikey;
   deleteBookClub: BookClub;
@@ -2366,7 +2390,7 @@ export type Mutation = {
   toggleReaction: Scalars['Boolean']['output'];
   /** Toggle like on a suggestion */
   toggleSuggestionLike: Scalars['Boolean']['output'];
-  /** Update an annotation's note text */
+  /** Change an annotation's note and/or style, only if the user created it */
   updateAnnotation: MediaAnnotation;
   updateApiKey: Apikey;
   updateBookClub: BookClub;
@@ -4283,6 +4307,12 @@ export type ReadiumLocation = {
   partialCfi?: Maybe<Scalars['String']['output']>;
   position?: Maybe<Scalars['Int']['output']>;
   progression?: Maybe<Scalars['Decimal']['output']>;
+  /**
+   * The boxes a selection covers on a fixed-layout page (e.g. a PDF page, whose number is
+   * `position`), so an annotation can be drawn without re-finding its text. Not part of the
+   * Readium spec, unused for reflowable EPUBs
+   */
+  rects?: Maybe<Array<ReadiumRect>>;
   totalProgression?: Maybe<Scalars['Decimal']['output']>;
 };
 
@@ -4292,6 +4322,12 @@ export type ReadiumLocationInput = {
   partialCfi?: InputMaybe<Scalars['String']['input']>;
   position?: InputMaybe<Scalars['Int']['input']>;
   progression?: InputMaybe<Scalars['Decimal']['input']>;
+  /**
+   * The boxes a selection covers on a fixed-layout page (e.g. a PDF page, whose number is
+   * `position`), so an annotation can be drawn without re-finding its text. Not part of the
+   * Readium spec, unused for reflowable EPUBs
+   */
+  rects?: InputMaybe<Array<ReadiumRectInput>>;
   totalProgression?: InputMaybe<Scalars['Decimal']['input']>;
 };
 
@@ -4312,6 +4348,29 @@ export type ReadiumLocatorInput = {
   text?: InputMaybe<ReadiumTextInput>;
   title?: InputMaybe<Scalars['String']['input']>;
   type?: Scalars['String']['input'];
+};
+
+/**
+ * A box on a fixed-layout page, as fractions (0-1) of the page's width and height from its
+ * top-left corner, so it stays put at any zoom
+ */
+export type ReadiumRect = {
+  __typename?: 'ReadiumRect';
+  height: Scalars['Decimal']['output'];
+  width: Scalars['Decimal']['output'];
+  x: Scalars['Decimal']['output'];
+  y: Scalars['Decimal']['output'];
+};
+
+/**
+ * A box on a fixed-layout page, as fractions (0-1) of the page's width and height from its
+ * top-left corner, so it stays put at any zoom
+ */
+export type ReadiumRectInput = {
+  height: Scalars['Decimal']['input'];
+  width: Scalars['Decimal']['input'];
+  x: Scalars['Decimal']['input'];
+  y: Scalars['Decimal']['input'];
 };
 
 export type ReadiumText = {
@@ -5139,9 +5198,14 @@ export type Unpaginated = {
   unpaginated: Scalars['Boolean']['input'];
 };
 
+/**
+ * Changes an annotation's note and/or style. An omitted field is left unchanged, and a
+ * null `annotationText` removes the note
+ */
 export type UpdateAnnotationInput = {
   annotationText?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['String']['input'];
+  style?: InputMaybe<AnnotationStyle>;
 };
 
 export type UpdateBookClubInput = {
@@ -6619,26 +6683,26 @@ export type NavigationEntityLibraryQueryVariables = Exact<{
 
 export type NavigationEntityLibraryQuery = { __typename?: 'Query', seriesById?: { __typename?: 'Series', libraryId?: string | null } | null, mediaById?: { __typename?: 'Media', libraryId: string } | null };
 
-export type CreateEpubAnnotationMutationVariables = Exact<{
+export type CreateReaderAnnotationMutationVariables = Exact<{
   input: CreateAnnotationInput;
 }>;
 
 
-export type CreateEpubAnnotationMutation = { __typename?: 'Mutation', createAnnotation: { __typename?: 'MediaAnnotation', id: string, mediaId: string, userId: string, annotationText?: string | null, createdAt: any, updatedAt: any, locator: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } } };
+export type CreateReaderAnnotationMutation = { __typename?: 'Mutation', createAnnotation: { __typename?: 'MediaAnnotation', id: string, mediaId: string, userId: string, annotationText?: string | null, style: AnnotationStyle, createdAt: any, updatedAt: any, locator: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null, rects?: Array<{ __typename?: 'ReadiumRect', x: any, y: any, width: any, height: any }> | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } } };
 
-export type UpdateEpubAnnotationMutationVariables = Exact<{
+export type UpdateReaderAnnotationMutationVariables = Exact<{
   input: UpdateAnnotationInput;
 }>;
 
 
-export type UpdateEpubAnnotationMutation = { __typename?: 'Mutation', updateAnnotation: { __typename?: 'MediaAnnotation', id: string, annotationText?: string | null, updatedAt: any } };
+export type UpdateReaderAnnotationMutation = { __typename?: 'Mutation', updateAnnotation: { __typename?: 'MediaAnnotation', id: string, annotationText?: string | null, style: AnnotationStyle, updatedAt: any } };
 
-export type DeleteEpubAnnotationMutationVariables = Exact<{
+export type DeleteReaderAnnotationMutationVariables = Exact<{
   id: Scalars['String']['input'];
 }>;
 
 
-export type DeleteEpubAnnotationMutation = { __typename?: 'Mutation', deleteAnnotation: { __typename?: 'MediaAnnotation', id: string } };
+export type DeleteReaderAnnotationMutation = { __typename?: 'Mutation', deleteAnnotation: { __typename?: 'MediaAnnotation', id: string } };
 
 export type CreateBookmarkMutationVariables = Exact<{
   input: BookmarkInput;
@@ -6659,7 +6723,7 @@ export type ReadiumWebReaderQueryVariables = Exact<{
 }>;
 
 
-export type ReadiumWebReaderQuery = { __typename?: 'Query', epubById: { __typename?: 'Epub', mediaId: string, toc: Array<string>, bookmarks: Array<{ __typename?: 'Bookmark', id: string, userId: string, mediaId: string, previewContent?: string | null, createdAt: any, locator?: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } | null }>, annotations: Array<{ __typename?: 'MediaAnnotationModel', id: string, mediaId: string, userId: string, annotationText?: string | null, createdAt: any, updatedAt: any, locator: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } }>, media: { __typename?: 'Media', id: string, resolvedName: string, pages: number, extension: string, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null, page?: number | null, elapsedSeconds: number, locator?: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } | null } | null, libraryConfig: { __typename?: 'LibraryConfig', defaultReadingImageScaleFit: ReadingImageScaleFit, defaultReadingMode: ReadingMode, defaultReadingDir: ReadingDirection }, nextInSeries: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, name: string, thumbnail: { __typename?: 'ImageRef', url: string } }> } } } };
+export type ReadiumWebReaderQuery = { __typename?: 'Query', epubById: { __typename?: 'Epub', mediaId: string, toc: Array<string>, bookmarks: Array<{ __typename?: 'Bookmark', id: string, userId: string, mediaId: string, previewContent?: string | null, createdAt: any, locator?: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } | null }>, annotations: Array<{ __typename?: 'MediaAnnotationModel', id: string, mediaId: string, userId: string, annotationText?: string | null, style: AnnotationStyle, createdAt: any, updatedAt: any, locator: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } }>, media: { __typename?: 'Media', id: string, resolvedName: string, pages: number, extension: string, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null, page?: number | null, elapsedSeconds: number, locator?: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } | null } | null, libraryConfig: { __typename?: 'LibraryConfig', defaultReadingImageScaleFit: ReadingImageScaleFit, defaultReadingMode: ReadingMode, defaultReadingDir: ReadingDirection }, nextInSeries: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, name: string, thumbnail: { __typename?: 'ImageRef', url: string } }> } } } };
 
 export type UpdateReadiumEpubProgressMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -13218,13 +13282,14 @@ export const NavigationEntityLibraryDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<NavigationEntityLibraryQuery, NavigationEntityLibraryQueryVariables>;
-export const CreateEpubAnnotationDocument = new TypedDocumentString(`
-    mutation CreateEpubAnnotation($input: CreateAnnotationInput!) {
+export const CreateReaderAnnotationDocument = new TypedDocumentString(`
+    mutation CreateReaderAnnotation($input: CreateAnnotationInput!) {
   createAnnotation(input: $input) {
     id
     mediaId
     userId
     annotationText
+    style
     createdAt
     updatedAt
     locator {
@@ -13238,6 +13303,12 @@ export const CreateEpubAnnotationDocument = new TypedDocumentString(`
         position
         totalProgression
         cssSelector
+        rects {
+          x
+          y
+          width
+          height
+        }
       }
       text {
         after
@@ -13247,23 +13318,24 @@ export const CreateEpubAnnotationDocument = new TypedDocumentString(`
     }
   }
 }
-    `) as unknown as TypedDocumentString<CreateEpubAnnotationMutation, CreateEpubAnnotationMutationVariables>;
-export const UpdateEpubAnnotationDocument = new TypedDocumentString(`
-    mutation UpdateEpubAnnotation($input: UpdateAnnotationInput!) {
+    `) as unknown as TypedDocumentString<CreateReaderAnnotationMutation, CreateReaderAnnotationMutationVariables>;
+export const UpdateReaderAnnotationDocument = new TypedDocumentString(`
+    mutation UpdateReaderAnnotation($input: UpdateAnnotationInput!) {
   updateAnnotation(input: $input) {
     id
     annotationText
+    style
     updatedAt
   }
 }
-    `) as unknown as TypedDocumentString<UpdateEpubAnnotationMutation, UpdateEpubAnnotationMutationVariables>;
-export const DeleteEpubAnnotationDocument = new TypedDocumentString(`
-    mutation DeleteEpubAnnotation($id: String!) {
+    `) as unknown as TypedDocumentString<UpdateReaderAnnotationMutation, UpdateReaderAnnotationMutationVariables>;
+export const DeleteReaderAnnotationDocument = new TypedDocumentString(`
+    mutation DeleteReaderAnnotation($id: String!) {
   deleteAnnotation(id: $id) {
     id
   }
 }
-    `) as unknown as TypedDocumentString<DeleteEpubAnnotationMutation, DeleteEpubAnnotationMutationVariables>;
+    `) as unknown as TypedDocumentString<DeleteReaderAnnotationMutation, DeleteReaderAnnotationMutationVariables>;
 export const CreateBookmarkDocument = new TypedDocumentString(`
     mutation CreateBookmark($input: BookmarkInput!) {
   createBookmark(input: $input) {
@@ -13313,6 +13385,7 @@ export const ReadiumWebReaderDocument = new TypedDocumentString(`
       mediaId
       userId
       annotationText
+      style
       createdAt
       updatedAt
       locator {

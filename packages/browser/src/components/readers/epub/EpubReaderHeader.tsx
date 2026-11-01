@@ -1,7 +1,8 @@
 import { cn, Spacer, Text } from '@stump/components'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Keyboard } from 'lucide-react'
 import { Link } from 'react-router'
 
+import { useTranslate } from '@/hooks/useTranslate'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
 import { usePaths } from '../../../paths'
@@ -19,9 +20,10 @@ import { LocationManager } from './locations'
 
 export default function EpubReaderHeader() {
 	const paths = usePaths()
+	const { translate } = useTranslate()
 	const {
 		readerMeta: { bookEntity },
-		controls: { searchBook },
+		controls: { searchBook, setShortcutsHelpOpen },
 	} = useEpubReaderContext()
 	const {
 		bookPreferences: { fontFamily },
@@ -57,6 +59,16 @@ export default function EpubReaderHeader() {
 				<DayNightToggle />
 				<ThemeControls />
 				<FullScreenToggle />
+				{/* Keyboards are for desktops; phones get the same actions from the toolbar */}
+				<span className="md:contents hidden">
+					<ControlButton
+						title={`${translate('shared.readerAnnotations.shortcuts.title')} (?)`}
+						aria-label={translate('shared.readerAnnotations.shortcuts.title')}
+						onClick={() => setShortcutsHelpOpen(true)}
+					>
+						<Keyboard className="h-4 w-4" />
+					</ControlButton>
+				</span>
 				<BookmarkToggle />
 			</div>
 		</ControlsContainer>

@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFullscreen } from 'rooks'
 
+import { useTranslate } from '@/hooks/useTranslate'
+
+import { ReaderShortcutsHelp, type ShortcutRow } from '../annotations'
 import { EpubReaderContext, EpubReaderControls, EpubReaderMeta } from './context'
 import { EpubNavigationControls } from './controls'
 import EpubReaderFooter from './EpubReaderFooter'
@@ -40,6 +43,15 @@ export default function EpubReaderContainer({ children, readerMeta, controls }: 
 	}
 	const [controlsVisible, setControlsVisible] = useState(false)
 	const [mouseIsInZone, setMouseIsInZone] = useState(false)
+	const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false)
+	const { translate } = useTranslate()
+	const readerShortcuts = useMemo<ShortcutRow[]>(
+		() => [
+			{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') },
+			{ keys: ['Ctrl', 'K'], label: translate('shared.readerAnnotations.shortcuts.search') },
+		],
+		[translate],
+	)
 
 	const onMouseEnterControls = () => setMouseIsInZone(true)
 	const onMouseLeaveControls = () => setMouseIsInZone(false)
@@ -69,7 +81,9 @@ export default function EpubReaderContainer({ children, readerMeta, controls }: 
 					onMouseEnterControls,
 					onMouseLeaveControls,
 					setFullscreen,
+					setShortcutsHelpOpen,
 					setVisible: setControlsVisible,
+					shortcutsHelpOpen,
 					visible: controlsVisible,
 				},
 				readerMeta,
@@ -81,6 +95,11 @@ export default function EpubReaderContainer({ children, readerMeta, controls }: 
 					<EpubNavigationControls>{children}</EpubNavigationControls>
 				</div>
 				<EpubReaderFooter />
+				<ReaderShortcutsHelp
+					open={shortcutsHelpOpen}
+					onOpenChange={setShortcutsHelpOpen}
+					extra={readerShortcuts}
+				/>
 			</div>
 		</EpubReaderContext.Provider>
 	)

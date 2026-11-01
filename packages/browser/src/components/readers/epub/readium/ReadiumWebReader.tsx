@@ -9,6 +9,7 @@ import {
 	useSuspenseGraphQL,
 } from '@stump/client'
 import {
+	AnnotationStyle,
 	Bookmark,
 	EpubProgressInput,
 	graphql,
@@ -27,17 +28,28 @@ import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 import { useReaderStore } from '@/stores'
 import { useBookTimer } from '@/stores/reader'
 
-import AnnotationDialog from '../annotations/AnnotationDialog'
-import { annotationsToDecorations } from '../annotations/decorations'
-import { enrichSelectionLocator, extractSelectionContext } from '../annotations/locator'
-import SelectionToolbar from '../annotations/SelectionToolbar'
-import type { AnnotationSelection, EpubAnnotation } from '../annotations/types'
-import { ANNOTATION_DECORATION_GROUP } from '../annotations/types'
 import {
-	graphqlAnnotationToEpubAnnotation,
-	useEpubAnnotations,
-} from '../annotations/useEpubAnnotations'
+	AnnotationNoteDialog,
+	type AnnotationSelection,
+	type AnnotationTarget,
+	AnnotationToolbar,
+	graphqlAnnotationToReaderAnnotation,
+	isEditableTarget,
+	isOptimisticAnnotationId,
+	type ReaderShortcutAction,
+} from '../../annotations'
+import { annotationsToDecorations, type DecorationTheme } from '../annotations/decorations'
+import {
+	decorationEventViewportRect,
+	enrichSelectionLocator,
+	extractSelectionContext,
+	selectionViewportRect,
+} from '../annotations/locator'
+import type { EpubAnnotation } from '../annotations/types'
+import { ANNOTATION_DECORATION_GROUP } from '../annotations/types'
+import { useEpubAnnotations } from '../annotations/useEpubAnnotations'
 import { EpubContent, type ReaderLocator } from '../context'
+import EpubReaderShortcuts from '../controls/EpubReaderShortcuts'
 import EpubReaderContainer from '../EpubReaderContainer'
 import {
 	hrefsMatch,
@@ -91,6 +103,7 @@ const query = graphql(`
 				mediaId
 				userId
 				annotationText
+				style
 				createdAt
 				updatedAt
 				locator {
@@ -211,6 +224,10 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	const readerTheme = useReaderStore((state) => state.settings.theme)
 	const textAlign = useReaderStore((state) => state.settings.textAlign)
 	const themeColors = resolveReaderTheme(readerTheme, isDarkVariant)
+	const decorationTheme = useMemo<DecorationTheme>(
+		() => ({ text: themeColors.text, background: themeColors.background }),
+		[themeColors.text, themeColors.background],
+	)
 	useReaderChromeTheme(readerTheme)
 
 	// Measures the viewport parent — i.e. the parent of the element Readium itself treats
@@ -445,7 +462,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	}, [opened, ebook.toc])
 
 	const initialAnnotations = useMemo<EpubAnnotation[]>(
-		() => (ebook.annotations ?? []).map(graphqlAnnotationToEpubAnnotation),
+		() => (ebook.annotations ?? []).map(graphqlAnnotationToReaderAnnotation),
 		[ebook.annotations],
 	)
 
@@ -457,8 +474,9 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		isPending: isAnnotationMutationPending,
 	} = useEpubAnnotations({ mediaId: id, isIncognito, initialAnnotations })
 
-	const [selection, setSelection] = useState<AnnotationSelection | null>(null)
-	const [dialogState, setDialogState] = useState<
+	/** What the floating annotation toolbar acts on: new selected text or a tapped annotation */
+	const [target, setTarget] = useState<AnnotationTarget | null>(null)
+	const [noteDialog, setNoteDialog] = useState<
 		| { mode: 'create'; selection: AnnotationSelection }
 		| { mode: 'edit'; annotationId: string }
 		| null
@@ -498,29 +516,37 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				}
 			}
 
+			// The whole selection (every line), falling back to the first line the event reports
 			const containerRect = containerRef.current.getBoundingClientRect()
-			setSelection({
-				rect: {
-					x: containerRect.left + sel.x,
-					y: containerRect.top + sel.y,
-					width: sel.width,
-					height: sel.height,
-				},
-				locator,
-				text: sel.text,
-			})
+			const rect = selectionViewportRect(containerRef.current, sel.targetFrameSrc) ?? {
+				x: containerRect.left + sel.x,
+				y: containerRect.top + sel.y,
+				width: sel.width,
+				height: sel.height,
+			}
+			setTarget({ kind: 'selection', selection: { rect, locator, text: sel.text } })
 		},
 		[opened, toc],
 	)
 
 	const onDecorationActivated = useCallback((event: OnDecorationActivatedEvent): boolean => {
-		if (event.group !== ANNOTATION_DECORATION_GROUP) return false
-		setDialogState({ mode: 'edit', annotationId: event.decoration.id })
+		if (event.group !== ANNOTATION_DECORATION_GROUP || !containerRef.current) return false
+		setTarget({
+			kind: 'annotation',
+			annotationId: event.decoration.id,
+			rect: decorationEventViewportRect(containerRef.current, event.rect),
+		})
 		return true
 	}, [])
 
-	const dismissToolbar = useCallback(() => {
-		setSelection(null)
+	// The selection was cleared: drop its toolbar (a tapped annotation's stays)
+	const onTextCleared = useCallback(() => {
+		setTarget((current) => (current?.kind === 'selection' ? null : current))
+	}, [])
+
+	// A tap elsewhere on the page closes a tapped annotation's toolbar
+	const onTap = useCallback(() => {
+		setTarget((current) => (current?.kind === 'annotation' ? null : current))
 	}, [])
 
 	const { loadState, api } = useReadiumNavigator({
@@ -532,70 +558,140 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		preferences,
 		onPositionChanged: handlePositionChanged,
 		onTextSelected,
-		onTextCleared: dismissToolbar,
+		onTextCleared,
 		onDecorationActivated,
+		onTap,
 	})
 
+	// Each style is drawn in the reader theme's colours, so redraw when the theme changes.
+	// Readium mixes up the styles when it updates decorations in place (e.g. an underline
+	// turned yellow and the highlights vanished), so a new theme clears them and adds them back
+	const decoratedThemeRef = useRef(decorationTheme)
 	useEffect(() => {
+		if (decoratedThemeRef.current !== decorationTheme) {
+			decoratedThemeRef.current = decorationTheme
+			api.applyDecorations([], ANNOTATION_DECORATION_GROUP)
+		}
 		api.applyDecorations(
-			annotationsToDecorations(annotations, undefined, opened?.positions ?? NO_POSITIONS),
+			annotationsToDecorations(annotations, decorationTheme, opened?.positions ?? NO_POSITIONS),
 			ANNOTATION_DECORATION_GROUP,
 		)
-	}, [api, annotations, opened])
+	}, [api, annotations, opened, decorationTheme])
 
-	// A navigator position change means the reader moved away from wherever the
-	// selection toolbar was anchored, so drop it rather than show a stale rect.
+	// Moving to another place in the book leaves the toolbar's anchor behind, so drop it rather
+	// than show a stale rect. Only a real move counts: the navigator also reports the same
+	// position again, e.g. after redrawing the annotations
+	const currentPlace = currentLocator
+		? `${currentLocator.href}|${currentLocator.locations.position ?? ''}|${currentLocator.locations.progression?.toFixed(4) ?? ''}`
+		: null
 	useEffect(() => {
-		setSelection(null)
-	}, [currentLocator])
+		setTarget(null)
+	}, [currentPlace])
 
 	const clearSelectionState = useCallback(() => {
-		setSelection(null)
+		setTarget(null)
 		api.clearSelection()
 	}, [api])
 
-	const handleHighlightSelection = useCallback(() => {
-		if (!selection) return
-		void createAnnotation(selection.locator)
-		clearSelectionState()
-	}, [selection, createAnnotation, clearSelectionState])
-
-	const handleAddNoteFromSelection = useCallback(() => {
-		if (!selection) return
-		setDialogState({ mode: 'create', selection })
-	}, [selection])
-
-	const activeAnnotation = useMemo(
+	const targetAnnotation = useMemo(
 		() =>
-			dialogState?.mode === 'edit'
-				? (annotations.find((annotation) => annotation.id === dialogState.annotationId) ?? null)
+			target?.kind === 'annotation'
+				? (annotations.find((annotation) => annotation.id === target.annotationId) ?? null)
 				: null,
-		[dialogState, annotations],
+		[target, annotations],
 	)
 
-	const handleCloseDialog = useCallback(() => {
-		setDialogState(null)
+	/** Draw the selection in a style, or restyle the tapped annotation */
+	const applyStyle = useCallback(
+		(style: AnnotationStyle) => {
+			if (target?.kind === 'selection') {
+				void createAnnotation(target.selection.locator, { style })
+				clearSelectionState()
+			} else if (targetAnnotation) {
+				if (targetAnnotation.style !== style && !isOptimisticAnnotationId(targetAnnotation.id)) {
+					void updateAnnotation(targetAnnotation.id, { style })
+				}
+				setTarget(null)
+			}
+		},
+		[target, targetAnnotation, createAnnotation, updateAnnotation, clearSelectionState],
+	)
+
+	const openNote = useCallback(() => {
+		if (target?.kind === 'selection') {
+			setNoteDialog({ mode: 'create', selection: target.selection })
+		} else if (targetAnnotation && !isOptimisticAnnotationId(targetAnnotation.id)) {
+			setNoteDialog({ mode: 'edit', annotationId: targetAnnotation.id })
+		}
+	}, [target, targetAnnotation])
+
+	const deleteTargetAnnotation = useCallback(() => {
+		if (targetAnnotation && !isOptimisticAnnotationId(targetAnnotation.id)) {
+			void deleteAnnotation(targetAnnotation.id)
+		}
+		setTarget(null)
+	}, [targetAnnotation, deleteAnnotation])
+
+	const handleAnnotationShortcut = useCallback(
+		(action: Exclude<ReaderShortcutAction, { type: 'bookmark' | 'help' }>) => {
+			switch (action.type) {
+				case 'style':
+					applyStyle(action.style)
+					break
+				case 'note':
+					openNote()
+					break
+				case 'delete':
+					deleteTargetAnnotation()
+					break
+				case 'dismiss':
+					if (target?.kind === 'selection') {
+						clearSelectionState()
+					} else {
+						setTarget(null)
+					}
+					break
+			}
+		},
+		[applyStyle, openNote, deleteTargetAnnotation, target, clearSelectionState],
+	)
+
+	const noteAnnotation = useMemo(
+		() =>
+			noteDialog?.mode === 'edit'
+				? (annotations.find((annotation) => annotation.id === noteDialog.annotationId) ?? null)
+				: null,
+		[noteDialog, annotations],
+	)
+
+	const handleCloseNoteDialog = useCallback(() => {
+		setNoteDialog(null)
 	}, [])
 
-	const handleSaveAnnotation = useCallback(
-		(noteText: string) => {
-			if (dialogState?.mode === 'create') {
-				void createAnnotation(dialogState.selection.locator, noteText || undefined)
+	const handleSaveNote = useCallback(
+		(note: string, style: AnnotationStyle) => {
+			if (noteDialog?.mode === 'create') {
+				void createAnnotation(noteDialog.selection.locator, {
+					annotationText: note || undefined,
+					style,
+				})
 				clearSelectionState()
-			} else if (dialogState?.mode === 'edit' && activeAnnotation) {
-				void updateAnnotation(activeAnnotation.id, noteText || null)
+			} else if (noteDialog?.mode === 'edit' && noteAnnotation) {
+				void updateAnnotation(noteAnnotation.id, { annotationText: note || null, style })
+				setTarget(null)
 			}
-			setDialogState(null)
+			setNoteDialog(null)
 		},
-		[dialogState, activeAnnotation, createAnnotation, updateAnnotation, clearSelectionState],
+		[noteDialog, noteAnnotation, createAnnotation, updateAnnotation, clearSelectionState],
 	)
 
-	const handleDeleteAnnotation = useCallback(() => {
-		if (activeAnnotation) {
-			void deleteAnnotation(activeAnnotation.id)
+	const handleDeleteFromNoteDialog = useCallback(() => {
+		if (noteAnnotation) {
+			void deleteAnnotation(noteAnnotation.id)
 		}
-		setDialogState(null)
-	}, [activeAnnotation, deleteAnnotation])
+		setNoteDialog(null)
+		setTarget(null)
+	}, [noteAnnotation, deleteAnnotation])
 
 	const existingBookmarks = useMemo(() => {
 		const map: Record<string, Bookmark> = {}
@@ -738,6 +834,8 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (isEditableTarget(event.target)) return
+			// Shift+arrows extend a text selection, other modifiers belong to the browser
+			if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
 
 			const nextKey = isLtr ? 'ArrowRight' : 'ArrowLeft'
 			const prevKey = isLtr ? 'ArrowLeft' : 'ArrowRight'
@@ -831,39 +929,46 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				)}
 			</div>
 
-			{selection && !isIncognito && (
-				<SelectionToolbar
-					rect={selection.rect}
-					onHighlight={handleHighlightSelection}
-					onAddNote={handleAddNoteFromSelection}
-				/>
-			)}
+			<EpubReaderShortcuts
+				hasTarget={!!target && !isIncognito}
+				targetIsAnnotation={target?.kind === 'annotation'}
+				onAnnotationAction={handleAnnotationShortcut}
+			/>
 
-			<AnnotationDialog
-				open={dialogState !== null}
-				mode={dialogState?.mode ?? 'create'}
+			{target &&
+				!isIncognito &&
+				!noteDialog &&
+				(target.kind === 'selection' || targetAnnotation) && (
+					<AnnotationToolbar
+						// A new target starts collapsed
+						key={target.kind === 'selection' ? target.selection.text : target.annotationId}
+						anchor={target.kind === 'selection' ? target.selection.rect : target.rect}
+						mode={target.kind}
+						activeStyle={targetAnnotation?.style}
+						hasNote={!!targetAnnotation?.annotationText}
+						onStyle={applyStyle}
+						onNote={openNote}
+						onDelete={target.kind === 'annotation' ? deleteTargetAnnotation : undefined}
+					/>
+				)}
+
+			<AnnotationNoteDialog
+				open={noteDialog !== null}
+				mode={noteDialog?.mode ?? 'create'}
 				quotedText={
-					dialogState?.mode === 'edit'
-						? activeAnnotation?.locator.text?.highlight
-						: dialogState?.selection.text
+					noteDialog?.mode === 'edit'
+						? noteAnnotation?.locator.text?.highlight
+						: noteDialog?.selection.text
 				}
-				initialNote={dialogState?.mode === 'edit' ? activeAnnotation?.annotationText : undefined}
+				initialNote={noteDialog?.mode === 'edit' ? noteAnnotation?.annotationText : undefined}
+				initialStyle={noteAnnotation?.style ?? AnnotationStyle.Highlight}
 				isPending={isAnnotationMutationPending}
-				onOpenChange={(open) => !open && handleCloseDialog()}
-				onSave={handleSaveAnnotation}
-				onDelete={dialogState?.mode === 'edit' ? handleDeleteAnnotation : undefined}
+				onOpenChange={(open) => !open && handleCloseNoteDialog()}
+				onSave={handleSaveNote}
+				onDelete={noteDialog?.mode === 'edit' ? handleDeleteFromNoteDialog : undefined}
 			/>
 		</EpubReaderContainer>
 	)
-}
-
-/** Whether a keydown target is an editable surface that should swallow reader shortcuts. */
-function isEditableTarget(target: EventTarget | null): boolean {
-	if (!(target instanceof HTMLElement)) return false
-	const tag = target.tagName
-	if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-	if (target.isContentEditable) return true
-	return !!target.closest('[role="dialog"]')
 }
 
 function packageKey(href: string): string {

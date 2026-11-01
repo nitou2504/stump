@@ -1,4 +1,5 @@
 import { SDKContext, StumpClientContext } from '@stump/client'
+import { AnnotationStyle } from '@stump/graphql'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { Procedure } from '@vitest/spy'
@@ -59,6 +60,7 @@ function buildAnnotation(overrides: Partial<EpubAnnotation> = {}): EpubAnnotatio
 		mediaId: 'media-1',
 		userId: 'user-1',
 		annotationText: null,
+		style: AnnotationStyle.Highlight,
 		createdAt: '2026-01-01T00:00:00Z',
 		updatedAt: '2026-01-01T00:00:00Z',
 		locator: buildLocator(),
@@ -87,10 +89,10 @@ describe('useEpubAnnotations', () => {
 		deleteAsync = vi.fn()
 		sdkExecute = vi.fn((document: unknown) => {
 			const source = String(document)
-			if (source.includes('mutation CreateEpubAnnotation')) {
+			if (source.includes('mutation CreateReaderAnnotation')) {
 				return createAsync()
 			}
-			if (source.includes('mutation UpdateEpubAnnotation')) {
+			if (source.includes('mutation UpdateReaderAnnotation')) {
 				return updateAsync()
 			}
 			return deleteAsync()
@@ -104,6 +106,7 @@ describe('useEpubAnnotations', () => {
 				mediaId: 'media-1',
 				userId: 'user-1',
 				annotationText: null,
+				style: AnnotationStyle.Underline,
 				createdAt: '2026-01-01T00:00:00Z',
 				updatedAt: '2026-01-01T00:00:00Z',
 				locator: buildLocator(),
@@ -123,11 +126,12 @@ describe('useEpubAnnotations', () => {
 		expect(result.current.annotations).toHaveLength(0)
 
 		await act(async () => {
-			result.current.createAnnotation(buildLocator())
+			result.current.createAnnotation(buildLocator(), { style: AnnotationStyle.Underline })
 		})
 
 		await waitFor(() => expect(createAsync).toHaveBeenCalledTimes(1))
 		await waitFor(() => expect(result.current.annotations[0]?.id).toBe('server-1'))
+		expect(result.current.annotations[0]?.style).toBe(AnnotationStyle.Underline)
 	})
 
 	it('rolls back the optimistic create when the mutation fails', async () => {
@@ -162,7 +166,7 @@ describe('useEpubAnnotations', () => {
 		)
 
 		await act(async () => {
-			result.current.updateAnnotation('a1', 'new note')
+			result.current.updateAnnotation('a1', { annotationText: 'new note' })
 		})
 
 		await waitFor(() => expect(result.current.annotations[0]?.annotationText).toBe('original note'))
@@ -208,6 +212,35 @@ describe('useEpubAnnotations', () => {
 		)
 	})
 
+	it('optimistically restyles an annotation, keeping its note', async () => {
+		updateAsync.mockResolvedValue({
+			updateAnnotation: {
+				id: 'a1',
+				annotationText: 'kept note',
+				style: AnnotationStyle.Strikethrough,
+				updatedAt: '2026-01-02T00:00:00Z',
+			},
+		})
+		const initial = [buildAnnotation({ annotationText: 'kept note' })]
+
+		const { result } = renderHook(
+			() =>
+				useEpubAnnotations({ mediaId: 'media-1', isIncognito: false, initialAnnotations: initial }),
+			{ wrapper: createQueryWrapper(initial) },
+		)
+
+		await act(async () => {
+			result.current.updateAnnotation('a1', { style: AnnotationStyle.Strikethrough })
+		})
+
+		await waitFor(() =>
+			expect(result.current.annotations[0]?.style).toBe(AnnotationStyle.Strikethrough),
+		)
+		expect(result.current.annotations[0]?.annotationText).toBe('kept note')
+		const variables = sdkExecute.mock.calls.at(-1)?.[1]
+		expect(variables).toEqual({ input: { id: 'a1', style: AnnotationStyle.Strikethrough } })
+	})
+
 	it('disables create/update/delete and shows an info toast when incognito', async () => {
 		const initial = [buildAnnotation()]
 
@@ -219,7 +252,7 @@ describe('useEpubAnnotations', () => {
 
 		await act(async () => {
 			result.current.createAnnotation(buildLocator())
-			result.current.updateAnnotation('a1', 'note')
+			result.current.updateAnnotation('a1', { annotationText: 'note' })
 			result.current.deleteAnnotation('a1')
 		})
 

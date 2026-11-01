@@ -5,28 +5,11 @@ import { createContext, useContext } from 'react'
 import { ImageReaderBookRef } from '@/components/readers/imageBased/context'
 
 import { noop } from '../../../utils/misc'
+import type { ReaderLocator } from '../annotations/types'
 import type { EpubAnnotation } from './annotations/types'
 
+export type { ReaderLocator } from '../annotations/types'
 export type { EpubSearchResponse, EpubSearchResult } from '@stump/sdk'
-
-export type ReaderLocator = {
-	href: string
-	type: string
-	title?: string
-	chapterTitle?: string
-	locations?: {
-		fragments?: string[] | null
-		progression?: number | null
-		position?: number | null
-		totalProgression?: number | null
-		cssSelector?: string | null
-	} | null
-	text?: {
-		after?: string | null
-		before?: string | null
-		highlight?: string | null
-	} | null
-}
 
 export type EpubReaderChapterMeta = {
 	name?: string
@@ -62,6 +45,9 @@ export type EpubReaderControls = {
 	visible: boolean
 	fullscreen: boolean
 	setFullscreen: (fullscreen: boolean) => void
+	/** Whether the keyboard shortcuts help is open (`?`) */
+	shortcutsHelpOpen: boolean
+	setShortcutsHelpOpen: (open: boolean) => void
 	setVisible: (visible: boolean) => void
 	onMouseEnterControls: () => void
 	onMouseLeaveControls: () => void
@@ -96,7 +82,9 @@ export const EpubReaderContext = createContext<EpubReaderContextProps>({
 		onPaginateForward: noop,
 		jumpToSection: noop,
 		setFullscreen: noop,
+		setShortcutsHelpOpen: noop,
 		setVisible: noop,
+		shortcutsHelpOpen: false,
 		visible: false,
 	},
 	readerMeta: {

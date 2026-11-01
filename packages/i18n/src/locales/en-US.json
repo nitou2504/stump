@@ -3762,6 +3762,35 @@
         }
       }
     },
+    "readerAnnotations": {
+      "toolbar": "Annotate Selection",
+      "annotate": "Annotate",
+      "addNote": "Add Note",
+      "editNote": "Edit Note",
+      "delete": "Delete",
+      "style": "Style",
+      "page": "Page {{page}}",
+      "addBookmark": "Add Bookmark",
+      "removeBookmark": "Remove Bookmark",
+      "bookmarkAdded": "Bookmarked",
+      "bookmarkRemoved": "Bookmark Removed",
+      "styles": {
+        "highlight": "Highlight",
+        "underline": "Underline",
+        "strikethrough": "Strikethrough",
+        "invert": "Invert"
+      },
+      "shortcuts": {
+        "title": "Keyboard Shortcuts",
+        "withSelection": "With text or an annotation selected",
+        "deleteSelected": "Delete the Annotation",
+        "dismiss": "Close the Toolbar",
+        "bookmark": "Bookmark This Page",
+        "help": "Show Shortcuts",
+        "turnPage": "Turn the Page",
+        "search": "Search the Book"
+      }
+    },
     "serverSettings": {
       "title": "Server Settings",
       "updateAvailable": {
