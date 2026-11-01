@@ -29,7 +29,7 @@ use sea_orm::{
 use serde::Deserialize;
 use stump_core::opds::{
 	v1_2::{
-		entry::{IntoOPDSEntry, OPDSEntryBuilder, OpdsEntry},
+		entry::OpdsEntry,
 		feed::{
 			OPDSFeedBuilder, OPDSFeedBuilderPageParams, OPDSFeedBuilderParams, OpdsFeed,
 		},
@@ -38,6 +38,7 @@ use stump_core::opds::{
 	v2_0::entity::OPDSPublicationEntity,
 };
 
+use super::v1_2::book_entries;
 use crate::{
 	config::state::AppState,
 	errors::{APIError, APIResult},
@@ -463,10 +464,7 @@ pub(crate) async fn books_feed(
 		.all(conn)
 		.await?;
 
-	let entries = futures_util::future::join_all(books.into_iter().map(|m| {
-		OPDSEntryBuilder::<OPDSPublicationEntity>::new(m, req.api_key()).into_opds_entry()
-	}))
-	.await;
+	let entries = book_entries(books, req.api_key()).await;
 
 	// The params which define *what* is listed (not the page), used to build the facet
 	// and search links. A sort equal to the default is left out of the links.
