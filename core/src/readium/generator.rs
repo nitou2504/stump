@@ -10,6 +10,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 
 use super::error::ReadiumError;
+use crate::media::processor::epub::open_epub;
 
 /// A utility struct for generating Readium Web Publication Manifests
 pub struct ReadiumManifestGenerator {
@@ -47,7 +48,7 @@ impl ReadiumManifestGenerator {
 	}
 
 	pub fn generate_manifest(&self) -> Result<RWPManifest, ReadiumError> {
-		let mut epub = EpubDoc::new(&self.epub_path)
+		let mut epub = open_epub(&self.epub_path)
 			.map_err(|e| ReadiumError::EpubOpen(e.to_string()))?;
 
 		let metadata = self.extract_metadata(&mut epub)?;
@@ -78,6 +79,9 @@ impl ReadiumManifestGenerator {
 			.into_iter()
 			.filter(|item| item.linear)
 			.filter_map(|item| {
+				// A file the EPUB lists but does not contain is not in the reading order
+				let compressed_size =
+					epub.get_resource_compressed_size(&item.idref)? as usize;
 				let resource = epub.resources.get(&item.idref)?;
 				let package_path = resource.path.to_string_lossy().to_string();
 				let media_type = resource.mime.clone();
@@ -92,9 +96,6 @@ impl ReadiumManifestGenerator {
 					})
 					.map(|nav| nav.label.clone());
 
-				let compressed_size = epub
-					.get_resource_compressed_size(&item.idref)
-					.unwrap_or(PAGE_LENGTH as u64) as usize;
 				let position_count =
 					(compressed_size as f64 / PAGE_LENGTH as f64).ceil() as usize;
 				let position_count = position_count.max(1);
@@ -113,7 +114,7 @@ impl ReadiumManifestGenerator {
 
 	/// Generate a positions list for the EPUB
 	pub fn generate_positions(&self) -> Result<RWPMPositions, ReadiumError> {
-		let mut epub = EpubDoc::new(&self.epub_path)
+		let mut epub = open_epub(&self.epub_path)
 			.map_err(|e| ReadiumError::EpubOpen(e.to_string()))?;
 
 		let spine_items = self.generate_spine_metadata(&mut epub)?;
@@ -297,9 +298,23 @@ impl ReadiumManifestGenerator {
 		let mut reading_order = Vec::new();
 
 		for (i, spine_item) in epub.spine.clone().iter().enumerate() {
+			let file_present = epub
+				.get_resource_compressed_size(&spine_item.idref)
+				.is_some();
 			let resource = epub.resources.get(&spine_item.idref);
 
 			if let Some(resource) = resource {
+				if !file_present {
+					// A file the EPUB lists but does not contain can't be shown: leaving it
+					// out keeps the reader from opening on a broken page (positions skip it)
+					tracing::debug!(
+						spine_idref = %spine_item.idref,
+						index = i,
+						"Spine item file not found in the EPUB, skipping"
+					);
+					continue;
+				}
+
 				let href = resource.path.to_string_lossy().to_string();
 				let media_type = Some(resource.mime.clone());
 
@@ -392,7 +407,7 @@ impl ReadiumManifestGenerator {
 	pub fn enumerate_spine_for_positions(
 		&self,
 	) -> Result<Vec<SpinePositionMeta>, ReadiumError> {
-		let mut epub = EpubDoc::new(&self.epub_path)
+		let mut epub = open_epub(&self.epub_path)
 			.map_err(|e| ReadiumError::EpubOpen(e.to_string()))?;
 		enumerate_spine_for_positions_at(&mut epub)
 	}
@@ -485,11 +500,12 @@ fn enumerate_spine_position_meta(
 			let size = match epub.get_current() {
 				Some((content, _)) => content.len(),
 				None => {
-					tracing::warn!(
+					// Like positions.json, which leaves out files the EPUB does not contain
+					tracing::debug!(
 						page = i,
-						"Failed to read content for page, defaulting size"
+						"Failed to read content for page, skipping"
 					);
-					1000
+					return None;
 				},
 			};
 
@@ -528,7 +544,7 @@ fn enumerate_spine_position_meta(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ::tests::fixtures::get_test_epub_path;
+	use ::tests::fixtures::{get_test_epub_path, write_epub_with_spine};
 	use models::shared::readium::RWPM_CONTEXT;
 	use std::io::Write;
 
@@ -951,5 +967,66 @@ mod tests {
 		assert_eq!(positions.total as usize, positions.positions.len());
 		assert!(positions.positions[0].href.contains("/resource/"));
 		assert_eq!(positions.positions[0].locations.position, 1);
+	}
+
+	const CHAPTER: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body><p>Hello</p></body></html>"#;
+
+	/// Spine: a `cover.xhtml` the zip does not contain, then `../toc.xhtml` (a file at
+	/// the zip root) and a chapter
+	fn build_epub_with_broken_spine() -> (tempfile::TempDir, String) {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let path = temp.path().join("broken.epub");
+		write_epub_with_spine(
+			&path,
+			&[
+				("cover", "cover.xhtml"),
+				("toc", "../toc.xhtml"),
+				("ch1", "Text/ch1.xhtml"),
+			],
+			&["cover", "toc", "ch1"],
+			&[("toc.xhtml", CHAPTER), ("OEBPS/Text/ch1.xhtml", CHAPTER)],
+		);
+		let path = path.to_string_lossy().to_string();
+		(temp, path)
+	}
+
+	#[test]
+	fn test_reading_order_skips_files_missing_from_the_epub() {
+		let (_temp, path) = build_epub_with_broken_spine();
+		let base = "https://example.com/api/v2/epub/book-1";
+		let generator = ReadiumManifestGenerator::new(&path, base);
+
+		let manifest = generator.generate_manifest().expect("manifest");
+		let hrefs: Vec<_> = manifest
+			.reading_order
+			.iter()
+			.map(|link| link.href.as_str())
+			.collect();
+		assert_eq!(
+			hrefs,
+			vec![
+				format!("{base}/resource/toc.xhtml"),
+				format!("{base}/resource/OEBPS/Text/ch1.xhtml"),
+			]
+		);
+
+		let positions = generator.generate_positions().expect("positions");
+		let position_hrefs: Vec<_> = positions
+			.positions
+			.iter()
+			.map(|position| position.href.as_str())
+			.collect();
+		assert_eq!(position_hrefs, hrefs);
+	}
+
+	#[test]
+	fn test_search_spine_skips_files_missing_from_the_epub() {
+		let (_temp, path) = build_epub_with_broken_spine();
+		let mut epub = open_epub(&path).expect("open epub");
+
+		let spine = enumerate_spine_for_positions_at(&mut epub).expect("spine");
+		let indices: Vec<_> = spine.iter().map(|meta| meta.spine_index).collect();
+		assert_eq!(indices, vec![1, 2]);
 	}
 }

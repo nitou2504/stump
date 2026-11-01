@@ -11,7 +11,6 @@ use std::{
 };
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use epub::doc::EpubDoc;
 use quick_xml::{escape::unescape, events::Event, name::QName, Reader};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -19,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use zip::ZipArchive;
 
 use super::error::ReadiumError;
+use crate::media::processor::epub::open_epub;
 use crate::readium::generator::{enumerate_spine_for_positions_at, rwpm_resource_url};
 
 pub const EPUB_SEARCH_MIN_QUERY_LEN: usize = 2;
@@ -199,7 +199,7 @@ pub fn search_epub(
 	}
 
 	let mut epub =
-		EpubDoc::new(epub_path).map_err(|e| ReadiumError::EpubOpen(e.to_string()))?;
+		open_epub(epub_path).map_err(|e| ReadiumError::EpubOpen(e.to_string()))?;
 	// `enumerate_spine_for_positions_at` intentionally skips unreadable entries. Search
 	// cursors, however, use OPF spine indices, so retain the unfiltered length and map
 	// parseable metadata back to that coordinate system.
