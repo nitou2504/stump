@@ -7,6 +7,7 @@ import {
 	PackageX,
 	ScanSearch,
 	ShieldCheck,
+	Shrink,
 } from 'lucide-react'
 
 import { RouteGroup } from '@/hooks/useRouteGroups'
@@ -47,6 +48,13 @@ export const createRouteGroups = (libraryId: string, basePath = ''): RouteGroup[
 				localeKey: 'options/thumbnails',
 				permissions: [UserPermission.ManageLibrary],
 				to: `${basePath}/libraries/${libraryId}/settings/thumbnails`,
+			},
+			{
+				icon: Shrink,
+				label: 'Post-processing',
+				localeKey: 'options/post-processing',
+				permissions: [UserPermission.ManageLibrary],
+				to: `${basePath}/libraries/${libraryId}/settings/post-processing`,
 			},
 		],
 		label: 'Configuration',
