@@ -53,14 +53,25 @@ export default function LocationManager() {
 			<Dialog.Content size="md">
 				<Dialog.Header>
 					<Tabs value={activeTab} variant="primary" activeOnHover>
-						<Tabs.List className="border-none">
-							<Tabs.Trigger value="contents" asChild onClick={() => handleTabChange('contents')}>
+						{/* Leave room for the close button: on a phone the three tabs would run under it */}
+						<Tabs.List className="max-w-[calc(100%-2.5rem)] border-none">
+							<Tabs.Trigger
+								value="contents"
+								asChild
+								className={TRIGGER_CLASSES}
+								onClick={() => handleTabChange('contents')}
+							>
 								<Text className="cursor-pointer truncate">
 									{translate('shared.epubReader.tableOfContents')}
 								</Text>
 							</Tabs.Trigger>
 
-							<Tabs.Trigger value="bookmarks" asChild onClick={() => handleTabChange('bookmarks')}>
+							<Tabs.Trigger
+								value="bookmarks"
+								asChild
+								className={TRIGGER_CLASSES}
+								onClick={() => handleTabChange('bookmarks')}
+							>
 								<Text className="cursor-pointer truncate">
 									{translate('shared.epubReader.bookmarks')}
 								</Text>
@@ -69,6 +80,7 @@ export default function LocationManager() {
 							<Tabs.Trigger
 								value="annotations"
 								asChild
+								className={TRIGGER_CLASSES}
 								onClick={() => handleTabChange('annotations')}
 							>
 								<Text className="cursor-pointer truncate">
@@ -85,3 +97,6 @@ export default function LocationManager() {
 		</Dialog>
 	)
 }
+
+/** Tabs may shrink (their labels truncate) instead of keeping a 100px minimum each */
+const TRIGGER_CLASSES = 'min-w-0 sm:min-w-25'
