@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use cli::{handle_command, Cli, Parser};
 use errors::{EntryError, ServerError};
 use stump_core::{

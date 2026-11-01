@@ -1,4 +1,5 @@
 use models::entity::{
+	intake_item, library_intake_settings,
 	age_restriction, api_key, kobo_sync_session, library, library_config,
 	library_exclusion, media, media_analysis, media_metadata, media_tag, reading_device,
 	reading_session, refresh_token, series, series_metadata, server_config, session, tag,
@@ -34,6 +35,8 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(user_preferences::Entity),
 		schema.create_table_from_entity(library::Entity),
 		schema.create_table_from_entity(library_config::Entity),
+		schema.create_table_from_entity(intake_item::Entity),
+		schema.create_table_from_entity(library_intake_settings::Entity),
 		schema.create_table_from_entity(reading_session::Entity),
 		schema.create_table_from_entity(reading_device::Entity),
 		schema.create_table_from_entity(tag::Entity),
