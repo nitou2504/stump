@@ -422,7 +422,7 @@ type ConfidenceFactor {
 "An event that is emitted by the core and consumed by a client"
 union CoreEvent = JobStarted | JobUpdate | JobOutput | DiscoveredMissingLibrary | CreatedMedia | CreatedManySeries | CreatedOrUpdatedManyMedia
 
-union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
+union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
 
 input CreateAnnotationInput {
 	mediaId: String!
@@ -1230,6 +1230,19 @@ enum LibraryModelOrdering {
 enum LibraryPattern {
 	SERIES_BASED
 	COLLECTION_BASED
+}
+
+"A library's post-processing settings and where its work stands"
+type LibraryPostProcessing {
+	config: PostProcessingConfig!
+	"Where replaced originals go (nothing is replaced while this is unset)"
+	quarantineDir: String
+	"The PDF queue shared with the host runner, as Stump sees it"
+	pdfQueueDir: String!
+	"Task counts by kind and status"
+	counts: [PostProcessingCount!]!
+	"Bytes saved by the replaced files"
+	bytesSaved: Int!
 }
 
 input LibraryScanConfigInput {
@@ -2258,6 +2271,16 @@ type Mutation {
 	acceptAllPendingMatches(strategy: MergeStrategy, excludeFields: [MetadataField!]): Int!
 	"Reject all pending metadata matches, setting their status to NoMatch"
 	rejectAllPendingMatches: Int!
+	"""
+	Change a library's post-processing settings. Turning a step on for new books processes
+	the books scans add from now on
+	"""
+	updateLibraryPostProcessing(libraryId: ID!, input: PostProcessingConfigInput!): LibraryPostProcessing!
+	"""
+	Run post-processing on the whole library now: the 16-grey step (or its dry-run
+	estimate) and/or the PDF steps (queued for the host runner)
+	"""
+	runPostProcessing(libraryId: ID!, grey16: Boolean! = false, pdfOcr: Boolean! = false, pdfShrink: Boolean! = false, dryRun: Boolean! = false): Boolean!
 	createSmartList(input: SaveSmartListInput!): SmartList!
 	updateSmartList(id: ID!, input: SaveSmartListInput!): SmartList!
 	deleteSmartList(id: ID!): SmartList!
@@ -2665,6 +2688,121 @@ type PlaceholderGenerationOutput {
 	generatedMetadata: Int!
 }
 
+"What a post-processing task does"
+enum PostProcessKind {
+	"CBZ pages reduced to 16 grey levels (in Stump)"
+	GREY_16
+	"A PDF sent to the host runner for OCR and/or shrinking (see `steps`)"
+	PDF
+}
+
+"When a post-processing step runs for a library"
+enum PostProcessMode {
+	"The step never runs on its own (it can still be started from the library settings)"
+	OFF
+	"The step runs on books a scan adds after it was turned on"
+	NEW
+}
+
+type PostProcessOutput {
+	"CBZ volumes looked at"
+	volumes: Int!
+	"Volumes whose 16-grey copy replaced the original"
+	converted: Int!
+	"Volumes with nothing to do (already 16 greys, no grey PNG pages)"
+	skipped: Int!
+	"Volumes processed but kept (the saving was too small)"
+	rejected: Int!
+	failed: Int!
+	"Volumes estimated by a dry run"
+	estimated: Int!
+	"Sizes before and after (or expected after, for a dry run) of the processed volumes"
+	bytesBefore: Int!
+	bytesAfter: Int!
+	"PDFs written to the host runner's queue"
+	pdfsQueued: Int!
+}
+
+"Where a post-processing task stands"
+enum PostProcessStatus {
+	"Waiting in the queue (PDFs: written for the host runner)"
+	PENDING
+	"Being processed"
+	RUNNING
+	"The smaller (or OCRed) file replaced the original, which went to quarantine"
+	DONE
+	"Processed, but the result was not used (saves too little, or a quality check failed)"
+	REJECTED
+	"Nothing to do (already 16 greys, born-digital PDF, ...)"
+	SKIPPED
+	"Something went wrong; the original is untouched"
+	FAILED
+	"A dry run's estimate (nothing was changed)"
+	ESTIMATED
+}
+
+"A library's post-processing settings (stored as JSON in `library_configs`)"
+type PostProcessingConfig {
+	"Reduce the grey pages of CBZ files to 16 grey levels (4-bit PNG); colour pages stay"
+	grey16: PostProcessMode!
+	"""
+	Parts of a book's path (relative to the library, e.g. `/Berserk/`) that keep a CBZ out
+	of the 16-grey step
+	"""
+	grey16Exclude: [String!]!
+	"OCR scanned PDFs whose text layer is missing or poor (host runner)"
+	pdfOcr: PostProcessMode!
+	"Shrink scanned PDFs when it saves enough without visible loss (host runner)"
+	pdfShrink: PostProcessMode!
+	"When the 16-grey step was set to new books: books added from then on are processed"
+	grey16Since: DateTime
+	"When PDF OCR was set to new books"
+	pdfOcrSince: DateTime
+	"When PDF shrinking was set to new books"
+	pdfShrinkSince: DateTime
+}
+
+"The settable part of [`PostProcessingConfig`]"
+input PostProcessingConfigInput {
+	grey16: PostProcessMode!
+	grey16Exclude: [String!]!
+	pdfOcr: PostProcessMode!
+	pdfShrink: PostProcessMode!
+}
+
+type PostProcessingCount {
+	kind: PostProcessKind!
+	status: PostProcessStatus!
+	count: Int!
+}
+
+"""
+One post-processing step for one book: the 16-grey reduction of a CBZ, or a PDF sent to
+the host runner for OCR and/or shrinking. There is at most one row per book and kind; a
+new run updates it in place
+"""
+type PostProcessingTaskModel {
+	id: String!
+	libraryId: String!
+	mediaId: String
+	kind: PostProcessKind!
+	"For PDFs, the requested steps (`OCR`, `SHRINK` or `OCR+SHRINK`)"
+	steps: String
+	status: PostProcessStatus!
+	"The book's path when the task was created"
+	path: String!
+	"Why the task ended the way it did, in a few words"
+	reason: String
+	bytesBefore: Int
+	"The size of the processed file (for an estimate, the expected size)"
+	bytesAfter: Int
+	"Step details (pages converted, quality numbers, ...)"
+	details: JSON
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	finishedAt: DateTime
+}
+
 type ProviderCredentialVerification {
 	responseStatus: Int!
 	isValid: Boolean!
@@ -2819,6 +2957,10 @@ type Query {
 	pendingMetadataMatches: [MetadataFetchRecord!]!
 	serverConfig: ServerConfigModel!
 	listDirectory(pagination: Pagination!, input: DirectoryListingInput): PaginatedDirectoryListingResponse!
+	"A library's post-processing settings and task counts"
+	libraryPostProcessing(libraryId: ID!): LibraryPostProcessing!
+	"Post-processing tasks, most recently updated first"
+	postProcessingTasks(libraryId: ID, kind: PostProcessKind, statuses: [PostProcessStatus!], limit: Int! = 100): [PostProcessingTaskModel!]!
 	smartLists(input: SmartListsInput! = {all: null, mine: true, search: null}): [SmartList!]!
 	smartListById(id: ID!): SmartList
 	smartListMeta(id: ID!): SmartListMeta
@@ -3697,6 +3839,12 @@ type StumpConfig {
 	pdfHighQuality: Boolean!
 	"Whether to trust proxy headers for determining client IP and scheme (e.g., X-Forwarded-For)"
 	trustProxyHeaders: Boolean!
+	"""
+	Where post-processing (16 greys for manga, PDF OCR and shrinking) keeps the originals it
+	replaces, in dated batch folders with a `restore_log.csv`. Nothing is ever deleted, so
+	post-processing replaces no file until this is set
+	"""
+	quarantineDir: String
 }
 
 type Subscription {

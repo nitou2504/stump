@@ -195,6 +195,7 @@ type Documents = {
     "\n\tquery LibrarySideBarSection {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t\t...LibraryEmoji\n\t\t\t\t...LibraryOptionsMenu\n\t\t\t}\n\t\t}\n\t}\n": typeof types.LibrarySideBarSectionDocument,
     "\n\tquery SmartListSideBarSection {\n\t\tsmartLists {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": typeof types.SmartListSideBarSectionDocument,
     "\n\tquery NavigationEntityLibrary($id: ID!, $isSeries: Boolean!, $isBook: Boolean!) {\n\t\tseriesById(id: $id) @include(if: $isSeries) {\n\t\t\tlibraryId\n\t\t}\n\t\tmediaById(id: $id) @include(if: $isBook) {\n\t\t\tlibraryId\n\t\t}\n\t}\n": typeof types.NavigationEntityLibraryDocument,
+    "\n\tquery PostProcessingTasks($libraryId: ID, $limit: Int) {\n\t\tpostProcessingTasks(libraryId: $libraryId, limit: $limit) {\n\t\t\tid\n\t\t\tlibraryId\n\t\t\tmediaId\n\t\t\tkind\n\t\t\tsteps\n\t\t\tstatus\n\t\t\tpath\n\t\t\treason\n\t\t\tbytesBefore\n\t\t\tbytesAfter\n\t\t\tupdatedAt\n\t\t}\n\t}\n": typeof types.PostProcessingTasksDocument,
     "\n\tmutation CreateEpubAnnotation($input: CreateAnnotationInput!) {\n\t\tcreateAnnotation(input: $input) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\tuserId\n\t\t\tannotationText\n\t\t\tcreatedAt\n\t\t\tupdatedAt\n\t\t\tlocator {\n\t\t\t\tchapterTitle\n\t\t\t\thref\n\t\t\t\ttitle\n\t\t\t\ttype\n\t\t\t\tlocations {\n\t\t\t\t\tfragments\n\t\t\t\t\tprogression\n\t\t\t\t\tposition\n\t\t\t\t\ttotalProgression\n\t\t\t\t\tcssSelector\n\t\t\t\t}\n\t\t\t\ttext {\n\t\t\t\t\tafter\n\t\t\t\t\tbefore\n\t\t\t\t\thighlight\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.CreateEpubAnnotationDocument,
     "\n\tmutation UpdateEpubAnnotation($input: UpdateAnnotationInput!) {\n\t\tupdateAnnotation(input: $input) {\n\t\t\tid\n\t\t\tannotationText\n\t\t\tupdatedAt\n\t\t}\n\t}\n": typeof types.UpdateEpubAnnotationDocument,
     "\n\tmutation DeleteEpubAnnotation($id: String!) {\n\t\tdeleteAnnotation(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.DeleteEpubAnnotationDocument,
@@ -274,6 +275,9 @@ type Documents = {
     "\n\tmutation AnalyzeLibraryMedia($id: ID!) {\n\t\tanalyzeLibrary(id: $id)\n\t}\n": typeof types.AnalyzeLibraryMediaDocument,
     "\n\tquery InitFetchJobCheckProviders {\n\t\tmetadataProviderConfigs {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.InitFetchJobCheckProvidersDocument,
     "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n": typeof types.InitFetchJobDocument,
+    "\n\tquery LibraryPostProcessing($libraryId: ID!) {\n\t\tlibraryPostProcessing(libraryId: $libraryId) {\n\t\t\tconfig {\n\t\t\t\tgrey16\n\t\t\t\tgrey16Exclude\n\t\t\t\tpdfOcr\n\t\t\t\tpdfShrink\n\t\t\t\tgrey16Since\n\t\t\t\tpdfOcrSince\n\t\t\t\tpdfShrinkSince\n\t\t\t}\n\t\t\tquarantineDir\n\t\t\tpdfQueueDir\n\t\t\tcounts {\n\t\t\t\tkind\n\t\t\t\tstatus\n\t\t\t\tcount\n\t\t\t}\n\t\t\tbytesSaved\n\t\t}\n\t}\n": typeof types.LibraryPostProcessingDocument,
+    "\n\tmutation UpdateLibraryPostProcessing($libraryId: ID!, $input: PostProcessingConfigInput!) {\n\t\tupdateLibraryPostProcessing(libraryId: $libraryId, input: $input) {\n\t\t\tbytesSaved\n\t\t}\n\t}\n": typeof types.UpdateLibraryPostProcessingDocument,
+    "\n\tmutation RunPostProcessing(\n\t\t$libraryId: ID!\n\t\t$grey16: Boolean!\n\t\t$pdfOcr: Boolean!\n\t\t$pdfShrink: Boolean!\n\t\t$dryRun: Boolean!\n\t) {\n\t\trunPostProcessing(\n\t\t\tlibraryId: $libraryId\n\t\t\tgrey16: $grey16\n\t\t\tpdfOcr: $pdfOcr\n\t\t\tpdfShrink: $pdfShrink\n\t\t\tdryRun: $dryRun\n\t\t)\n\t}\n": typeof types.RunPostProcessingDocument,
     "\n\tmutation ScanHistorySectionClearHistory($id: ID!) {\n\t\tclearScanHistory(id: $id)\n\t}\n": typeof types.ScanHistorySectionClearHistoryDocument,
     "\n\tquery ScanHistoryTable($id: ID!) {\n\t\tlibraryById(id: $id) {\n\t\t\tid\n\t\t\tscanHistory {\n\t\t\t\tid\n\t\t\t\tjobId\n\t\t\t\ttimestamp\n\t\t\t\toptions\n\t\t\t}\n\t\t}\n\t}\n": typeof types.ScanHistoryTableDocument,
     "\n\tquery ScanRecordInspectorJobs($id: ID!, $loadLogs: Boolean!) {\n\t\tjobById(id: $id) {\n\t\t\tid\n\t\t\toutputData {\n\t\t\t\t__typename\n\t\t\t\t... on LibraryScanOutput {\n\t\t\t\t\ttotalFiles\n\t\t\t\t\ttotalDirectories\n\t\t\t\t\tignoredFiles\n\t\t\t\t\tskippedFiles\n\t\t\t\t\tignoredDirectories\n\t\t\t\t\tcreatedMedia\n\t\t\t\t\tupdatedMedia\n\t\t\t\t\tcreatedSeries\n\t\t\t\t\tupdatedSeries\n\t\t\t\t}\n\t\t\t}\n\t\t\tlogs @include(if: $loadLogs) {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t}\n": typeof types.ScanRecordInspectorJobsDocument,
@@ -547,6 +551,7 @@ const documents: Documents = {
     "\n\tquery LibrarySideBarSection {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t\t...LibraryEmoji\n\t\t\t\t...LibraryOptionsMenu\n\t\t\t}\n\t\t}\n\t}\n": types.LibrarySideBarSectionDocument,
     "\n\tquery SmartListSideBarSection {\n\t\tsmartLists {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": types.SmartListSideBarSectionDocument,
     "\n\tquery NavigationEntityLibrary($id: ID!, $isSeries: Boolean!, $isBook: Boolean!) {\n\t\tseriesById(id: $id) @include(if: $isSeries) {\n\t\t\tlibraryId\n\t\t}\n\t\tmediaById(id: $id) @include(if: $isBook) {\n\t\t\tlibraryId\n\t\t}\n\t}\n": types.NavigationEntityLibraryDocument,
+    "\n\tquery PostProcessingTasks($libraryId: ID, $limit: Int) {\n\t\tpostProcessingTasks(libraryId: $libraryId, limit: $limit) {\n\t\t\tid\n\t\t\tlibraryId\n\t\t\tmediaId\n\t\t\tkind\n\t\t\tsteps\n\t\t\tstatus\n\t\t\tpath\n\t\t\treason\n\t\t\tbytesBefore\n\t\t\tbytesAfter\n\t\t\tupdatedAt\n\t\t}\n\t}\n": types.PostProcessingTasksDocument,
     "\n\tmutation CreateEpubAnnotation($input: CreateAnnotationInput!) {\n\t\tcreateAnnotation(input: $input) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\tuserId\n\t\t\tannotationText\n\t\t\tcreatedAt\n\t\t\tupdatedAt\n\t\t\tlocator {\n\t\t\t\tchapterTitle\n\t\t\t\thref\n\t\t\t\ttitle\n\t\t\t\ttype\n\t\t\t\tlocations {\n\t\t\t\t\tfragments\n\t\t\t\t\tprogression\n\t\t\t\t\tposition\n\t\t\t\t\ttotalProgression\n\t\t\t\t\tcssSelector\n\t\t\t\t}\n\t\t\t\ttext {\n\t\t\t\t\tafter\n\t\t\t\t\tbefore\n\t\t\t\t\thighlight\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.CreateEpubAnnotationDocument,
     "\n\tmutation UpdateEpubAnnotation($input: UpdateAnnotationInput!) {\n\t\tupdateAnnotation(input: $input) {\n\t\t\tid\n\t\t\tannotationText\n\t\t\tupdatedAt\n\t\t}\n\t}\n": types.UpdateEpubAnnotationDocument,
     "\n\tmutation DeleteEpubAnnotation($id: String!) {\n\t\tdeleteAnnotation(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": types.DeleteEpubAnnotationDocument,
@@ -626,6 +631,9 @@ const documents: Documents = {
     "\n\tmutation AnalyzeLibraryMedia($id: ID!) {\n\t\tanalyzeLibrary(id: $id)\n\t}\n": types.AnalyzeLibraryMediaDocument,
     "\n\tquery InitFetchJobCheckProviders {\n\t\tmetadataProviderConfigs {\n\t\t\tid\n\t\t}\n\t}\n": types.InitFetchJobCheckProvidersDocument,
     "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n": types.InitFetchJobDocument,
+    "\n\tquery LibraryPostProcessing($libraryId: ID!) {\n\t\tlibraryPostProcessing(libraryId: $libraryId) {\n\t\t\tconfig {\n\t\t\t\tgrey16\n\t\t\t\tgrey16Exclude\n\t\t\t\tpdfOcr\n\t\t\t\tpdfShrink\n\t\t\t\tgrey16Since\n\t\t\t\tpdfOcrSince\n\t\t\t\tpdfShrinkSince\n\t\t\t}\n\t\t\tquarantineDir\n\t\t\tpdfQueueDir\n\t\t\tcounts {\n\t\t\t\tkind\n\t\t\t\tstatus\n\t\t\t\tcount\n\t\t\t}\n\t\t\tbytesSaved\n\t\t}\n\t}\n": types.LibraryPostProcessingDocument,
+    "\n\tmutation UpdateLibraryPostProcessing($libraryId: ID!, $input: PostProcessingConfigInput!) {\n\t\tupdateLibraryPostProcessing(libraryId: $libraryId, input: $input) {\n\t\t\tbytesSaved\n\t\t}\n\t}\n": types.UpdateLibraryPostProcessingDocument,
+    "\n\tmutation RunPostProcessing(\n\t\t$libraryId: ID!\n\t\t$grey16: Boolean!\n\t\t$pdfOcr: Boolean!\n\t\t$pdfShrink: Boolean!\n\t\t$dryRun: Boolean!\n\t) {\n\t\trunPostProcessing(\n\t\t\tlibraryId: $libraryId\n\t\t\tgrey16: $grey16\n\t\t\tpdfOcr: $pdfOcr\n\t\t\tpdfShrink: $pdfShrink\n\t\t\tdryRun: $dryRun\n\t\t)\n\t}\n": types.RunPostProcessingDocument,
     "\n\tmutation ScanHistorySectionClearHistory($id: ID!) {\n\t\tclearScanHistory(id: $id)\n\t}\n": types.ScanHistorySectionClearHistoryDocument,
     "\n\tquery ScanHistoryTable($id: ID!) {\n\t\tlibraryById(id: $id) {\n\t\t\tid\n\t\t\tscanHistory {\n\t\t\t\tid\n\t\t\t\tjobId\n\t\t\t\ttimestamp\n\t\t\t\toptions\n\t\t\t}\n\t\t}\n\t}\n": types.ScanHistoryTableDocument,
     "\n\tquery ScanRecordInspectorJobs($id: ID!, $loadLogs: Boolean!) {\n\t\tjobById(id: $id) {\n\t\t\tid\n\t\t\toutputData {\n\t\t\t\t__typename\n\t\t\t\t... on LibraryScanOutput {\n\t\t\t\t\ttotalFiles\n\t\t\t\t\ttotalDirectories\n\t\t\t\t\tignoredFiles\n\t\t\t\t\tskippedFiles\n\t\t\t\t\tignoredDirectories\n\t\t\t\t\tcreatedMedia\n\t\t\t\t\tupdatedMedia\n\t\t\t\t\tcreatedSeries\n\t\t\t\t\tupdatedSeries\n\t\t\t\t}\n\t\t\t}\n\t\t\tlogs @include(if: $loadLogs) {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t}\n": types.ScanRecordInspectorJobsDocument,
@@ -1442,6 +1450,10 @@ export function graphql(source: "\n\tquery NavigationEntityLibrary($id: ID!, $is
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tquery PostProcessingTasks($libraryId: ID, $limit: Int) {\n\t\tpostProcessingTasks(libraryId: $libraryId, limit: $limit) {\n\t\t\tid\n\t\t\tlibraryId\n\t\t\tmediaId\n\t\t\tkind\n\t\t\tsteps\n\t\t\tstatus\n\t\t\tpath\n\t\t\treason\n\t\t\tbytesBefore\n\t\t\tbytesAfter\n\t\t\tupdatedAt\n\t\t}\n\t}\n"): typeof import('./graphql').PostProcessingTasksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tmutation CreateEpubAnnotation($input: CreateAnnotationInput!) {\n\t\tcreateAnnotation(input: $input) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\tuserId\n\t\t\tannotationText\n\t\t\tcreatedAt\n\t\t\tupdatedAt\n\t\t\tlocator {\n\t\t\t\tchapterTitle\n\t\t\t\thref\n\t\t\t\ttitle\n\t\t\t\ttype\n\t\t\t\tlocations {\n\t\t\t\t\tfragments\n\t\t\t\t\tprogression\n\t\t\t\t\tposition\n\t\t\t\t\ttotalProgression\n\t\t\t\t\tcssSelector\n\t\t\t\t}\n\t\t\t\ttext {\n\t\t\t\t\tafter\n\t\t\t\t\tbefore\n\t\t\t\t\thighlight\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').CreateEpubAnnotationDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -1755,6 +1767,18 @@ export function graphql(source: "\n\tquery InitFetchJobCheckProviders {\n\t\tmet
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n"): typeof import('./graphql').InitFetchJobDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery LibraryPostProcessing($libraryId: ID!) {\n\t\tlibraryPostProcessing(libraryId: $libraryId) {\n\t\t\tconfig {\n\t\t\t\tgrey16\n\t\t\t\tgrey16Exclude\n\t\t\t\tpdfOcr\n\t\t\t\tpdfShrink\n\t\t\t\tgrey16Since\n\t\t\t\tpdfOcrSince\n\t\t\t\tpdfShrinkSince\n\t\t\t}\n\t\t\tquarantineDir\n\t\t\tpdfQueueDir\n\t\t\tcounts {\n\t\t\t\tkind\n\t\t\t\tstatus\n\t\t\t\tcount\n\t\t\t}\n\t\t\tbytesSaved\n\t\t}\n\t}\n"): typeof import('./graphql').LibraryPostProcessingDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation UpdateLibraryPostProcessing($libraryId: ID!, $input: PostProcessingConfigInput!) {\n\t\tupdateLibraryPostProcessing(libraryId: $libraryId, input: $input) {\n\t\t\tbytesSaved\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateLibraryPostProcessingDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation RunPostProcessing(\n\t\t$libraryId: ID!\n\t\t$grey16: Boolean!\n\t\t$pdfOcr: Boolean!\n\t\t$pdfShrink: Boolean!\n\t\t$dryRun: Boolean!\n\t) {\n\t\trunPostProcessing(\n\t\t\tlibraryId: $libraryId\n\t\t\tgrey16: $grey16\n\t\t\tpdfOcr: $pdfOcr\n\t\t\tpdfShrink: $pdfShrink\n\t\t\tdryRun: $dryRun\n\t\t)\n\t}\n"): typeof import('./graphql').RunPostProcessingDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

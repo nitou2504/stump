@@ -19,6 +19,7 @@ mod media_metadata_overview;
 pub mod metadata_facets;
 mod metadata_provider;
 mod notifier;
+pub(crate) mod post_processing;
 pub(crate) mod reading_list;
 mod reading_session;
 mod reading_stats;
@@ -52,6 +53,7 @@ use media_metadata_overview::MediaMetadataOverviewQuery;
 use metadata_facets::MetadataFacetQuery;
 use metadata_provider::MetadataProviderQuery;
 use notifier::NotifierQuery;
+use post_processing::PostProcessingQuery;
 use reading_list::ReadingListQuery;
 use reading_session::ReadingSessionQuery;
 use reading_stats::ReadingStatsQuery;
@@ -103,6 +105,7 @@ struct SystemQueries(
 	MetadataProviderQuery,
 	ServerConfigQuery,
 	FilesystemQuery,
+	PostProcessingQuery,
 );
 
 #[derive(async_graphql::MergedObject, Default)]
