@@ -1,15 +1,18 @@
 import { useSuspenseGraphQL } from '@stump/client'
-import { Badge, Button, cn, Heading, Text } from '@stump/components'
+import { Badge, Button, Heading, Text } from '@stump/components'
 import { graphql, MetadataFacetField } from '@stump/graphql'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Tags, Users } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Helmet } from 'react-helmet'
 import { Navigate, useParams, useSearchParams } from 'react-router'
+import { useMediaMatch } from 'rooks'
 
 import { SceneContainer } from '@/components/container'
 import { FilterHeader, Search } from '@/components/filters'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { Link } from '@/context'
+import { useScrollElement } from '@/hooks/useScrollElement'
 import { BrowseIndex, usePaths } from '@/paths'
 import { sortKey } from '@/utils/sortKey'
 import { matchesSearch } from '@/utils/textSearch'
@@ -34,6 +37,38 @@ const MIN_PREFIX_GROUP = 3
 type Entry = { value: string; label: string; count: number }
 type Section = { title: string; entries: Entry[] }
 type SortMode = 'name' | 'count'
+
+/**
+ * The index is virtualised: a library has thousands of authors, and rendering a link for each
+ * (5,592 on the live server) meant ~36k page elements on a phone. The entries sit in a grid of
+ * equal cells, so every row has a known height and only the rows on screen are rendered
+ */
+type Row =
+	| { kind: 'heading'; key: string; section: Section }
+	| { kind: 'entries'; key: string; entries: Entry[] }
+
+const HEADING_HEIGHT = 48
+const GAP = 6
+/** Cells and rows are taller on touch screens, so every entry is a comfortable tap target */
+const SIZES = {
+	fine: { minCell: 180, rowHeight: 28 + GAP },
+	coarse: { minCell: 150, rowHeight: 40 + GAP },
+}
+
+function buildRows(sections: Section[], columns: number): Row[] {
+	const rows: Row[] = []
+	for (const section of sections) {
+		rows.push({ kind: 'heading', key: `h-${section.title}`, section })
+		for (let start = 0; start < section.entries.length; start += columns) {
+			rows.push({
+				kind: 'entries',
+				key: `e-${section.title}-${start}`,
+				entries: section.entries.slice(start, start + columns),
+			})
+		}
+	}
+	return rows
+}
 
 const initialOf = (value: string) => {
 	const first = sortKey(value).charAt(0)
@@ -131,16 +166,54 @@ function BrowseIndexContent({ index }: { index: BrowseIndex }) {
 		[values, sort, index],
 	)
 
+	const isCoarse = useMediaMatch('(pointer: coarse)')
+	const { minCell, rowHeight } = isCoarse ? SIZES.coarse : SIZES.fine
+
+	const listRef = useRef<HTMLDivElement>(null)
+	const scrollElement = useScrollElement(listRef)
+	const [listWidth, setListWidth] = useState(0)
+	// Where the list starts inside the scrolling element (the page header, toolbar and letters
+	// come first), which the virtualizer needs to place the rows
+	const [scrollMargin, setScrollMargin] = useState(0)
+	useLayoutEffect(() => {
+		const list = listRef.current
+		if (!list || !scrollElement) return
+		const measure = () => {
+			setListWidth(list.clientWidth)
+			const offset =
+				list.getBoundingClientRect().top -
+				scrollElement.getBoundingClientRect().top +
+				scrollElement.scrollTop
+			setScrollMargin(Math.round(offset))
+		}
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(list)
+		return () => observer.disconnect()
+	}, [scrollElement, sections.length])
+
+	const columns = Math.max(1, Math.floor((listWidth + GAP) / (minCell + GAP)))
+	const rows = useMemo(() => buildRows(sections, columns), [sections, columns])
+
+	const virtualizer = useVirtualizer({
+		count: rows.length,
+		estimateSize: (index) => (rows[index]?.kind === 'heading' ? HEADING_HEIGHT : rowHeight),
+		getItemKey: (index) => rows[index]?.key ?? index,
+		getScrollElement: () => scrollElement,
+		overscan: 6,
+		scrollMargin,
+	})
+
 	// Scrolls a section's heading to just below the sticky page header, toolbar and letters,
 	// whatever their height (the letters wrap on wide screens)
 	const navRef = useRef<HTMLElement>(null)
 	const jumpTo = (title: string) => {
-		const section = document.getElementById(`browse-${title}`)
-		if (!section) return
+		const index = rows.findIndex((row) => row.kind === 'heading' && row.section.title === title)
+		const start = virtualizer.measurementsCache[index]?.start
+		if (start == null || !scrollElement) return
 		const nav = navRef.current
 		const covered = nav ? parseFloat(getComputedStyle(nav).top) + nav.offsetHeight : 0
-		section.style.scrollMarginTop = `${covered + 8}px`
-		section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+		scrollElement.scrollTo({ top: start - covered - 8, behavior: 'smooth' })
 	}
 
 	const hrefFor = (value: string) =>
@@ -224,30 +297,57 @@ function BrowseIndexContent({ index }: { index: BrowseIndex }) {
 					</Text>
 				)}
 
-				{sections.map(({ title, entries }) => (
-					<section key={title} id={`browse-${title}`} className="gap-2 flex flex-col">
-						<Heading size="sm" className={cn('pb-1 border-b border-border')}>
-							{title}
-							<span className="ml-2 text-sm font-normal text-muted-foreground">
-								{entries.length}
-							</span>
-						</Heading>
-						<div className="gap-1.5 flex flex-wrap">
-							{entries.map(({ value, label, count }) => (
-								<Link key={value} to={hrefFor(value)} className="max-w-full" title={label}>
-									<Badge
-										variant="secondary"
-										rounded="full"
-										className="gap-1.5 max-w-full cursor-pointer hover:bg-accent"
+				<div
+					ref={listRef}
+					className="relative w-full"
+					style={{ height: virtualizer.getTotalSize() }}
+				>
+					{virtualizer.getVirtualItems().map((item) => {
+						const row = rows[item.index]
+						if (!row) return null
+						return (
+							<div
+								key={item.key}
+								className="left-0 absolute w-full"
+								style={{ top: item.start - scrollMargin, height: item.size }}
+							>
+								{row.kind === 'heading' ? (
+									<Heading
+										id={`browse-${row.section.title}`}
+										size="sm"
+										className="pt-4 pb-1 border-b border-border"
 									>
-										<span className="truncate">{label}</span>
-										<span className="text-xs text-muted-foreground">{count}</span>
-									</Badge>
-								</Link>
-							))}
-						</div>
-					</section>
-				))}
+										{row.section.title}
+										<span className="ml-2 text-sm font-normal text-muted-foreground">
+											{row.section.entries.length}
+										</span>
+									</Heading>
+								) : (
+									<div
+										className="pt-1.5 grid"
+										style={{
+											gap: GAP,
+											gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+										}}
+									>
+										{row.entries.map(({ value, label, count }) => (
+											<Link key={value} to={hrefFor(value)} className="min-w-0 block" title={label}>
+												<Badge
+													variant="secondary"
+													rounded="full"
+													className="gap-1.5 h-7 pointer-coarse:h-10 px-2.5 w-full cursor-pointer justify-between hover:bg-accent"
+												>
+													<span className="truncate">{label}</span>
+													<span className="text-xs text-muted-foreground">{count}</span>
+												</Badge>
+											</Link>
+										))}
+									</div>
+								)}
+							</div>
+						)
+					})}
+				</div>
 			</SceneContainer>
 		</>
 	)
