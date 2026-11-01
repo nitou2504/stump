@@ -16,6 +16,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { SortIcon } from '@/components/table'
+import { columnStyle, tableMinWidth, useTableScroll } from '@/components/table/columnLayout'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -231,6 +232,10 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 		[groupRows, visibleBooks, bookSortMap, groupHref, standaloneLabel, expanded, fieldGroup],
 	)
 
+	// Fill the width; scroll sideways only when the book columns don't fit
+	const minWidth = tableMinWidth(bookTable.getVisibleLeafColumns())
+	const { ref: scrollRef, scrolls } = useTableScroll(minWidth)
+
 	const rowVirtualizer = useVirtualizer({
 		count: flatData.length,
 		estimateSize: (index) => {
@@ -329,88 +334,29 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 			<TableHeaderActions layoutControls={<SmartListLayoutControls />} />
 
 			<div
-				className="top-0 sticky z-30 flex w-full border-b border-border bg-muted"
-				style={{ height: HEADER_HEIGHT }}
+				ref={scrollRef}
+				className={cn('w-full', scrolls ? 'overflow-x-auto' : 'overflow-x-clip')}
 			>
-				{groupTable.getHeaderGroups().map((headerGroup) => (
-					<div key={headerGroup.id} className="flex w-full">
-						{headerGroup.headers.map((header) => {
-							const isSortable = header.column.getCanSort()
-							return (
-								<div
-									key={header.id}
-									// TODO: Fix the hitbox for sorting, not the entire header just the content
-									className={cn(
-										'px-4 py-2 text-sm font-medium flex w-full items-center bg-muted text-foreground last:justify-end',
-										{
-											'gap-x-2 cursor-pointer select-none': isSortable,
-										},
-									)}
-									onClick={header.column.getToggleSortingHandler()}
-								>
-									{header.isPlaceholder
-										? null
-										: flexRender(header.column.columnDef.header, header.getContext())}
-									{isSortable && (
-										<SortIcon direction={(header.column.getIsSorted() as SortDirection) ?? null} />
-									)}
-								</div>
-							)
-						})}
-					</div>
-				))}
-			</div>
-
-			{activeStickyGroupIndex !== -1 && !isGroupHeaderVisible && (
-				<div
-					className="sticky z-20 flex w-full border-b border-border bg-muted"
-					style={{
-						height: GROUP_ROW_HEIGHT,
-						top: HEADER_HEIGHT,
-					}}
-				>
-					{(() => {
-						const item = flatData[activeStickyGroupIndex]
-						if (item?.type !== 'group') return null
-						return item.row.getVisibleCells().map((cell) => (
-							<div key={cell.id} className="px-4 py-2 flex w-full items-center last:justify-end">
-								{flexRender(cell.column.columnDef.cell, cell.getContext())}
-							</div>
-						))
-					})()}
-				</div>
-			)}
-
-			{activeStickyGroupIndex !== -1 && !isBookHeaderVisible && (
-				<div
-					className="sticky z-10 flex w-full border-b border-border bg-background"
-					style={{
-						height: BOOK_HEADER_HEIGHT,
-						top: HEADER_HEIGHT + GROUP_ROW_HEIGHT,
-					}}
-				>
-					{(() => {
-						const item = flatData[activeStickyGroupIndex]
-						if (item?.type !== 'group' || !item.row.getIsExpanded()) return null
-
-						return bookTable.getHeaderGroups().map((headerGroup) => (
+				<div style={{ minWidth }}>
+					<div
+						className="top-0 sticky z-30 flex w-full border-b border-border bg-muted"
+						style={{ height: HEADER_HEIGHT }}
+					>
+						{groupTable.getHeaderGroups().map((headerGroup) => (
 							<div key={headerGroup.id} className="flex w-full">
 								{headerGroup.headers.map((header) => {
 									const isSortable = header.column.getCanSort()
 									return (
 										<div
 											key={header.id}
+											// TODO: Fix the hitbox for sorting, not the entire header just the content
 											className={cn(
-												'px-4 py-2 text-xs flex items-center overflow-hidden text-muted-foreground',
+												'px-4 py-2 text-sm font-medium flex w-full items-center bg-muted text-foreground last:justify-end',
 												{
 													'gap-x-2 cursor-pointer select-none': isSortable,
 												},
 											)}
 											onClick={header.column.getToggleSortingHandler()}
-											style={{
-												flex: `0 0 ${header.getSize()}px`,
-												width: header.getSize(),
-											}}
 										>
 											{header.isPlaceholder
 												? null
@@ -424,60 +370,45 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 									)
 								})}
 							</div>
-						))
-					})()}
-				</div>
-			)}
+						))}
+					</div>
 
-			<div ref={listRef} className="relative w-full bg-background" style={{ height: totalSize }}>
-				{/* Spacer to push items down to their virtual position */}
-				{virtualItems.length > 0 && virtualItems[0] && (
-					<div style={{ height: virtualItems[0].start }} />
-				)}
-
-				{virtualItems.map((virtualItem) => {
-					const item = flatData[virtualItem.index]
-					if (!item) return null
-
-					if (item.type === 'group') {
-						return (
-							<div
-								key={virtualItem.key}
-								ref={rowVirtualizer.measureElement}
-								className={cn('z-20 flex w-full border-b border-border', {
-									'sticky bg-muted': item.row.getIsExpanded(),
-								})}
-								data-index={virtualItem.index}
-								style={{
-									height: GROUP_ROW_HEIGHT,
-									top: HEADER_HEIGHT,
-								}}
-							>
-								{item.row.getVisibleCells().map((cell) => (
+					{activeStickyGroupIndex !== -1 && !isGroupHeaderVisible && (
+						<div
+							className="sticky z-20 flex w-full border-b border-border bg-muted"
+							style={{
+								height: GROUP_ROW_HEIGHT,
+								top: HEADER_HEIGHT,
+							}}
+						>
+							{(() => {
+								const item = flatData[activeStickyGroupIndex]
+								if (item?.type !== 'group') return null
+								return item.row.getVisibleCells().map((cell) => (
 									<div
 										key={cell.id}
 										className="px-4 py-2 flex w-full items-center last:justify-end"
 									>
 										{flexRender(cell.column.columnDef.cell, cell.getContext())}
 									</div>
-								))}
-							</div>
-						)
-					}
+								))
+							})()}
+						</div>
+					)}
 
-					if (item.type === 'book-header') {
-						return (
-							<div
-								key={virtualItem.key}
-								ref={rowVirtualizer.measureElement}
-								className="sticky z-10 flex w-full border-b border-border bg-background"
-								data-index={virtualItem.index}
-								style={{
-									height: BOOK_HEADER_HEIGHT,
-									top: HEADER_HEIGHT + GROUP_ROW_HEIGHT,
-								}}
-							>
-								{bookTable.getHeaderGroups().map((headerGroup) => (
+					{activeStickyGroupIndex !== -1 && !isBookHeaderVisible && (
+						<div
+							className="sticky z-10 flex w-full border-b border-border bg-background"
+							style={{
+								height: BOOK_HEADER_HEIGHT,
+								top: HEADER_HEIGHT + GROUP_ROW_HEIGHT,
+							}}
+						>
+							{(() => {
+								const item = flatData[activeStickyGroupIndex]
+								if (item?.type !== 'group' || !item.row.getIsExpanded()) return null
+
+								return bookTable.getHeaderGroups().map((headerGroup) => (
 									<div key={headerGroup.id} className="flex w-full">
 										{headerGroup.headers.map((header) => {
 											const isSortable = header.column.getCanSort()
@@ -485,16 +416,13 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 												<div
 													key={header.id}
 													className={cn(
-														'px-4 py-2 text-xs flex items-center overflow-hidden text-muted-foreground',
+														'px-3 py-2 text-xs first:pl-4 last:pr-4 min-w-0 flex items-center overflow-hidden text-muted-foreground',
 														{
 															'gap-x-2 cursor-pointer select-none': isSortable,
 														},
 													)}
 													onClick={header.column.getToggleSortingHandler()}
-													style={{
-														flex: `0 0 ${header.getSize()}px`,
-														width: header.getSize(),
-													}}
+													style={columnStyle(header.column)}
 												>
 													{header.isPlaceholder
 														? null
@@ -508,25 +436,112 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 											)
 										})}
 									</div>
-								))}
-							</div>
-						)
-					}
+								))
+							})()}
+						</div>
+					)}
 
-					if (item.type === 'book') {
-						return (
-							<div
-								key={virtualItem.key}
-								ref={rowVirtualizer.measureElement}
-								data-index={virtualItem.index}
-							>
-								<SmartListTableItem row={item.row} />
-							</div>
-						)
-					}
+					<div
+						ref={listRef}
+						className="relative w-full bg-background"
+						style={{ height: totalSize }}
+					>
+						{/* Spacer to push items down to their virtual position */}
+						{virtualItems.length > 0 && virtualItems[0] && (
+							<div style={{ height: virtualItems[0].start }} />
+						)}
 
-					return null
-				})}
+						{virtualItems.map((virtualItem) => {
+							const item = flatData[virtualItem.index]
+							if (!item) return null
+
+							if (item.type === 'group') {
+								return (
+									<div
+										key={virtualItem.key}
+										ref={rowVirtualizer.measureElement}
+										className={cn('z-20 flex w-full border-b border-border', {
+											'sticky bg-muted': item.row.getIsExpanded(),
+										})}
+										data-index={virtualItem.index}
+										style={{
+											height: GROUP_ROW_HEIGHT,
+											top: HEADER_HEIGHT,
+										}}
+									>
+										{item.row.getVisibleCells().map((cell) => (
+											<div
+												key={cell.id}
+												className="px-4 py-2 flex w-full items-center last:justify-end"
+											>
+												{flexRender(cell.column.columnDef.cell, cell.getContext())}
+											</div>
+										))}
+									</div>
+								)
+							}
+
+							if (item.type === 'book-header') {
+								return (
+									<div
+										key={virtualItem.key}
+										ref={rowVirtualizer.measureElement}
+										className="sticky z-10 flex w-full border-b border-border bg-background"
+										data-index={virtualItem.index}
+										style={{
+											height: BOOK_HEADER_HEIGHT,
+											top: HEADER_HEIGHT + GROUP_ROW_HEIGHT,
+										}}
+									>
+										{bookTable.getHeaderGroups().map((headerGroup) => (
+											<div key={headerGroup.id} className="flex w-full">
+												{headerGroup.headers.map((header) => {
+													const isSortable = header.column.getCanSort()
+													return (
+														<div
+															key={header.id}
+															className={cn(
+																'px-3 py-2 text-xs first:pl-4 last:pr-4 min-w-0 flex items-center overflow-hidden text-muted-foreground',
+																{
+																	'gap-x-2 cursor-pointer select-none': isSortable,
+																},
+															)}
+															onClick={header.column.getToggleSortingHandler()}
+															style={columnStyle(header.column)}
+														>
+															{header.isPlaceholder
+																? null
+																: flexRender(header.column.columnDef.header, header.getContext())}
+															{isSortable && (
+																<SortIcon
+																	direction={(header.column.getIsSorted() as SortDirection) ?? null}
+																/>
+															)}
+														</div>
+													)
+												})}
+											</div>
+										))}
+									</div>
+								)
+							}
+
+							if (item.type === 'book') {
+								return (
+									<div
+										key={virtualItem.key}
+										ref={rowVirtualizer.measureElement}
+										data-index={virtualItem.index}
+									>
+										<SmartListTableItem cells={item.row.getVisibleCells()} />
+									</div>
+								)
+							}
+
+							return null
+						})}
+					</div>
+				</div>
 			</div>
 		</div>
 	)

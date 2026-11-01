@@ -27,14 +27,14 @@ const baseColumns = [
 			row: {
 				original: { path, isDirectory },
 			},
-		}) => <FileThumbnail path={path} isDirectory={isDirectory} />,
+		}) => <FileThumbnail path={path} isDirectory={isDirectory} thumbSize={36} />,
 		header: () => (
 			<Text size="sm" variant="secondary">
 				Cover
 			</Text>
 		),
 		id: 'thumbnail',
-		size: 10,
+		size: 52,
 	}),
 ]
 
@@ -52,7 +52,8 @@ export default function FileTable() {
 					cell: ({ row: { original: file }, getValue }) => (
 						<Text
 							size="sm"
-							className="cursor-pointer hover:underline"
+							className="cursor-pointer truncate hover:underline"
+							title={getValue()}
 							onClick={() => onSelect(file)}
 						>
 							{getValue()}
@@ -63,7 +64,8 @@ export default function FileTable() {
 							Name
 						</Text>
 					),
-					size: innerWidth ? innerWidth * 0.2 : 250,
+					// most of the width: the table stretches its columns in proportion to these sizes
+					size: innerWidth ? innerWidth * 0.6 : 600,
 				}),
 			].map((column) => ({
 				...column,
@@ -121,7 +123,7 @@ export default function FileTable() {
 									>
 										{row?.getVisibleCells().map((cell) => (
 											<td
-												className="py-1.5 pl-2 pr-2 first:pl-4 last:pr-4"
+												className="py-1 pl-2 pr-2 first:pl-4 last:pr-4"
 												key={cell.id}
 												style={{
 													width: cell.column.getSize(),

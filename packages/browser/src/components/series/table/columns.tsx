@@ -14,9 +14,10 @@ export type SeriesTableData = {
 	percentageCompleted: number
 	status: FileStatus
 	oneshotBookId?: string
-	thumbnail: {
+	/** The series' cover: its first stacked thumbnail */
+	stackedThumbnails: {
 		url: string
-	}
+	}[]
 }
 
 const columnHelper = createColumnHelper<SeriesTableData>()
@@ -24,17 +25,16 @@ const columnHelper = createColumnHelper<SeriesTableData>()
 const coverColumn = columnHelper.display({
 	cell: ({
 		row: {
-			original: { resolvedName, thumbnail },
+			original: { resolvedName, stackedThumbnails },
 		},
-	}) => <CoverImageCell url={thumbnail.url} title={resolvedName} />,
+	}) =>
+		stackedThumbnails[0] ? (
+			<CoverImageCell url={stackedThumbnails[0].url} title={resolvedName} />
+		) : null,
 	enableGlobalFilter: true,
-	header: () => (
-		<Text size="sm" variant="secondary">
-			Cover
-		</Text>
-	),
+	header: () => null,
 	id: 'cover',
-	size: 0,
+	size: 44,
 })
 
 function NameColumnCell({
@@ -47,7 +47,8 @@ function NameColumnCell({
 	return (
 		<Link
 			to={paths.seriesOverview(id)}
-			className="text-sm line-clamp-2 no-underline hover:opacity-90"
+			title={getValue()}
+			className="text-sm min-w-0 truncate no-underline hover:opacity-90"
 		>
 			{getValue()}
 		</Link>
@@ -64,7 +65,8 @@ const nameColumn = columnHelper.accessor(({ resolvedName }) => resolvedName, {
 		</Text>
 	),
 	id: SeriesModelOrdering.Name,
-	minSize: 285,
+	meta: { isGrow: true },
+	size: 280,
 })
 
 const booksCountColumn = columnHelper.accessor((series) => series.mediaCount?.toString(), {
@@ -82,7 +84,7 @@ const booksCountColumn = columnHelper.accessor((series) => series.mediaCount?.to
 		</Text>
 	),
 	id: 'media_count',
-	minSize: 60,
+	size: 80,
 })
 
 // TODO: more columns
@@ -91,20 +93,28 @@ const booksCountColumn = columnHelper.accessor((series) => series.mediaCount?.to
  * A map of all columns that can be selected for the table. The key is the column ID, and the value is the column, itself.
  */
 export const columnMap = {
-	books: booksCountColumn,
 	cover: coverColumn,
 	name: nameColumn,
+	books: booksCountColumn,
 } as Record<string, ColumnDef<SeriesTableData>>
 
-export const defaultColumns = [
-	coverColumn,
-	nameColumn,
-	booksCountColumn,
-] as ColumnDef<SeriesTableData>[]
+/** The columns offered in the column configuration, in the order they are listed */
+export const columnOptionMap: Record<keyof typeof columnMap, string> = {
+	cover: 'Cover',
+	name: 'Name',
+	books: 'Books',
+}
 
-export const defaultColumnSort: ColumnSort[] = defaultColumns.map((column, idx) => ({
-	id: column.id || '',
-	position: idx,
+/** The columns shown until the viewer picks their own (keys of `columnMap`) */
+const defaultColumnKeys = ['cover', 'name', 'books']
+
+export const defaultColumns = defaultColumnKeys.map(
+	(key) => columnMap[key],
+) as ColumnDef<SeriesTableData>[]
+
+export const defaultColumnSort: ColumnSort[] = defaultColumnKeys.map((id, position) => ({
+	id,
+	position,
 }))
 
 /**
@@ -116,10 +126,11 @@ export const buildColumns = (columns?: ColumnSort[]) => {
 		return defaultColumns
 	}
 
-	const sortedColumns = columns.sort((a, b) => a.position - b.position)
+	const sortedColumns = [...columns].sort((a, b) => a.position - b.position)
 	const selectedColumnIds = sortedColumns.map(({ id }) => id)
 
-	return selectedColumnIds
+	const selected = selectedColumnIds
 		.map((id) => columnMap[id as keyof typeof columnMap])
 		.filter(Boolean) as ColumnDef<SeriesTableData>[]
+	return selected.length ? selected : defaultColumns
 }

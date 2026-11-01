@@ -40,20 +40,20 @@ export default function CoverImageCell({ url, title }: Props) {
 		return (
 			<div
 				title={`${title} (Image failed to load)`}
-				className="h-14 shadow-sm flex w-auto items-center justify-center rounded-sm border-[0.5px] border-border bg-sidebar"
+				className="h-9 shadow-sm flex w-auto items-center justify-center rounded-sm border-[0.5px] border-border bg-sidebar"
 				style={{ aspectRatio: thumbnailRatio }}
 				onClick={attemptReload}
 			>
-				<Book className="h-8 w-8 text-muted-foreground" />
+				<Book className="h-4 w-4 text-muted-foreground" />
 			</div>
 		)
 	}
 
 	return (
-		<div className="h-14 flex w-auto items-center justify-center">
+		<div className="h-9 flex w-auto items-center justify-center">
 			<EntityImage
 				title={title}
-				className="h-14 w-auto rounded-md object-cover p-px"
+				className="h-9 w-auto rounded-md object-cover p-px"
 				style={{ aspectRatio: thumbnailRatio }}
 				src={url}
 				onError={() => setShowFallback(true)}

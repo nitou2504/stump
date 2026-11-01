@@ -6775,7 +6775,7 @@ export type UsePreferencesMutationVariables = Exact<{
 
 export type UsePreferencesMutation = { __typename?: 'Mutation', updateViewerPreferences: { __typename: 'UserPreferences' } };
 
-export type BookMetadataFragment = { __typename?: 'Media', metadata?: { __typename?: 'MediaMetadata', ageRating?: number | null, rating?: any | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, editors: Array<string>, genres: Array<string>, inkers: Array<string>, letterers: Array<string>, links: Array<string>, pencillers: Array<string>, publisher?: string | null, teams: Array<string>, writers: Array<string>, year?: number | null, month?: number | null, day?: number | null, volume?: number | null, number?: any | null } | null } & { ' $fragmentName'?: 'BookMetadataFragment' };
+export type BookMetadataFragment = { __typename?: 'Media', metadata?: { __typename?: 'MediaMetadata', ageRating?: number | null, rating?: any | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, editors: Array<string>, genres: Array<string>, inkers: Array<string>, letterers: Array<string>, links: Array<string>, pencillers: Array<string>, publisher?: string | null, series?: string | null, teams: Array<string>, writers: Array<string>, year?: number | null, month?: number | null, day?: number | null, volume?: number | null, number?: any | null } | null } & { ' $fragmentName'?: 'BookMetadataFragment' };
 
 export type BooksAfterCurrentQueryQueryVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -9249,6 +9249,7 @@ export const BookMetadataFragmentDoc = new TypedDocumentString(`
     links
     pencillers
     publisher
+    series
     teams
     writers
     year
@@ -13589,6 +13590,7 @@ fragment BookMetadata on Media {
     links
     pencillers
     publisher
+    series
     teams
     writers
     year
@@ -14249,6 +14251,7 @@ fragment BookMetadata on Media {
     links
     pencillers
     publisher
+    series
     teams
     writers
     year
@@ -14743,6 +14746,7 @@ fragment BookMetadata on Media {
     links
     pencillers
     publisher
+    series
     teams
     writers
     year
@@ -15944,6 +15948,7 @@ fragment BookMetadata on Media {
     links
     pencillers
     publisher
+    series
     teams
     writers
     year

@@ -6,7 +6,7 @@ import { orderingToTableSort, tableSortToOrdering, useFilterContext } from '@/co
 import { EntityTable, EntityTableProps } from '@/components/table'
 import { useSeriesLayout } from '@/stores/layout'
 
-import { defaultColumns, SeriesTableData } from './columns'
+import { buildColumns, SeriesTableData } from './columns'
 
 type Props = Omit<EntityTableProps<SeriesTableData>, 'columns' | 'options'> & {
 	layoutKey?: string
@@ -21,10 +21,7 @@ export default function SeriesTable({ layoutKey = 'global', ...props }: Props) {
 	)
 	const { ordering, setOrdering } = useFilterContext()
 
-	const columns = useMemo(
-		() => (configuration.columns?.length ? configuration.columns : defaultColumns),
-		[configuration.columns],
-	)
+	const columns = useMemo(() => buildColumns(configuration.columns), [configuration.columns])
 
 	const handleSetSorting: OnChangeFn<SortingState> = useCallback(
 		(updater) => {

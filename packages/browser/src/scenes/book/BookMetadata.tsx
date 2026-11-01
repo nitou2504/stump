@@ -16,6 +16,7 @@ export const BookMetadataFragment = graphql(`
 			links
 			pencillers
 			publisher
+			series
 			teams
 			writers
 			year

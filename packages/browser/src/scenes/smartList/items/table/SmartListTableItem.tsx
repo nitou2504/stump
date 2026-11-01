@@ -1,27 +1,29 @@
 import { Media } from '@stump/graphql'
-import { flexRender, Row } from '@tanstack/react-table'
+import { Cell, flexRender } from '@tanstack/react-table'
+
+import { columnStyle } from '@/components/table/columnLayout'
 
 type Props = {
-	row: Row<Media>
+	/**
+	 * The row's visible cells (`row.getVisibleCells()`). Not the row itself: TanStack Table
+	 * keeps a row's identity when the columns change, so a memoized row would keep showing
+	 * the previous columns' cells, while this array is new whenever the columns change
+	 */
+	cells: Cell<Media, unknown>[]
 	style?: React.CSSProperties
 }
 
-export const SmartListTableItem = ({ row, style }: Props) => {
+export const SmartListTableItem = ({ cells, style }: Props) => {
 	return (
 		<div
 			className="flex w-full border-b border-border bg-background hover:bg-muted/50"
 			style={style}
 		>
-			{row.getVisibleCells().map((cell) => (
+			{cells.map((cell) => (
 				<div
 					key={cell.id}
-					className="px-4 py-2 flex items-center overflow-hidden"
-					style={{
-						width: cell.column.getSize(),
-						minWidth: cell.column.columnDef.minSize,
-						maxWidth: cell.column.columnDef.maxSize,
-						flex: `0 0 ${cell.column.getSize()}px`,
-					}}
+					className="px-3 py-1 min-h-9 min-w-0 first:pl-4 last:pr-4 flex items-center overflow-hidden"
+					style={columnStyle(cell.column)}
 				>
 					{flexRender(cell.column.columnDef.cell, cell.getContext())}
 				</div>
