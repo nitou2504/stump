@@ -356,7 +356,9 @@ mod tests {
 			height: 792.0,
 			runs: group_runs(&chars),
 		};
-		let json = serde_json::to_value(&text).unwrap();
+		// through the JSON text, as clients see it (f32 values print shortest: 0.1)
+		let json: serde_json::Value =
+			serde_json::from_str(&serde_json::to_string(&text).unwrap()).unwrap();
 		assert_eq!(json["w"], 612.0);
 		assert_eq!(json["h"], 792.0);
 		let run = &json["runs"][0];
