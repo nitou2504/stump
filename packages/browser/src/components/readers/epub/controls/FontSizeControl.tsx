@@ -1,3 +1,4 @@
+import { DEFAULT_EPUB_FONT_SIZE } from '@stump/client'
 import { cx, IconButton, Label, Text, TEXT_VARIANTS } from '@stump/components'
 import { Minus, Plus } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
@@ -11,7 +12,7 @@ export default function FontSizeControl() {
 		readerMeta: { bookEntity },
 	} = useEpubReaderContext()
 	const {
-		bookPreferences: { fontSize = 13 },
+		bookPreferences: { fontSize = DEFAULT_EPUB_FONT_SIZE },
 		setBookPreferences,
 	} = useBookPreferences({ book: bookEntity })
 

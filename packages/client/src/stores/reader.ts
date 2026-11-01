@@ -156,9 +156,16 @@ export type ReaderStore = {
 	setBookPreferences: (id: BookID, preferences: BookPreferences) => void
 }
 
+/**
+ * The default EPUB font size, in CSS px. Was 13 (persisted store version 5 and older),
+ * which read too small
+ */
+export const DEFAULT_EPUB_FONT_SIZE = 22
+const PREVIOUS_DEFAULT_EPUB_FONT_SIZE = 13
+
 export const DEFAULT_BOOK_PREFERENCES = {
 	animatedReader: false,
-	fontSize: 13,
+	fontSize: DEFAULT_EPUB_FONT_SIZE,
 	lineHeight: 1.5,
 	brightness: 1,
 	readingMode: ReadingMode.Paged,
@@ -213,8 +220,43 @@ export const createReaderStore = (storage?: StateStorage) =>
 				{
 					name: 'stump-new-reader-store',
 					storage: storage ? createJSONStorage(() => storage) : undefined,
-					version: 5,
+					version: 6,
+					migrate: migrateReaderStore,
 				},
 			),
 		),
 	)
+
+/**
+ * Upgrades a persisted reader store to the current version. Version 6 raised the default
+ * EPUB font size from 13 to 22px: the old default, kept in the settings and copied into
+ * every book whose preferences were changed, becomes the new one (a size someone picked
+ * stays). Stores older than version 5 are dropped, as before migrations existed.
+ */
+export function migrateReaderStore(persisted: unknown, version: number): ReaderStore {
+	const state = persisted as Partial<ReaderStore> | undefined
+	if (!state || version < 5) {
+		// Merged over the initial state, so this keeps the defaults
+		return undefined as unknown as ReaderStore
+	}
+
+	const upgradeFontSize = <T extends { fontSize?: number }>(preferences: T): T =>
+		preferences.fontSize === PREVIOUS_DEFAULT_EPUB_FONT_SIZE
+			? { ...preferences, fontSize: DEFAULT_EPUB_FONT_SIZE }
+			: preferences
+
+	return {
+		...state,
+		...(state.settings ? { settings: upgradeFontSize(state.settings) } : {}),
+		...(state.bookPreferences
+			? {
+					bookPreferences: Object.fromEntries(
+						Object.entries(state.bookPreferences).map(([id, preferences]) => [
+							id,
+							upgradeFontSize(preferences),
+						]),
+					),
+				}
+			: {}),
+	} as ReaderStore
+}
