@@ -628,7 +628,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.defaultPrevented || isEditableTarget(event.target)) return
-			if (noteDialog || searchOpen || goToOpen || locationsOpen || helpOpen) return
+			// any open dialog (read from the DOM: state set by a closing dialog may not have
+			// re-rendered yet when the next key arrives)
+			if (document.querySelector('[role="dialog"][data-state="open"]')) return
 			const action = resolvePdfShortcut(event, {
 				hasTarget: !!target,
 				targetIsAnnotation: target?.kind === 'annotation',
@@ -698,11 +700,6 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	}, [
 		target,
 		continuous,
-		noteDialog,
-		searchOpen,
-		goToOpen,
-		locationsOpen,
-		helpOpen,
 		applyStyle,
 		openNote,
 		removeTargetAnnotation,
@@ -921,7 +918,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	return (
 		<div
 			ref={rootRef}
-			className="min-h-0 flex h-full w-full flex-col overflow-hidden"
+			className="min-h-0 flex h-dvh w-full flex-col overflow-hidden"
 			style={{ backgroundColor: look.background }}
 			data-testid="pdf-reader"
 		>
