@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import UploadImageModal from '@/components/thumbnail/UploadImageModal'
+import UploadImageModal from '@/components/thumbnail/LazyUploadImageModal'
 import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { invalidateThumbnailQueries } from '@/utils/query'

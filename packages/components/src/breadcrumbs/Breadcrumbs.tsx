@@ -103,7 +103,7 @@ function SegmentContent({ segment, isPage }: SegmentContentProps) {
 
 	if (!isPage && segment.to) {
 		return (
-			<Breadcrumb.Link asChild className="truncate">
+			<Breadcrumb.Link asChild className="pointer-coarse:py-2.5 truncate">
 				<RouterLink to={segment.to}>{segment.label}</RouterLink>
 			</Breadcrumb.Link>
 		)
@@ -115,7 +115,10 @@ function SegmentContent({ segment, isPage }: SegmentContentProps) {
 function CollapsedSegments({ segments }: { segments: BreadcrumbSegment[] }) {
 	return (
 		<Dropdown modal={false}>
-			<Dropdown.Trigger className="rounded-md hover:text-foreground" aria-label="Show more">
+			<Dropdown.Trigger
+				className="pointer-coarse:size-10 rounded-md hover:text-foreground pointer-coarse:inline-flex pointer-coarse:items-center pointer-coarse:justify-center"
+				aria-label="Show more"
+			>
 				<Breadcrumb.Ellipsis />
 			</Dropdown.Trigger>
 			<Dropdown.Content align="start">

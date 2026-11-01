@@ -19,6 +19,7 @@ export default function LayoutButtons() {
 							: 'text-muted-foreground hover:bg-muted hover:text-foreground',
 					)}
 					onClick={() => setLayout('grid')}
+					aria-label="Grid view"
 				>
 					<Grid2X2 className="h-3.5 w-3.5" />
 				</IconButton>
@@ -35,6 +36,7 @@ export default function LayoutButtons() {
 							: 'text-muted-foreground hover:bg-muted hover:text-foreground',
 					)}
 					onClick={() => setLayout('table')}
+					aria-label="Table view"
 				>
 					<Table className="h-3.5 w-3.5" />
 				</IconButton>

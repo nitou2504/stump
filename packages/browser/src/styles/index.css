@@ -18,6 +18,19 @@ form {
 	margin-block-end: 0;
 }
 
+/*
+ * iOS Safari zooms the page into any text field under 16px that takes focus. On touch screens the
+ * fields use 16px; with a mouse they keep the denser sizes. Unlayered, so it wins over the
+ * Tailwind text-size utilities
+ */
+@media (pointer: coarse) {
+	input:not([type='checkbox'], [type='radio'], [type='range'], [type='button'], [type='submit']),
+	select,
+	textarea {
+		font-size: max(16px, 1em);
+	}
+}
+
 .card-title {
 	display: -webkit-box;
 	-webkit-line-clamp: 2;

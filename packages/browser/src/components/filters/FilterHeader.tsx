@@ -36,9 +36,10 @@ type Props = {
 	sizeControls?: React.ReactNode
 	navOffset?: boolean
 	/**
-	 * Whether this is rendered inside a page header
+	 * A search box to show in place of the default one, which reads and writes the filter
+	 * context's search: e.g. the home page's quick search, or a page that filters in place
 	 */
-	isInPageHeader?: boolean
+	search?: React.ReactNode
 }
 
 // TODO: transparent until sticky hits, then bg-background
@@ -51,7 +52,7 @@ export default function FilterHeader({
 	filterControls,
 	sizeControls,
 	navOffset,
-	isInPageHeader,
+	search: customSearch,
 }: Props) {
 	const isMobile = useMediaMatch('(max-width: 768px)')
 	const { ref, isSticky } = useSticky<HTMLDivElement>({
@@ -79,24 +80,20 @@ export default function FilterHeader({
 		<header
 			ref={ref}
 			className={cn(
-				'gap-2 flex items-center justify-between',
-				isInPageHeader
-					? 'min-w-0 flex-1'
-					: // ^ don't conflict with header styles
-						cn(
-							'h-12 px-4 md:top-0 sticky z-50 w-full shrink-0 border-b border-border',
-							{ 'bg-background': isSticky || !isMobile },
-							navOffset ? 'top-12' : 'top-0',
-						),
+				'gap-2 h-12 px-4 md:top-0 sticky z-50 flex w-full shrink-0 items-center justify-between border-b border-border',
+				{ 'bg-background': isSticky || !isMobile },
+				navOffset ? 'top-12' : 'top-0',
 			)}
 		>
-			<Search
-				initialValue={search || ''}
-				placeholder={searchPlaceholder}
-				onChange={onSearchChange}
-				isLoading={isSearching}
-				isDisabled={isSearchDisabled}
-			/>
+			{customSearch ?? (
+				<Search
+					initialValue={search || ''}
+					placeholder={searchPlaceholder}
+					onChange={onSearchChange}
+					isLoading={isSearching}
+					isDisabled={isSearchDisabled}
+				/>
+			)}
 
 			<div className="gap-x-4 flex shrink-0 items-center">
 				{/* No room on a phone, where grids already fit the screen (as in smart lists) */}

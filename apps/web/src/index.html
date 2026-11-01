@@ -53,8 +53,41 @@
 				justify-content: center;
 				align-items: center;
 			}
+			/*
+			 * A 13 KB logo over an inline SVG ring with a CSS pulse, instead of a 547 KB animated
+			 * GIF. The ring needs no download, so something shows as soon as the page's CSS has
+			 * loaded, while the app's scripts are still arriving
+			 */
 			.splash {
-				max-width: 8rem;
+				position: relative;
+				width: 8rem;
+				height: 8rem;
+			}
+			.splash > img {
+				position: absolute;
+				inset: 0;
+				width: 100%;
+				height: 100%;
+			}
+			.splash-ring {
+				position: absolute;
+				inset: -1.25rem;
+				animation: stump-splash 0.9s ease-in-out infinite alternate;
+			}
+			@keyframes stump-splash {
+				from {
+					transform: scale(0.9);
+					opacity: 0.45;
+				}
+				to {
+					transform: scale(1.04);
+					opacity: 0.9;
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.splash-ring {
+					animation: none;
+				}
 			}
 		</style>
 		<link rel="shortcut icon" type="image/icon" href="/assets/favicon.ico" />
@@ -68,7 +101,7 @@
 		<link
 			rel="apple-touch-icon image_src"
 			type="image/png"
-			href="/assets/favicon-180x180-apple-touch-icon.png"
+			href="/assets/favicon-apple-touch-icon-180x180.png"
 			sizes="180x180"
 		/>
 		<link
@@ -94,9 +127,13 @@
 		<meta name="mobile-web-app-capable" content="yes" />
 		<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 		<link rel="dns-prefetch" href="//cdn.jsdelivr.net" />
+		<!--
+			Points at the font's source file so the build preloads the same hashed file the bundled
+			font CSS uses; the public /assets/fonts/... copy made browsers download it twice
+		-->
 		<link
 			rel="preload"
-			href="/assets/fonts/inter/files/inter-latin-standard-normal.woff2"
+			href="../../../packages/browser/public/assets/fonts/inter/files/inter-latin-standard-normal.woff2"
 			as="font"
 			type="font/woff2"
 			crossorigin
@@ -120,7 +157,18 @@
 		</script>
 		<div id="root">
 			<div class="splash-container">
-				<img src="/assets/stump-splash.gif" alt="loading" class="splash" />
+				<div class="splash" role="img" aria-label="loading">
+					<svg class="splash-ring" viewBox="0 0 128 128" aria-hidden="true">
+						<circle cx="64" cy="64" r="58" fill="none" stroke="#d9a588" stroke-width="5" />
+					</svg>
+					<img
+						src="/assets/stump-logo--irregular-256.webp"
+						alt=""
+						width="128"
+						height="128"
+						fetchpriority="high"
+					/>
+				</div>
 			</div>
 		</div>
 		<script type="module" src="./index.tsx"></script>

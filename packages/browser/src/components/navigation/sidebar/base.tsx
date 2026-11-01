@@ -266,7 +266,7 @@ function SidebarTrigger({ className, onClick, ...props }: ComponentProps<'button
 			data-sidebar="trigger"
 			data-slot="sidebar-trigger"
 			className={cn(
-				'size-7 inline-flex shrink-0 items-center justify-center rounded-md text-foreground/80 transition-colors outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring',
+				'size-7 pointer-coarse:size-10 inline-flex shrink-0 items-center justify-center rounded-md text-foreground/80 transition-colors outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring',
 				className,
 			)}
 			onClick={(event) => {

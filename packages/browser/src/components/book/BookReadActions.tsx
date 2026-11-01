@@ -38,7 +38,12 @@ export function BookReadActions({ fragment }: Props) {
 			<DropdownMenu
 				align="end"
 				trigger={
-					<Button variant="outline" size="icon" className="size-9">
+					<Button
+						variant="outline"
+						size="icon"
+						className="size-9 pointer-coarse:size-10"
+						aria-label="More reading options"
+					>
 						<ChevronDown />
 					</Button>
 				}

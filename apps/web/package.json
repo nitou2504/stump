@@ -22,6 +22,7 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.62.1",
+		"@graphql-codegen/client-preset": "^4.8.2",
 		"@stump/graphql": "*",
 		"@tailwindcss/vite": "^4.2.2",
 		"@types/react": "^19.0.0",

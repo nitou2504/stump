@@ -109,6 +109,7 @@ export default function MultiRowHorizontalCardList<T>({
 								size="icon"
 								disabled={!canSkipBackward}
 								onClick={handleSkipBackward}
+								aria-label="Scroll back"
 							>
 								<ChevronLeft className="h-4 w-4" />
 							</Button>
@@ -119,6 +120,7 @@ export default function MultiRowHorizontalCardList<T>({
 								size="icon"
 								disabled={!canSkipForward}
 								onClick={handleSkipAhead}
+								aria-label="Scroll forward"
 							>
 								<ChevronRight className="h-4 w-4" />
 							</Button>

@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 
 import BookPageGrid from '@/components/book/BookPageGrid'
 import SeriesBookGrid, { SelectedBook } from '@/components/series/SeriesBookGrid'
-import UploadImageModal from '@/components/thumbnail/UploadImageModal'
+import UploadImageModal from '@/components/thumbnail/LazyUploadImageModal'
 import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { useLibraryContext } from '@/scenes/library/context'

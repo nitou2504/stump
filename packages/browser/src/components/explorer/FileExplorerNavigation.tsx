@@ -8,11 +8,23 @@ export default function FileExplorerNavigation() {
 
 	return (
 		<div className="m-0 gap-1 flex shrink-0 items-center">
-			<IconButton variant="ghost" size="sm" onClick={goBack} disabled={!canGoBack}>
+			<IconButton
+				variant="ghost"
+				size="sm"
+				onClick={goBack}
+				disabled={!canGoBack}
+				aria-label="Go back"
+			>
 				<ChevronLeft />
 			</IconButton>
 
-			<IconButton variant="ghost" size="sm" onClick={goForward} disabled={!canGoForward}>
+			<IconButton
+				variant="ghost"
+				size="sm"
+				onClick={goForward}
+				disabled={!canGoForward}
+				aria-label="Go forward"
+			>
 				<ChevronRight />
 			</IconButton>
 		</div>

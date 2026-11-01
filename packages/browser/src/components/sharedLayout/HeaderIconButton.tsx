@@ -9,7 +9,7 @@ type Props = {
 
 export function HeaderIconButton({ label, icon: Icon, isActive, to, onClick }: Props) {
 	const className = cn(
-		'size-7 flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+		'size-7 pointer-coarse:size-10 flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
 		{ 'bg-muted text-foreground': isActive },
 	)
 

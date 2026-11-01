@@ -28,12 +28,21 @@ export type ToolTipProps = {
 	portal?: boolean
 } & BaseProps
 
+/**
+ * Phones and tablets can't hover: there a tooltip only ever shows because its button took focus
+ * (e.g. the first button of a sheet that just opened), so it would pop up by itself
+ */
+const canHover = () =>
+	typeof window === 'undefined' ||
+	typeof window.matchMedia !== 'function' ||
+	window.matchMedia('(hover: hover)').matches
+
 export const ToolTip = forwardRef<HTMLButtonElement, ToolTipProps>(
 	({ children, content, align, side, size, isDisabled, portal = true }, ref) => {
 		const Container = portal ? TooltipPortal : Fragment
 		return (
 			<ToolTipProvider>
-				<ToolTipPrimitive>
+				<ToolTipPrimitive open={canHover() ? undefined : false}>
 					<ToolTipPrimitive.Trigger asChild disabled={isDisabled} ref={ref}>
 						{children}
 					</ToolTipPrimitive.Trigger>

@@ -24,7 +24,12 @@ export default function GradientToggle() {
 			onClick={handleChange}
 			className="flex-row items-center justify-between"
 		>
-			<RawSwitch id="enableGradients" checked={enableGradients} onCheckedChange={handleChange} />
+			<RawSwitch
+				aria-label={t(getKey('label'))}
+				id="enableGradients"
+				checked={enableGradients}
+				onCheckedChange={handleChange}
+			/>
 		</NewCard.Row>
 	)
 }

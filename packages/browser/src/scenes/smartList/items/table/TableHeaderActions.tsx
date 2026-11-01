@@ -63,20 +63,22 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 	)
 
 	return (
-		// Wraps on a phone: an active search takes the whole width there and pushed the save
-		// and grouping/layout controls off-screen
-		<header className="-mt-2 mb-2 gap-x-2 gap-y-2 px-4 flex w-full flex-wrap items-center bg-background">
-			{hasSavedViews && <SavedViewSelector />}
-			<URLFilterDrawer entity="media" />
-			{showColumnControls && <TableColumnsBottomDrawer />}
+		// Like the other lists: the search first, the controls at the end of the line. On a phone
+		// the controls that don't fit wrap onto a second line (still at the end), and an active
+		// search takes the whole first line instead of pushing them off-screen
+		<header className="-mt-2 mb-2 gap-x-2 gap-y-2 px-4 flex w-full flex-wrap items-center justify-end bg-background">
 			<Search
 				key={selectedView?.id ?? 'default'}
 				initialValue={search ?? (urlSearch || undefined)}
 				onChange={(value) => setFilter(value)}
 				placeholder={t('userSmartListScene.itemsScene.actionHeader.search.placeholder')}
+				className="mr-auto"
 			/>
+			{hasSavedViews && <SavedViewSelector />}
 			{canSaveView && <ViewManagerDropdown />}
-			{layoutControls && <div className="ml-auto">{layoutControls}</div>}
+			<URLFilterDrawer entity="media" />
+			{showColumnControls && <TableColumnsBottomDrawer />}
+			{layoutControls}
 		</header>
 	)
 }

@@ -17,7 +17,7 @@ export function DocsLinkButton({ href }: Props) {
 				target="_blank"
 				rel="noreferrer"
 				aria-label={translate('shared.common.documentation')}
-				className="size-7 flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+				className="size-7 pointer-coarse:size-10 flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 			>
 				<BookOpenText className="h-4 w-4" />
 			</a>

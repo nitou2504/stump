@@ -1,10 +1,14 @@
-import { cn, SheetPrimitive as Sheet, useBoolean } from '@stump/components'
-import { memo, useId, useMemo } from 'react'
+import { cn, SheetPrimitive as Sheet, Text, useBoolean } from '@stump/components'
+import { lazy, memo, Suspense, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { DEBUG_ENV } from '../index.ts'
-import Markdown from './markdown/MarkdownPreview.tsx'
+
+// The Markdown/HTML renderer (react-markdown, rehype-raw with parse5, ...) is a large download;
+// loading it on demand keeps it out of every page's first load. Until it arrives the text is
+// shown plain, so the description is readable at once and barely moves when it is formatted
+const Markdown = lazy(() => import('./markdown/MarkdownPreview.tsx'))
 
 type Props = {
 	text?: string | null
@@ -21,11 +25,50 @@ type Props = {
 	sheetTitle?: string
 }
 
-const COLLAPSED_HEIGHT = 72
+/** The collapsed preview: about ten lines of body text */
+const COLLAPSED_HEIGHT = 240
+/**
+ * Text taller than the preview by less than this (about two lines) is shown whole: a
+ * "Read more" that would only reveal a line or two isn't worth the click
+ */
+const OVERFLOW_GRACE = 48
+
+const BLOCK_END = /<\/(p|div|li|h[1-6]|blockquote)>|<br\s*\/?>/gi
+const ENTITIES: Record<string, string> = {
+	'&amp;': '&',
+	'&lt;': '<',
+	'&gt;': '>',
+	'&quot;': '"',
+	'&#39;': "'",
+	'&nbsp;': ' ',
+}
+
+/** The description without HTML tags, for the moment before the renderer has loaded */
+const toPlainText = (text: string) =>
+	text
+		.replace(BLOCK_END, '\n')
+		.replace(/<[^>]*>/g, '')
+		.replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (entity) => ENTITIES[entity] ?? entity)
+		.replace(/\n{3,}/g, '\n\n')
+		.trim()
+
+type MarkdownProps = { children: string; className?: string }
 
 // Memoized so toggling expanded/collapsed doesn't re-parse (and visibly
 // re-render/flicker) potentially large markdown descriptions.
-const MemoizedMarkdown = memo(Markdown)
+const MemoizedMarkdown = memo(function LazyMarkdown({ children, className }: MarkdownProps) {
+	return (
+		<Suspense
+			fallback={
+				<div className={cn('text-foreground', className)}>
+					<Text className="whitespace-pre-line">{toPlainText(children)}</Text>
+				</div>
+			}
+		>
+			<Markdown className={className}>{children}</Markdown>
+		</Suspense>
+	)
+})
 
 export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }: Props) {
 	const { translate } = useTranslate()
@@ -33,7 +76,6 @@ export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }
 	const contentId = useId()
 
 	const resolvedText = text ? text : DEBUG_ENV ? DEBUG_FAKE_TEXT : ''
-	const canReadMore = resolvedText.length > 250
 	const markdownClassName = useMemo(() => cn({ 'opacity-80': muted }), [muted])
 
 	const content = useMemo(
@@ -41,54 +83,70 @@ export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }
 		[markdownClassName, resolvedText],
 	)
 
+	// Whether the rendered text is taller than the preview, measured rather than guessed from
+	// its length: the same text wraps to more or fewer lines depending on the width. The
+	// measured element is never clamped, so its height is always the full text's.
+	const measureRef = useRef<HTMLDivElement>(null)
+	const [isOverflowing, setIsOverflowing] = useState(false)
+	useLayoutEffect(() => {
+		const element = measureRef.current
+		if (!element) return
+		const measure = () => setIsOverflowing(element.offsetHeight > COLLAPSED_HEIGHT + OVERFLOW_GRACE)
+		measure()
+		if (typeof ResizeObserver === 'undefined') return
+		const observer = new ResizeObserver(measure)
+		observer.observe(element)
+		return () => observer.disconnect()
+	}, [content])
+
 	if (!resolvedText && !DEBUG_ENV) {
 		return null
 	}
 
-	if (!canReadMore) {
-		return content
-	}
-
 	const isExpandedInline = variant === 'inline' && showingAll
+	const isClamped = isOverflowing && !isExpandedInline
 
 	return (
 		<div>
 			<div
 				id={contentId}
-				className={cn(!isExpandedInline && 'overflow-hidden')}
+				className={cn(isClamped && 'overflow-hidden')}
 				style={
-					isExpandedInline
-						? { overflowAnchor: 'none' }
-						: { maxHeight: COLLAPSED_HEIGHT, overflowAnchor: 'none' }
+					isClamped
+						? { maxHeight: COLLAPSED_HEIGHT, overflowAnchor: 'none' }
+						: { overflowAnchor: 'none' }
 				}
 			>
-				{content}
+				<div ref={measureRef}>{content}</div>
 			</div>
 
-			{!isExpandedInline && (
+			{isClamped && (
 				<div
 					aria-hidden
 					className="-mt-8 h-8 pointer-events-none bg-linear-to-t from-background to-transparent"
 				/>
 			)}
 
-			<div className="mt-2 relative flex w-full items-center">
-				<div className="flex-1 border-t border-dashed border-border" />
-				<button
-					type="button"
-					onClick={toggle}
-					aria-expanded={showingAll}
-					aria-controls={variant === 'inline' ? contentId : undefined}
-					className="px-3 py-0.5 text-xs font-medium cursor-pointer rounded-full border border-dashed border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-				>
-					{isExpandedInline
-						? translate('shared.common.readLess')
-						: translate('shared.common.readMore')}
-				</button>
-				<div className="flex-1 border-t border-dashed border-border" />
-			</div>
+			{/* Only when there is more to show: text that fits the preview gets no toggle at all */}
+			{isOverflowing && (
+				<div className="mt-2 relative flex w-full items-center">
+					<div className="flex-1 border-t border-dashed border-border" />
+					<button
+						type="button"
+						onClick={toggle}
+						aria-expanded={showingAll}
+						aria-controls={variant === 'inline' ? contentId : undefined}
+						className="px-3 py-0.5 text-xs font-medium cursor-pointer rounded-full border border-dashed border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+					>
+						{isExpandedInline
+							? translate('shared.common.readLess')
+							: translate('shared.common.readMore')}
+					</button>
+					<div className="flex-1 border-t border-dashed border-border" />
+				</div>
+			)}
 
-			{variant === 'sheet' && (
+			{variant === 'sheet' && isOverflowing && (
 				<Sheet open={showingAll} onOpenChange={(isOpen) => (isOpen ? open() : close())}>
 					<Sheet.Content className="overflow-y-auto" closeIcon size="lg">
 						<Sheet.Header>

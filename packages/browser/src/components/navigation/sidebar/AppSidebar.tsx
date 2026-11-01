@@ -6,6 +6,7 @@ import {
 	SystemArrangement,
 	UserPermission,
 } from '@stump/graphql'
+import { useQueryClient } from '@tanstack/react-query'
 import { Book, Home, Tags, Users } from 'lucide-react'
 import { Fragment, Suspense, useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router'
@@ -16,7 +17,7 @@ import { useTheme } from '@/hooks'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 import { BOOK_CLUBS_AVAILABLE } from '@/scenes/bookClub/availability'
-import { usePrefetchHomeScene } from '@/scenes/home/HomeScene'
+import { useHomeArrangementKey } from '@/scenes/home/arrangement'
 import { useLocalPreferencesStore } from '@/stores/user'
 
 import UserMenu from '../../UserMenu'
@@ -89,7 +90,16 @@ export default function AppSidebar() {
 		[checkPermission],
 	)
 
-	const prefetchHome = usePrefetchHomeScene()
+	const client = useQueryClient()
+	const homeArrangementKey = useHomeArrangementKey()
+	// loaded on hover: a static import would put the whole home page in every first download
+	const prefetchHome = useCallback(
+		() =>
+			import('@/scenes/home/prefetch').then(({ prefetchHomeScene }) =>
+				prefetchHomeScene(client, sdk, homeArrangementKey),
+			),
+		[client, sdk, homeArrangementKey],
+	)
 	const isIconMode = useIsSidebarIconMode()
 
 	const renderSystemSection = useCallback(

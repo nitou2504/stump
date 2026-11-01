@@ -3,15 +3,17 @@ import { Route, Routes } from 'react-router'
 
 import { AppLayout } from './AppLayout.tsx'
 import { RouterProvider } from './context/RouterContext.tsx'
-import { BookRouter } from './scenes/book'
-import { BookClubRouter } from './scenes/bookClub'
-import { LibraryRouter } from './scenes/library'
-import { SeriesRouter } from './scenes/series'
-import { SettingsRouter } from './scenes/settings'
-import { SmartListRouter } from './scenes/smartList'
 import { useAppStore } from './stores'
 
+// Every section is its own chunk, so a first visit downloads the app shell plus the page it
+// opens, not every screen of the app
 const HomeScene = lazy(() => import('./scenes/home'))
+const LibraryRouter = lazy(() => import('./scenes/library/LibraryRouter.tsx'))
+const SeriesRouter = lazy(() => import('./scenes/series/SeriesRouter.tsx'))
+const BookRouter = lazy(() => import('./scenes/book/BookRouter.tsx'))
+const BookClubRouter = lazy(() => import('./scenes/bookClub/BookClubRouter.tsx'))
+const SmartListRouter = lazy(() => import('./scenes/smartList/SmartListRouter.tsx'))
+const SettingsRouter = lazy(() => import('./scenes/settings/SettingsRouter.tsx'))
 const FourOhFour = lazy(() => import('./scenes/error/FourOhFour.tsx'))
 const ServerConnectionErrorScene = lazy(
 	() => import('./scenes/error/ServerConnectionErrorScene.tsx'),

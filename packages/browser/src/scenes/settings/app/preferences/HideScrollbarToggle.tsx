@@ -28,6 +28,7 @@ export default function HideScrollbarToggle() {
 			title={enableHideScrollbar ? t(getKey('tooltips.enabled')) : t(getKey('tooltips.disabled'))}
 		>
 			<RawSwitch
+				aria-label={t(getKey('label'))}
 				id="enableHideScrollbar"
 				checked={enableHideScrollbar}
 				onCheckedChange={handleToggle}

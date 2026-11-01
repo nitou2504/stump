@@ -165,6 +165,8 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 							key={genre}
 							to={paths.bookSearchWithFilter({ metadata: { genres: { hasAnyOf: [genre] } } })}
 							underline={false}
+							// the chip stays small; on touch screens its link is a 40px-tall tap target
+							className="pointer-coarse:min-h-10 pointer-coarse:inline-flex pointer-coarse:items-center"
 						>
 							<Badge variant="secondary" rounded="full" size="sm" className="cursor-pointer">
 								{genre}

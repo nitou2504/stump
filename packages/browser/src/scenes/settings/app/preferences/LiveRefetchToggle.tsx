@@ -25,6 +25,7 @@ export default function LiveRefetchToggle() {
 			className="flex-row items-center justify-between"
 		>
 			<RawSwitch
+				aria-label={t(getKey('label'))}
 				id="enableLiveRefetch"
 				checked={enableLiveRefetch}
 				onCheckedChange={handleChange}

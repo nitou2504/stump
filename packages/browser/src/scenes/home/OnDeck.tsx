@@ -1,7 +1,8 @@
 import { PREFETCH_STALE_TIME, useInfiniteSuspenseGraphQL, useSDK } from '@stump/client'
 import { Text } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
-import { useQueryClient } from '@tanstack/react-query'
+import { Api } from '@stump/sdk'
+import { QueryClient, useQueryClient } from '@tanstack/react-query'
 import { BookMarked } from 'lucide-react'
 import { memo, Suspense, useCallback, useMemo } from 'react'
 import { useMediaMatch } from 'rooks'
@@ -66,26 +67,28 @@ const query = graphql(`
 	}
 `)
 
+/** Plain version for callers outside React (the sidebar loads it on demand) */
+export const prefetchOnDeck = (client: QueryClient, sdk: Api) =>
+	client.prefetchInfiniteQuery({
+		queryKey: sdk.cacheKey('onDeck'),
+		initialPageParam: {
+			offset: {
+				pageSize: 20,
+				page: 1,
+			},
+		},
+		queryFn: ({ pageParam }) => {
+			return sdk.execute(query, {
+				pagination: pageParam,
+			})
+		},
+		staleTime: PREFETCH_STALE_TIME,
+	})
+
 export const usePrefetchOnDeck = () => {
 	const { sdk } = useSDK()
 	const client = useQueryClient()
-	return useCallback(() => {
-		return client.prefetchInfiniteQuery({
-			queryKey: sdk.cacheKey('onDeck'),
-			initialPageParam: {
-				offset: {
-					pageSize: 20,
-					page: 1,
-				},
-			},
-			queryFn: ({ pageParam }) => {
-				return sdk.execute(query, {
-					pagination: pageParam,
-				})
-			},
-			staleTime: PREFETCH_STALE_TIME,
-		})
-	}, [sdk, client])
+	return useCallback(() => prefetchOnDeck(client, sdk), [sdk, client])
 }
 
 export default function OnDeckContainer() {

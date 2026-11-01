@@ -166,7 +166,13 @@ export default function JobActionMenu({ job, onInspect }: Props) {
 				},
 			]}
 			trigger={
-				<Button size="icon" variant="ghost" className="shrink-0" onClick={onTriggerPressed}>
+				<Button
+					size="icon"
+					variant="ghost"
+					className="shrink-0"
+					onClick={onTriggerPressed}
+					aria-label="Job actions"
+				>
 					<MoreVertical className="h-4 w-4" />
 				</Button>
 			}

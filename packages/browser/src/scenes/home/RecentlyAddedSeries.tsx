@@ -1,7 +1,8 @@
 import { PREFETCH_STALE_TIME, useInfiniteSuspenseGraphQL, useSDK } from '@stump/client'
 import { Text } from '@stump/components'
 import { graphql } from '@stump/graphql'
-import { useQueryClient } from '@tanstack/react-query'
+import { Api } from '@stump/sdk'
+import { QueryClient, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { BookCopy } from 'lucide-react'
 import { Suspense, useCallback, useMemo } from 'react'
@@ -49,25 +50,27 @@ const query = graphql(`
 	}
 `)
 
+/** Plain version for callers outside React (the sidebar loads it on demand) */
+export const prefetchRecentlyAddedSeries = (client: QueryClient, sdk: Api) =>
+	client.prefetchInfiniteQuery({
+		queryKey: ['recentlyAddedSeries2'],
+		initialPageParam: {
+			cursor: {
+				limit: 20,
+			},
+		},
+		queryFn: ({ pageParam }) => {
+			return sdk.execute(query, {
+				pagination: pageParam,
+			})
+		},
+		staleTime: PREFETCH_STALE_TIME,
+	})
+
 export const usePrefetchRecentlyAddedSeries = () => {
 	const { sdk } = useSDK()
 	const client = useQueryClient()
-	return useCallback(() => {
-		return client.prefetchInfiniteQuery({
-			queryKey: ['recentlyAddedSeries2'],
-			initialPageParam: {
-				cursor: {
-					limit: 20,
-				},
-			},
-			queryFn: ({ pageParam }) => {
-				return sdk.execute(query, {
-					pagination: pageParam,
-				})
-			},
-			staleTime: PREFETCH_STALE_TIME,
-		})
-	}, [sdk, client])
+	return useCallback(() => prefetchRecentlyAddedSeries(client, sdk), [sdk, client])
 }
 
 function RecentlyAddedSeries() {

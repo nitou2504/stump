@@ -1,5 +1,5 @@
 import { Button, Text } from '@stump/components'
-import { upperFirst } from 'lodash'
+import upperFirst from 'lodash/upperFirst'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { useTranslate } from '@/hooks/useTranslate'
