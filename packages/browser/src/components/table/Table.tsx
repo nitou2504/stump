@@ -113,21 +113,22 @@ export default function Table<T, V>({
 
 	const pageCount = options.pageCount ?? table.getPageCount()
 	const dataCount = data.length
+	const tableRows = table.getRowModel().rows
+	const shownCount = tableRows.length
 	const viewBounds = useMemo(() => {
-		// always prioritize provided totalCount
-		const actualTotalCount = totalCount ?? pageCount * pageSize
-
-		const expectedLastIndex = (pageIndex + 1) * pageSize
-		const expectedFirstIndex = expectedLastIndex - (pageSize - 1)
-
-		const actualLastIndex = Math.min(expectedLastIndex, actualTotalCount)
+		const firstIndex = pageIndex * pageSize + 1
+		// The rows on screen, not a full page: "1 to 10 of 10" for a single user was wrong
+		const lastIndex = firstIndex + shownCount - 1
+		// always prioritize provided totalCount; otherwise only the last page knows the total
+		const isLastPage = pageCount < 1 || pageIndex + 1 >= pageCount
+		const actualTotalCount = totalCount ?? (isLastPage ? lastIndex : pageCount * pageSize)
 
 		return {
-			firstIndex: expectedFirstIndex,
-			lastIndex: actualLastIndex,
+			firstIndex,
+			lastIndex,
 			totalCount: actualTotalCount,
 		}
-	}, [pageCount, pageSize, pageIndex, totalCount])
+	}, [pageCount, pageSize, pageIndex, totalCount, shownCount])
 
 	const handleFilter = (value?: string) => {
 		const filterCol = filterColRef.current?.value
@@ -141,8 +142,6 @@ export default function Table<T, V>({
 	const handlePageChanged = (page: number) => {
 		table.setPageIndex(isZeroBasedPagination ? page : page - 1)
 	}
-
-	const tableRows = table.getRowModel().rows
 
 	return (
 		<div className="flex flex-col">
