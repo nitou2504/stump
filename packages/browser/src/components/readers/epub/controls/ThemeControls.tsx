@@ -35,7 +35,11 @@ export default function ThemeControls() {
 				</ControlButton>
 			</Dialog.Trigger>
 
-			<Dialog.Content size="md" className="gap-4 z-101 flex flex-col bg-muted">
+			{/* Taller than a phone screen (and a landscape one): keep it inside the viewport and scroll */}
+			<Dialog.Content
+				size="md"
+				className="gap-4 z-101 flex max-h-[calc(100dvh-2rem)] flex-col overflow-y-auto overscroll-contain bg-muted"
+			>
 				<Heading size="md">{translate('shared.epubReader.appearance')}</Heading>
 
 				<ReaderThemePicker />
