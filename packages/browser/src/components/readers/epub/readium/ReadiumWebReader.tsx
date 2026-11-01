@@ -53,16 +53,40 @@ import EpubReaderShortcuts from '../controls/EpubReaderShortcuts'
 import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from '../controls/pageTap'
 import EpubReaderContainer from '../EpubReaderContainer'
 import {
+	extractDocumentBody,
+	extractNote,
+	findTargetElement,
+	parseBookPage,
+} from '../links/noteContent'
+import NotePopup, { type OpenNote } from '../links/NotePopup'
+import {
+	isExternalHref,
+	isNoteLink,
+	isShortReference,
+	type LinkFacts,
+	linkLooksLikeNote,
+	resolvePublicationTarget,
+	targetLocator,
+} from '../links/resolveLink'
+import ReturnChip from '../links/ReturnChip'
+import { useLinkReturnStack } from '../links/useLinkReturnStack'
+import { createStumpFetch } from './createStumpHttpFetcher'
+import {
 	hrefsMatch,
 	packagePathFromHref,
 	resolveInitialLocator,
 	toolkitLocatorToInput,
 	toolkitLocatorToReaderLocator,
+	unmangleHref,
 } from './locator'
 import { type OpenedPublication, openStumpPublication } from './openPublication'
 import { bookPreferencesToEpubPreferences, resolveReaderTheme } from './preferences'
 import { useReaderChromeTheme } from './useReaderChromeTheme'
-import { useReadiumNavigator } from './useReadiumNavigator'
+import {
+	type ReaderLinkActivation,
+	type ReadiumNavigatorApi,
+	useReadiumNavigator,
+} from './useReadiumNavigator'
 
 type Props = {
 	id: string
@@ -186,6 +210,11 @@ const mutation = graphql(`
 // (React error #185, e.g. when going back into the reader)
 const NO_POSITIONS: Locator[] = []
 const NO_DOMAINS: string[] = []
+/** What is known about a link Readium handed over: nothing but its URL */
+const NO_LINK_FACTS: LinkFacts = { text: '', epubTypes: [], roles: [], superscript: false }
+
+/** A note shown in the popup, and where its own place in the book is (if the reader can go) */
+type ShownNote = OpenNote & { place: Locator | null }
 
 type LoadState =
 	| { status: 'loading' }
@@ -550,18 +579,156 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		targetRef.current = target
 	}, [target])
 
-	// A tap on the page (not on a link, an annotation or a selection) closes the toolbar if one
-	// is open. Otherwise it is the page's own tap, which the navigation controls turn into a
-	// page turn or showing the reader controls on phones
+	/** The book's note shown in the popup (a footnote link was followed) */
+	const [shownNote, setShownNote] = useState<ShownNote | null>(null)
+	const shownNoteRef = useRef(shownNote)
+	useEffect(() => {
+		shownNoteRef.current = shownNote
+	}, [shownNote])
+
+	// A tap on the page (not on a link, an annotation or a selection) closes the toolbar or the
+	// note if one is open. Otherwise it is the page's own tap, which the navigation controls
+	// turn into a page turn or showing the reader controls on phones
 	const onTap = useCallback((tap: ReaderPageTapDetail) => {
 		if (targetRef.current) {
 			setTarget(null)
+			return
+		}
+		if (shownNoteRef.current) {
+			setShownNote(null)
 			return
 		}
 		containerRef.current?.dispatchEvent(
 			new CustomEvent<ReaderPageTapDetail>(READER_PAGE_TAP_EVENT, { bubbles: true, detail: tap }),
 		)
 	}, [])
+
+	// The navigator's API, for the link handling that the navigator itself calls into
+	const apiRef = useRef<ReadiumNavigatorApi | null>(null)
+	const goToPlace = useCallback(
+		(locator: Locator) => apiRef.current?.go(locator) ?? Promise.resolve(false),
+		[],
+	)
+	const getCurrentPlace = useCallback(() => apiRef.current?.currentLocator ?? null, [])
+	const {
+		canReturn,
+		follow: followWithReturn,
+		returnBack,
+	} = useLinkReturnStack({ goTo: goToPlace, current: getCurrentPlace })
+	const [returnHidden, setReturnHidden] = useState(false)
+
+	/** Go to a place a link (or a note's "Go to note") leads to, remembering the way back */
+	const followLink = useCallback(
+		(to: Locator) => {
+			setShownNote(null)
+			setReturnHidden(false)
+			void followWithReturn(to)
+		},
+		[followWithReturn],
+	)
+
+	/** The book's pages fetched to show a note from another page, by URL */
+	const pagesRef = useRef(new Map<string, Promise<Document | null>>())
+	const loadPage = useCallback(
+		(href: string): Promise<Document | null> => {
+			const pages = pagesRef.current
+			let page = pages.get(href)
+			if (!page) {
+				page = createStumpFetch(sdk)(href)
+					.then((response) => (response.ok ? response.text() : Promise.reject(response.status)))
+					.then(parseBookPage)
+					.catch((error) => {
+						console.error('[ReadiumWebReader] failed to load a linked page', error)
+						pages.delete(href)
+						return null
+					})
+				pages.set(href, page)
+			}
+			return page
+		},
+		[sdk],
+	)
+
+	/**
+	 * A link in the book was followed. Like KOReader: a footnote opens in a popup (the reader
+	 * stays put), other links inside the book move the reader (Return or Back come back),
+	 * links out of the book open in a new tab.
+	 */
+	const handleLink = useCallback(
+		async (link: ReaderLinkActivation) => {
+			if (!opened) return
+			const manifest = opened.publication.manifest
+			const resourceHrefs = [
+				...(manifest.readingOrder?.items ?? []),
+				...(manifest.resources?.items ?? []),
+			].map((item) => item.href)
+			const target = resolvePublicationTarget(link.href, resourceHrefs, opened.positions)
+			if (!target) {
+				if (isExternalHref(link.href)) {
+					window.open(unmangleHref(link.href), '_blank', 'noopener,noreferrer')
+				} else {
+					toast.error(translate('shared.epubReader.errors.linkUnavailable'))
+				}
+				return
+			}
+
+			const facts = link.facts ?? NO_LINK_FACTS
+			const place = targetLocator(target)
+			const sameDocument = !!link.document && hrefsMatch(link.document.baseURI, target.resourceHref)
+			// Only fetch another page when the link may well be a note
+			const mayBeNote = sameDocument || !place || linkLooksLikeNote(facts, target.fragment)
+			const page = !mayBeNote
+				? null
+				: sameDocument
+					? (link.document ?? null)
+					: await loadPage(target.resourceHref)
+			const element = page && target.fragment ? findTargetElement(page, target.fragment) : null
+
+			if (page && isNoteLink(facts, { element, navigable: !!place, fragment: target.fragment })) {
+				const context = {
+					baseHref: target.resourceHref,
+					sourcePath: link.document ? packagePathFromHref(link.document.baseURI) : undefined,
+					refId: link.id,
+				}
+				const note = target.fragment
+					? element && extractNote(page, target.fragment, context)
+					: extractDocumentBody(page, context)
+				if (note) {
+					const noteWord = translate('shared.epubReader.links.note')
+					setTarget(null)
+					setShownNote({
+						title: isShortReference(facts.text)
+							? `${noteWord} ${facts.text}`
+							: facts.text || noteWord,
+						html: note.html,
+						place,
+					})
+					return
+				}
+			}
+
+			if (place) {
+				followLink(place)
+			} else {
+				toast.error(translate('shared.epubReader.errors.linkUnavailable'))
+			}
+		},
+		[opened, loadPage, followLink, translate],
+	)
+
+	const onLinkActivated = useCallback(
+		(link: ReaderLinkActivation) => {
+			// A tap that closes the annotation toolbar does nothing else
+			if (targetRef.current) {
+				setTarget(null)
+				return
+			}
+			void handleLink(link)
+		},
+		[handleLink],
+	)
+
+	const closeNote = useCallback(() => setShownNote(null), [])
 
 	const { loadState, api } = useReadiumNavigator({
 		containerRef,
@@ -575,7 +742,11 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		onTextCleared,
 		onDecorationActivated,
 		onTap,
+		onLinkActivated,
 	})
+	useEffect(() => {
+		apiRef.current = api
+	}, [api])
 
 	// Each style is drawn in the reader theme's colours, so redraw when the theme changes.
 	// Readium mixes up the styles when it updates decorations in place (e.g. an underline
@@ -600,6 +771,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		: null
 	useEffect(() => {
 		setTarget(null)
+		setShownNote(null)
 	}, [currentPlace])
 
 	const clearSelectionState = useCallback(() => {
@@ -965,6 +1137,20 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 						onDelete={target.kind === 'annotation' ? deleteTargetAnnotation : undefined}
 					/>
 				)}
+
+			{shownNote && (
+				<NotePopup
+					note={shownNote}
+					onClose={closeNote}
+					onGoToNote={
+						shownNote.place ? () => shownNote.place && followLink(shownNote.place) : undefined
+					}
+				/>
+			)}
+
+			{canReturn && !returnHidden && !shownNote && (
+				<ReturnChip onReturn={returnBack} onHide={() => setReturnHidden(true)} />
+			)}
 
 			<AnnotationNoteDialog
 				open={noteDialog !== null}

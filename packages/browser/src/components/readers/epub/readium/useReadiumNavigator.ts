@@ -14,6 +14,7 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { forwardFrameKeyEvents } from '../../annotations/shortcuts'
 import { clearFramesSelection } from '../annotations/clearSelection'
+import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
 import { locatorToHref, resolvePublicationLinkLocator } from './locator'
 import {
 	attachFrameReloadGuard,
@@ -23,6 +24,12 @@ import {
 } from './patchDurableIframeSrc'
 
 type LoadState = { status: 'idle' | 'loading' | 'ready' } | { status: 'error'; message: string }
+
+/**
+ * A link followed in the book: tapped or clicked in a page (with what the page says about
+ * it), or one Readium couldn't open itself (only its URL)
+ */
+export type ReaderLinkActivation = Pick<FrameLink, 'href'> & Partial<Omit<FrameLink, 'href'>>
 
 type UseReadiumNavigatorArgs = {
 	containerRef: React.RefObject<HTMLDivElement | null>
@@ -41,6 +48,11 @@ type UseReadiumNavigatorArgs = {
 	 * (Readium handles those), with where it landed across the page (0-1)
 	 */
 	onTap?: (tap: { xFraction: number }) => void
+	/**
+	 * A link in the book was tapped or clicked (or Readium couldn't open one). Without this,
+	 * links to pages in the reading order are followed and other links open in a new tab
+	 */
+	onLinkActivated?: (link: ReaderLinkActivation) => void
 }
 
 export type UseReadiumNavigatorResult = {
@@ -92,6 +104,7 @@ export function useReadiumNavigator({
 	onTextCleared,
 	onDecorationActivated,
 	onTap,
+	onLinkActivated,
 }: UseReadiumNavigatorArgs): UseReadiumNavigatorResult {
 	const { translate } = useTranslate()
 	const [loadState, setLoadState] = useState<LoadState>({ status: 'idle' })
@@ -104,6 +117,7 @@ export function useReadiumNavigator({
 	const onTextClearedRef = useRef(onTextCleared)
 	const onDecorationActivatedRef = useRef(onDecorationActivated)
 	const onTapRef = useRef(onTap)
+	const onLinkActivatedRef = useRef(onLinkActivated)
 	const preferencesRef = useRef(preferences)
 	const decorationObserverRef = useRef<DecorationObserver | null>(null)
 	const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -117,6 +131,7 @@ export function useReadiumNavigator({
 		onTextClearedRef.current = onTextCleared
 		onDecorationActivatedRef.current = onDecorationActivated
 		onTapRef.current = onTap
+		onLinkActivatedRef.current = onLinkActivated
 		preferencesRef.current = preferences
 	}, [
 		onPositionChanged,
@@ -125,6 +140,7 @@ export function useReadiumNavigator({
 		onTextCleared,
 		onDecorationActivated,
 		onTap,
+		onLinkActivated,
 		preferences,
 	])
 
@@ -204,6 +220,33 @@ export function useReadiumNavigator({
 
 	/** Frames whose key presses are already forwarded to the host document */
 	const keyForwardedDocsRef = useRef(new WeakSet<Document>())
+	/** Frames whose link taps are already handled here (see `attachFrameLinkHandling`) */
+	const linkHandledDocsRef = useRef(new WeakSet<Document>())
+
+	const attachDocumentListeners = useCallback(
+		(doc: Document) => {
+			doc.removeEventListener('selectionchange', handleSelectionChange)
+			doc.addEventListener('selectionchange', handleSelectionChange)
+			// After selecting text the focus is inside the frame: forward its key presses so
+			// the reader's shortcuts still work. Lives as long as the frame's document
+			if (!keyForwardedDocsRef.current.has(doc)) {
+				keyForwardedDocsRef.current.add(doc)
+				forwardFrameKeyEvents(doc, document)
+			}
+			if (!linkHandledDocsRef.current.has(doc)) {
+				linkHandledDocsRef.current.add(doc)
+				attachFrameLinkHandling(doc, (link) => {
+					const onLink = onLinkActivatedRef.current
+					if (onLink) {
+						onLink(link)
+					} else if (/^(https?:|mailto:|tel:)/i.test(link.href)) {
+						window.open(link.href, '_blank', 'noopener,noreferrer')
+					}
+				})
+			}
+		},
+		[handleSelectionChange],
+	)
 
 	const attachFrameListeners = useCallback(() => {
 		const nav = navigatorRef.current
@@ -212,19 +255,12 @@ export function useReadiumNavigator({
 			try {
 				const doc = frame?.iframe?.contentWindow?.document
 				if (!doc) continue
-				doc.removeEventListener('selectionchange', handleSelectionChange)
-				doc.addEventListener('selectionchange', handleSelectionChange)
-				// After selecting text the focus is inside the frame: forward its key presses so
-				// the reader's shortcuts still work. Lives as long as the frame's document
-				if (!keyForwardedDocsRef.current.has(doc)) {
-					keyForwardedDocsRef.current.add(doc)
-					forwardFrameKeyEvents(doc, document)
-				}
+				attachDocumentListeners(doc)
 			} catch {
 				// Cross-origin or destroyed frame, ignore.
 			}
 		}
-	}, [handleSelectionChange])
+	}, [attachDocumentListeners])
 
 	useEffect(() => {
 		if (!publication || !positions.length || !containerRef.current) {
@@ -253,7 +289,14 @@ export function useReadiumNavigator({
 				patchHiddenFrameAnimationFrames()
 
 				const listeners: EpubNavigatorListeners = {
-					frameLoaded: () => {},
+					// Take over the page's links as soon as it loads, before it can be tapped
+					frameLoaded: (wnd: Window) => {
+						try {
+							attachDocumentListeners(wnd.document)
+						} catch {
+							// Cross-origin or destroyed frame, ignore.
+						}
+					},
 					timelineItemChanged: () => {},
 					positionChanged: (locator: Locator) => {
 						setCurrentLocator(locator)
@@ -263,8 +306,8 @@ export function useReadiumNavigator({
 					},
 					// Return true to suppress Readium's built-in quarter-based tap
 					// navigation (left quarter = back, right quarter = forward).
-					// Stump's own controls handle all navigation; link clicks inside
-					// the iframe are handled before this listener fires.
+					// Stump's own controls handle all navigation; link taps inside
+					// the frame are taken over before Readium sees them (`attachFrameLinkHandling`).
 					tap: (event: FrameClickEvent) => {
 						onTapRef.current?.({ xFraction: tapFraction(navigator, event) })
 						return true
@@ -278,6 +321,14 @@ export function useReadiumNavigator({
 					scroll: () => {},
 					customEvent: () => {},
 					handleLocator: (locator) => {
+						// Links Readium couldn't open itself (it gets them when a page's link escapes
+						// `attachFrameLinkHandling`, e.g. a frame not set up yet)
+						const onLink = onLinkActivatedRef.current
+						if (onLink) {
+							onLink({ href: locatorToHref(locator, navigator?.currentLocator?.href) })
+							return true
+						}
+
 						const internal = resolvePublicationLinkLocator(
 							locator,
 							positions,
@@ -413,6 +464,7 @@ export function useReadiumNavigator({
 		positions,
 		initialLocator,
 		allowedDomains,
+		attachDocumentListeners,
 		attachFrameListeners,
 		containerRef,
 		enqueueNavigation,

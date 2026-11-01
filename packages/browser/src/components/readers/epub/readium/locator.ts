@@ -47,6 +47,15 @@ export function fragmentFromHref(href: string): string | undefined {
 }
 
 /**
+ * Readium joins in-book links onto the current page's URL with a file-path join, which turns
+ * `http://host/...` into `http:/host/...` (and `new URL` then reads that as a path on the
+ * current host). Put the slash back.
+ */
+export function unmangleHref(href: string): string {
+	return href.replace(/^(https?):\/(?!\/)/i, '$1://')
+}
+
+/**
  * Resolve a locator emitted by Readium's external-link callback back into the
  * publication positions list. Readium sends absolute HTTP(S) links through that
  * callback even when they point at another resource in the same publication.
@@ -56,7 +65,7 @@ export function resolvePublicationLinkLocator(
 	positions: Locator[],
 	currentHref?: string,
 ): Locator | null {
-	const resolvedHref = resolveUrl(locator.href, currentHref)
+	const resolvedHref = resolveUrl(unmangleHref(locator.href), currentHref)
 	const position = positions.find((candidate) => hrefsMatch(candidate.href, resolvedHref))
 	if (!position) return null
 
@@ -70,7 +79,7 @@ export function resolvePublicationLinkLocator(
 
 /** Recombine a Locator's normalized href and first fragment for browser navigation. */
 export function locatorToHref(locator: Locator, currentHref?: string): string {
-	const href = resolveUrl(locator.href, currentHref)
+	const href = resolveUrl(unmangleHref(locator.href), currentHref)
 	const fragment = locator.locations.fragments[0]
 	return fragment ? `${href}#${fragment}` : href
 }

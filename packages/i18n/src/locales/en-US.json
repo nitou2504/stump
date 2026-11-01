@@ -3749,7 +3749,16 @@
       },
       "errors": {
         "openFailed": "Failed to open EPUB with Readium.",
-        "navigateFailed": "Failed to navigate to location"
+        "navigateFailed": "Failed to navigate to location",
+        "linkUnavailable": "This link points to a place that can't be opened"
+      },
+      "links": {
+        "note": "Note",
+        "goToNote": "Go to note",
+        "close": "Close",
+        "return": "Return",
+        "returnTitle": "Return to where you followed the link",
+        "hideReturn": "Hide"
       },
       "tableOfContents": "Table of Contents",
       "bookmarksAndAnnotations": "Bookmarks & Annotations",

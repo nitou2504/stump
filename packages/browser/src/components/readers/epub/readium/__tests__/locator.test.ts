@@ -8,6 +8,7 @@ import {
 	packagePathFromHref,
 	resolveInitialLocator,
 	resolvePublicationLinkLocator,
+	unmangleHref,
 } from '../locator'
 
 describe('packagePathFromHref', () => {
@@ -73,6 +74,28 @@ describe('resolvePublicationLinkLocator', () => {
 		expect(locatorToHref(clicked, position.href)).toBe(
 			'http://localhost:10801/api/v2/epub/book/outside.xhtml#part',
 		)
+	})
+
+	// Readium joins relative links onto the page's absolute URL with a path join
+	it('repairs the `http:/host` URLs Readium hands over for in-book links', () => {
+		const clicked = new Locator({
+			href: 'http:/localhost:10801/api/v2/epub/book/resource/OEBPS/appendix.xhtml#note',
+			type: '',
+		})
+		const current = 'http://localhost:10801/api/v2/epub/book/resource/OEBPS/chapter.xhtml'
+
+		expect(locatorToHref(clicked, current)).toBe(`${position.href}#note`)
+		expect(resolvePublicationLinkLocator(clicked, [position], current)?.href).toBe(position.href)
+	})
+})
+
+describe('unmangleHref', () => {
+	it('puts back the slash a path join removed, and leaves other links alone', () => {
+		expect(unmangleHref('http:/host/a.xhtml')).toBe('http://host/a.xhtml')
+		expect(unmangleHref('https:/host/a.xhtml#n1')).toBe('https://host/a.xhtml#n1')
+		expect(unmangleHref('https://host/a.xhtml')).toBe('https://host/a.xhtml')
+		expect(unmangleHref('notas.xhtml#nt1')).toBe('notas.xhtml#nt1')
+		expect(unmangleHref('mailto:someone@example.com')).toBe('mailto:someone@example.com')
 	})
 })
 
