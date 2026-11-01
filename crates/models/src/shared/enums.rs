@@ -869,6 +869,9 @@ pub enum UserPermission {
 	/// Grant access to remove books from their library. Removed books are hidden everywhere
 	/// but their files stay on disk, and a library manager can restore them
 	RemoveBook,
+	/// Grant access to the "Add books" inbox: upload books, review the proposed metadata,
+	/// author folder and tags, and file them into the libraries the user can access
+	AddBooks,
 	/// Grant access to read users.
 	///
 	/// Note that this is explicitly for querying users via user-specific endpoints.

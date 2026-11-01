@@ -7,6 +7,7 @@ pub mod enums;
 pub mod ignore_rules;
 pub mod image;
 pub mod image_processor_options;
+pub mod intake;
 pub mod ordering;
 pub mod permission_set;
 pub mod readium;
