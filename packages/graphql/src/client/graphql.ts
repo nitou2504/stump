@@ -7505,6 +7505,75 @@ export type UpdateHomeArrangementMutationVariables = Exact<{
 
 export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHomeArrangement: { __typename?: 'HomeArrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } };
 
+export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, csvPath?: string | null, notes: Array<string> } | null }> };
+
+export type IntakeLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeLibrariesQuery = { __typename?: 'Query', intakeLibraries: Array<{ __typename?: 'Library', id: string, name: string }> };
+
+export type IntakeVocabularyQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  search?: InputMaybe<Scalars['String']['input']>;
+  limit?: Scalars['Int']['input'];
+}>;
+
+
+export type IntakeVocabularyQuery = { __typename?: 'Query', intakeVocabulary: Array<{ __typename?: 'IntakeVocabularyEntry', value: string, count: number, kind: string }> };
+
+export type IntakeFoldersQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  seriesKind?: InputMaybe<IntakeSeriesKind>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  limit?: Scalars['Int']['input'];
+}>;
+
+
+export type IntakeFoldersQuery = { __typename?: 'Query', intakeFolders: Array<{ __typename?: 'IntakeFolder', name: string, books: number }> };
+
+export type IntakeUploadMutationVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  files: Array<Scalars['Upload']['input']> | Scalars['Upload']['input'];
+  relativePaths?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+  mode?: IntakeUploadMode;
+}>;
+
+
+export type IntakeUploadMutation = { __typename?: 'Mutation', intakeUpload: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
+
+export type IntakeReviewMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  input: IntakeReviewInput;
+}>;
+
+
+export type IntakeReviewMutation = { __typename?: 'Mutation', intakeReview: { __typename?: 'IntakeItem', id: string, state: IntakeState } };
+
+export type IntakeReanalyseMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  online?: InputMaybe<Scalars['Boolean']['input']>;
+}>;
+
+
+export type IntakeReanalyseMutation = { __typename?: 'Mutation', intakeReanalyse: { __typename?: 'IntakeItem', id: string, state: IntakeState } };
+
+export type IntakeAcceptMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeAcceptMutation = { __typename?: 'Mutation', intakeAccept: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState, error?: string | null }> };
+
+export type IntakeDiscardMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeDiscardMutation = { __typename?: 'Mutation', intakeDiscard: number };
+
 export type LibrariesSceneQueryVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -7654,6 +7723,21 @@ export type InitFetchJobMutationVariables = Exact<{
 
 
 export type InitFetchJobMutation = { __typename?: 'Mutation', fetchLibraryMetadata: boolean };
+
+export type LibraryAddBooksSettingsQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+}>;
+
+
+export type LibraryAddBooksSettingsQuery = { __typename?: 'Query', libraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string, mangaDir: string, lightNovelDir: string, csvPath?: string | null, onlineLookup: boolean } };
+
+export type UpdateLibraryAddBooksSettingsMutationVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  input: LibraryIntakeSettingsInput;
+}>;
+
+
+export type UpdateLibraryAddBooksSettingsMutation = { __typename?: 'Mutation', updateLibraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string } };
 
 export type ScanHistorySectionClearHistoryMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -8103,6 +8187,14 @@ export type ProvidersSectionGetProvidersQuery = { __typename?: 'Query', metadata
     { __typename?: 'MetadataProviderConfigModel', id: number }
     & { ' $fragmentRefs'?: { 'ExistingProviderCardFragment': ExistingProviderCardFragment } }
   )> };
+
+export type AdminRecentlyAddedBooksQueryVariables = Exact<{
+  userId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: Scalars['Int']['input'];
+}>;
+
+
+export type AdminRecentlyAddedBooksQuery = { __typename?: 'Query', recentlyAddedBooks: Array<{ __typename?: 'RecentlyAddedBook', itemId: string, userId: string, username?: string | null, title: string, authors: Array<string>, series?: string | null, paths: Array<string>, libraryId: string, libraryName: string, filedAt?: any | null, mediaIds: Array<string> }> };
 
 export type CreateTagModalMutationVariables = Exact<{
   tags: Array<Scalars['String']['input']> | Scalars['String']['input'];
@@ -15022,6 +15114,197 @@ export const UpdateHomeArrangementDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateHomeArrangementMutation, UpdateHomeArrangementMutationVariables>;
+export const IntakeItemsDocument = new TypedDocumentString(`
+    query IntakeItems {
+  intakeItems {
+    id
+    libraryId
+    libraryName
+    state
+    kind
+    name
+    error
+    createdAt
+    filedAt
+    problems
+    mediaIds
+    files {
+      originalName
+      size
+      format
+      volume
+      title
+    }
+    proposal {
+      metadata {
+        title
+        authors
+        series
+        seriesIndex
+        language
+        year
+        publisher
+        description
+        isbn
+        subjects
+        genres
+        sources {
+          field
+          source
+        }
+      }
+      seriesKind
+      authorFolders {
+        folder
+        books
+        confidence
+        reason
+        isNew
+      }
+      seriesFolders {
+        folder
+        books
+        confidence
+        reason
+        isNew
+      }
+      genreSuggestions {
+        value
+        confidence
+        reasons
+        libraryCount
+        selected
+        kind
+      }
+      similarBooks {
+        mediaId
+        title
+        authors
+        genres
+        reason
+      }
+      duplicates {
+        mediaId
+        path
+        title
+        reason
+        fileName
+      }
+      warnings
+      confidence
+      lookedUpOnline
+    }
+    decision {
+      metadata {
+        title
+        authors
+        series
+        seriesIndex
+        language
+        year
+        publisher
+        genres
+        ageRating
+        sources {
+          field
+          source
+        }
+      }
+      seriesKind
+      folder
+      fileNames
+      volumes
+    }
+    destination {
+      relativeDir
+      dirExists
+      files {
+        originalName
+        relativePath
+        exists
+      }
+    }
+    result {
+      paths
+      csvPath
+      notes
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeItemsQuery, IntakeItemsQueryVariables>;
+export const IntakeLibrariesDocument = new TypedDocumentString(`
+    query IntakeLibraries {
+  intakeLibraries {
+    id
+    name
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeLibrariesQuery, IntakeLibrariesQueryVariables>;
+export const IntakeVocabularyDocument = new TypedDocumentString(`
+    query IntakeVocabulary($libraryId: ID!, $search: String, $limit: Int! = 20) {
+  intakeVocabulary(libraryId: $libraryId, search: $search, limit: $limit) {
+    value
+    count
+    kind
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeVocabularyQuery, IntakeVocabularyQueryVariables>;
+export const IntakeFoldersDocument = new TypedDocumentString(`
+    query IntakeFolders($libraryId: ID!, $seriesKind: IntakeSeriesKind, $search: String, $limit: Int! = 20) {
+  intakeFolders(
+    libraryId: $libraryId
+    seriesKind: $seriesKind
+    search: $search
+    limit: $limit
+  ) {
+    name
+    books
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeFoldersQuery, IntakeFoldersQueryVariables>;
+export const IntakeUploadDocument = new TypedDocumentString(`
+    mutation IntakeUpload($libraryId: ID!, $files: [Upload!]!, $relativePaths: [String!], $mode: IntakeUploadMode! = AUTO) {
+  intakeUpload(
+    libraryId: $libraryId
+    files: $files
+    relativePaths: $relativePaths
+    mode: $mode
+  ) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeUploadMutation, IntakeUploadMutationVariables>;
+export const IntakeReviewDocument = new TypedDocumentString(`
+    mutation IntakeReview($id: ID!, $input: IntakeReviewInput!) {
+  intakeReview(id: $id, input: $input) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeReviewMutation, IntakeReviewMutationVariables>;
+export const IntakeReanalyseDocument = new TypedDocumentString(`
+    mutation IntakeReanalyse($id: ID!, $online: Boolean) {
+  intakeReanalyse(id: $id, online: $online) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeReanalyseMutation, IntakeReanalyseMutationVariables>;
+export const IntakeAcceptDocument = new TypedDocumentString(`
+    mutation IntakeAccept($ids: [ID!]!) {
+  intakeAccept(ids: $ids) {
+    id
+    state
+    error
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeAcceptMutation, IntakeAcceptMutationVariables>;
+export const IntakeDiscardDocument = new TypedDocumentString(`
+    mutation IntakeDiscard($ids: [ID!]!) {
+  intakeDiscard(ids: $ids)
+}
+    `) as unknown as TypedDocumentString<IntakeDiscardMutation, IntakeDiscardMutationVariables>;
 export const LibrariesSceneDocument = new TypedDocumentString(`
     query LibrariesScene {
   libraries(pagination: {none: {unpaginated: true}}) {
@@ -15413,6 +15696,24 @@ export const InitFetchJobDocument = new TypedDocumentString(`
   fetchLibraryMetadata(id: $id)
 }
     `) as unknown as TypedDocumentString<InitFetchJobMutation, InitFetchJobMutationVariables>;
+export const LibraryAddBooksSettingsDocument = new TypedDocumentString(`
+    query LibraryAddBooksSettings($libraryId: ID!) {
+  libraryIntakeSettings(libraryId: $libraryId) {
+    libraryId
+    mangaDir
+    lightNovelDir
+    csvPath
+    onlineLookup
+  }
+}
+    `) as unknown as TypedDocumentString<LibraryAddBooksSettingsQuery, LibraryAddBooksSettingsQueryVariables>;
+export const UpdateLibraryAddBooksSettingsDocument = new TypedDocumentString(`
+    mutation UpdateLibraryAddBooksSettings($libraryId: ID!, $input: LibraryIntakeSettingsInput!) {
+  updateLibraryIntakeSettings(libraryId: $libraryId, input: $input) {
+    libraryId
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateLibraryAddBooksSettingsMutation, UpdateLibraryAddBooksSettingsMutationVariables>;
 export const ScanHistorySectionClearHistoryDocument = new TypedDocumentString(`
     mutation ScanHistorySectionClearHistory($id: ID!) {
   clearScanHistory(id: $id)
@@ -16087,6 +16388,23 @@ fragment ExistingProviderCard on MetadataProviderConfigModel {
   updatedAt
   ...EditProviderDialog
 }`) as unknown as TypedDocumentString<ProvidersSectionGetProvidersQuery, ProvidersSectionGetProvidersQueryVariables>;
+export const AdminRecentlyAddedBooksDocument = new TypedDocumentString(`
+    query AdminRecentlyAddedBooks($userId: ID, $limit: Int! = 50) {
+  recentlyAddedBooks(userId: $userId, limit: $limit) {
+    itemId
+    userId
+    username
+    title
+    authors
+    series
+    paths
+    libraryId
+    libraryName
+    filedAt
+    mediaIds
+  }
+}
+    `) as unknown as TypedDocumentString<AdminRecentlyAddedBooksQuery, AdminRecentlyAddedBooksQueryVariables>;
 export const CreateTagModalDocument = new TypedDocumentString(`
     mutation CreateTagModal($tags: [String!]!) {
   createTags(tags: $tags) {
