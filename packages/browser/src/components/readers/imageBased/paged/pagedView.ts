@@ -246,3 +246,22 @@ export function tapZone(xFraction: number, coarse: boolean): TapZone {
 	if (xFraction > 1 - side) return 'right'
 	return 'middle'
 }
+
+// The colour around the pages ------------------------------------------------------------------
+
+/** The colour around the pages for the background setting (`null`: the theme's own) */
+export function backgroundColor(
+	setting: 'theme' | 'auto' | 'black' | 'white',
+	tone: 'dark' | 'light' | null | undefined,
+): string | null {
+	switch (setting) {
+		case 'black':
+			return '#000000'
+		case 'white':
+			return '#ffffff'
+		case 'auto':
+			return tone === 'dark' ? '#000000' : tone === 'light' ? '#ffffff' : null
+		default:
+			return null
+	}
+}

@@ -16,8 +16,9 @@ import {
 	type Point,
 } from '../../shared/zoomAnchor'
 import { useImageBaseReaderContext } from '../context'
-import { analysePage, type PageAnalysis, usePageAnalyses } from '../pageAnalysis'
+import { analysePage, usePageAnalyses } from '../pageAnalysis'
 import {
+	backgroundColor,
 	type Box,
 	buildViews,
 	entryPos,
@@ -133,28 +134,50 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 
 	// The view on screen: follows the page in the URL (go to page, progress), keeping the half
 	// of a split page that a step or turn chose
-	const [viewIndex, setViewIndex] = useState(() => Math.max(0, viewOfPage(views, currentPage - 1)))
-	const chosenViewRef = useRef<number | null>(null)
+	// a split page opens on the half read first: the right one in a right-to-left book
+	const firstHalf = rtl ? 'right' : 'left'
+	const [viewIndex, setViewIndex] = useState(() =>
+		Math.max(0, viewOfPage(views, currentPage - 1, firstHalf)),
+	)
+	/** A view a step or turn chose, until the URL catches up with its page */
+	const chosenViewRef = useRef<{ index: number; page: number } | null>(null)
+	// the item last shown, to tell a page that got split from a half chosen by a step
+	const shownItemRef = useRef<ViewItem | null>(null)
 	useEffect(() => {
 		const chosen = chosenViewRef.current
-		chosenViewRef.current = null
-		if (chosen !== null && views[chosen]?.some((item) => item.page === currentPage - 1)) {
-			setViewIndex(chosen)
-			return
+		if (chosen) {
+			// the URL hasn't caught up with a turn yet (e.g. a page's size arrived meanwhile)
+			if (chosen.page !== currentPage - 1) return
+			chosenViewRef.current = null
+			if (views[chosen.index]?.some((item) => item.page === chosen.page)) {
+				setViewIndex(chosen.index)
+				return
+			}
 		}
+		// read now: the updater below runs at the next render, after `shownItemRef` moved on
+		const before = shownItemRef.current
 		setViewIndex((index) => {
-			if (views[index]?.some((item) => item.page === currentPage - 1)) return index
+			const item = views[index]?.find((one) => one.page === currentPage - 1)
+			if (item) {
+				// a page on screen that has just been split (its size became known): its first half
+				const justSplit =
+					item.part !== 'whole' && before?.page === item.page && before.part === 'whole'
+				return justSplit ? Math.max(0, viewOfPage(views, currentPage - 1, firstHalf)) : index
+			}
 			// another page from outside (go to page, the pages grid): its start, at its fit
 			pendingEntryRef.current = { toward: rtl ? -1 : 1, forward: true }
 			setZoom(1)
-			return Math.max(0, viewOfPage(views, currentPage - 1))
+			return Math.max(0, viewOfPage(views, currentPage - 1, firstHalf))
 		})
-	}, [currentPage, views, rtl])
+	}, [currentPage, views, rtl, firstHalf])
 
 	const items = useMemo<ViewItem[]>(
 		() => views[viewIndex] ?? [{ page: currentPage - 1, part: 'whole' }],
 		[views, viewIndex, currentPage],
 	)
+	useEffect(() => {
+		shownItemRef.current = items.length === 1 ? items[0]! : null
+	}, [items])
 
 	// What's drawn: each item's box in its image (cropped, a half), and the view's size at its fit
 	const crops = cropBorders && items.length === 1
@@ -232,7 +255,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const pages = view.map((item) => item.page)
 			const page = (forward ? Math.min(...pages) : Math.max(...pages)) + 1
 			if (page !== currentPage) {
-				chosenViewRef.current = index
+				chosenViewRef.current = { index, page: page - 1 }
 				onPageChange(page)
 			}
 		},
@@ -657,14 +680,13 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				data-testid="comic-pages"
 				data-view={viewIndex}
 				data-zoom={zoom}
-				className="comic-pages fixed overflow-auto overscroll-none select-none"
+				className="fixed overflow-auto overscroll-none select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 				style={{
 					top: 'env(safe-area-inset-top)',
 					right: 'env(safe-area-inset-right)',
 					bottom: 'env(safe-area-inset-bottom)',
 					left: 'env(safe-area-inset-left)',
 					touchAction,
-					scrollbarWidth: 'none',
 				}}
 				onPointerDown={onPointerDown}
 				onPointerUp={onPointerUp}
@@ -717,26 +739,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 					onLoad={(size) => setPageSize(page, { ...size, ratio: size.width / size.height })}
 				/>
 			))}
-			<style>{`.comic-pages::-webkit-scrollbar{display:none}`}</style>
 		</>
 	)
-}
-
-/** The colour around the pages for the background setting (`null`: the theme's own) */
-export function backgroundColor(
-	setting: 'theme' | 'auto' | 'black' | 'white',
-	tone: PageAnalysis['tone'] | undefined,
-): string | null {
-	switch (setting) {
-		case 'black':
-			return '#000000'
-		case 'white':
-			return '#ffffff'
-		case 'auto':
-			return tone === 'dark' ? '#000000' : tone === 'light' ? '#ffffff' : null
-		default:
-			return null
-	}
 }
 
 type PageImageProps = {
