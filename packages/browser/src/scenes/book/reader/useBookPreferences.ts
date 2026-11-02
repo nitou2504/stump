@@ -80,9 +80,12 @@ export function isMangaBook(book: { metadata?: { genres?: string[] | null } | nu
 }
 
 /**
- * A library's default fit is chosen for a wide screen: fit-to-height crops a page on a portrait
- * phone (a manga page is wider than the screen there), so on such screens it becomes fit-page
- * (the whole page). A fit the reader chose for the book itself is never changed.
+ * A library's default fit is chosen for a wide screen, where fit-to-height shows a whole page
+ * (or a two-page spread). On a phone, in portrait or landscape, it shrinks the page (and in
+ * landscape a page fitted to a 390px height is unreadable): there the page fits the screen's
+ * width instead, scrolling down a tall page, like Mihon's or Kavita's fit-width (in portrait a
+ * manga page at full width nearly fits anyway). A fit the reader chose for the book itself is
+ * never changed.
  */
 export function fitForScreen(
 	fit: ReadingImageScaleFit,
@@ -91,8 +94,12 @@ export function fitForScreen(
 		: { width: window.innerWidth, height: window.innerHeight },
 ): ReadingImageScaleFit {
 	if (!screen || fit !== ReadingImageScaleFit.Height) return fit
-	const isPortraitPhone = screen.width < 640 && screen.height > screen.width
-	return isPortraitPhone ? ReadingImageScaleFit.Auto : fit
+	return isPhoneScreen(screen) ? ReadingImageScaleFit.Width : fit
+}
+
+/** A phone (or a small tablet in portrait): narrower than two pages need, or short in landscape */
+export function isPhoneScreen(screen: { width: number; height: number }): boolean {
+	return screen.width < 900 || Math.min(screen.width, screen.height) < 500
 }
 
 const defaultsFromLibraryConfig = (
@@ -110,6 +117,8 @@ const defaultsFromLibraryConfig = (
 		: undefined,
 	// manga reads right to left unless the book's own preference says otherwise
 	readingDirection: isManga ? ReadingDirection.Rtl : libraryConfig?.defaultReadingDir,
+	// and shows two pages side by side when there's room: a wide screen in landscape
+	...(isManga ? { doublePageBehavior: 'auto' as const } : {}),
 	readingMode: libraryConfig?.defaultReadingMode,
 })
 
