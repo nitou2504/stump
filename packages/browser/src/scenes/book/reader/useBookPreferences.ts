@@ -1,7 +1,7 @@
 import { BookPreferences, ReaderSettings, ReaderStore } from '@stump/client'
 import { PickSelect } from '@stump/components'
 import { BookReaderSceneQuery, ReadingDirection, ReadingImageScaleFit } from '@stump/graphql'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { ImageReaderBookRef } from '@/components/readers/imageBased/context'
@@ -42,9 +42,11 @@ export function useBookPreferences({ book }: Params): Return {
 	 */
 	const libraryConfig = useMemo(() => book.libraryConfig, [book])
 	const isManga = useMemo(() => isMangaBook(book), [book])
+	// recomputed when a phone turns: its default fit differs in portrait and landscape
+	const screen = useScreenShape()
 	const libraryDefaults = useMemo(
-		() => defaultsFromLibraryConfig(libraryConfig, isManga),
-		[libraryConfig, isManga],
+		() => defaultsFromLibraryConfig(libraryConfig, isManga, screen),
+		[libraryConfig, isManga, screen],
 	)
 
 	const bookPreferences = useMemo(
@@ -80,11 +82,13 @@ export function isMangaBook(book: { metadata?: { genres?: string[] | null } | nu
 
 /**
  * A library's default fit is chosen for a wide screen, where fit-to-height (or fit-page) shows
- * a whole page (or a two-page spread). On a phone, in portrait or landscape, it shrinks the page (and in
- * landscape a page fitted to a 390px height is unreadable): there the page fits the screen's
- * width instead, scrolling down a tall page, like Mihon's or Kavita's fit-width (in portrait a
- * manga page at full width nearly fits anyway). A fit the reader chose for the book itself is
- * never changed.
+ * a whole page (or a two-page spread). On a phone it would shrink the page:
+ * - in portrait the page fits the screen (Fit Page, Mihon's default 'fit screen'): a manga
+ *   page then fills the width, as fit-width would, and a wide (two-page) image gets the wide
+ *   page handling (zoomed in and panned, or split), which belongs to Fit Page;
+ * - in landscape a page fitted to a 390px height is unreadable: the page fits the screen's
+ *   width instead and is read down in steps (Mihon's, Kavita's fit-width).
+ * A fit the reader chose for the book itself is never changed.
  */
 export function fitForScreen(
 	fit: ReadingImageScaleFit,
@@ -93,8 +97,41 @@ export function fitForScreen(
 		: { width: window.innerWidth, height: window.innerHeight },
 ): ReadingImageScaleFit {
 	const wholePage = fit === ReadingImageScaleFit.Height || fit === ReadingImageScaleFit.Auto
-	if (!screen || !wholePage) return fit
-	return isPhoneScreen(screen) ? ReadingImageScaleFit.Width : fit
+	if (!screen || !wholePage || !isPhoneScreen(screen)) return fit
+	return screen.height > screen.width ? ReadingImageScaleFit.Auto : ReadingImageScaleFit.Width
+}
+
+/** The screen as far as the default fit cares: a phone or not, upright or on its side */
+type ScreenShape = { width: number; height: number }
+
+/**
+ * The screen's shape, kept current through rotations (a phone's default fit depends on it).
+ * Only the orientation and the phone/larger-screen line matter, so a phone's address bar
+ * showing or hiding (a resize too) doesn't re-render the readers.
+ */
+function useScreenShape(): ScreenShape | undefined {
+	const [key, setKey] = useState(screenShapeKey)
+	useEffect(() => {
+		const update = () => setKey(screenShapeKey())
+		window.addEventListener('resize', update)
+		return () => window.removeEventListener('resize', update)
+	}, [])
+	// the size at the time the shape last changed
+	return useMemo(
+		() =>
+			key && typeof window !== 'undefined'
+				? { width: window.innerWidth, height: window.innerHeight }
+				: undefined,
+		[key],
+	)
+}
+
+/** What the default fit depends on: a phone or a larger screen, in portrait or landscape */
+function screenShapeKey(): string {
+	if (typeof window === 'undefined') return ''
+	const screen = { width: window.innerWidth, height: window.innerHeight }
+	const kind = isPhoneScreen(screen) ? 'phone' : 'wide'
+	return `${kind}-${screen.height > screen.width ? 'portrait' : 'landscape'}`
 }
 
 /** Whether this screen is a phone's (see {@link isPhoneScreen}) */
@@ -112,14 +149,15 @@ export function isPhoneScreen(screen: { width: number; height: number }): boolea
 const defaultsFromLibraryConfig = (
 	libraryConfig?: PickSelect<NonNullable<BookReaderSceneQuery['mediaById']>, 'libraryConfig'>,
 	isManga = false,
+	screen?: ScreenShape,
 ): Partial<BookPreferences> => ({
 	brightness: 1,
-	// imageScaling: {
-	// 	scaleToFit: libraryConfig?.defaultReadingImageScaleFit || ReadingImageScaleFit.Height,
-	// },
 	imageScaling: libraryConfig?.defaultReadingImageScaleFit
 		? {
-				scaleToFit: fitForScreen(libraryConfig.defaultReadingImageScaleFit as ReadingImageScaleFit),
+				scaleToFit: fitForScreen(
+					libraryConfig.defaultReadingImageScaleFit as ReadingImageScaleFit,
+					screen,
+				),
 			}
 		: undefined,
 	// manga reads right to left unless the book's own preference says otherwise

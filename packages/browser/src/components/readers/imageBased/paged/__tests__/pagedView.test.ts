@@ -3,11 +3,15 @@ import { ReadingImageScaleFit } from '@stump/graphql'
 import {
 	buildViews,
 	canSplit,
+	clampZoom,
 	entryPos,
 	fitSize,
 	itemBox,
+	MAX_ZOOM,
+	MIN_ZOOM,
 	stepView,
 	viewOfPage,
+	wideHandling,
 	wideZoomSize,
 } from '../pagedView'
 
@@ -205,5 +209,58 @@ describe('fitSize and wide pages', () => {
 		expect(size.w).toBeCloseTo(780)
 		// a very wide panorama: no taller than the screen
 		expect(wideZoomSize(4, { w: 390, h: 100 }).h).toBe(100)
+	})
+})
+
+describe('wideHandling: the wide-page setting belongs to Fit Page', () => {
+	const portraitPhone = { portrait: true, onePageAtATime: true }
+
+	it('zooms or splits wide pages with Fit Page on a portrait screen', () => {
+		const fit = ReadingImageScaleFit.Auto
+		expect(wideHandling({ ...portraitPhone, fit, widePages: 'zoom' })).toBe('zoom')
+		expect(wideHandling({ ...portraitPhone, fit, widePages: 'split' })).toBe('split')
+		expect(wideHandling({ ...portraitPhone, fit, widePages: 'fit' })).toBeNull()
+	})
+
+	it('draws wide pages at any other fit like every page, so each fit changes them', () => {
+		for (const fit of [
+			ReadingImageScaleFit.Height,
+			ReadingImageScaleFit.Width,
+			ReadingImageScaleFit.None,
+		]) {
+			expect(wideHandling({ ...portraitPhone, fit, widePages: 'zoom' })).toBeNull()
+			expect(wideHandling({ ...portraitPhone, fit, widePages: 'split' })).toBeNull()
+		}
+	})
+
+	it('leaves wide pages alone in landscape and in two-page spreads', () => {
+		const fit = ReadingImageScaleFit.Auto
+		expect(
+			wideHandling({ fit, widePages: 'zoom', portrait: false, onePageAtATime: true }),
+		).toBeNull()
+		expect(
+			wideHandling({ fit, widePages: 'split', portrait: true, onePageAtATime: false }),
+		).toBeNull()
+	})
+
+	it('gives the fits on a wide page four different sizes on a phone', () => {
+		const spread = [{ w: 2263, h: 1600 }] // Berserk v02 p.64-65
+		const sizes = [
+			wideZoomSize(2263 / 1600, phone), // Fit Page, wide pages zoomed (the default)
+			fitSize(spread, ReadingImageScaleFit.Height, phone),
+			fitSize(spread, ReadingImageScaleFit.Width, phone),
+			fitSize(spread, ReadingImageScaleFit.None, phone),
+		].map((size) => `${Math.round(size.w)}x${Math.round(size.h)}`)
+		expect(new Set(sizes).size).toBe(4)
+	})
+})
+
+describe('clampZoom: never out past the fit', () => {
+	it('stops at the fit and at five times it', () => {
+		expect(MIN_ZOOM).toBe(1)
+		expect(clampZoom(0.4)).toBe(1)
+		expect(clampZoom(2.5)).toBe(2.5)
+		expect(clampZoom(9)).toBe(MAX_ZOOM)
+		expect(clampZoom(Number.NaN)).toBe(1)
 	})
 })

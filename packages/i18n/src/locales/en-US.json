@@ -3939,7 +3939,7 @@
         "crop": "Crop",
         "cropHint": "Trims the blank margins around each page",
         "widePages": "Wide",
-        "widePagesHint": "Two-page images on a narrow screen",
+        "widePagesHint": "Two-page images with Fit Page on a narrow screen",
         "wideZoom": "Zoom In and Pan",
         "wideSplit": "Split in Two",
         "wideFit": "Fit Whole"
