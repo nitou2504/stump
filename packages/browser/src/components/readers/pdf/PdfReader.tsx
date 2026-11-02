@@ -26,6 +26,7 @@ import {
 	type ToolbarAnchor,
 } from '../annotations'
 import { useReaderChromeTheme } from '../epub/readium/useReaderChromeTheme'
+import { navigationTapZone, swipeOf, swipeTurn, zoneTurn } from '../shared/gestures'
 import {
 	canShowTwoPages,
 	effectiveLayout,
@@ -40,7 +41,6 @@ import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
 import { SwitchRow } from '../shared/settingsControls'
-import { navigationTapZone, swipeOf, swipeTurn, zoneTurn } from '../shared/gestures'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
 	anchorOnPage,
