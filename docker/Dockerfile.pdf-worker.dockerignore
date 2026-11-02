@@ -1,0 +1,8 @@
+# Build context of docker/Dockerfile.pdf-worker: only the worker's files (BuildKit reads this
+# file instead of the repository's .dockerignore for that Dockerfile)
+*
+!scripts/fork/workers/pdf_runner.py
+!scripts/fork/workers/pdf_worker.sh
+!scripts/fork/workers/test_pdf_runner.py
+!scripts/fork/workers/pdfrecipe
+scripts/fork/workers/pdfrecipe/__pycache__

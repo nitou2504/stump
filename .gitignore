@@ -55,3 +55,4 @@ apps/server/client/*
 lcov.info
 tarpaulin-report.html
 dist-fork/
+__pycache__/
