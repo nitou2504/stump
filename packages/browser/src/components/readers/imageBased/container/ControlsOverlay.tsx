@@ -359,9 +359,12 @@ function BackgroundRow() {
 					icon: (
 						<span
 							aria-hidden
-							className="size-4 block rounded-full border border-foreground/25"
+							className="size-4 font-serif flex items-center justify-center rounded-full border border-foreground/25 text-[9px] leading-none text-foreground"
 							style={{ background: swatch }}
-						/>
+						>
+							{/* the theme's own paper, with its text colour: not just another white */}
+							{value === 'theme' ? 'A' : null}
+						</span>
 					),
 				}))}
 			/>
