@@ -34,6 +34,7 @@ import { useReaderChromeTheme } from '../epub/readium/useReaderChromeTheme'
 import {
 	boundingRect,
 	clampZoom,
+	firstPageHint,
 	type FitMode,
 	type FractionRect,
 	pageCssSize,
@@ -90,7 +91,24 @@ type Props = {
 export default function PdfReader(props: Props) {
 	const { translate } = useTranslate()
 	const paths = usePaths()
-	const { data: layout, isLoading, error, refetch } = usePdfLayout(props.media.id)
+	const preferences = usePdfBookPreferences(props.media.id)
+	// Ask for the first page's picture with the layout (phones fit the width by default), so
+	// the server renders it while the layout travels back. Computed once: it only matters
+	// for the first request.
+	const [firstPage] = useState(() => {
+		if (typeof window === 'undefined') return undefined
+		const viewportWidth = window.innerWidth
+		const isPhone = viewportWidth < PHONE_MAX_WIDTH
+		return firstPageHint({
+			page: props.initialPage ?? props.media.readProgress?.page ?? 1,
+			viewportWidth,
+			devicePixelRatio: Math.min(2, window.devicePixelRatio || 1),
+			fit: preferences.fit ?? (isPhone ? 'width' : 'page'),
+			zoom: preferences.zoom ?? 1,
+			sidePadding: isPhone ? 0 : PAGE_GAP_DESKTOP,
+		})
+	})
+	const { data: layout, isLoading, error, refetch } = usePdfLayout(props.media.id, firstPage)
 	const setBookPreferences = usePdfReaderStore((state) => state.setBookPreferences)
 
 	if (isLoading) {

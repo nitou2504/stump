@@ -64,6 +64,38 @@ export function pickTier(cssWidth: number, devicePixelRatio: number, tiers: numb
 	return sorted.find((tier) => tier >= wanted) ?? sorted[sorted.length - 1]!
 }
 
+/** The server's picture tiers before it has sent the layout (`layout.tiers` once known) */
+export const DEFAULT_TIERS = [720, 1000, 1400, 2000, 2800]
+
+/**
+ * The first page's picture to ask for together with the layout, so the server starts it
+ * right away. Only a `width` fit is known before the layout arrives (its size doesn't depend
+ * on the page's shape), so other fits return `undefined` rather than a wrong guess that
+ * would keep the server's render thread busy.
+ */
+export function firstPageHint({
+	page,
+	viewportWidth,
+	devicePixelRatio,
+	fit,
+	zoom = 1,
+	sidePadding = 0,
+	tiers = DEFAULT_TIERS,
+}: {
+	page: number
+	viewportWidth: number
+	devicePixelRatio: number
+	fit: FitMode
+	zoom?: number
+	sidePadding?: number
+	tiers?: number[]
+}): { page: number; w: number } | undefined {
+	if (fit !== 'width' || !(viewportWidth > 0) || !(page >= 1)) return undefined
+	const cssWidth = Math.max(0, viewportWidth - sidePadding * 2) * clampZoom(zoom)
+	if (cssWidth <= 0) return undefined
+	return { page: Math.round(page), w: pickTier(cssWidth, devicePixelRatio, tiers) }
+}
+
 /** A page-fraction rect as CSS percentages, for absolutely positioned overlays */
 export function fractionRectStyle(rect: FractionRect) {
 	return {

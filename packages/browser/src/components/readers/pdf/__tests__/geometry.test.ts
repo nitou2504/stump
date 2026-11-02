@@ -1,6 +1,7 @@
 import {
 	boundingRect,
 	clampZoom,
+	firstPageHint,
 	fractionRectStyle,
 	mergeLineRects,
 	pageCssSize,
@@ -74,6 +75,45 @@ describe('pickTier', () => {
 	it('falls back to the largest tier, and to the wanted width without tiers', () => {
 		expect(pickTier(2000, 2, tiers)).toBe(2800)
 		expect(pickTier(500, 1.5, [])).toBe(750)
+	})
+})
+
+describe('firstPageHint', () => {
+	it('asks for the tier a width-fit page will request', () => {
+		// a 390px phone at 2x: the page is 390 css px wide -> 780 device px -> the 1000 tier
+		expect(
+			firstPageHint({ page: 12, viewportWidth: 390, devicePixelRatio: 2, fit: 'width' }),
+		).toEqual({ page: 12, w: 1000 })
+		// the same width the reader computes once the layout is there
+		const [width] = [pageCssSize([612, 792], { width: 390, height: 800 }, 'width').width]
+		expect(
+			firstPageHint({ page: 1, viewportWidth: 390, devicePixelRatio: 2, fit: 'width' })?.w,
+		).toBe(pickTier(width, 2, [720, 1000, 1400, 2000, 2800]))
+	})
+
+	it('applies the zoom and the side padding', () => {
+		expect(
+			firstPageHint({
+				page: 3,
+				viewportWidth: 1440,
+				devicePixelRatio: 1,
+				fit: 'width',
+				zoom: 1.5,
+				sidePadding: 16,
+			}),
+		).toEqual({ page: 3, w: 2800 })
+	})
+
+	it('gives no hint when the page size depends on the page shape or is unknown', () => {
+		expect(
+			firstPageHint({ page: 1, viewportWidth: 1440, devicePixelRatio: 1, fit: 'page' }),
+		).toBeUndefined()
+		expect(
+			firstPageHint({ page: 1, viewportWidth: 0, devicePixelRatio: 1, fit: 'width' }),
+		).toBeUndefined()
+		expect(
+			firstPageHint({ page: 0, viewportWidth: 390, devicePixelRatio: 1, fit: 'width' }),
+		).toBeUndefined()
 	})
 })
 

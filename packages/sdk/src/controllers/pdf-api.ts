@@ -35,10 +35,21 @@ export class PdfAPI extends APIBase {
 	}
 
 	/**
-	 * The page sizes, outline, labels and text availability of a PDF
+	 * The page sizes, outline, labels and text availability of a PDF. With `firstPage`, the
+	 * server starts rendering that page's picture (1-based `page`, width `w`) right behind
+	 * the layout, so the page request that follows finds it in flight or cached
 	 */
-	async layout(id: string, signal?: AbortSignal): Promise<PdfLayout> {
-		const { data } = await this.api.axios.get<PdfLayout>(pdfURL(`/${id}/layout`), { signal })
+	async layout(
+		id: string,
+		signal?: AbortSignal,
+		firstPage?: { page: number; w: number },
+	): Promise<PdfLayout> {
+		const params = firstPage
+			? { page: Math.max(1, Math.round(firstPage.page)), w: Math.max(1, Math.round(firstPage.w)) }
+			: undefined
+		const { data } = await this.api.axios.get<PdfLayout>(pdfURL(`/${id}/layout`, params), {
+			signal,
+		})
 		return data
 	}
 

@@ -13,12 +13,15 @@ import {
 	useAnnotationMutations,
 } from '../annotations'
 
-/** The document layout: page sizes, outline, labels, text availability */
-export function usePdfLayout(id: string) {
+/**
+ * The document layout: page sizes, outline, labels, text availability. `firstPage` asks the
+ * server to start that page's picture right behind it (not part of the cache key)
+ */
+export function usePdfLayout(id: string, firstPage?: { page: number; w: number }) {
 	const { sdk } = useSDK()
 	return useQuery<PdfLayout>({
 		queryKey: ['pdfLayout', id],
-		queryFn: ({ signal }) => sdk.pdf.layout(id, signal),
+		queryFn: ({ signal }) => sdk.pdf.layout(id, signal, firstPage),
 		staleTime: 60_000,
 		retry: 1,
 	})
