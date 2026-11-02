@@ -100,14 +100,15 @@ export default function FilterHeader({
 			)}
 
 			{hasControls && (
+				// The same order as on a phone (search, sort, filter, layout); the grid size, which a
+				// phone has no room for (its grids already fit the screen), sits next to the layout
 				<ListToolbarControls className="gap-x-1 sm:gap-x-3 flex shrink-0 items-center">
-					{/* No room on a phone, where grids already fit the screen (as in smart lists) */}
-					{sizeControls && <div className="md:flex hidden items-center">{sizeControls}</div>}
-
 					<div className="gap-x-1 flex items-center">
 						{orderControls}
 						{filterControls}
 					</div>
+
+					{sizeControls && <div className="md:flex hidden items-center">{sizeControls}</div>}
 
 					{layoutControls}
 				</ListToolbarControls>

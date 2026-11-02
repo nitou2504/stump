@@ -1,4 +1,4 @@
-import { Button, cn, Dialog, Input, Text } from '@stump/components'
+import { Button, cn, Dialog, IconButton, Input, Text, ToolTip } from '@stump/components'
 import { Media, MediaFilterInput, SmartListGrouping } from '@stump/graphql'
 import { Layers } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -269,26 +269,26 @@ export default function GroupByDialog({ isOpen, onClose }: Props) {
 export function GroupByButton({ onClick }: { onClick: () => void }) {
 	const label = useGroupingButtonLabel()
 	const isGrouped = label !== 'None'
+	// An icon like the toolbar's other controls, on every screen size; the current grouping is
+	// in its label, and a dot shows that the list is grouped
 	return (
-		<Button
-			variant="outline"
-			size="sm"
-			// on a phone just the icon (a dot while grouped), like the toolbar's other icons, to keep
-			// the toolbar on one row
-			className="h-8 gap-1.5 max-sm:w-8 max-sm:px-0 max-sm:pointer-coarse:w-10 max-sm:border-transparent max-sm:bg-transparent max-sm:hover:bg-accent relative max-w-[200px] shrink-0"
-			onClick={onClick}
-			title="Group books by…"
-			aria-label={`Group: ${label}`}
-		>
-			<Layers className="h-4 w-4 shrink-0" />
-			<span className="max-sm:hidden truncate">Group: {label}</span>
-			{isGrouped && (
-				<span
-					aria-hidden
-					className="right-1 top-1 size-2 sm:hidden absolute rounded-full bg-primary ring-2 ring-background"
-				/>
-			)}
-		</Button>
+		<ToolTip content={isGrouped ? `Grouped by ${label}` : 'Group books by…'} size="sm">
+			<IconButton
+				variant="ghost"
+				size="sm"
+				className="relative shrink-0 hover:bg-accent"
+				onClick={onClick}
+				aria-label={`Group: ${label}`}
+			>
+				<Layers className="h-4 w-4" />
+				{isGrouped && (
+					<span
+						aria-hidden
+						className="right-1 top-1 size-2 absolute rounded-full bg-primary ring-2 ring-background"
+					/>
+				)}
+			</IconButton>
+		</ToolTip>
 	)
 }
 
