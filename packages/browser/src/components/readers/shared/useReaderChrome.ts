@@ -48,6 +48,12 @@ export function forwardFramePointerMoves(frameDocument: Document): () => void {
 type Options = {
 	/** Keep the bar shown, e.g. while one of its dialogs or menus is open */
 	pinned?: boolean
+	/**
+	 * Controlled visibility (the image reader keeps it in its store, where its pages toggle
+	 * it); without it the hook keeps its own
+	 */
+	visible?: boolean
+	onVisibleChange?: (visible: boolean) => void
 }
 
 export type ReaderChrome = {
@@ -72,8 +78,25 @@ export type ReaderChrome = {
  * an EPUB's frame), on a tap in the middle of the page (phones) or when it gets the keyboard
  * focus; hidden again after a moment unless the pointer is on it or it's pinned.
  */
-export function useReaderChrome({ pinned = false }: Options = {}): ReaderChrome {
-	const [visible, setVisible] = useState(true)
+export function useReaderChrome({
+	pinned = false,
+	visible: controlledVisible,
+	onVisibleChange,
+}: Options = {}): ReaderChrome {
+	const [ownVisible, setOwnVisible] = useState(true)
+	const controlled = controlledVisible !== undefined && !!onVisibleChange
+	const visible = controlled ? controlledVisible : ownVisible
+	const onVisibleChangeRef = useRef(onVisibleChange)
+	useEffect(() => {
+		onVisibleChangeRef.current = onVisibleChange
+	}, [onVisibleChange])
+	const setVisible = useCallback(
+		(next: boolean) => {
+			if (controlled) onVisibleChangeRef.current?.(next)
+			else setOwnVisible(next)
+		},
+		[controlled],
+	)
 	const timerRef = useRef<number | undefined>(undefined)
 	const holdRef = useRef(false)
 	const pinnedRef = useRef(pinned)
@@ -87,27 +110,30 @@ export function useReaderChrome({ pinned = false }: Options = {}): ReaderChrome 
 		timerRef.current = undefined
 	}
 
-	const scheduleHide = useCallback((ms: number) => {
-		clearTimer()
-		timerRef.current = window.setTimeout(() => {
-			timerRef.current = undefined
-			if (!holdRef.current && !pinnedRef.current) setVisible(false)
-		}, ms)
-	}, [])
+	const scheduleHide = useCallback(
+		(ms: number) => {
+			clearTimer()
+			timerRef.current = window.setTimeout(() => {
+				timerRef.current = undefined
+				if (!holdRef.current && !pinnedRef.current) setVisible(false)
+			}, ms)
+		},
+		[setVisible],
+	)
 
 	const show = useCallback(
 		(forMs = HIDE_AFTER_MS) => {
 			setVisible(true)
 			scheduleHide(forMs)
 		},
-		[scheduleHide],
+		[scheduleHide, setVisible],
 	)
 
 	const hide = useCallback(() => {
 		clearTimer()
 		holdRef.current = false
 		setVisible(false)
-	}, [])
+	}, [setVisible])
 
 	const toggle = useCallback(() => {
 		if (visibleRef.current) hide()
@@ -115,10 +141,21 @@ export function useReaderChrome({ pinned = false }: Options = {}): ReaderChrome 
 	}, [hide, show])
 
 	// Shown when the book opens, then out of the way
+	const openedRef = useRef(false)
 	useEffect(() => {
+		if (openedRef.current) return
+		openedRef.current = true
+		setVisible(true)
 		scheduleHide(INITIAL_SHOW_MS)
-		return clearTimer
-	}, [scheduleHide])
+	}, [setVisible, scheduleHide])
+	useEffect(() => clearTimer, [])
+
+	// Shown some other way (e.g. a tap on a comic page toggled it): it still goes away later
+	useEffect(() => {
+		if (visible && timerRef.current === undefined && !holdRef.current && !pinnedRef.current) {
+			scheduleHide(TOUCH_HIDE_AFTER_MS)
+		}
+	}, [visible, scheduleHide])
 
 	useEffect(() => {
 		pinnedRef.current = pinned
@@ -128,7 +165,7 @@ export function useReaderChrome({ pinned = false }: Options = {}): ReaderChrome 
 		} else if (visibleRef.current) {
 			scheduleHide(HIDE_AFTER_MS)
 		}
-	}, [pinned, scheduleHide])
+	}, [pinned, scheduleHide, setVisible])
 
 	// The mouse near the top reveals the bar (a touch's synthetic mouse moves don't count)
 	useEffect(() => {

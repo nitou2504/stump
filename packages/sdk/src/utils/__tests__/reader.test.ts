@@ -106,6 +106,18 @@ describe('reader utils', () => {
 			})
 		})
 
+		it('pairs from the first page when the cover is not kept alone', () => {
+			const portrait = { height: 1000, width: 800, ratio: 0.8 }
+			const sizes = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i, portrait]))
+			expect(generatePageSets({ imageSizes: sizes, pages: 6 })).toEqual([[0], [1, 2], [3, 4], [5]])
+			expect(generatePageSets({ imageSizes: sizes, pages: 6, coverAlone: false })).toEqual([
+				[0, 1],
+				[2, 3],
+				[4],
+				[5],
+			])
+		})
+
 		it('should emit a warning if the image size ratio does not match the expected ratio', () => {
 			const imageSizesWithMismatch: Record<number, ImageBasedBookPageRef> = {
 				0: { height: 1000, width: 800, ratio: 0.8 },

@@ -3912,7 +3912,8 @@
         "flowingTextScrollsInOneColumn": "Flowing text scrolls in one column",
         "fixedLayout": "This book sets its own page layout",
         "coverAlone": "Cover on Its Own",
-        "coverAloneHint": "In two-page layouts the first page stays alone, like an open book"
+        "coverAloneHint": "In two-page layouts the first page stays alone, like an open book",
+        "spreadsTurnOnly": "Two-page spreads turn page by page"
       },
       "themes": {
         "auto": "Auto",
@@ -3925,7 +3926,8 @@
       },
       "shortcuts": {
         "dayNight": "Switch Day / Night",
-        "settings": "Reader Settings"
+        "settings": "Reader Settings",
+        "toggleBar": "Show / Hide the Top Bar"
       },
       "extend": {
         "button": "Extend to the Next Page",
@@ -3949,7 +3951,8 @@
         "alignBook": "Book's Default",
         "alignJustify": "Justified (with Hyphenation)",
         "alignStart": "Left Aligned"
-      }
+      },
+      "pages": "Pages"
     }
   }
 }
