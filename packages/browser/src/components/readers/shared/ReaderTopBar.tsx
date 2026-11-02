@@ -115,10 +115,10 @@ export default function ReaderTopBar({
 						title={position.label}
 						aria-label={`${position.text}, ${position.label}`}
 						className={cn(
-							'px-1.5 max-w-full truncate rounded text-[11px] leading-[15px] text-muted-foreground tabular-nums',
+							'px-1.5 rounded max-w-full truncate text-[11px] leading-[15px] text-muted-foreground tabular-nums',
 							'hover:bg-foreground/7 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none',
 							// a finger-sized hit area on touch screens, without changing how it looks
-							"relative after:absolute after:-inset-x-1 after:-inset-y-2 after:content-['']",
+							"after:-inset-x-1 after:-inset-y-2 relative after:absolute after:content-['']",
 						)}
 						data-testid="reader-position"
 					>

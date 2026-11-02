@@ -119,11 +119,7 @@ export default function EpubReaderContainer({
 					section={settingsSection}
 					isFixedLayout={isFixedLayout}
 				/>
-				<LocationManager
-					open={contentsOpen}
-					onOpenChange={setContentsOpen}
-					focusGoTo={goToFocus}
-				/>
+				<LocationManager open={contentsOpen} onOpenChange={setContentsOpen} focusGoTo={goToFocus} />
 				<SearchCommand open={searchOpen} onOpenChange={setSearchOpen} />
 			</div>
 		</EpubReaderContext.Provider>
