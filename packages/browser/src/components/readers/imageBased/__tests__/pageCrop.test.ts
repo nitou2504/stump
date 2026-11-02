@@ -1,4 +1,4 @@
-import { contentBox, edgeTone, pageCrop, sampleSize, scaleBox, toLuma } from '../pageCrop'
+import { contentBox, pageCrop, sampleSize, scaleBox, toLuma } from '../pageCrop'
 
 /** A grey image `w` × `h` of paper (255) with a dark rectangle of ink inside */
 function page(
@@ -91,19 +91,5 @@ describe('sampling and scaling', () => {
 	it('turns RGBA into grey, transparent pixels as paper', () => {
 		const rgba = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 0])
 		expect([...toLuma(rgba, 3)]).toEqual([255, 0, 255])
-	})
-})
-
-describe('edgeTone (the auto background)', () => {
-	it('is dark for a black bleed and light for white paper', () => {
-		const black = new Uint8Array(100 * 100).fill(0)
-		expect(edgeTone(black, 100, 100)).toBe('dark')
-		expect(edgeTone(page(100, 100, { x: 20, y: 20, w: 60, h: 60 }), 100, 100)).toBe('light')
-	})
-
-	it('has no opinion on a page whose edges disagree', () => {
-		const half = new Uint8Array(100 * 100).fill(255)
-		for (let y = 0; y < 100; y++) for (let x = 0; x < 50; x++) half[y * 100 + x] = 0
-		expect(edgeTone(half, 100, 100)).toBeNull()
 	})
 })

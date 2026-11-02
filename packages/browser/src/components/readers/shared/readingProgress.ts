@@ -1,7 +1,6 @@
 import {
 	type ReaderKind,
 	type ReadingBarItem,
-	type ReadingBarShow,
 	type ReadingProgressDisplay,
 	type ReadingProgressPreferences,
 } from '@stump/client'
@@ -13,15 +12,19 @@ import { useReaderStore } from '@/stores'
  * Each reader's reading progress (the small number in a corner, or the reading bar at the
  * bottom of the page, like KOReader's footer), and the maths of the bar: where its chapter
  * ticks go, what's left of the chapter and the words under the rule.
+ *
+ * Where the bar goes is the reader's own, not a setting: an EPUB's stays at the page's foot
+ * (its pages leave room for it, so it never covers the text); a PDF's or a comic's page uses
+ * the whole screen, so their bar comes and goes with the top bar instead of lying on the page.
  */
 
 export type ReadingProgress = Required<ReadingProgressPreferences>
 
 /** What each reader shows until it's changed: the EPUB its bar, the others their number */
 export const READING_PROGRESS_DEFAULTS: Record<ReaderKind, ReadingProgress> = {
-	epub: { display: 'bar', items: ['chapter', 'pagesLeft', 'percent'], show: 'always' },
-	pdf: { display: 'number', items: ['chapter', 'page', 'pagesLeft'], show: 'always' },
-	comic: { display: 'number', items: ['page'], show: 'always' },
+	epub: { display: 'bar', items: ['chapter', 'pagesLeft', 'percent'] },
+	pdf: { display: 'number', items: ['chapter', 'page', 'pagesLeft'] },
+	comic: { display: 'number', items: ['page'] },
 }
 
 /** The bar items each reader can show (a comic has no chapters or text) */
@@ -41,7 +44,6 @@ export function resolveReadingProgress(
 	return {
 		display: stored?.display ?? defaults.display,
 		items: (stored?.items ?? defaults.items).filter((item) => allowed.includes(item)),
-		show: stored?.show ?? defaults.show,
 	}
 }
 
@@ -61,7 +63,7 @@ export function useReadingProgress(kind: ReaderKind) {
 	return { ...progress, setProgress }
 }
 
-export type { ReaderKind, ReadingBarItem, ReadingBarShow, ReadingProgressDisplay }
+export type { ReaderKind, ReadingBarItem, ReadingProgressDisplay }
 
 // The rule's maths --------------------------------------------------------------------------------
 

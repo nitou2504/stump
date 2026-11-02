@@ -2,12 +2,12 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { edgeTone, type PageCrop, pageCrop, sampleSize, toLuma } from './pageCrop'
+import { type PageCrop, pageCrop, sampleSize, toLuma } from './pageCrop'
 import { isWide } from './paged/pagedView'
 
 /**
  * Looking at the pages a comic reader shows or preloads: where each page's blank margins are
- * (for 'crop borders') and whether its edges are dark or light (for the 'auto' background).
+ * (for 'crop borders').
  *
  * The page is looked at once, from the copy the browser already decoded (the visible `<img>`
  * or a preloaded `Image`): a small ~1 megapixel copy is made with `createImageBitmap` and
@@ -15,7 +15,7 @@ import { isWide } from './paged/pagedView'
  * (in local storage, a few numbers per page), so a page is only looked at once.
  */
 
-export type PageAnalysis = { crop: PageCrop; tone: 'dark' | 'light' | null }
+export type PageAnalysis = { crop: PageCrop }
 
 /** Bumped when the analysis changes, so older results are recomputed */
 const ANALYSIS_VERSION = 1
@@ -92,10 +92,10 @@ function getWorker(): Worker | null {
 			? new Worker(new URL('./cropWorker.ts', import.meta.url), { type: 'module' })
 			: null
 		worker?.addEventListener('message', (event: MessageEvent) => {
-			const { id, crop, tone, error } = event.data ?? {}
+			const { id, crop, error } = event.data ?? {}
 			const resolve = waiting.get(id)
 			waiting.delete(id)
-			resolve?.(error ? null : { crop, tone })
+			resolve?.(error ? null : { crop })
 		})
 		worker?.addEventListener('error', () => {
 			// a worker that can't start: look at pages on the main thread from now on
@@ -123,10 +123,7 @@ function analyseHere(image: HTMLImageElement, withHalves: boolean): PageAnalysis
 	context.fillRect(0, 0, sample.w, sample.h)
 	context.drawImage(image, 0, 0, sample.w, sample.h)
 	const luma = toLuma(context.getImageData(0, 0, sample.w, sample.h).data, sample.w * sample.h)
-	return {
-		crop: pageCrop(luma, sample, natural, withHalves),
-		tone: edgeTone(luma, sample.w, sample.h),
-	}
+	return { crop: pageCrop(luma, sample, natural, withHalves) }
 }
 
 async function analyse(image: HTMLImageElement): Promise<PageAnalysis | null> {

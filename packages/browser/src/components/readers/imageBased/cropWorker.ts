@@ -1,8 +1,8 @@
 /**
- * Finds a page's margins (and its background tone) off the main thread, from a small copy of
- * the page the reader already decoded (see `pageAnalysis.ts`)
+ * Finds a page's margins off the main thread, from a small copy of the page the reader
+ * already decoded (see `pageAnalysis.ts`)
  */
-import { edgeTone, pageCrop, sampleSize, toLuma } from './pageCrop'
+import { pageCrop, sampleSize, toLuma } from './pageCrop'
 
 export type CropRequest = {
 	id: number
@@ -30,11 +30,7 @@ scope.onmessage = (event: MessageEvent<CropRequest>) => {
 		bitmap.close()
 		const pixels = context.getImageData(0, 0, sample.w, sample.h).data
 		const luma = toLuma(pixels, sample.w * sample.h)
-		scope.postMessage({
-			id,
-			crop: pageCrop(luma, sample, natural, withHalves),
-			tone: edgeTone(luma, sample.w, sample.h),
-		})
+		scope.postMessage({ id, crop: pageCrop(luma, sample, natural, withHalves) })
 	} catch (error) {
 		bitmap.close?.()
 		scope.postMessage({ id, error: String(error) })

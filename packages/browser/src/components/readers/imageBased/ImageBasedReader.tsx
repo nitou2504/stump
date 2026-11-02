@@ -59,12 +59,11 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 			secondPageSeparate,
 			coverAlone,
 			cropBorders,
-			pageBackground,
 		},
 		setSettings,
 	} = useBookPreferences({ book: media })
-	// pages are looked at (margins, edge colour) while they preload, so a turn doesn't wait
-	const wantsAnalysis = !!cropBorders || pageBackground === 'auto'
+	// pages are looked at (their margins) while they preload, so a turn doesn't wait
+	const wantsAnalysis = !!cropBorders
 
 	const timer = useBookTimer(media?.id || '', {
 		initial: media?.readProgress?.elapsedSeconds,

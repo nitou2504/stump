@@ -207,7 +207,7 @@ function EpubReadingBar({
 	const {
 		bookPreferences: { readingDirection },
 	} = useBookPreferences({ book })
-	const { items, show } = useReadingProgress('epub')
+	const { items } = useReadingProgress('epub')
 	const clock = useClockText(items.includes('clock'))
 	const placement = useTextColumnPlacement(bookMeta?.chapter.totalProgression)
 	if (!bookMeta) return null
@@ -242,7 +242,8 @@ function EpubReadingBar({
 			label={[left, ...right, translate('shared.epubReader.locationManager')]
 				.filter(Boolean)
 				.join(', ')}
-			visible={(show === 'always' || chromeVisible) && !(settingsOpen && isPhone)}
+			// it stays (the pages leave it room), except under the phone's settings sheet
+			visible={!(settingsOpen && isPhone)}
 			emphasized={chromeVisible}
 			style={placement}
 		/>

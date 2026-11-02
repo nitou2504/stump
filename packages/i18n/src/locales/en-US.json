@@ -3943,12 +3943,7 @@
         "widePagesHint": "Two-page images on a narrow screen",
         "wideZoom": "Zoom In and Pan",
         "wideSplit": "Split in Two",
-        "wideFit": "Fit Whole",
-        "background": "Background",
-        "backgroundTheme": "Theme",
-        "backgroundAuto": "Match the Page",
-        "backgroundBlack": "Black",
-        "backgroundWhite": "White"
+        "wideFit": "Fit Whole"
       },
       "themes": {
         "auto": "Auto",
@@ -3997,9 +3992,6 @@
         "number": "Number",
         "bar": "Bar",
         "barShows": "The bar shows",
-        "show": "Show",
-        "always": "Always",
-        "withControls": "With controls",
         "items": {
           "chapter": "Chapter",
           "page": "Page",

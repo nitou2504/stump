@@ -14,7 +14,6 @@ describe('reading progress settings', () => {
 		expect(resolveReadingProgress('epub', undefined)).toEqual({
 			display: 'bar',
 			items: ['chapter', 'pagesLeft', 'percent'],
-			show: 'always',
 		})
 		expect(resolveReadingProgress('pdf', undefined).display).toBe('number')
 		expect(resolveReadingProgress('comic', undefined).display).toBe('number')
@@ -23,7 +22,7 @@ describe('reading progress settings', () => {
 
 	it('keeps what was picked and drops items a reader cannot show', () => {
 		expect(resolveReadingProgress('epub', { display: 'off' }).display).toBe('off')
-		expect(resolveReadingProgress('epub', { show: 'withControls' }).show).toBe('withControls')
+		expect(resolveReadingProgress('pdf', { display: 'bar' }).display).toBe('bar')
 		// a comic has no chapters
 		expect(
 			resolveReadingProgress('comic', { items: ['chapter', 'page', 'pagesLeft', 'clock'] }).items,

@@ -60,4 +60,44 @@ describe('migrateReaderStore', () => {
 		const untouched = migrateReaderStore({ settings: { fontSize: 22 }, bookPreferences: {} }, 6)
 		expect(untouched.settings.readingProgress).toBeUndefined()
 	})
+
+	it("drops the reading bar's 'show' and keeps each reader's display and items (version 8)", () => {
+		const migrated = migrateReaderStore(
+			{
+				settings: {
+					fontSize: 22,
+					readingProgress: {
+						epub: { display: 'bar', items: ['chapter', 'percent'], show: 'withControls' },
+						pdf: { display: 'bar', show: 'always' },
+						comic: { display: 'number' },
+					},
+				},
+				bookPreferences: {},
+			} as unknown as ReaderStore,
+			7,
+		)
+		expect(migrated.settings.readingProgress).toEqual({
+			epub: { display: 'bar', items: ['chapter', 'percent'] },
+			pdf: { display: 'bar' },
+			comic: { display: 'number' },
+		})
+	})
+
+	it("drops the comic's page background, in the settings and every book (version 8)", () => {
+		const migrated = migrateReaderStore(
+			{
+				settings: { fontSize: 22, pageBackground: 'black', brightness: 0.8 },
+				bookPreferences: {
+					manga: { pageBackground: 'auto', cropBorders: true },
+					novel: { fontSize: 20 },
+				},
+			} as unknown as ReaderStore,
+			7,
+		)
+		expect(migrated.settings).toEqual({ fontSize: 22, brightness: 0.8 })
+		expect(migrated.bookPreferences).toEqual({
+			manga: { cropBorders: true },
+			novel: { fontSize: 20 },
+		})
+	})
 })

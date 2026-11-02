@@ -156,34 +156,3 @@ export function pageCrop(
 	}
 	return crop
 }
-
-/**
- * The page's background colour for the reader's 'auto' background: the colour of the outer
- * ring of the grey copy when most of it agrees (dark bleed or white paper), else `null`
- */
-export function edgeTone(luma: Uint8Array, w: number, h: number): 'dark' | 'light' | null {
-	const ring = Math.max(1, Math.round(Math.min(w, h) * 0.03))
-	let dark = 0
-	let light = 0
-	let total = 0
-	const count = (value: number) => {
-		total++
-		if (value < 40) dark++
-		else if (value > 215) light++
-	}
-	for (let y = 0; y < h; y += 2) {
-		const row = y * w
-		if (y < ring || y >= h - ring) {
-			// the top and bottom bands, across the whole width
-			for (let x = 0; x < w; x += 2) count(luma[row + x]!)
-		} else {
-			// the left and right bands
-			for (let x = 0; x < ring; x += 2) count(luma[row + x]!)
-			for (let x = w - ring; x < w; x += 2) count(luma[row + x]!)
-		}
-	}
-	if (!total) return null
-	if (dark / total >= 0.6) return 'dark'
-	if (light / total >= 0.6) return 'light'
-	return null
-}

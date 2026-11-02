@@ -15,11 +15,6 @@ export type DoublePageBehavior = 'auto' | 'always' | 'off'
  */
 export type WidePagesBehavior = 'zoom' | 'split' | 'fit'
 
-/**
- * The colour around a comic's pages: the reader theme's paper, black, white, or `auto` (the
- * colour of the page's own margins)
- */
-export type PageBackground = 'theme' | 'auto' | 'black' | 'white'
 export const isDoublePageBehavior = (value: string): value is DoublePageBehavior =>
 	['auto', 'always', 'off'].includes(value)
 
@@ -114,11 +109,6 @@ export type BookPreferences = {
 	 */
 	widePages?: WidePagesBehavior
 	/**
-	 * The colour around a comic's pages. Unset: the reader theme's. This will have no effect
-	 * if the book is not image-based
-	 */
-	pageBackground?: PageBackground
-	/**
 	 * The number of columns to render for a paginated EPUB. This will have no effect if the
 	 * book is not an EPUB, or if the reading mode is continuous scroll.
 	 */
@@ -144,13 +134,14 @@ export type ReadingProgressDisplay = 'off' | 'number' | 'bar'
 export const READING_BAR_ITEMS = ['chapter', 'page', 'pagesLeft', 'percent', 'clock'] as const
 export type ReadingBarItem = (typeof READING_BAR_ITEMS)[number]
 
-/** The reading bar stays while reading, or comes and goes with the top bar */
-export type ReadingBarShow = 'always' | 'withControls'
-
+/**
+ * A reader's reading progress: off, the small number or the reading bar, and what the bar
+ * shows. Where the bar goes is the reader's: an EPUB keeps it at the foot of the page (its
+ * pages leave room for it), a PDF or comic shows it with the top bar, over the pages
+ */
 export type ReadingProgressPreferences = {
 	display?: ReadingProgressDisplay
 	items?: ReadingBarItem[]
-	show?: ReadingBarShow
 }
 
 /**
@@ -286,7 +277,7 @@ export const createReaderStore = (storage?: StateStorage) =>
 				{
 					name: 'stump-new-reader-store',
 					storage: storage ? createJSONStorage(() => storage) : undefined,
-					version: 7,
+					version: 8,
 					migrate: migrateReaderStore,
 				},
 			),
@@ -298,8 +289,11 @@ export const createReaderStore = (storage?: StateStorage) =>
  * EPUB font size from 13 to 22px: the old default, kept in the settings and copied into
  * every book whose preferences were changed, becomes the new one (a size someone picked
  * stays). Version 7 replaced the page number switch with each reader's reading progress:
- * a page number that was turned off stays off in every reader. Stores older than version 5
- * are dropped, as before migrations existed.
+ * a page number that was turned off stays off in every reader. Version 8 dropped two
+ * settings: the reading bar's 'show' (always or with the controls: each reader now has its
+ * own place for the bar) and the comic's page background (the reader theme colours the
+ * pages' surround); the reading progress kept is the display (off, number or bar) and the
+ * bar's items. Stores older than version 5 are dropped, as before migrations existed.
  */
 export function migrateReaderStore(persisted: unknown, version: number): ReaderStore {
 	const state = persisted as Partial<ReaderStore> | undefined
@@ -325,15 +319,41 @@ export function migrateReaderStore(persisted: unknown, version: number): ReaderS
 				}
 			: settings
 
+	// Version 8: the comic's page background and the reading bar's 'show' are gone
+	const withoutBackground = <T extends object>(preferences: T): T => {
+		if (!('pageBackground' in preferences)) return preferences
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const { pageBackground, ...rest } = preferences as T & { pageBackground?: unknown }
+		return rest as T
+	}
+	const withoutBarShow = (settings: ReaderSettings): ReaderSettings => {
+		if (!settings.readingProgress) return settings
+		const readingProgress = Object.fromEntries(
+			Object.entries(settings.readingProgress).map(([kind, progress]) => {
+				if (!progress || !('show' in progress)) return [kind, progress]
+				// eslint-disable-next-line @typescript-eslint/no-unused-vars
+				const { show, ...rest } = progress as ReadingProgressPreferences & { show?: unknown }
+				return [kind, rest]
+			}),
+		) as ReaderSettings['readingProgress']
+		return { ...settings, readingProgress }
+	}
+
 	return {
 		...state,
-		...(state.settings ? { settings: upgradeProgress(upgradeFontSize(state.settings)) } : {}),
+		...(state.settings
+			? {
+					settings: withoutBarShow(
+						withoutBackground(upgradeProgress(upgradeFontSize(state.settings))),
+					),
+				}
+			: {}),
 		...(state.bookPreferences
 			? {
 					bookPreferences: Object.fromEntries(
 						Object.entries(state.bookPreferences).map(([id, preferences]) => [
 							id,
-							upgradeFontSize(preferences),
+							withoutBackground(upgradeFontSize(preferences)),
 						]),
 					),
 				}

@@ -1,7 +1,6 @@
 import { ReadingImageScaleFit } from '@stump/graphql'
 
 import {
-	backgroundColor,
 	buildViews,
 	canSplit,
 	entryPos,
@@ -206,17 +205,5 @@ describe('fitSize and wide pages', () => {
 		expect(size.w).toBeCloseTo(780)
 		// a very wide panorama: no taller than the screen
 		expect(wideZoomSize(4, { w: 390, h: 100 }).h).toBe(100)
-	})
-})
-
-describe('backgroundColor', () => {
-	it("follows the setting, or the page's own margins for auto", () => {
-		expect(backgroundColor('black', 'light')).toBe('#000000')
-		expect(backgroundColor('white', 'dark')).toBe('#ffffff')
-		expect(backgroundColor('auto', 'dark')).toBe('#000000')
-		expect(backgroundColor('auto', 'light')).toBe('#ffffff')
-		// no clear margin colour, or the theme: the reader theme's own paper
-		expect(backgroundColor('auto', null)).toBeNull()
-		expect(backgroundColor('theme', 'dark')).toBeNull()
 	})
 })

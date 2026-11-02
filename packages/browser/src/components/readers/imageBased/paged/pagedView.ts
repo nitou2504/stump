@@ -200,22 +200,3 @@ export function entryPos(content: Size, viewport: Size, toward: 1 | -1, forward:
 	const maxY = Math.max(0, content.h - viewport.h)
 	return { x: toward > 0 ? 0 : maxX, y: forward ? 0 : maxY }
 }
-
-// The colour around the pages ------------------------------------------------------------------
-
-/** The colour around the pages for the background setting (`null`: the theme's own) */
-export function backgroundColor(
-	setting: 'theme' | 'auto' | 'black' | 'white',
-	tone: 'dark' | 'light' | null | undefined,
-): string | null {
-	switch (setting) {
-		case 'black':
-			return '#000000'
-		case 'white':
-			return '#ffffff'
-		case 'auto':
-			return tone === 'dark' ? '#000000' : tone === 'light' ? '#ffffff' : null
-		default:
-			return null
-	}
-}

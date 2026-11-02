@@ -1447,9 +1447,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					page={currentPage}
 					pageCount={pageCount}
 					items={readingProgress.items}
-					visible={
-						(readingProgress.show === 'always' || chrome.visible) && !(settingsOpen && isPhone)
-					}
+					// with the top bar: the pages use the whole screen, so the bar would lie on them
+					visible={chrome.visible && !(settingsOpen && isPhone)}
 					emphasized={chrome.visible}
 					onClick={() => setGoToOpen(true)}
 					label={translate('shared.pdfReader.goToPage')}

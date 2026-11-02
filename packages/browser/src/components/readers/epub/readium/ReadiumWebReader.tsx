@@ -271,7 +271,8 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	)
 	useReaderChromeTheme(readerTheme)
 	const readingBar = useReadingProgress('epub')
-	const reserveReadingBar = readingBar.display === 'bar' && readingBar.show === 'always'
+	// the EPUB's bar stays at the page's foot: the pages leave it room
+	const reserveReadingBar = readingBar.display === 'bar'
 
 	// Measures the viewport parent — i.e. the parent of the element Readium itself treats
 	// as its viewport (`containerRef`'s parent, see `useReadiumNavigator`). Keeping the

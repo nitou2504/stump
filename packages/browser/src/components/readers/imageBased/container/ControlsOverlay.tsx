@@ -1,4 +1,4 @@
-import { type PageBackground, PDF_EXTENSION, type WidePagesBehavior } from '@stump/client'
+import { PDF_EXTENSION, type WidePagesBehavior } from '@stump/client'
 import { cn, Dialog, Heading, Slider } from '@stump/components'
 import { ReadingDirection, ReadingImageScaleFit, ReadingMode } from '@stump/graphql'
 import { Columns2, Scan, Sun, ZoomIn } from 'lucide-react'
@@ -158,10 +158,8 @@ export default function ControlsOverlay() {
 					pageCount={book.pages}
 					items={readingProgress.items}
 					rtl={readingDirection === ReadingDirection.Rtl}
-					visible={
-						(readingProgress.show === 'always' || chrome.visible) &&
-						!(settingsOpen && window.innerWidth < 640)
-					}
+					// with the top bar: the pages use the whole screen, so the bar would lie on them
+					visible={chrome.visible && !(settingsOpen && window.innerWidth < 640)}
 					emphasized={chrome.visible}
 					onClick={() => setPagesOpen(true)}
 				/>
@@ -200,7 +198,6 @@ export default function ControlsOverlay() {
 							/>
 						) : null}
 						<OnePageSettings onePage={layout.flow === 'paged' && layout.spread === 'single'} />
-						<BackgroundRow />
 					</>
 				}
 				shortcuts={shortcuts}
@@ -356,57 +353,6 @@ function OnePageSettings({ onePage }: { onePage: boolean }) {
 				/>
 			</SettingRow>
 		</>
-	)
-}
-
-const BACKGROUNDS: { value: PageBackground; key: string; swatch: string }[] = [
-	{
-		value: 'theme',
-		key: 'shared.reader.comic.backgroundTheme',
-		swatch: 'var(--color-background, var(--background))',
-	},
-	{
-		value: 'auto',
-		key: 'shared.reader.comic.backgroundAuto',
-		swatch: 'linear-gradient(135deg, #ffffff 0 50%, #000000 50% 100%)',
-	},
-	{ value: 'black', key: 'shared.reader.comic.backgroundBlack', swatch: '#000000' },
-	{ value: 'white', key: 'shared.reader.comic.backgroundWhite', swatch: '#ffffff' },
-]
-
-/** The colour around the pages: the theme's, the page's own margins', black or white */
-function BackgroundRow() {
-	const { book } = useImageBaseReaderContext()
-	const {
-		bookPreferences: { pageBackground = 'theme' },
-		setBookPreferences,
-	} = useBookPreferences({ book })
-	const { translate } = useTranslate()
-	const label = translate('shared.reader.comic.background')
-	return (
-		<SettingRow label={label}>
-			<Segmented<PageBackground>
-				label={label}
-				testId="reader-page-background"
-				className="w-full"
-				value={pageBackground}
-				onChange={(value) => setBookPreferences({ pageBackground: value })}
-				options={BACKGROUNDS.map(({ value, key, swatch }) => ({
-					value,
-					label: translate(key),
-					icon: (
-						<span
-							aria-hidden
-							className="h-3.5 flex w-[18px] items-center justify-center rounded-[3px] font-literata text-[9px] leading-none text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,currentColor_30%,transparent)]"
-							style={{ background: swatch }}
-						>
-							{/* the theme's own paper, with its text colour: not just another white */}
-							{value === 'theme' ? 'Aa' : null}
-						</span>
-					),
-				}))}
-			/>
-		</SettingRow>
 	)
 }
 

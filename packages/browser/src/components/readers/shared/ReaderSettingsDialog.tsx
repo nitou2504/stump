@@ -12,7 +12,6 @@ import {
 	type ReaderKind,
 	READING_BAR_ITEMS_FOR,
 	type ReadingBarItem,
-	type ReadingBarShow,
 	type ReadingProgressDisplay,
 	useReadingProgress,
 } from './readingProgress'
@@ -225,12 +224,13 @@ const ITEM_KEYS: Record<ReadingBarItem, string> = {
 }
 
 /**
- * The reading progress, under More: off, the small page number or the reading bar; for the
- * bar, what it shows and whether it stays or comes and goes with the top bar
+ * The reading progress, under More: off, the small page number or the reading bar, and what
+ * the bar shows. Where the bar goes is the reader's own (an EPUB keeps it at the page's foot,
+ * a PDF or comic shows it with the top bar): nothing to choose there.
  */
 function ReadingProgressSettings({ reader }: { reader: ReaderKind }) {
 	const { translate } = useTranslate()
-	const { display, items, show, setProgress } = useReadingProgress(reader)
+	const { display, items, setProgress } = useReadingProgress(reader)
 	const t = (key: string) => translate(`shared.reader.progress.${key}`)
 
 	return (
@@ -263,21 +263,6 @@ function ReadingProgressSettings({ reader }: { reader: ReaderKind }) {
 						value={items}
 						onChange={(value) => setProgress({ items: value })}
 					/>
-					<SettingRow label={t('show')}>
-						<Segmented<ReadingBarShow>
-							label={t('show')}
-							testId="reader-bar-show"
-							variant="text"
-							className="w-full"
-							value={show}
-							onChange={(value) => setProgress({ show: value })}
-							options={(['always', 'withControls'] as const).map((value) => ({
-								value,
-								label: t(value),
-								icon: t(value),
-							}))}
-						/>
-					</SettingRow>
 				</>
 			)}
 		</>

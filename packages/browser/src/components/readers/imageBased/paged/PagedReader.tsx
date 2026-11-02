@@ -26,7 +26,6 @@ import {
 import { useImageBaseReaderContext } from '../context'
 import { analysePage, usePageAnalyses } from '../pageAnalysis'
 import {
-	backgroundColor,
 	type Box,
 	buildViews,
 	entryPos,
@@ -87,7 +86,6 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			brightness,
 			cropBorders,
 			widePages = 'zoom',
-			pageBackground = 'theme',
 		},
 		settings: { showToolBar },
 		setSettings,
@@ -642,9 +640,9 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		}
 	}, [])
 
-	// Looking at pages for crop and the auto background -------------------------------------------
+	// Looking at pages for crop ---------------------------------------------------------------------
 	const imagesRef = useRef(new Map<number, HTMLImageElement>())
-	const wantsAnalysis = !!cropBorders || pageBackground === 'auto'
+	const wantsAnalysis = !!cropBorders
 	const onImageLoad = useCallback(
 		(page: number, size: { width: number; height: number }) => {
 			setPageSize(page, { ...size, ratio: size.width / size.height })
@@ -653,10 +651,6 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		},
 		[setPageSize, wantsAnalysis, book.id],
 	)
-
-	// The colour around the pages
-	const tone = items.length === 1 ? analyses[items[0]!.page + 1]?.tone : undefined
-	const background = backgroundColor(pageBackground, tone)
 
 	// The views next to this one, drawn invisibly so a turn shows a decoded image right away
 	const neighbours = useMemo(() => {
@@ -673,11 +667,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 
 	return (
 		<>
-			<div
-				aria-hidden
-				className="inset-0 fixed bg-background"
-				style={background ? { backgroundColor: background } : undefined}
-			/>
+			{/* around the pages: the reader theme's paper */}
+			<div aria-hidden className="inset-0 fixed bg-background" />
 			<div
 				ref={scrollRef}
 				data-testid="comic-pages"
