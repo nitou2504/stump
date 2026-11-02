@@ -49,4 +49,25 @@ describe('ReadMore', () => {
 		await user.click(screen.getByRole('button', { name: /read less/i }))
 		expect(content).toHaveStyle({ maxHeight: '240px' })
 	})
+
+	it('shows about twice as many lines on a phone-narrow screen', () => {
+		vi.spyOn(window, 'matchMedia').mockImplementation(
+			(query: string) =>
+				({
+					matches: query.includes('max-width'),
+					media: query,
+					addEventListener: () => {},
+					removeEventListener: () => {},
+				}) as unknown as MediaQueryList,
+		)
+		// taller than the desktop preview, but fits the phone one: shown whole
+		const { unmount } = renderWithHeight(400)
+		expect(screen.queryByRole('button')).not.toBeInTheDocument()
+		unmount()
+
+		renderWithHeight(800)
+		const toggle = screen.getByRole('button', { name: /read more/i })
+		const content = document.getElementById(toggle.getAttribute('aria-controls')!)
+		expect(content).toHaveStyle({ maxHeight: '480px' })
+	})
 })
