@@ -23,11 +23,10 @@ vi.mock('@/scenes/book/reader/useBookPreferences', () => ({
 }))
 
 describe('pageTapZone', () => {
-	it('splits the page into a 15% strip at each side and the middle', () => {
-		expect(pageTapZone(0.05)).toBe('left')
-		expect(pageTapZone(0.5)).toBe('middle')
-		expect(pageTapZone(0.84)).toBe('middle')
-		expect(pageTapZone(0.9)).toBe('right')
+	it('splits a touch screen into a third at each side and the middle', () => {
+		expect(pageTapZone(0.3, true)).toBe('left')
+		expect(pageTapZone(0.5, true)).toBe('middle')
+		expect(pageTapZone(0.7, true)).toBe('right')
 	})
 })
 
@@ -80,9 +79,9 @@ describe('EpubNavigationControls page taps', () => {
 	it('turns the page from the side strips and toggles the controls from the middle on phones', () => {
 		const tap = setup()
 
-		tap(0.95)
+		tap(0.7)
 		expect(controls.onPaginateForward).toHaveBeenCalledTimes(1)
-		tap(0.02)
+		tap(0.3)
 		expect(controls.onPaginateBackward).toHaveBeenCalledTimes(1)
 		tap(0.5)
 		expect(controls.toggleVisible).toHaveBeenCalled()

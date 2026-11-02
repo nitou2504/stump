@@ -10,5 +10,5 @@ export type ReaderPageTapDetail = {
 	xFraction: number
 }
 
-// The zones themselves are shared by every reader (see `shared/tapZones`)
-export { type PageTapZone, pageTapZone, SIDE_TAP_ZONE } from '../../shared/tapZones'
+// The zones themselves are shared by every reader (see `shared/gestures`)
+export { type PageTapZone, pageTapZone } from '../../shared/gestures'

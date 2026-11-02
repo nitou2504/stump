@@ -201,52 +201,6 @@ export function entryPos(content: Size, viewport: Size, toward: 1 | -1, forward:
 	return { x: toward > 0 ? 0 : maxX, y: forward ? 0 : maxY }
 }
 
-// Telling taps, swipes and pans apart -----------------------------------------------------------
-
-/** A touch moving less than this is still a tap (Android's paging slop, Vuetify's 16px) */
-export const SWIPE_SLOP = 16
-/** Lifted later than this, a drag isn't a swipe (KOReader) */
-export const SWIPE_MAX_MS = 900
-/** A fling: this far at this speed (Android's ViewPager: 25dp at 400dp/s) */
-export const FLING_DISTANCE = 25
-export const FLING_SPEED = 0.4
-/** Or a slow drag across this share of the screen */
-export const SWIPE_FRACTION = 0.25
-
-export type Swipe = 'left' | 'right' | null
-
-/**
- * A finished one-finger drag that the page didn't follow: a deliberate horizontal swipe, or
- * nothing. Mostly horizontal (the cross-axis movement under half the main one, Vuetify's rule)
- * and quick, or long. `left` means the finger moved left (showing what's to the right).
- */
-export function swipeOf(dx: number, dy: number, ms: number, width: number): Swipe {
-	const distance = Math.abs(dx)
-	if (distance < SWIPE_SLOP || Math.abs(dy) >= 0.5 * distance || ms > SWIPE_MAX_MS) return null
-	const fling = distance > FLING_DISTANCE && distance / Math.max(1, ms) > FLING_SPEED
-	if (!fling && distance < width * SWIPE_FRACTION) return null
-	return dx < 0 ? 'left' : 'right'
-}
-
-// Tap zones -------------------------------------------------------------------------------------
-
-/**
- * The share of the screen at each side that turns the page when tapped: a third on touch
- * screens (Mihon's right-and-left zones; Komga, Kavita and KOReader use a quarter), a quarter
- * with a mouse. The middle shows or hides the top bar.
- */
-export const TOUCH_SIDE_ZONE = 1 / 3
-export const MOUSE_SIDE_ZONE = 0.25
-
-export type TapZone = 'left' | 'middle' | 'right'
-
-export function tapZone(xFraction: number, coarse: boolean): TapZone {
-	const side = coarse ? TOUCH_SIDE_ZONE : MOUSE_SIDE_ZONE
-	if (xFraction < side) return 'left'
-	if (xFraction > 1 - side) return 'right'
-	return 'middle'
-}
-
 // The colour around the pages ------------------------------------------------------------------
 
 /** The colour around the pages for the background setting (`null`: the theme's own) */

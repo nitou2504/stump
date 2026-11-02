@@ -5,6 +5,14 @@ import { useHotkeys } from 'react-hotkeys-hook'
 import { EntityImage } from '@/components/entity'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
+import {
+	isCoarsePointer,
+	pageTapZone,
+	SWIPE_SLOP,
+	swipeOf,
+	swipeTurn,
+	zoneTurn,
+} from '../../shared/gestures'
 import { panOrTurn } from '../../shared/panKeys'
 import {
 	clampRatio,
@@ -27,9 +35,6 @@ import {
 	itemBox,
 	type Size,
 	stepView,
-	SWIPE_SLOP,
-	swipeOf,
-	tapZone,
 	type ViewItem,
 	viewOfPage,
 	type ViewPos,
@@ -57,8 +62,6 @@ const WHEEL_TURN_DISTANCE = 80
 
 const prefersReducedMotion = () =>
 	typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-const isCoarsePointer = () =>
-	typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
 
 /**
  * The comic reader, one page (or one spread) at a time, like Mihon or KOReader:
@@ -450,18 +453,18 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			if (Math.hypot(dx, dy) > SWIPE_SLOP) {
 				// a drag the page didn't follow: a deliberate sideways swipe turns the page
 				// (the finger moving left shows what's to the right)
-				const swipe = swipeOf(dx, dy, ms, box.width)
-				if (swipe) turn(swipe === 'left' ? 1 : -1)
+				const swipe = swipeTurn(swipeOf(dx, dy, ms, box.width))
+				if (swipe) turn(swipe)
 				return
 			}
 			if (ms > TAP_MAX_MS) return
 
 			const coarse = event.pointerType !== 'mouse' && isCoarsePointer()
-			const zone = tapZone((event.clientX - box.left) / box.width, coarse)
+			const zone = pageTapZone((event.clientX - box.left) / box.width, coarse)
 			if (zone !== 'middle' && tapSidesToNavigate !== false) {
 				window.clearTimeout(pendingTapRef.current)
 				lastTapRef.current = null
-				step(zone === 'right' ? 1 : -1)
+				step(zoneTurn(zone) as 1 | -1)
 				return
 			}
 			if (!coarse) {

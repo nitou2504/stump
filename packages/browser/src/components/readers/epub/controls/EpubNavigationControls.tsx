@@ -2,12 +2,12 @@ import { cx } from '@stump/components'
 import { ReadingDirection, ReadingMode } from '@stump/graphql'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
-import { useSwipeable } from 'react-swipeable'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
-import { navigationTapZone } from '../../shared/tapZones'
+import { navigationTapZone } from '../../shared/gestures'
+import { useSwipeTurn } from '../../shared/useSwipeTurn'
 import { useEpubReaderContext, useEpubReaderControls } from '../context'
 import ControlButton from './ControlButton'
 import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from './pageTap'
@@ -94,8 +94,12 @@ export default function EpubNavigationControls({ children }: Props) {
 
 			// In the scroll layout the sides have no page to turn ('forward' there is the next
 			// chapter): every tap shows or hides the controls, scrolling moves through the book
+			// The tap zones every reader shares: a third of the width at each side of a touch
+			// screen. (With a mouse the page isn't a tap target: a click there starts selecting
+			// text, and the chevrons in the margins turn the page.)
 			const zone = navigationTapZone(xFraction, {
 				flow: isVerticalScrolling ? 'continuous' : 'paged',
+				coarse: true,
 				sidesNavigate: !!tapSidesToNavigate,
 			})
 			if (zone === 'left' && canNavigateLeft) {
@@ -117,30 +121,19 @@ export default function EpubNavigationControls({ children }: Props) {
 	}, [])
 
 	/**
-	 * A swipe handler to navigate forward or backward in the book.
-	 *
-	 * Note that the swipe handler function semantics are inverted wrt the reading direction.
-	 * Attached to the stage wrapper itself (not an opaque overlay) so it does not steal clicks
-	 * from the content below. Swipes on the page itself are handled inside the book's frame by
-	 * Readium, which slides the columns with the finger.
+	 * A deliberate sideways swipe outside the book's frame (its margins) turns the page with
+	 * the rule every reader shares (`useSwipeTurn`); in the scroll layout scrolling is the way
+	 * through the book. Swipes on the text itself are Readium's: it slides its columns with the
+	 * finger and keeps a long-press text selection working.
 	 */
-	const { ref: swipeRef, ...swipeHandlers } = useSwipeable({
-		onSwipedLeft: isVerticalScrolling ? undefined : onForwardNavigation,
-		onSwipedRight: isVerticalScrolling ? undefined : onBackwardNavigation,
-		onSwipedUp: isVerticalScrolling ? onForwardNavigation : undefined,
-		onSwipedDown: isVerticalScrolling ? onBackwardNavigation : undefined,
-		preventScrollOnSwipe: true,
+	useSwipeTurn(rootRef, {
+		enabled: !isVerticalScrolling,
+		// the screen's right is 'forward' here (mirrored for right-to-left books above)
+		onSwipe: (screenTurn) => (screenTurn === 1 ? onForwardNavigation() : onBackwardNavigation()),
 	})
-	const setRootRef = useCallback(
-		(element: HTMLDivElement | null) => {
-			rootRef.current = element
-			swipeRef(element)
-		},
-		[swipeRef],
-	)
 
 	return (
-		<div ref={setRootRef} className="min-h-0 relative h-full w-full flex-1" {...swipeHandlers}>
+		<div ref={rootRef} className="min-h-0 relative h-full w-full flex-1">
 			{/* Desktop chevrons in the side gutters, shown while the mouse is over the gutter */}
 			<div
 				className={cx('group inset-y-0 left-0 w-12 absolute z-20 hidden items-center', {

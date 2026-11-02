@@ -8,8 +8,6 @@ import {
 	fitSize,
 	itemBox,
 	stepView,
-	swipeOf,
-	tapZone,
 	viewOfPage,
 	wideZoomSize,
 } from '../pagedView'
@@ -128,35 +126,6 @@ describe('stepView: the next part of a page bigger than the screen (KOReader)', 
 		expect(entryPos(page, phone, -1, false)).toEqual({ x: 510, y: 1900 - 844 })
 		// a manga going back (rightward): the bottom-left corner
 		expect(entryPos(page, phone, 1, false)).toEqual({ x: 0, y: 1900 - 844 })
-	})
-})
-
-describe('swipeOf: a drag the page did not follow', () => {
-	it('turns on a quick sideways flick', () => {
-		expect(swipeOf(-60, 5, 120, 390)).toBe('left')
-		expect(swipeOf(70, -10, 150, 390)).toBe('right')
-	})
-
-	it('turns on a slow drag across a quarter of the screen', () => {
-		expect(swipeOf(-120, 0, 800, 390)).toBe('left')
-	})
-
-	it('ignores small, slow, diagonal or late drags', () => {
-		expect(swipeOf(-10, 0, 50, 390)).toBeNull() // under the slop
-		expect(swipeOf(-40, 0, 800, 390)).toBeNull() // slow and short
-		expect(swipeOf(-80, 60, 120, 390)).toBeNull() // too diagonal
-		expect(swipeOf(-300, 0, 1200, 390)).toBeNull() // held too long: not a swipe
-	})
-})
-
-describe('tapZone', () => {
-	it('uses thirds on touch screens and quarters with a mouse', () => {
-		expect(tapZone(0.3, true)).toBe('left')
-		expect(tapZone(0.3, false)).toBe('middle')
-		expect(tapZone(0.7, true)).toBe('right')
-		expect(tapZone(0.7, false)).toBe('middle')
-		expect(tapZone(0.8, false)).toBe('right')
-		expect(tapZone(0.5, true)).toBe('middle')
 	})
 })
 

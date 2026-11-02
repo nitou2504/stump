@@ -40,7 +40,7 @@ import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
 import { SwitchRow } from '../shared/settingsControls'
-import { navigationTapZone } from '../shared/tapZones'
+import { navigationTapZone, swipeOf, swipeTurn, zoneTurn } from '../shared/gestures'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
 	anchorOnPage,
@@ -68,7 +68,7 @@ import {
 	zoomIn,
 	zoomOut,
 } from './geometry'
-import { isZoomedIn, scrollerTouchStyle, swipeTurn } from './gestures'
+import { isZoomedIn, scrollerTouchStyle } from './gestures'
 import { chapterTitleForPage, flattenOutline, pageLabel, resolvePageInput } from './outline'
 import PdfGoToPageDialog from './PdfGoToPageDialog'
 import PdfLocationsDialog, { type PdfLocationTab } from './PdfLocationsDialog'
@@ -1188,11 +1188,14 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			if (!paged || zoomed) return
 			const selection = window.getSelection()
 			if (selection && !selection.isCollapsed) return
-			const direction = swipeTurn({
-				dx: touch.clientX - from.x,
-				dy: touch.clientY - from.y,
-				durationMs: performance.now() - from.time,
-			})
+			const direction = swipeTurn(
+				swipeOf(
+					touch.clientX - from.x,
+					touch.clientY - from.y,
+					performance.now() - from.time,
+					element.clientWidth,
+				),
+			)
 			if (!direction) return
 			lastGestureRef.current = performance.now()
 			turn(direction)
@@ -1265,15 +1268,15 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const box = container.getBoundingClientRect()
 			const relative = (event.clientX - box.left) / box.width
 			const point = { x: event.clientX, y: event.clientY }
-			// the same side zones as the other readers (15% of the width at each side); in the
-			// scrolled layout the sides don't turn anything, a tap only shows the controls
-			const zone = navigationTapZone(relative, { flow: continuous ? 'continuous' : 'paged' })
-			if (zone === 'left') {
-				goRelative(-1)
-				return
-			}
-			if (zone === 'right') {
-				goRelative(1)
+			// the same side zones as the other readers (a third of the width at each side on a
+			// touch screen, a quarter with a mouse); in the scrolled layout the sides don't turn
+			// anything, a tap only shows the controls
+			const zone = navigationTapZone(relative, {
+				flow: continuous ? 'continuous' : 'paged',
+				coarse: isCoarsePointer,
+			})
+			if (zone !== 'middle') {
+				goRelative(zoneTurn(zone))
 				return
 			}
 			if (!isCoarsePointer) return
