@@ -1,3 +1,4 @@
+import { spreadRows } from '../../shared/layout'
 import {
 	buildScrollLayout,
 	dominantPage,
@@ -5,6 +6,7 @@ import {
 	mountRange,
 	prefetchIndexes,
 	progressionWithin,
+	rowAt,
 	scrollTopFor,
 	slotAt,
 	visibleRange,
@@ -23,10 +25,57 @@ describe('buildScrollLayout', () => {
 			16,
 		)
 		expect(layout.slots).toEqual([
-			{ index: 0, top: 16, height: 1000, width: 700 },
-			{ index: 1, top: 1032, height: 500, width: 600 },
+			{ index: 0, top: 16, height: 1000, width: 700, left: 0, row: 0 },
+			{ index: 1, top: 1032, height: 500, width: 600, left: 0, row: 1 },
 		])
 		expect(layout.totalHeight).toBe(1548)
+		expect(layout.maxRowWidth).toBe(700)
+	})
+
+	it('puts two pages side by side in a spread, the cover alone', () => {
+		const sizes = pages(5, 1000, 700)
+		const layout = buildScrollLayout(sizes, 16, spreadRows(5, 'double'))
+		expect(layout.rows.map((row) => row.pages)).toEqual([[0], [1, 2], [3, 4]])
+		expect(layout.slots[2]).toEqual({
+			index: 2,
+			top: 1032,
+			height: 1000,
+			width: 700,
+			left: 716,
+			row: 1,
+		})
+		expect(layout.rows[1]).toMatchObject({ top: 1032, width: 1416, height: 1000 })
+		expect(layout.maxRowWidth).toBe(1416)
+		expect(layout.totalHeight).toBe(16 + 3 * 1016)
+	})
+})
+
+describe('spreads', () => {
+	const layout = buildScrollLayout(pages(9), 16, spreadRows(9, 'double'))
+
+	it('finds rows and their pages at an offset', () => {
+		expect(rowAt(layout, 0)).toBe(0)
+		expect(rowAt(layout, 1032)).toBe(1)
+		expect(slotAt(layout, 1032)).toBe(1)
+		expect(visibleRange(layout, 500, 900)).toEqual([0, 2])
+	})
+
+	it('names the first page of the row filling the view as the current page', () => {
+		expect(dominantPage(layout, 1032, 900)).toBe(1)
+		expect(dominantPage(layout, 2048, 900)).toBe(3)
+	})
+
+	it('mounts whole rows', () => {
+		const [start, end] = mountRange(layout, 2048, 900)!
+		expect(start % 2).toBe(1)
+		expect(end % 2).toBe(0)
+		expect(end - start + 1).toBeLessThanOrEqual(KEEP_PAGES)
+	})
+
+	it('scrolls to the row of a page, and keeps progression across the row', () => {
+		expect(scrollTopFor(layout, 2)).toBe(1016)
+		expect(scrollTopFor(layout, 1)).toBe(1016)
+		expect(progressionWithin(layout, 2, 1032 + 500)).toBe(0.5)
 	})
 })
 

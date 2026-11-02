@@ -1,12 +1,10 @@
 import { useSDK } from '@stump/client'
-import { cn, FullScreenLoader, Spacer, Text } from '@stump/components'
+import { FullScreenLoader, Text, WideSwitch } from '@stump/components'
 import type { BookReaderSceneQuery } from '@stump/graphql'
 import type { PdfLayout, PdfSearchResult } from '@stump/sdk'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Bookmark, Fullscreen, Keyboard, List, Search, Shrink } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { useFullscreen } from 'rooks'
 import { toast } from 'sonner'
 
 import { useTheme } from '@/hooks/useTheme'
@@ -24,19 +22,43 @@ import {
 	isOptimisticAnnotationId,
 	type ReaderAnnotation,
 	type ReaderLocator,
-	ReaderShortcutsHelp,
 	type ShortcutRow,
 	type ToolbarAnchor,
 } from '../annotations'
-import ControlButton from '../epub/controls/ControlButton'
-import DayNightToggle from '../epub/controls/DayNightToggle'
 import { useReaderChromeTheme } from '../epub/readium/useReaderChromeTheme'
+import {
+	canShowTwoPages,
+	effectiveLayout,
+	pageIndicatorText,
+	type ReaderLayout,
+	rowOfPage,
+	spreadRows,
+} from '../shared/layout'
+import { copyText, nextDayNightTheme } from '../shared/readerKeys'
+import ReaderPageIndicator from '../shared/ReaderPageIndicator'
+import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
+import ReaderTopBar from '../shared/ReaderTopBar'
+import { useReaderChrome } from '../shared/useReaderChrome'
+import {
+	anchorOnPage,
+	clampRatio,
+	distance,
+	DOUBLE_TAP_MS,
+	isDoubleTap,
+	midpoint,
+	pinchTransform,
+	type Point,
+	scrollForAnchor,
+	type ZoomAnchor,
+} from '../shared/zoomAnchor'
 import {
 	boundingRect,
 	clampZoom,
 	firstPageHint,
 	type FitMode,
 	type FractionRect,
+	MAX_ZOOM,
+	MIN_ZOOM,
 	pageCssSize,
 	pickTier,
 	rectContains,
@@ -44,12 +66,12 @@ import {
 	zoomOut,
 } from './geometry'
 import { chapterTitleForPage, flattenOutline, pageLabel, resolvePageInput } from './outline'
-import PdfAppearanceDialog from './PdfAppearanceDialog'
 import PdfGoToPageDialog from './PdfGoToPageDialog'
 import PdfLocationsDialog, { type PdfLocationTab } from './PdfLocationsDialog'
 import PdfPageView from './PdfPageView'
 import { PDF_READER_CSS } from './pdfReaderCss'
 import PdfSearchDialog from './PdfSearchDialog'
+import { PdfOpenAs, PdfPageSettings } from './PdfSettings'
 import { resolvePdfShortcut } from './pdfShortcuts'
 import { pdfThemeLook, resolvePdfTheme } from './pdfThemes'
 import {
@@ -61,7 +83,7 @@ import {
 	scrollTopFor,
 	visibleRange,
 } from './scrollLayout'
-import { readPdfSelection, selectionToLocator, totalProgression } from './selection'
+import { PAGE_ATTRIBUTE, readPdfSelection, selectionToLocator, totalProgression } from './selection'
 import { type PdfBookPreferences, usePdfBookPreferences, usePdfReaderStore } from './store'
 import { buildPageString, pagePreview } from './textLayout'
 import { useElementSize } from './useElementSize'
@@ -149,11 +171,13 @@ type NoteDialogState =
 
 type Flash = { page: number; rects: FractionRect[]; key: number }
 
-/** The share of the width at each side that turns the page in single-page mode */
+/** The share of the width at each side that turns the page in paged layouts */
 const SIDE_TAP_ZONE = 0.15
 const PAGE_GAP_DESKTOP = 16
 const PAGE_GAP_PHONE = 8
 const PHONE_MAX_WIDTH = 768
+/** Taps right after a pinch or a pan are the end of that gesture, not a tap */
+const GESTURE_QUIET_MS = 350
 
 function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProgress }: ViewProps) {
 	const { sdk } = useSDK()
@@ -171,6 +195,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		[mediaId, storeSetPreferences],
 	)
 	const themeSetting = useReaderStore((state) => state.settings.theme ?? 'auto')
+	const setReaderSettings = useReaderStore((state) => state.setSettings)
 	const { isDarkVariant } = useTheme()
 	const theme = resolvePdfTheme(themeSetting, isDarkVariant)
 	const invertPagesInDark = preferences.invertPagesInDark ?? true
@@ -186,7 +211,6 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	})
 
 	// Viewport and page sizes ---------------------------------------------------------------
-	const rootRef = useRef<HTMLDivElement>(null!)
 	const scrollRef = useRef<HTMLDivElement>(null)
 	const contentRef = useRef<HTMLDivElement>(null)
 	const viewport = useElementSize(scrollRef)
@@ -197,29 +221,50 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	)
 	const fit: FitMode = preferences.fit ?? (isPhone ? 'width' : 'page')
 	const zoom = clampZoom(preferences.zoom ?? 1)
-	const scrollMode = preferences.scrollMode ?? 'continuous'
-	const continuous = scrollMode === 'continuous'
+	const storedLayout = useMemo<ReaderLayout>(
+		() => ({
+			spread: preferences.spread ?? 'single',
+			flow: preferences.scrollMode === 'paged' ? 'paged' : 'continuous',
+		}),
+		[preferences.spread, preferences.scrollMode],
+	)
+	const shownLayout = effectiveLayout(storedLayout, viewport.width)
+	const continuous = shownLayout.flow === 'continuous'
+	const double = shownLayout.spread === 'double'
+	const coverAlone = preferences.coverAlone ?? true
 	const gap = isPhone ? PAGE_GAP_PHONE : PAGE_GAP_DESKTOP
 	const sidePadding = isPhone ? 0 : PAGE_GAP_DESKTOP
 
 	const available = useMemo(
 		() => ({
-			width: Math.max(0, viewport.width - sidePadding * 2),
+			// two pages share the width, with a gap between them
+			width: Math.max(
+				0,
+				(viewport.width - sidePadding * 2 - (double ? gap : 0)) / (double ? 2 : 1),
+			),
 			height: Math.max(0, viewport.height - gap * 2),
 		}),
-		[viewport.width, viewport.height, sidePadding, gap],
+		[viewport.width, viewport.height, sidePadding, gap, double],
 	)
 	const sizes = useMemo(
 		() => layout.pages.map((page) => pageCssSize(page, available, fit, zoom)),
 		[layout.pages, available, fit, zoom],
 	)
-	const scrollLayout = useMemo(() => buildScrollLayout(sizes, gap), [sizes, gap])
-	const contentWidth = useMemo(
-		() => Math.max(viewport.width, ...sizes.map((size) => size.width + sidePadding * 2)),
-		[sizes, viewport.width, sidePadding],
+	const rows = useMemo(
+		() => spreadRows(pageCount, shownLayout.spread, { coverAlone }),
+		[pageCount, shownLayout.spread, coverAlone],
 	)
+	const scrollLayout = useMemo(() => buildScrollLayout(sizes, gap, rows), [sizes, gap, rows])
+	const contentWidth = Math.max(viewport.width, scrollLayout.maxRowWidth + sidePadding * 2)
 	// Pictures sharper than 2x don't read better on a phone, they only load slower
 	const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+
+	/** Where a row starts horizontally in the content (rows are centred) */
+	const rowLeft = useCallback(
+		(row: number) =>
+			Math.max(sidePadding, (contentWidth - (scrollLayout.rows[row]?.width ?? 0)) / 2),
+		[sidePadding, contentWidth, scrollLayout.rows],
+	)
 
 	// Position ------------------------------------------------------------------------------
 	const startIndex = useMemo(() => {
@@ -229,21 +274,85 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 
 	const [scrollTop, setScrollTop] = useState(0)
 	const [pagedIndex, setPagedIndex] = useState(startIndex)
-	/** The reading position kept across zoom, fit and resize changes */
+	/** The reading position kept across zoom, fit, layout and resize changes */
 	const anchorRef = useRef({ index: startIndex, progression: 0 })
+	/** A spot to keep under the fingers or the mouse when a zoom is committed */
+	const zoomAnchorRef = useRef<ZoomAnchor | null>(null)
 	const programmaticScrollRef = useRef(false)
+	/** When the last pinch or pan ended (taps right after it are ignored) */
+	const lastGestureRef = useRef(0)
 
+	/** The row shown in paged layouts */
+	const pagedRow = Math.max(0, rowOfPage(rows, pagedIndex))
 	const currentIndex = continuous
 		? viewport.height > 0
 			? dominantPage(scrollLayout, scrollTop, viewport.height)
 			: startIndex
-		: pagedIndex
+		: (rows[pagedRow]?.[0] ?? pagedIndex)
 	const currentPage = currentIndex + 1
+	const currentRow = Math.max(0, rowOfPage(rows, currentIndex))
+	const pagesInView = useMemo(
+		() => (rows[currentRow] ?? [currentIndex]).map((index) => index + 1),
+		[rows, currentRow, currentIndex],
+	)
 
-	// Restore the anchor whenever the layout changes (first paint, zoom, fit, resize, mode)
+	/** The top of a page in the content, vertically centred in its row */
+	const pageTop = useCallback(
+		(index: number) => {
+			const slot = scrollLayout.slots[index]
+			if (!slot) return 0
+			const row = scrollLayout.rows[slot.row]!
+			const rowTop = continuous ? row.top : Math.max(gap, (viewport.height - row.height) / 2)
+			return rowTop + (row.height - slot.height) / 2
+		},
+		[scrollLayout, continuous, gap, viewport.height],
+	)
+	const pageLeft = useCallback(
+		(index: number) => {
+			const slot = scrollLayout.slots[index]
+			return slot ? rowLeft(slot.row) + slot.left : 0
+		},
+		[scrollLayout.slots, rowLeft],
+	)
+
+	// Restore the reading position whenever the layout changes (first paint, zoom, fit,
+	// resize, layout); a committed pinch or wheel zoom keeps its spot under the fingers
 	useLayoutEffect(() => {
 		const element = scrollRef.current
 		if (!element || viewport.height <= 0) return
+		const zoomAnchor = zoomAnchorRef.current
+		zoomAnchorRef.current = null
+		if (contentRef.current) {
+			contentRef.current.style.transform = ''
+			contentRef.current.style.transformOrigin = ''
+		}
+		if (zoomAnchor) {
+			const index = zoomAnchor.page - 1
+			const slot = scrollLayout.slots[index]
+			if (slot) {
+				if (!continuous) setPagedIndex(index)
+				const { left, top } = scrollForAnchor(zoomAnchor, {
+					left: pageLeft(index),
+					top: pageTop(index),
+					width: slot.width,
+					height: slot.height,
+				})
+				programmaticScrollRef.current = true
+				element.scrollLeft = left
+				element.scrollTop = top
+				setScrollTop(element.scrollTop)
+				const dominant = continuous
+					? dominantPage(scrollLayout, element.scrollTop, element.clientHeight)
+					: index
+				anchorRef.current = {
+					index: dominant,
+					progression: continuous
+						? progressionWithin(scrollLayout, dominant, element.scrollTop)
+						: 0,
+				}
+				return
+			}
+		}
 		if (continuous) {
 			const { index, progression } = anchorRef.current
 			programmaticScrollRef.current = true
@@ -252,7 +361,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		} else {
 			setPagedIndex(anchorRef.current.index)
 		}
-	}, [scrollLayout, continuous, viewport.height])
+	}, [scrollLayout, continuous, viewport.height, pageLeft, pageTop])
 
 	const frameRef = useRef<number | null>(null)
 	const handleScroll = useCallback(() => {
@@ -268,10 +377,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				return
 			}
 			const index = dominantPage(scrollLayout, top, element.clientHeight)
-			const slot = scrollLayout.slots[index]
+			const row = scrollLayout.rows[scrollLayout.slots[index]?.row ?? -1]
 			anchorRef.current = {
 				index,
-				progression: slot && top > slot.top ? progressionWithin(scrollLayout, index, top) : 0,
+				progression: row && top > row.top ? progressionWithin(scrollLayout, index, top) : 0,
 			}
 		})
 	}, [continuous, scrollLayout])
@@ -292,10 +401,13 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		(page: number, target?: number) => {
 			const index = Math.min(pageCount - 1, Math.max(0, Math.round(page) - 1))
 			const slot = scrollLayout.slots[index]
+			const row = slot ? scrollLayout.rows[slot.row] : undefined
 			const element = scrollRef.current
 			let within = 0
-			if (target != null && target > 0 && slot && element) {
-				within = Math.max(0, target - (element.clientHeight * 0.3) / Math.max(1, slot.height))
+			if (target != null && target > 0 && slot && row && element) {
+				const targetY =
+					(pageTop(index) - (continuous ? row.top : 0) + target * slot.height) / row.height
+				within = Math.max(0, targetY - (element.clientHeight * 0.3) / Math.max(1, row.height))
 			}
 			anchorRef.current = { index, progression: within }
 			if (continuous) {
@@ -305,22 +417,25 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				setScrollTop(element.scrollTop)
 			} else {
 				setPagedIndex(index)
-				const size = sizes[index]
 				// a zoomed page taller than the screen: scroll to the target inside it
 				element?.scrollTo({
 					top:
-						target != null && size
-							? Math.max(0, target * size.height - element.clientHeight * 0.3)
+						target != null && slot
+							? Math.max(0, pageTop(index) + target * slot.height - element.clientHeight * 0.3)
 							: 0,
 				})
 			}
 		},
-		[continuous, pageCount, scrollLayout, sizes],
+		[continuous, pageCount, scrollLayout, pageTop],
 	)
 
+	/** Moves by rows: a page, or a spread of two */
 	const goRelative = useCallback(
-		(delta: number) => goToPage(currentIndex + 1 + delta),
-		[currentIndex, goToPage],
+		(delta: number) => {
+			const target = rows[Math.min(rows.length - 1, Math.max(0, currentRow + delta))]
+			if (target) goToPage(target[0]! + 1)
+		},
+		[rows, currentRow, goToPage],
 	)
 
 	const scrollByScreen = useCallback((direction: 1 | -1) => {
@@ -364,7 +479,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		? viewport.height > 0
 			? visibleRange(scrollLayout, scrollTop, viewport.height)
 			: null
-		: [pagedIndex, pagedIndex]
+		: rows[pagedRow]
+			? [rows[pagedRow]![0]!, rows[pagedRow]![rows[pagedRow]!.length - 1]!]
+			: null
 	const [loadedPictures, setLoadedPictures] = useState<ReadonlySet<string>>(() => new Set())
 	const handlePictureLoaded = useCallback((src: string) => {
 		setLoadedPictures((previous) => (previous.has(src) ? previous : new Set(previous).add(src)))
@@ -380,9 +497,16 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	}
 
 	const prefetchText = usePrefetchPdfText(mediaId, layout.v)
+	const lastInView = visible ? visible[1] : currentIndex
 	useEffect(() => {
 		if (viewport.width <= 0 || !visibleLoaded) return undefined
-		const indexes = prefetchIndexes(currentIndex, pageCount)
+		// a spread prefetches the next spread and the previous one
+		const indexes = double
+			? [
+					...prefetchIndexes(lastInView, pageCount, 2, 0),
+					...prefetchIndexes(currentIndex, pageCount, 0, 2),
+				]
+			: prefetchIndexes(currentIndex, pageCount)
 		const run = () => {
 			for (const index of indexes) {
 				const tier = tierFor(index)
@@ -409,6 +533,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		return () => window.clearTimeout(timeout)
 	}, [
 		currentIndex,
+		lastInView,
 		pageCount,
 		tierFor,
 		sdk,
@@ -418,6 +543,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		prefetchText,
 		viewport.width,
 		visibleLoaded,
+		double,
 	])
 
 	// Annotations and bookmarks ----------------------------------------------------------------
@@ -527,7 +653,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const clearSelection = useCallback(() => {
 		window.getSelection()?.removeAllRanges()
 		setTarget(null)
-	}, [])
+	}, [setTarget])
 
 	const readSelectionTarget = useCallback((): AnnotationTarget | null => {
 		const selection = readPdfSelection(window.getSelection())
@@ -545,6 +671,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		}
 	}, [mediaId, pageCount, layout.labels, flatOutline, pageStringOf])
 
+	// The toolbar shows once the selection has settled: on touch screens the selection's
+	// handles are still being dragged until it's quiet for a moment
 	useEffect(() => {
 		let timeout: number | undefined
 		const update = () => {
@@ -593,7 +721,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
 			})
 		},
-		[annotations, annotationAnchor],
+		[annotations, annotationAnchor, setTarget],
 	)
 
 	// Keep the toolbar next to its target while scrolling or zooming
@@ -651,24 +779,48 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		} else if (targetAnnotation) {
 			setNoteDialog({ mode: 'edit', annotation: targetAnnotation })
 		}
-	}, [target, targetAnnotation])
+	}, [target, targetAnnotation, setNoteDialog])
+
+	const copyTarget = useCallback(async () => {
+		if (!target) return
+		const text =
+			target.kind === 'selection'
+				? target.selection.text
+				: (targetAnnotation?.locator.text?.highlight ?? '')
+		const copied = await copyText(text)
+		if (copied) {
+			toast.success(translate('shared.readerAnnotations.copied'))
+			clearSelection()
+		} else {
+			toast.error(translate('shared.readerAnnotations.copyFailed'))
+		}
+	}, [target, targetAnnotation, translate, clearSelection])
 
 	const removeTargetAnnotation = useCallback(() => {
 		if (target?.kind !== 'annotation') return
 		deleteAnnotation(target.annotationId)
 		setTarget(null)
-	}, [target, deleteAnnotation])
+	}, [target, deleteAnnotation, setTarget])
 
 	// Dialogs and chrome --------------------------------------------------------------------------
-	const [helpOpen, setHelpOpen] = useState(false)
+	const [settingsOpen, setSettingsOpen] = useState(false)
+	const [settingsSection, setSettingsSection] = useState<'shortcuts' | null>(null)
 	const [searchOpen, setSearchOpen] = useState(false)
 	const [goToOpen, setGoToOpen] = useState(false)
 	const [locationsOpen, setLocationsOpen] = useState(false)
 	const [locationsTab, setLocationsTab] = useState<PdfLocationTab>('contents')
-	const [chromeVisible, setChromeVisible] = useState(true)
 	const [flash, setFlash] = useState<Flash | null>(null)
+	const chrome = useReaderChrome({
+		pinned: settingsOpen || searchOpen || goToOpen || locationsOpen,
+	})
 
-	const { isFullscreenEnabled, toggleFullscreen } = useFullscreen({ target: rootRef })
+	const openSettings = useCallback(
+		(section: 'shortcuts' | null = null) => {
+			setSettingsSection(section)
+			setSettingsOpen(true)
+		},
+		[setSettingsSection, setSettingsOpen],
+	)
 
 	const showSearchResult = useCallback(
 		(result: PdfSearchResult) => {
@@ -676,7 +828,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			goToPage(result.page, result.rects[0]?.y ?? 0)
 			setFlash({ page: result.page, rects: result.rects, key: Date.now() })
 		},
-		[goToPage],
+		[goToPage, setSearchOpen, setFlash],
 	)
 
 	useEffect(() => {
@@ -684,6 +836,54 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		const timeout = window.setTimeout(() => setFlash(null), 2600)
 		return () => window.clearTimeout(timeout)
 	}, [flash])
+
+	// Zoom ----------------------------------------------------------------------------------------
+	/** The spot of the page under a viewport point, to keep there when the zoom changes */
+	const anchorAt = useCallback((point: Point): ZoomAnchor | null => {
+		const container = scrollRef.current
+		if (!container) return null
+		const containerBox = container.getBoundingClientRect()
+		const pagesShown = container.querySelectorAll<HTMLElement>(`[${PAGE_ATTRIBUTE}]`)
+		let best: { page: number; box: DOMRect; distance: number } | null = null
+		for (const element of pagesShown) {
+			const box = element.getBoundingClientRect()
+			const dx =
+				point.x < box.left ? box.left - point.x : point.x > box.right ? point.x - box.right : 0
+			const dy =
+				point.y < box.top ? box.top - point.y : point.y > box.bottom ? point.y - box.bottom : 0
+			const distance = Math.hypot(dx, dy)
+			if (!best || distance < best.distance) {
+				best = { page: Number(element.getAttribute(PAGE_ATTRIBUTE)), box, distance }
+			}
+		}
+		if (!best) return null
+		return anchorOnPage(best.page, best.box, point, { x: containerBox.left, y: containerBox.top })
+	}, [])
+
+	/** Commits a zoom, keeping the spot under `point` (a pinch, the mouse, a double tap) where it is */
+	const zoomAround = useCallback(
+		(nextZoom: number, point?: Point) => {
+			const clamped = clampZoom(nextZoom)
+			const content = contentRef.current
+			const transform = content?.style.transform ?? ''
+			// measure the pages where they really are, without the gesture's transform
+			if (content) content.style.transform = ''
+			if (clamped === zoom) return
+			zoomAnchorRef.current = point ? anchorAt(point) : null
+			// kept until the new zoom is laid out (in the same frame), so nothing jumps
+			if (content && transform) content.style.transform = transform
+			setPreferences({ zoom: clamped })
+		},
+		[zoom, anchorAt, setPreferences],
+	)
+	const zoomAroundRef = useRef(zoomAround)
+	useEffect(() => {
+		zoomAroundRef.current = zoomAround
+	}, [zoomAround])
+	const anchorAtRef = useRef(anchorAt)
+	useEffect(() => {
+		anchorAtRef.current = anchorAt
+	}, [anchorAt])
 
 	// Keyboard ----------------------------------------------------------------------------------
 	useEffect(() => {
@@ -706,6 +906,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				case 'note':
 					openNote()
 					break
+				case 'copy':
+					void copyTarget()
+					break
 				case 'delete':
 					removeTargetAnnotation()
 					break
@@ -713,7 +916,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					void toggleBookmark()
 					break
 				case 'help':
-					setHelpOpen(true)
+					openSettings('shortcuts')
+					break
+				case 'dayNight':
+					setReaderSettings({ theme: nextDayNightTheme(themeSetting, isDarkVariant) })
 					break
 				case 'dismiss':
 					clearSelection()
@@ -752,7 +958,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					setGoToOpen(true)
 					break
 				case 'search':
-					setSearchOpen(true)
+					if (layout.hasText) setSearchOpen(true)
 					break
 			}
 		}
@@ -763,8 +969,13 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		continuous,
 		applyStyle,
 		openNote,
+		copyTarget,
 		removeTargetAnnotation,
 		toggleBookmark,
+		openSettings,
+		setReaderSettings,
+		themeSetting,
+		isDarkVariant,
 		clearSelection,
 		goRelative,
 		scrollByScreen,
@@ -773,64 +984,122 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		setPreferences,
 		zoom,
 		fit,
+		layout.hasText,
 	])
 
-	// Ctrl/Cmd + wheel zooms the pages instead of the whole app
+	// Ctrl/Cmd + wheel (and a trackpad pinch) zooms the pages around the mouse: scaled with a
+	// transform while the wheel turns, committed once it stops
 	useEffect(() => {
 		const element = scrollRef.current
 		if (!element) return undefined
-		let pending = 1
+		let ratio = 1
+		let origin: Point | null = null
+		let point: Point = { x: 0, y: 0 }
 		let timeout: number | undefined
 		const onWheel = (event: WheelEvent) => {
 			if (!event.ctrlKey && !event.metaKey) return
 			event.preventDefault()
-			pending *= Math.exp(-event.deltaY / 400)
+			const content = contentRef.current
+			const current = clampZoom(usePdfReaderStore.getState().books[mediaId]?.zoom ?? 1)
+			point = { x: event.clientX, y: event.clientY }
+			if (!origin) {
+				const box = element.getBoundingClientRect()
+				origin = {
+					x: element.scrollLeft + event.clientX - box.left,
+					y: element.scrollTop + event.clientY - box.top,
+				}
+			}
+			ratio = clampRatio(current, ratio * Math.exp(-event.deltaY / 400), MIN_ZOOM, MAX_ZOOM)
+			if (content) {
+				const look = pinchTransform(origin, point, point, ratio)
+				content.style.transformOrigin = look.transformOrigin
+				content.style.transform = look.transform
+			}
 			window.clearTimeout(timeout)
 			timeout = window.setTimeout(() => {
-				const current = clampZoom(usePdfReaderStore.getState().books[mediaId]?.zoom ?? 1)
-				setPreferences({ zoom: clampZoom(current * pending) })
-				pending = 1
-			}, 120)
+				zoomAroundRef.current(current * ratio, point)
+				ratio = 1
+				origin = null
+			}, 140)
 		}
 		element.addEventListener('wheel', onWheel, { passive: false })
 		return () => {
 			window.clearTimeout(timeout)
 			element.removeEventListener('wheel', onWheel)
 		}
-	}, [mediaId, setPreferences])
+	}, [mediaId])
 
-	// Pinch to zoom on touch screens (two fingers); applied when the fingers lift
+	// Pinch to zoom on touch screens: during the pinch only a GPU transform scales the pages
+	// around the fingers' midpoint (no re-render per move); when the fingers lift the zoom is
+	// committed once and the spot that was under the fingers stays there. One-finger pans are
+	// left to the browser's own momentum scrolling.
 	useEffect(() => {
 		const element = scrollRef.current
 		if (!element) return undefined
-		let startDistance = 0
+		let start: { distance: number; mid: Point; origin: Point; zoom: number } | null = null
 		let ratio = 1
-		const distance = (touches: TouchList) =>
-			Math.hypot(
-				touches[0]!.clientX - touches[1]!.clientX,
-				touches[0]!.clientY - touches[1]!.clientY,
-			)
+		let mid: Point = { x: 0, y: 0 }
+		const touchPoint = (touch: Touch): Point => ({ x: touch.clientX, y: touch.clientY })
 		const onTouchStart = (event: TouchEvent) => {
-			if (event.touches.length === 2) {
-				startDistance = distance(event.touches)
-				ratio = 1
+			if (event.touches.length !== 2) return
+			const a = touchPoint(event.touches[0]!)
+			const b = touchPoint(event.touches[1]!)
+			mid = midpoint(a, b)
+			const box = element.getBoundingClientRect()
+			start = {
+				distance: Math.max(1, distance(a, b)),
+				mid,
+				origin: {
+					x: element.scrollLeft + mid.x - box.left,
+					y: element.scrollTop + mid.y - box.top,
+				},
+				zoom: clampZoom(usePdfReaderStore.getState().books[mediaId]?.zoom ?? 1),
 			}
+			ratio = 1
+			// the text selection a long press may have started is not what a pinch wants
+			window.getSelection()?.removeAllRanges()
+			if (contentRef.current) contentRef.current.style.willChange = 'transform'
 		}
 		const onTouchMove = (event: TouchEvent) => {
-			if (event.touches.length !== 2 || !startDistance) return
+			if (!start || event.touches.length !== 2) return
 			event.preventDefault()
-			ratio = distance(event.touches) / startDistance
-			if (contentRef.current) contentRef.current.style.transform = `scale(${ratio})`
+			const a = touchPoint(event.touches[0]!)
+			const b = touchPoint(event.touches[1]!)
+			mid = midpoint(a, b)
+			ratio = clampRatio(start.zoom, distance(a, b) / start.distance, MIN_ZOOM, MAX_ZOOM)
+			const content = contentRef.current
+			if (content) {
+				const look = pinchTransform(start.origin, start.mid, mid, ratio)
+				content.style.transformOrigin = look.transformOrigin
+				content.style.transform = look.transform
+			}
 		}
 		const onTouchEnd = (event: TouchEvent) => {
-			if (!startDistance || event.touches.length > 0) return
-			if (contentRef.current) contentRef.current.style.transform = ''
-			if (Math.abs(ratio - 1) > 0.05) {
-				const current = clampZoom(usePdfReaderStore.getState().books[mediaId]?.zoom ?? 1)
-				setPreferences({ zoom: clampZoom(current * ratio) })
+			if (!start || event.touches.length > 0) return
+			lastGestureRef.current = performance.now()
+			if (contentRef.current) contentRef.current.style.willChange = ''
+			const { zoom: startZoom, mid: startMid } = start
+			start = null
+			const nextZoom = clampZoom(startZoom * ratio)
+			if (nextZoom !== startZoom) {
+				// the spot under the starting midpoint ends under the final one
+				zoomAnchorRef.current = anchorForPinch(startMid, mid)
+				setPreferences({ zoom: nextZoom })
+			} else if (contentRef.current) {
+				contentRef.current.style.transform = ''
 			}
-			startDistance = 0
 			ratio = 1
+		}
+		/** The page spot under the pinch's first midpoint, to put under its last one */
+		const anchorForPinch = (from: Point, to: Point): ZoomAnchor | null => {
+			const content = contentRef.current
+			const transform = content?.style.transform ?? ''
+			if (content) content.style.transform = ''
+			const anchor = anchorAtRef.current(from)
+			if (content) content.style.transform = transform
+			if (!anchor) return null
+			const box = element.getBoundingClientRect()
+			return { ...anchor, x: to.x - box.left, y: to.y - box.top }
 		}
 		element.addEventListener('touchstart', onTouchStart, { passive: true })
 		element.addEventListener('touchmove', onTouchMove, { passive: false })
@@ -856,14 +1125,21 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		document
 			.querySelectorAll('.pdf-text-layer.selecting')
 			.forEach((layer) => layer.classList.remove('selecting'))
+		if (isCoarsePointer) return // the settled selectionchange shows the toolbar
 		const next = readSelectionTarget()
 		if (next) setTarget(next)
-	}, [readSelectionTarget])
+	}, [readSelectionTarget, isCoarsePointer, setTarget])
+
+	const lastTapRef = useRef<{ time: number; point: Point } | null>(null)
+	const pendingTapRef = useRef<number | undefined>(undefined)
+	useEffect(() => () => window.clearTimeout(pendingTapRef.current), [])
 
 	const handleClick = useCallback(
 		(event: React.MouseEvent) => {
 			const selection = window.getSelection()
 			if (selection && !selection.isCollapsed) return
+			// the end of a pinch or a pan is not a tap
+			if (performance.now() - lastGestureRef.current < GESTURE_QUIET_MS) return
 
 			const pageElement = (event.target as Element).closest?.('[data-pdf-page]')
 			if (pageElement) {
@@ -891,16 +1167,42 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			if (!container) return
 			const box = container.getBoundingClientRect()
 			const relative = (event.clientX - box.left) / box.width
-			// the same side zones as the EPUB reader (15% of the width at each side)
+			const point = { x: event.clientX, y: event.clientY }
+			// the same side zones as the other readers (15% of the width at each side)
 			if (!continuous && relative < SIDE_TAP_ZONE) {
 				goRelative(-1)
-			} else if (!continuous && relative > 1 - SIDE_TAP_ZONE) {
-				goRelative(1)
-			} else if (isCoarsePointer) {
-				setChromeVisible((visible) => !visible)
+				return
 			}
+			if (!continuous && relative > 1 - SIDE_TAP_ZONE) {
+				goRelative(1)
+				return
+			}
+			if (!isCoarsePointer) return
+			// The middle: a double tap zooms to 2x around the tap (or back to the fit); a single
+			// tap shows or hides the top bar once it's clear no second tap follows
+			const now = performance.now()
+			if (isDoubleTap(lastTapRef.current, now, point)) {
+				window.clearTimeout(pendingTapRef.current)
+				lastTapRef.current = null
+				zoomAround(zoom > 1.05 ? 1 : 2, point)
+				return
+			}
+			lastTapRef.current = { time: now, point }
+			window.clearTimeout(pendingTapRef.current)
+			pendingTapRef.current = window.setTimeout(() => chrome.toggle(), DOUBLE_TAP_MS)
 		},
-		[annotationsByPage, openAnnotation, target, continuous, goRelative, isCoarsePointer],
+		[
+			annotationsByPage,
+			openAnnotation,
+			target,
+			continuous,
+			goRelative,
+			isCoarsePointer,
+			zoomAround,
+			zoom,
+			chrome,
+			setTarget,
+		],
 	)
 
 	// Render ------------------------------------------------------------------------------------------
@@ -908,9 +1210,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		? viewport.height > 0
 			? mountRange(scrollLayout, scrollTop, viewport.height)
 			: [startIndex, startIndex]
-		: [pagedIndex, pagedIndex]
+		: visible
 
-	const renderPage = (index: number, top: number, left: number) => {
+	const renderPage = (index: number) => {
 		const size = sizes[index]
 		const pageSize = layout.pages[index]
 		if (!size || !pageSize || size.width <= 0) return null
@@ -932,8 +1234,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				selectedAnnotationId={target?.kind === 'annotation' ? target.annotationId : null}
 				flashRects={flash?.page === page ? flash.rects : null}
 				onOpenAnnotation={openAnnotation}
-				top={top}
-				left={left}
+				top={pageTop(index)}
+				left={pageLeft(index)}
 			/>
 		)
 	}
@@ -941,23 +1243,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const pages: React.ReactNode[] = []
 	if (range) {
 		for (let index = range[0]; index <= range[1]; index++) {
-			if (continuous) {
-				const slot = scrollLayout.slots[index]
-				if (!slot) continue
-				pages.push(
-					renderPage(index, slot.top, Math.max(sidePadding, (contentWidth - slot.width) / 2)),
-				)
-			} else {
-				const size = sizes[index]
-				if (!size) continue
-				pages.push(
-					renderPage(
-						index,
-						Math.max(gap, (viewport.height - size.height) / 2),
-						Math.max(sidePadding, (contentWidth - size.width) / 2),
-					),
-				)
-			}
+			pages.push(renderPage(index))
 		}
 	}
 
@@ -968,109 +1254,35 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			{ keys: ['+', '-', '0'], label: translate('shared.pdfReader.shortcuts.zoom') },
 			{ keys: ['F'], label: translate('shared.pdfReader.shortcuts.fit') },
 			{ keys: ['G'], label: translate('shared.pdfReader.goToPage') },
-			{ keys: ['Ctrl', 'K'], label: translate('shared.readerAnnotations.shortcuts.search') },
 		],
 		[translate],
 	)
 
 	const pagedContentHeight = !continuous
-		? Math.max(viewport.height, (sizes[pagedIndex]?.height ?? 0) + gap * 2)
+		? Math.max(viewport.height, (scrollLayout.rows[pagedRow]?.height ?? 0) + gap * 2)
 		: 0
-	const progressPercent = Math.round((currentPage / Math.max(1, pageCount)) * 100)
+	const label = pagesInView.length === 1 && layout.labels ? labelOf(currentPage) : null
+	const indicator = `${label && label !== String(currentPage) ? `${label} · ` : ''}${pageIndicatorText(pagesInView, pageCount)}`
+
+	const layoutDisabledReason = useCallback(
+		(option: ReaderLayout) =>
+			option.spread === 'double' && viewport.width > 0 && !canShowTwoPages(viewport.width)
+				? translate('shared.reader.layout.needsWiderScreen')
+				: null,
+		[viewport.width, translate],
+	)
 
 	return (
 		<div
-			ref={rootRef}
-			className="min-h-0 flex h-dvh w-full flex-col overflow-hidden"
+			className="min-h-0 relative h-dvh w-full overflow-hidden"
 			style={{ backgroundColor: look.background }}
 			data-testid="pdf-reader"
 		>
 			<style>{PDF_READER_CSS}</style>
 
-			{chromeVisible && (
-				<header className="h-11 gap-1 px-2 flex shrink-0 items-center bg-background text-foreground">
-					<Link
-						to={paths.bookOverview(mediaId)}
-						title={translate('shared.imageReader.header.goToMediaOverview')}
-						aria-label={translate('shared.imageReader.header.goToMediaOverview')}
-					>
-						<ControlButton tabIndex={-1}>
-							<ArrowLeft className="h-4 w-4" />
-						</ControlButton>
-					</Link>
-					<ControlButton
-						title={translate('shared.epubReader.locationManager')}
-						aria-label={translate('shared.epubReader.locationManager')}
-						onClick={() => setLocationsOpen(true)}
-					>
-						<List className="h-4 w-4" />
-					</ControlButton>
-					<Spacer />
-					<Text size="sm" className="px-2 min-w-0 line-clamp-1">
-						{media.resolvedName}
-					</Text>
-					<Spacer />
-					{layout.hasText && (
-						<ControlButton
-							title={`${translate('shared.readerAnnotations.shortcuts.search')} (Ctrl+K)`}
-							aria-label={translate('shared.readerAnnotations.shortcuts.search')}
-							onClick={() => setSearchOpen(true)}
-						>
-							<Search className="h-4 w-4" />
-						</ControlButton>
-					)}
-					<DayNightToggle />
-					<PdfAppearanceDialog
-						bookId={mediaId}
-						fit={fit}
-						zoom={zoom}
-						scrollMode={scrollMode}
-						invertPagesInDark={invertPagesInDark}
-						onChange={setPreferences}
-					/>
-					<span className="md:contents hidden">
-						<ControlButton
-							title={`${translate('shared.readerAnnotations.shortcuts.title')} (?)`}
-							aria-label={translate('shared.readerAnnotations.shortcuts.title')}
-							onClick={() => setHelpOpen(true)}
-						>
-							<Keyboard className="h-4 w-4" />
-						</ControlButton>
-						<ControlButton
-							title={translate('shared.pdfReader.fullscreen')}
-							aria-label={translate('shared.pdfReader.fullscreen')}
-							aria-pressed={isFullscreenEnabled}
-							onClick={() => void toggleFullscreen()}
-						>
-							{isFullscreenEnabled ? (
-								<Shrink className="h-4 w-4" />
-							) : (
-								<Fullscreen className="h-4 w-4" />
-							)}
-						</ControlButton>
-					</span>
-					<ControlButton
-						title={`${translate(
-							currentBookmark
-								? 'shared.readerAnnotations.removeBookmark'
-								: 'shared.readerAnnotations.addBookmark',
-						)} (B)`}
-						aria-label={translate(
-							currentBookmark
-								? 'shared.readerAnnotations.removeBookmark'
-								: 'shared.readerAnnotations.addBookmark',
-						)}
-						aria-pressed={!!currentBookmark}
-						onClick={() => void toggleBookmark()}
-					>
-						<Bookmark className={cn('h-4 w-4', { 'fill-current': !!currentBookmark })} />
-					</ControlButton>
-				</header>
-			)}
-
 			<div
 				ref={scrollRef}
-				className="min-h-0 relative w-full flex-1 overflow-auto"
+				className="inset-0 absolute overflow-auto"
 				style={{ overflowAnchor: 'none', touchAction: 'pan-x pan-y' }}
 				onScroll={handleScroll}
 				onPointerDown={handlePointerDown}
@@ -1085,38 +1297,27 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					style={{
 						width: contentWidth,
 						height: continuous ? scrollLayout.totalHeight : pagedContentHeight,
-						transformOrigin: 'center top',
 					}}
 				>
 					{pages}
 				</div>
 			</div>
 
-			{chromeVisible && (
-				<footer className="h-9 gap-3 px-3 flex shrink-0 items-center bg-background text-foreground">
-					<button
-						type="button"
-						className="text-xs rounded px-1 shrink-0 text-muted-foreground tabular-nums hover:text-foreground"
-						title={`${translate('shared.pdfReader.goToPage')} (G)`}
-						onClick={() => setGoToOpen(true)}
-						data-testid="pdf-page-indicator"
-					>
-						{layout.labels ? `${labelOf(currentPage)} · ` : ''}
-						{currentPage} / {pageCount}
-					</button>
-					<div className="h-1.5 relative flex-1 overflow-hidden rounded-full bg-muted-foreground/30">
-						<div
-							className="inset-y-0 left-0 absolute bg-muted-foreground"
-							style={{ width: `${progressPercent}%` }}
-						/>
-					</div>
-					{!layout.hasText && (
-						<Text size="xs" variant="muted" className="sm:block hidden shrink-0">
-							{translate('shared.pdfReader.noTextShort')}
-						</Text>
-					)}
-				</footer>
-			)}
+			<ReaderTopBar
+				chrome={chrome}
+				title={media.resolvedName}
+				backTo={paths.bookOverview(mediaId)}
+				onContents={() => setLocationsOpen(true)}
+				onSearch={layout.hasText ? () => setSearchOpen(true) : undefined}
+				bookmark={{ active: !!currentBookmark, onToggle: () => void toggleBookmark() }}
+				onSettings={() => openSettings()}
+			/>
+
+			<ReaderPageIndicator
+				text={indicator}
+				onClick={() => setGoToOpen(true)}
+				title={`${translate('shared.pdfReader.goToPage')} (G)`}
+			/>
 
 			{target && (
 				<AnnotationToolbar
@@ -1131,6 +1332,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					hasNote={!!targetAnnotation?.annotationText}
 					onStyle={applyStyle}
 					onNote={openNote}
+					onCopy={() => void copyTarget()}
 					onDelete={target.kind === 'annotation' ? removeTargetAnnotation : undefined}
 				/>
 			)}
@@ -1170,6 +1372,43 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				/>
 			)}
 
+			<ReaderSettingsDialog
+				open={settingsOpen}
+				onOpenChange={setSettingsOpen}
+				section={settingsSection}
+				layout={storedLayout}
+				onLayoutChange={(next) =>
+					setPreferences({
+						spread: next.spread,
+						scrollMode: next.flow === 'paged' ? 'paged' : 'continuous',
+					})
+				}
+				layoutDisabledReason={layoutDisabledReason}
+				layoutExtra={
+					storedLayout.spread === 'double' ? (
+						<WideSwitch
+							label={translate('shared.reader.layout.coverAlone')}
+							description={translate('shared.reader.layout.coverAloneHint')}
+							checked={coverAlone}
+							onCheckedChange={(checked) => setPreferences({ coverAlone: checked })}
+						/>
+					) : null
+				}
+				readerSection={{
+					title: translate('shared.reader.settings.page'),
+					content: (
+						<PdfPageSettings
+							fit={fit}
+							zoom={zoom}
+							invertPagesInDark={invertPagesInDark}
+							onChange={setPreferences}
+						/>
+					),
+				}}
+				shortcuts={shortcutRows}
+				footer={<PdfOpenAs bookId={mediaId} onChange={setPreferences} />}
+			/>
+
 			<PdfSearchDialog
 				mediaId={mediaId}
 				open={searchOpen}
@@ -1197,7 +1436,6 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				onGoToPage={goToPage}
 				onDeleteBookmark={deleteBookmark}
 			/>
-			<ReaderShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} extra={shortcutRows} />
 		</div>
 	)
 }

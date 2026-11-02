@@ -32,14 +32,8 @@ export default function EpubNavigationControls({ children }: Props) {
 	const {
 		readerMeta: { bookEntity: book },
 	} = useEpubReaderContext()
-	const {
-		visible,
-		setVisible,
-		onPaginateBackward,
-		onPaginateForward,
-		canGoBackward,
-		canGoForward,
-	} = useEpubReaderControls()
+	const { toggleVisible, onPaginateBackward, onPaginateForward, canGoBackward, canGoForward } =
+		useEpubReaderControls()
 	const {
 		bookPreferences: { readingDirection, readingMode, tapSidesToNavigate },
 	} = useBookPreferences({ book })
@@ -82,7 +76,7 @@ export default function EpubNavigationControls({ children }: Props) {
 	const canNavigateLeft = invertControls ? canGoForward !== false : canGoBackward !== false
 	const canNavigateRight = invertControls ? canGoBackward !== false : canGoForward !== false
 
-	const toggleControls = useCallback(() => setVisible(!visible), [setVisible, visible])
+	const toggleControls = toggleVisible
 
 	const rootRef = useRef<HTMLDivElement | null>(null)
 	const pageTapRef = useRef<(tap: ReaderPageTapDetail) => void>(() => {})
@@ -135,14 +129,14 @@ export default function EpubNavigationControls({ children }: Props) {
 
 	return (
 		<div ref={setRootRef} className="min-h-0 relative h-full w-full flex-1" {...swipeHandlers}>
-			{/* Desktop hover chevrons */}
+			{/* Desktop chevrons in the side gutters, shown while the mouse is over the gutter */}
 			<div
-				className={cx('inset-y-0 left-0 w-12 absolute z-20 hidden items-center', {
+				className={cx('group inset-y-0 left-0 w-12 absolute z-20 hidden items-center', {
 					'md:flex': true,
 				})}
 			>
 				<ControlButton
-					className={cx({ hidden: !visible })}
+					className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
 					onClick={onBackwardNavigation}
 					disabled={!canNavigateLeft}
 					aria-label={translate('shared.epubReader.controls.previousPage')}
@@ -151,12 +145,15 @@ export default function EpubNavigationControls({ children }: Props) {
 				</ControlButton>
 			</div>
 			<div
-				className={cx('inset-y-0 right-0 w-12 absolute z-20 hidden items-center justify-end', {
-					'md:flex': true,
-				})}
+				className={cx(
+					'group inset-y-0 right-0 w-12 absolute z-20 hidden items-center justify-end',
+					{
+						'md:flex': true,
+					},
+				)}
 			>
 				<ControlButton
-					className={cx({ hidden: !visible })}
+					className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
 					onClick={onForwardNavigation}
 					disabled={!canNavigateRight}
 					aria-label={translate('shared.epubReader.controls.nextPage')}

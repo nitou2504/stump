@@ -82,6 +82,11 @@ export type BookPreferences = {
 	 */
 	secondPageSeparate: boolean
 	/**
+	 * In two-page spreads, whether the first page (the cover) stays alone; unset: it does.
+	 * This will have no effect if the book is not image-based
+	 */
+	coverAlone?: boolean
+	/**
 	 * Whether the Ctrl key (or also Cmd key on Mac) is required to use panning and zooming.
 	 */
 	panzoomWithoutCtrl?: boolean
@@ -110,6 +115,10 @@ export type ReaderSettings = {
 	 * Whether the toolbar should be shown
 	 */
 	showToolBar: boolean
+	/**
+	 * Whether the readers show the small page number in a corner (unset: shown)
+	 */
+	showPageIndicator?: boolean
 	/**
 	 * The preferences for preloading pages
 	 */

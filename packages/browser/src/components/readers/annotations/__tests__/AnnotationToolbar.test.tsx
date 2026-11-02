@@ -53,25 +53,51 @@ describe('computeToolbarPosition', () => {
 describe('AnnotationToolbar', () => {
 	const anchor = { x: 100, y: 300, width: 100, height: 20 }
 
-	it('highlights in one tap and reveals the other styles and a note on Annotate', () => {
+	it('shows every style, the note and copy at once for a selection', () => {
 		const onStyle = vi.fn()
 		const onNote = vi.fn()
-		render(<AnnotationToolbar anchor={anchor} mode="selection" onStyle={onStyle} onNote={onNote} />)
+		const onCopy = vi.fn()
+		render(
+			<AnnotationToolbar
+				anchor={anchor}
+				mode="selection"
+				onStyle={onStyle}
+				onNote={onNote}
+				onCopy={onCopy}
+			/>,
+		)
 
-		expect(screen.queryByLabelText('shared.readerAnnotations.styles.underline')).toBeNull()
+		// no 'Annotate' step: every glyph is there straight away, in toolbar order
+		expect(screen.queryByLabelText('shared.readerAnnotations.annotate')).toBeNull()
+		const labels = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))
+		expect(labels).toEqual([
+			'shared.readerAnnotations.styles.highlight',
+			'shared.readerAnnotations.styles.underline',
+			'shared.readerAnnotations.styles.strikethrough',
+			'shared.readerAnnotations.styles.invert',
+			'shared.readerAnnotations.addNote',
+			'shared.readerAnnotations.copy',
+		])
+
 		fireEvent.click(screen.getByLabelText('shared.readerAnnotations.styles.highlight'))
 		expect(onStyle).toHaveBeenCalledWith(AnnotationStyle.Highlight)
-
-		fireEvent.click(screen.getByLabelText('shared.readerAnnotations.annotate'))
 		fireEvent.click(screen.getByLabelText('shared.readerAnnotations.styles.invert'))
 		expect(onStyle).toHaveBeenLastCalledWith(AnnotationStyle.Invert)
 		fireEvent.click(screen.getByLabelText('shared.readerAnnotations.addNote'))
 		expect(onNote).toHaveBeenCalled()
+		fireEvent.click(screen.getByLabelText('shared.readerAnnotations.copy'))
+		expect(onCopy).toHaveBeenCalled()
 		// tooltips name the shortcut
 		expect(screen.getByLabelText('shared.readerAnnotations.styles.underline')).toHaveAttribute(
 			'title',
 			'shared.readerAnnotations.styles.underline (U)',
 		)
+		expect(screen.getByLabelText('shared.readerAnnotations.copy')).toHaveAttribute(
+			'title',
+			'shared.readerAnnotations.copy (C)',
+		)
+		// a selection has nothing to delete
+		expect(screen.queryByLabelText('shared.readerAnnotations.delete')).toBeNull()
 	})
 
 	it('shows every style (the current one pressed), the note and delete for an annotation', () => {

@@ -11,6 +11,7 @@ import { usePaths } from '@/paths'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 import { useBookTimer } from '@/stores/reader'
 
+import { canShowTwoPages } from '../shared/layout'
 import ReaderContainer from './container'
 import { ImageBaseReaderContext, ImageReaderBookRef } from './context'
 import { ContinuousScrollReader } from './continuous'
@@ -55,6 +56,7 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 			readingDirection,
 			trackElapsedTime,
 			secondPageSeparate,
+			coverAlone,
 		},
 		setSettings,
 	} = useBookPreferences({ book: media })
@@ -74,16 +76,20 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	const pages = media.pages
 	const pageSets = useMemo(() => {
 		const autoButOff = doublePageBehavior === 'auto' && deviceOrientation === 'portrait'
-		const modeForceOff = readingMode === ReadingMode.ContinuousVertical
+		// two pages side by side only turn page by page, and need a wide screen (like the
+		// other readers)
+		const modeForceOff = readingMode !== ReadingMode.Paged
+		const tooNarrow = !canShowTwoPages(windowSize.innerWidth || 0)
 
 		let sets: number[][] = []
-		if (doublePageBehavior === 'off' || autoButOff || modeForceOff) {
+		if (doublePageBehavior === 'off' || autoButOff || modeForceOff || tooNarrow) {
 			sets = Array.from({ length: pages }, (_, i) => [i])
 		} else {
 			sets = generatePageSets({
 				imageSizes,
 				pages: pages,
 				secondPageSeparate: secondPageSeparate,
+				coverAlone: coverAlone ?? true,
 			})
 		}
 
@@ -100,6 +106,8 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 		readingMode,
 		readingDirection,
 		secondPageSeparate,
+		coverAlone,
+		windowSize.innerWidth,
 	])
 
 	/**

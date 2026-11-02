@@ -10,12 +10,15 @@ export type GeneratePageSetsParams = {
 	imageSizes: Record<number, ImageBasedBookPageRef>
 	pages: number
 	secondPageSeparate?: boolean
+	/** The first page (the cover) stays alone; without it pairs start at the first page */
+	coverAlone?: boolean
 }
 
 export const generatePageSets = ({
 	imageSizes,
 	pages,
 	secondPageSeparate = false,
+	coverAlone = true,
 }: GeneratePageSetsParams): PageSetIndexes[] => {
 	if (Object.keys(imageSizes).length === 0) {
 		return Array.from({ length: pages }, (_, i) => [i])
@@ -48,7 +51,7 @@ export const generatePageSets = ({
 	const pageSets: PageSetIndexes[] = []
 	let i = 0
 	while (i < pages) {
-		const isFirst = i === 0
+		const isFirst = i === 0 && coverAlone
 		const separateSecond = i === 1 && secondPageSeparate
 		const isLandscape = landscapePages[i]
 		const isLast = i === pages - 1

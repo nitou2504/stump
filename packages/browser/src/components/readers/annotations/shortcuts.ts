@@ -1,5 +1,6 @@
 import type { AnnotationStyle } from '@stump/graphql'
 
+import { COPY_SHORTCUT, DAY_NIGHT_SHORTCUT, isReaderSearchShortcut } from '../shared/readerKeys'
 import { ANNOTATION_STYLES, BOOKMARK_SHORTCUT, HELP_SHORTCUT, NOTE_SHORTCUT } from './styles'
 
 /** What a key press asks the reader to do */
@@ -10,6 +11,9 @@ export type ReaderShortcutAction =
 	| { type: 'bookmark' }
 	| { type: 'help' }
 	| { type: 'dismiss' }
+	| { type: 'copy' }
+	| { type: 'search' }
+	| { type: 'dayNight' }
 
 type ShortcutContext = {
 	/** Text is selected, or an existing annotation is selected (its toolbar is open) */
@@ -18,32 +22,39 @@ type ShortcutContext = {
 	targetIsAnnotation: boolean
 }
 
-type KeyLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey'>
+type KeyLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey'> &
+	Partial<Pick<KeyboardEvent, 'shiftKey'>>
 
 /**
  * Maps a key press to a reader action, or `null` to leave it alone. Plain letters only
  * (any Ctrl/Cmd/Alt combination is someone else's shortcut):
  *
  * - with text or an annotation selected: `h` highlight, `u` underline, `s` strikethrough,
- *   `i` invert, `n` note, and for an annotation `Delete`/`Backspace` removes it
- * - anytime: `b` toggles a bookmark on the current page, `?` shows the shortcuts
+ *   `i` invert, `n` note, `c` copy, and for an annotation `Delete`/`Backspace` removes it
+ * - anytime: `b` toggles a bookmark on the current page, `d` switches day/night, `?` shows
+ *   the shortcuts (in the settings), Ctrl/Cmd+F or `/` searches the book (Ctrl/Cmd+K too)
  * - `Escape` dismisses the selection toolbar
  */
 export function resolveReaderShortcut(
 	event: KeyLike,
 	{ hasTarget, targetIsAnnotation }: ShortcutContext,
 ): ReaderShortcutAction | null {
+	if (typeof event.key !== 'string') return null
+	// (the event itself: a KeyboardEvent's fields are getters a spread would drop)
+	if (isReaderSearchShortcut(event)) return { type: 'search' }
 	if (event.ctrlKey || event.metaKey || event.altKey) return null
 
 	const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
 
 	if (key === HELP_SHORTCUT) return { type: 'help' }
 	if (key === BOOKMARK_SHORTCUT) return { type: 'bookmark' }
+	if (key === DAY_NIGHT_SHORTCUT) return { type: 'dayNight' }
 
 	if (!hasTarget) return null
 
 	if (key === 'Escape') return { type: 'dismiss' }
 	if (key === NOTE_SHORTCUT) return { type: 'note' }
+	if (key === COPY_SHORTCUT) return { type: 'copy' }
 	if (targetIsAnnotation && (key === 'Delete' || key === 'Backspace')) {
 		return { type: 'delete' }
 	}

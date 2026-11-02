@@ -18,7 +18,7 @@ export type FractionRect = { x: number; y: number; width: number; height: number
 export type PixelRect = { left: number; top: number; width: number; height: number }
 
 export const MIN_ZOOM = 0.5
-export const MAX_ZOOM = 4
+export const MAX_ZOOM = 5
 export const ZOOM_STEP = 1.2
 
 export function clampZoom(zoom: number): number {

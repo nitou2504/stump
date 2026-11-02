@@ -262,11 +262,9 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const targetKey = hotkey.keys?.at(0)
 			switch (targetKey) {
 				case 'right':
-				case 'd':
 					handleRightwardPageChange()
 					break
 				case 'left':
-				case 'a':
 					handleLeftwardPageChange()
 					break
 				case 'space':
@@ -288,7 +286,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	/**
 	 * Register the hotkeys for the reader component
 	 */
-	useHotkeys('right, left, a, d, space, escape', (_, handler) => hotKeyHandler(handler))
+	// (`d` is the readers' day/night switch, so a/d don't turn pages any more)
+	useHotkeys('right, left, space, escape', (_, handler) => hotKeyHandler(handler))
 
 	return (
 		<div className="relative m-auto flex w-screen justify-center">
@@ -342,7 +341,8 @@ function SideBarControl({ onClick, position, fixed }: SideBarControlProps) {
 			className={clsx(
 				'z-50 h-full shrink-0 border border-transparent transition-all duration-300',
 				'active:border-border active:bg-muted/50',
-				fixed ? 'absolute w-[10%]' : 'relative mx-[-3%] flex flex-1 grow',
+				// the same side zones as the other readers: 15% of the width at each side
+				fixed ? 'absolute w-[15%]' : 'relative mx-[-3%] flex flex-1 grow',
 				{ 'right-0': position === 'right' },
 				{ 'left-0': position === 'left' },
 			)}

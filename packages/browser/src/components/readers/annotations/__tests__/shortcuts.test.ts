@@ -53,6 +53,40 @@ describe('resolveReaderShortcut', () => {
 		expect(resolveReaderShortcut(key('?', { shiftKey: true }), NOTHING)).toEqual({ type: 'help' })
 	})
 
+	it('searches with Ctrl/Cmd+F or / instead of the browser, and switches day/night with d', () => {
+		expect(resolveReaderShortcut(key('f', { ctrlKey: true }), NOTHING)).toEqual({ type: 'search' })
+		expect(resolveReaderShortcut(key('f', { metaKey: true }), SELECTION)).toEqual({
+			type: 'search',
+		})
+		expect(resolveReaderShortcut(key('/'), NOTHING)).toEqual({ type: 'search' })
+		expect(resolveReaderShortcut(key('d'), NOTHING)).toEqual({ type: 'dayNight' })
+	})
+
+	it('reads real keyboard events (their fields are getters)', () => {
+		const event = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true })
+		expect(resolveReaderShortcut(event, NOTHING)).toEqual({ type: 'search' })
+		expect(resolveReaderShortcut(new KeyboardEvent('keydown', { key: '/' }), NOTHING)).toEqual({
+			type: 'search',
+		})
+	})
+
+	it('copies the selected text or annotation with c', () => {
+		expect(resolveReaderShortcut(key('c'), SELECTION)).toEqual({ type: 'copy' })
+		expect(resolveReaderShortcut(key('c'), ANNOTATION)).toEqual({ type: 'copy' })
+		expect(resolveReaderShortcut(key('c'), NOTHING)).toBeNull()
+		// Ctrl+C stays the browser's copy
+		expect(resolveReaderShortcut(key('c', { ctrlKey: true }), SELECTION)).toBeNull()
+	})
+
+	it('ignores key events without a key (autofill)', () => {
+		expect(
+			resolveReaderShortcut(
+				{ key: undefined as unknown as string, ctrlKey: false, metaKey: false, altKey: false },
+				NOTHING,
+			),
+		).toBeNull()
+	})
+
 	it("leaves combinations with Ctrl, Cmd or Alt alone (they're someone else's)", () => {
 		expect(resolveReaderShortcut(key('b', { ctrlKey: true }), NOTHING)).toBeNull()
 		expect(resolveReaderShortcut(key('h', { metaKey: true }), SELECTION)).toBeNull()

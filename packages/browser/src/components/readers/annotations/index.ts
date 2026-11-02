@@ -1,7 +1,13 @@
 export { default as AnnotationNoteDialog } from './AnnotationNoteDialog'
 export { default as AnnotationsList, compareReadingOrder } from './AnnotationsList'
 export { default as AnnotationToolbar, computeToolbarPosition } from './AnnotationToolbar'
-export { default as ReaderShortcutsHelp, type ShortcutRow } from './ReaderShortcutsHelp'
+export {
+	readerShortcutRows,
+	default as ReaderShortcutsHelp,
+	ReaderShortcutsList,
+	type ShortcutRow,
+	ShortcutTable,
+} from './ReaderShortcutsHelp'
 export * from './shortcuts'
 export * from './styles'
 export * from './types'

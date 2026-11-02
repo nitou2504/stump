@@ -1,6 +1,6 @@
 import { BookPreferences, ReaderSettings, ReaderStore } from '@stump/client'
 import { PickSelect } from '@stump/components'
-import { BookReaderSceneQuery, ReadingImageScaleFit } from '@stump/graphql'
+import { BookReaderSceneQuery, ReadingDirection, ReadingImageScaleFit } from '@stump/graphql'
 import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -41,7 +41,11 @@ export function useBookPreferences({ book }: Params): Return {
 	 * should never be null once the query resolves
 	 */
 	const libraryConfig = useMemo(() => book.libraryConfig, [book])
-	const libraryDefaults = useMemo(() => defaultsFromLibraryConfig(libraryConfig), [libraryConfig])
+	const isManga = useMemo(() => isMangaBook(book), [book])
+	const libraryDefaults = useMemo(
+		() => defaultsFromLibraryConfig(libraryConfig, isManga),
+		[libraryConfig, isManga],
+	)
 
 	const bookPreferences = useMemo(
 		() => buildPreferences(storedBookPreferences ?? {}, settings, libraryDefaults),
@@ -66,8 +70,18 @@ export function useBookPreferences({ book }: Params): Return {
 	}
 }
 
+/**
+ * Whether a book is manga, from its genres: ComicInfo's `Genre` (and the curator's tags) name
+ * it `Manga` or `…: Manga`, e.g. `Manga & Comics: Manga`. Stump doesn't keep ComicInfo's
+ * `Manga=YesAndRightToLeft` itself, so this stands in for it.
+ */
+export function isMangaBook(book: { metadata?: { genres?: string[] | null } | null }): boolean {
+	return (book.metadata?.genres ?? []).some((genre) => /(^|:\s*)manga$/i.test(genre.trim()))
+}
+
 const defaultsFromLibraryConfig = (
 	libraryConfig?: PickSelect<NonNullable<BookReaderSceneQuery['mediaById']>, 'libraryConfig'>,
+	isManga = false,
 ): Partial<BookPreferences> => ({
 	brightness: 1,
 	// imageScaling: {
@@ -78,7 +92,8 @@ const defaultsFromLibraryConfig = (
 				scaleToFit: libraryConfig?.defaultReadingImageScaleFit as ReadingImageScaleFit,
 			}
 		: undefined,
-	readingDirection: libraryConfig?.defaultReadingDir,
+	// manga reads right to left unless the book's own preference says otherwise
+	readingDirection: isManga ? ReadingDirection.Rtl : libraryConfig?.defaultReadingDir,
 	readingMode: libraryConfig?.defaultReadingMode,
 })
 

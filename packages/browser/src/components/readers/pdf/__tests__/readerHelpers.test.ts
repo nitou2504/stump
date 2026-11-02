@@ -86,8 +86,18 @@ describe('resolvePdfShortcut', () => {
 		expect(resolvePdfShortcut(key('0'), idle)).toEqual({ type: 'zoomReset' })
 		expect(resolvePdfShortcut(key('f'), selected)).toEqual({ type: 'toggleFit' })
 		expect(resolvePdfShortcut(key('G'), idle)).toEqual({ type: 'goToPage' })
+		// Ctrl/Cmd+F and '/' open the reader's search instead of the browser's find bar
+		expect(resolvePdfShortcut(key('f', { ctrlKey: true }), idle)).toEqual({ type: 'search' })
+		expect(resolvePdfShortcut(key('F', { metaKey: true }), selected)).toEqual({ type: 'search' })
+		expect(resolvePdfShortcut(key('/'), idle)).toEqual({ type: 'search' })
+		// the old Ctrl/Cmd+K stays as an alias
 		expect(resolvePdfShortcut(key('k', { ctrlKey: true }), idle)).toEqual({ type: 'search' })
-		expect(resolvePdfShortcut(key('K', { metaKey: true }), selected)).toEqual({ type: 'search' })
+	})
+
+	it('switches day/night anytime and copies the selection', () => {
+		expect(resolvePdfShortcut(key('d'), idle)).toEqual({ type: 'dayNight' })
+		expect(resolvePdfShortcut(key('c'), selected)).toEqual({ type: 'copy' })
+		expect(resolvePdfShortcut(key('c'), idle)).toBeNull()
 	})
 
 	it('leaves other modified keys alone', () => {

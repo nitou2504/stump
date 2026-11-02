@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { forwardFrameKeyEvents } from '../../annotations/shortcuts'
+import { forwardFramePointerMoves } from '../../shared/useReaderChrome'
 import { clearFramesSelection } from '../annotations/clearSelection'
 import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
 import { locatorToHref, resolvePublicationLinkLocator } from './locator'
@@ -232,6 +233,8 @@ export function useReadiumNavigator({
 			if (!keyForwardedDocsRef.current.has(doc)) {
 				keyForwardedDocsRef.current.add(doc)
 				forwardFrameKeyEvents(doc, document)
+				// and its mouse moves, so the top bar shows when the mouse nears the top
+				forwardFramePointerMoves(doc)
 			}
 			if (!linkHandledDocsRef.current.has(doc)) {
 				linkHandledDocsRef.current.add(doc)

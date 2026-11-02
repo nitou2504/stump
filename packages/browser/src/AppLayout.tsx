@@ -12,6 +12,7 @@ import { useWindowSize } from 'rooks'
 import { toast } from 'sonner'
 
 import BackgroundFetchIndicator from '@/components/BackgroundFetchIndicator'
+import { useSlashOpensListSearch } from '@/components/filters/listSearchShortcut'
 import JobOverlay from '@/components/jobs/JobOverlay'
 import { AppSidebar, Sidebar } from '@/components/navigation/sidebar'
 import RouteLoadingIndicator from '@/components/RouteLoadingIndicator'
@@ -34,6 +35,8 @@ export function AppLayout() {
 
 	// lets pages that stop existing (e.g. a removed book) send the user back where they were
 	useRecordHistoryTrail()
+	// `/` opens the page's list search (instead of Firefox's quick find)
+	useSlashOpensListSearch()
 
 	const showConfetti = useAppStore((state) => state.showConfetti)
 	const setShowConfetti = useAppStore((state) => state.setShowConfetti)

@@ -13,7 +13,6 @@ export type PdfKeyAction =
 	| { type: 'zoomReset' }
 	| { type: 'toggleFit' }
 	| { type: 'goToPage' }
-	| { type: 'search' }
 
 export type PdfShortcut = ReaderShortcutAction | PdfKeyAction
 
@@ -28,22 +27,18 @@ type Context = {
 }
 
 /**
- * Maps a key press to a PDF reader action. The annotation shortcuts (`h u s i n Del b ?
- * Esc`, see `resolveReaderShortcut`) come first; then the page keys:
+ * Maps a key press to a PDF reader action. The shared reader shortcuts (`h u s i n c Del b
+ * d ? Esc`, Ctrl/Cmd+F or `/` to search; see `resolveReaderShortcut`) come first; then the
+ * page keys:
  *
  * - `←` / `PageUp` previous page, `→` / `PageDown` next page
  * - `Space` / `Shift+Space` next / previous screen (continuous) or page (paged)
  * - `Home` / `End` first / last page
  * - `+` / `-` / `0` zoom in, out, reset; `f` fit width ↔ fit page; `g` go to page
- * - `Ctrl/Cmd+K` search the book
  *
- * The letters don't clash with the annotation ones (`h u s i n b`).
+ * The letters don't clash with the shared ones (`h u s i n c b d`).
  */
 export function resolvePdfShortcut(event: KeyLike, context: Context): PdfShortcut | null {
-	if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
-		return { type: 'search' }
-	}
-
 	const shared = resolveReaderShortcut(event, context)
 	if (shared) return shared
 

@@ -3817,7 +3817,10 @@
         "help": "Show Shortcuts",
         "turnPage": "Turn the Page",
         "search": "Search the Book"
-      }
+      },
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy the text"
     },
     "pdfReader": {
       "openFailed": "This PDF couldn't be opened.",
@@ -3888,6 +3891,68 @@
           "changelog": "Changelog"
         }
       }
+    },
+    "reader": {
+      "settings": {
+        "title": "Reader Settings",
+        "theme": "Theme",
+        "text": "Text",
+        "page": "Page",
+        "display": "Display",
+        "pageNumber": "Page Number",
+        "pageNumberHint": "The small page number in the bottom corner"
+      },
+      "layout": {
+        "label": "Page Layout",
+        "single": "One Page",
+        "double": "Two Pages",
+        "paged": "Turn pages",
+        "continuous": "Scroll",
+        "needsWiderScreen": "Two pages need a wider screen",
+        "flowingTextScrollsInOneColumn": "Flowing text scrolls in one column",
+        "fixedLayout": "This book sets its own page layout",
+        "coverAlone": "Cover on Its Own",
+        "coverAloneHint": "In two-page layouts the first page stays alone, like an open book",
+        "spreadsTurnOnly": "Two-page spreads turn page by page"
+      },
+      "themes": {
+        "auto": "Auto",
+        "light": "Light",
+        "sepia": "Sepia",
+        "dark": "Dark",
+        "black": "Black",
+        "autoHint": "Follows the app theme",
+        "dayNightHint": "Press D to switch between day and night"
+      },
+      "shortcuts": {
+        "dayNight": "Switch Day / Night",
+        "settings": "Reader Settings",
+        "toggleBar": "Show / Hide the Top Bar"
+      },
+      "extend": {
+        "button": "Extend to the Next Page",
+        "hint": "Select where the passage ends",
+        "cancel": "Cancel",
+        "acrossChapters": "A selection can't run into another chapter"
+      },
+      "direction": {
+        "label": "Reading Direction",
+        "ltr": "Left to Right",
+        "rtl": "Right to Left (Manga)"
+      },
+      "fit": {
+        "label": "Fit",
+        "width": "Fit Width",
+        "height": "Fit Height",
+        "page": "Fit Page"
+      },
+      "text": {
+        "alignment": "Text Alignment",
+        "alignBook": "Book's Default",
+        "alignJustify": "Justified (with Hyphenation)",
+        "alignStart": "Left Aligned"
+      },
+      "pages": "Pages"
     }
   }
 }
