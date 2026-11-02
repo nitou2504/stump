@@ -277,7 +277,7 @@ export const createReaderStore = (storage?: StateStorage) =>
 				{
 					name: 'stump-new-reader-store',
 					storage: storage ? createJSONStorage(() => storage) : undefined,
-					version: 8,
+					version: 9,
 					migrate: migrateReaderStore,
 				},
 			),
@@ -293,7 +293,8 @@ export const createReaderStore = (storage?: StateStorage) =>
  * settings: the reading bar's 'show' (always or with the controls: each reader now has its
  * own place for the bar) and the comic's page background (the reader theme colours the
  * pages' surround); the reading progress kept is the display (off, number or bar) and the
- * bar's items. Stores older than version 5 are dropped, as before migrations existed.
+ * bar's items. Version 9 thawed books' frozen defaults (see `withoutFrozenDefaults`). Stores
+ * older than version 5 are dropped, as before migrations existed.
  */
 export function migrateReaderStore(persisted: unknown, version: number): ReaderStore {
 	const state = persisted as Partial<ReaderStore> | undefined
@@ -339,6 +340,10 @@ export function migrateReaderStore(persisted: unknown, version: number): ReaderS
 		return { ...settings, readingProgress }
 	}
 
+	// Version 9: the defaults older builds froze into a book's preferences
+	const thaw = <T extends object>(preferences: T): T =>
+		version < 9 ? withoutFrozenDefaults(preferences) : preferences
+
 	return {
 		...state,
 		...(state.settings
@@ -353,10 +358,49 @@ export function migrateReaderStore(persisted: unknown, version: number): ReaderS
 					bookPreferences: Object.fromEntries(
 						Object.entries(state.bookPreferences).map(([id, preferences]) => [
 							id,
-							withoutBackground(upgradeFontSize(preferences)),
+							thaw(withoutBackground(upgradeFontSize(preferences))),
 						]),
 					),
 				}
 			: {}),
 	} as ReaderStore
+}
+
+/**
+ * Keys only a whole copy of the reader preferences carries: until version 9, changing any
+ * setting of a book (the reader's own `setBookPreferences`, the old reader-defaults screen)
+ * stored every preference then in effect for it, not just the change. The readers now store
+ * only what was changed, and never write these.
+ */
+const SNAPSHOT_KEYS = [
+	'animatedReader',
+	'trackElapsedTime',
+	'secondPageSeparate',
+	'panzoomWithoutCtrl',
+	'tapSidesToNavigate',
+] as const
+
+/** The values those copies froze in when they were the defaults */
+const FROZEN_DEFAULTS: Record<string, unknown> = {
+	...DEFAULT_BOOK_PREFERENCES,
+	panzoomWithoutCtrl: false,
+}
+
+/**
+ * A book's preferences without the defaults a whole copy froze into it. Such a copy kept, for
+ * example, left to right as the reading direction of a manga opened before manga were read
+ * right to left by default, and fit-to-height from before phones fitted pages to the width:
+ * those then won over every later default. A value equal to the default is dropped (a choice
+ * equal to the default is the default anyway, except where the book's own default differs,
+ * which is what got frozen); a value that differs from the default was a choice and stays.
+ * Preferences that aren't such a copy are left alone.
+ */
+export function withoutFrozenDefaults<T extends object>(preferences: T): T {
+	if (!SNAPSHOT_KEYS.some((key) => key in preferences)) return preferences
+	return Object.fromEntries(
+		Object.entries(preferences).filter(
+			([key, value]) =>
+				!(key in FROZEN_DEFAULTS) || JSON.stringify(value) !== JSON.stringify(FROZEN_DEFAULTS[key]),
+		),
+	) as T
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_EPUB_FONT_SIZE, migrateReaderStore, type ReaderStore } from '../reader'
+import {
+	DEFAULT_EPUB_FONT_SIZE,
+	migrateReaderStore,
+	type ReaderStore,
+	withoutFrozenDefaults,
+} from '../reader'
 
 describe('migrateReaderStore', () => {
 	it('raises the old default font size (13px) to the new default, in settings and books', () => {
@@ -99,5 +104,56 @@ describe('migrateReaderStore', () => {
 			manga: { cropBorders: true },
 			novel: { fontSize: 20 },
 		})
+	})
+
+	it("thaws the defaults older builds froze into a book's preferences (version 9)", () => {
+		// what any change saved before: every preference in effect then (a manga opened
+		// before manga read right to left by default, its brightness changed)
+		const frozen = {
+			animatedReader: false,
+			brightness: 0.8,
+			imageScaling: { scaleToFit: 'HEIGHT' },
+			readingDirection: 'LTR',
+			readingMode: 'PAGED',
+			tapSidesToNavigate: true,
+			fontSize: 13,
+			lineHeight: 1.5,
+			trackElapsedTime: true,
+			doublePageBehavior: 'off',
+			secondPageSeparate: false,
+			panzoomWithoutCtrl: false,
+			columnCount: 'auto',
+			pageMargins: 1,
+		}
+		const migrated = migrateReaderStore(
+			{
+				settings: { fontSize: 22 },
+				bookPreferences: {
+					manga: frozen,
+					// a later change on top of a copy: a choice that isn't the default stays
+					picked: { ...frozen, readingDirection: 'RTL', imageScaling: { scaleToFit: 'WIDTH' } },
+					// only what was changed (version 8 onwards): left alone
+					chosen: { readingDirection: 'LTR', widePages: 'split' },
+				},
+			} as unknown as ReaderStore,
+			8,
+		)
+		expect(migrated.bookPreferences.manga).toEqual({ brightness: 0.8 })
+		expect(migrated.bookPreferences.picked).toEqual({
+			brightness: 0.8,
+			readingDirection: 'RTL',
+			imageScaling: { scaleToFit: 'WIDTH' },
+		})
+		expect(migrated.bookPreferences.chosen).toEqual({ readingDirection: 'LTR', widePages: 'split' })
+	})
+
+	it('leaves version 9 stores and changes-only preferences alone', () => {
+		const book = { readingDirection: 'LTR', animatedReader: false }
+		const migrated = migrateReaderStore(
+			{ settings: { fontSize: 22 }, bookPreferences: { book } } as unknown as ReaderStore,
+			9,
+		)
+		expect(migrated.bookPreferences.book).toEqual(book)
+		expect(withoutFrozenDefaults({ cropBorders: true })).toEqual({ cropBorders: true })
 	})
 })
