@@ -17,7 +17,11 @@ export type FractionRect = { x: number; y: number; width: number; height: number
 /** A box in CSS pixels (e.g. from `getClientRects`) */
 export type PixelRect = { left: number; top: number; width: number; height: number }
 
-export const MIN_ZOOM = 0.5
+/**
+ * The zoom range, 1 being the fit: zooming out stops at the fit, where the page fills the
+ * width (or the whole page shows, with the page fit), never smaller; at most five times it
+ */
+export const MIN_ZOOM = 1
 export const MAX_ZOOM = 5
 export const ZOOM_STEP = 1.2
 

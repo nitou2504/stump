@@ -3,9 +3,10 @@ import { ReadingImageScaleFit } from '@stump/graphql'
 import { fitForScreen, isPhoneScreen } from '../useBookPreferences'
 
 describe('fitForScreen', () => {
-	it('fits the width instead of the height on a phone, in portrait and in landscape', () => {
+	it('fits the page on an upright phone and the width on a phone on its side', () => {
+		// upright, a manga page then fills the width, and wide pages get Fit Page's handling
 		expect(fitForScreen(ReadingImageScaleFit.Height, { width: 390, height: 844 })).toBe(
-			ReadingImageScaleFit.Width,
+			ReadingImageScaleFit.Auto,
 		)
 		expect(fitForScreen(ReadingImageScaleFit.Height, { width: 844, height: 390 })).toBe(
 			ReadingImageScaleFit.Width,
@@ -21,9 +22,12 @@ describe('fitForScreen', () => {
 		)
 	})
 
-	it('fits the width on a phone for a fit-page library default too', () => {
+	it('does the same for a fit-page library default', () => {
 		expect(fitForScreen(ReadingImageScaleFit.Auto, { width: 844, height: 390 })).toBe(
 			ReadingImageScaleFit.Width,
+		)
+		expect(fitForScreen(ReadingImageScaleFit.Auto, { width: 390, height: 844 })).toBe(
+			ReadingImageScaleFit.Auto,
 		)
 		expect(fitForScreen(ReadingImageScaleFit.Auto, { width: 1440, height: 900 })).toBe(
 			ReadingImageScaleFit.Auto,

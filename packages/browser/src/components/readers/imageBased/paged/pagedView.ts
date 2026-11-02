@@ -48,6 +48,31 @@ export function canSplit(ratio: number | undefined): boolean {
 }
 
 /**
+ * What becomes of the wide pages: zoomed so half of the spread fills the width, split in two,
+ * or nothing special (`null`, drawn at the fit like any page). The wide-page setting belongs
+ * to Fit Page, as Mihon's wide-image zoom belongs to its 'fit screen': it only applies when
+ * one page at a time shows on a portrait (narrow) screen with Fit Page. With another fit a
+ * wide page is drawn at that fit like every page (full height and panned, the width, or its
+ * original size), so each fit visibly changes it.
+ */
+export function wideHandling({
+	fit,
+	widePages,
+	portrait,
+	onePageAtATime,
+}: {
+	fit: ReadingImageScaleFit
+	widePages: WidePages
+	portrait: boolean
+	onePageAtATime: boolean
+}): 'zoom' | 'split' | null {
+	if (!onePageAtATime || !portrait || fit !== ReadingImageScaleFit.Auto) return null
+	if (widePages === 'zoom') return 'zoom'
+	if (widePages === 'split') return 'split'
+	return null
+}
+
+/**
  * The views in screen order (left to right; the page sets of a right-to-left book are
  * already reversed). With `split`, a lone wide page becomes its left and right halves: in
  * screen order the left half comes first whatever the direction, so going forward in a
@@ -131,6 +156,20 @@ export function fitSize(boxes: Size[], fit: ReadingImageScaleFit, viewport: Size
 export function wideZoomSize(ratio: number, viewport: Size): Size {
 	const height = Math.min(viewport.h, (2 * viewport.w) / ratio)
 	return { w: height * ratio, h: height }
+}
+
+// Zoom ------------------------------------------------------------------------------------------
+
+/**
+ * The zoom range, 1 being the fit: never smaller than the fit (zooming out stops where the
+ * page fills the width or the height, as the fit draws it), at most five times it
+ */
+export const MIN_ZOOM = 1
+export const MAX_ZOOM = 5
+
+export function clampZoom(zoom: number): number {
+	if (!Number.isFinite(zoom)) return MIN_ZOOM
+	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
 }
 
 // Stepping through a view bigger than the screen ----------------------------------------------

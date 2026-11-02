@@ -6,8 +6,11 @@ import { EntityImage } from '@/components/entity'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
 import {
+	edgeSwipeTurn,
 	isCoarsePointer,
 	pageTapZone,
+	type ScrollEdges,
+	scrollEdges,
 	SWIPE_SLOP,
 	swipeOf,
 	swipeTurn,
@@ -29,15 +32,19 @@ import { analysePage, usePageAnalyses } from '../pageAnalysis'
 import {
 	type Box,
 	buildViews,
+	clampZoom,
 	entryPos,
 	fitSize,
 	isWide,
 	itemBox,
+	MAX_ZOOM,
+	MIN_ZOOM,
 	type Size,
 	stepView,
 	type ViewItem,
 	viewOfPage,
 	type ViewPos,
+	wideHandling,
 	wideZoomSize,
 } from './pagedView'
 
@@ -48,7 +55,6 @@ export type PagedReaderProps = {
 	onPageChange: (page: number) => void
 }
 
-const MAX_ZOOM = 5
 /** Taps right after a pinch, a pan or a step's scroll are the end of it, not a tap */
 const GESTURE_QUIET_MS = 250
 /** A press longer than this isn't a tap */
@@ -67,10 +73,14 @@ const WHEEL_TURN_DISTANCE = 80
  *   empty space.
  * - Taps at the sides, the arrow keys and Space step through a page bigger than the screen
  *   (the next part, with a small overlap, in reading order) and turn the page after its last
- *   part. Page Up / Page Down always turn. A quick sideways swipe turns the page.
- * - A pinch (or Ctrl + wheel, or a double tap in the middle) zooms around the fingers.
- * - Pages can be cropped to their content, and wide pages on a narrow screen zoomed so half of
- *   them fills the width, or split in two.
+ *   part. Page Up / Page Down always turn. A quick sideways swipe turns the page; on a page
+ *   bigger than the screen a finger pans it, and a swipe turns only from the edge it was
+ *   already at (a swipe that reaches the edge stops there, the next one turns).
+ * - A pinch (or Ctrl + wheel, or a double tap in the middle) zooms around the fingers, never
+ *   out past the fit.
+ * - Pages can be cropped to their content, and with Fit Page wide pages on a narrow screen
+ *   zoomed so half of them fills the width, or split in two (any other fit draws them at that
+ *   fit, like every page).
  */
 function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	const { pageSets, book, getPageUrl, imageSizes, setPageSize } = useImageBaseReaderContext()
@@ -115,7 +125,9 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		},
 		[imageSizes],
 	)
-	const split = onePageAtATime && portrait && widePages === 'split'
+	// the wide-page setting is Fit Page's: with another fit a wide page shows at that fit
+	const wide = wideHandling({ fit, widePages, portrait, onePageAtATime })
+	const split = wide === 'split'
 	const views = useMemo(() => buildViews(pageSets, ratioOf, split), [pageSets, ratioOf, split])
 
 	// Zoom (1 = the fit), reset on every turn
@@ -127,6 +139,11 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		forward: true,
 	})
 	const pendingAnchorRef = useRef<{ fx: number; fy: number; vx: number; vy: number } | null>(null)
+	/**
+	 * The side the view on screen was entered from, until the reader moves it: a size that
+	 * arrives later (the page's crop, its image) keeps the view at that side, its reading start
+	 */
+	const enteredRef = useRef<{ toward: 1 | -1; forward: boolean } | null>(null)
 	const lastGestureRef = useRef(0)
 
 	// The view on screen: follows the page in the URL (go to page, progress), keeping the half
@@ -189,16 +206,12 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		const only = items.length === 1 ? items[0] : undefined
 		const onlyBox = boxes[0]!
 		const wideZoom =
-			!!only &&
-			only.part === 'whole' &&
-			portrait &&
-			widePages === 'zoom' &&
-			isWide(onlyBox.w / onlyBox.h)
+			!!only && only.part === 'whole' && wide === 'zoom' && isWide(onlyBox.w / onlyBox.h)
 		const base = wideZoom
 			? wideZoomSize(onlyBox.w / onlyBox.h, viewport)
 			: fitSize(boxes, fit, viewport)
 		return { boxes, base }
-	}, [items, imageSizes, viewport, crops, analyses, portrait, widePages, fit])
+	}, [items, imageSizes, viewport, crops, analyses, wide, fit])
 
 	const content = useMemo<Size>(
 		() =>
@@ -210,6 +223,10 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	const overflowX = content.w > viewport.w + 1
 	const overflowY = content.h > viewport.h + 1
 
+	// A new fit (or wide-page setting, or crop) shows the view from its reading start, at the fit
+	const fitKey = `${fit}|${widePages}|${!!cropBorders}`
+	const fitKeyRef = useRef(fitKey)
+
 	useLayoutEffect(() => {
 		const element = scrollRef.current
 		const inner = contentRef.current
@@ -218,9 +235,21 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			inner.style.transform = ''
 			inner.style.willChange = ''
 		}
+		if (fitKeyRef.current !== fitKey) {
+			fitKeyRef.current = fitKey
+			pendingAnchorRef.current = null
+			// (a turn under way keeps its own entry)
+			pendingEntryRef.current ??= { toward: rtl ? -1 : 1, forward: true }
+			// laid out again at the fit, then entered (the next run of this effect)
+			if (zoom !== 1) {
+				setZoom(1)
+				return
+			}
+		}
 		const anchor = pendingAnchorRef.current
 		if (anchor) {
 			pendingAnchorRef.current = null
+			enteredRef.current = null
 			const offsetX = Math.max(0, (viewport.w - content.w) / 2)
 			const offsetY = Math.max(0, (viewport.h - content.h) / 2)
 			element.scrollTo({
@@ -229,13 +258,14 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			})
 			return
 		}
-		const entry = pendingEntryRef.current
+		const entry = pendingEntryRef.current ?? enteredRef.current
 		if (entry) {
 			pendingEntryRef.current = null
+			enteredRef.current = entry
 			const pos = entryPos(content, viewport, entry.toward, entry.forward)
 			element.scrollTo({ left: pos.x, top: pos.y })
 		}
-	}, [viewIndex, geometry, content, viewport])
+	}, [viewIndex, geometry, content, viewport, fitKey, rtl, zoom])
 
 	// Changing the view -----------------------------------------------------------------------------
 
@@ -266,6 +296,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	 * press during a move retargets it, so a held key moves on steadily)
 	 */
 	const scrollToSmoothly = useCallback((target: ViewPos) => {
+		enteredRef.current = null
 		const element = scrollRef.current
 		if (element) scrollMoveTo(element, target)
 	}, [])
@@ -369,7 +400,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		(next: number, point: Point, from?: Point) => {
 			const element = scrollRef.current
 			if (!element) return
-			const clamped = Math.min(MAX_ZOOM, Math.max(1, next))
+			const clamped = clampZoom(next)
 			const box = element.getBoundingClientRect()
 			const offsetX = Math.max(0, (box.width - content.w) / 2)
 			const offsetY = Math.max(0, (box.height - content.h) / 2)
@@ -420,6 +451,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	)
 
 	const onPointerDown = useCallback((event: React.PointerEvent) => {
+		// the reader takes over where the view is
+		enteredRef.current = null
 		if (!event.isPrimary || event.button > 0) return
 		pressRef.current = {
 			id: event.pointerId,
@@ -449,8 +482,10 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const box = element.getBoundingClientRect()
 
 			if (Math.hypot(dx, dy) > SWIPE_SLOP) {
-				// a drag the page didn't follow: a deliberate sideways swipe turns the page
-				// (the finger moving left shows what's to the right)
+				// a finger's swipe is judged from its touches, with the page's edges (see the touch
+				// listeners); a mouse drag the page didn't follow: a deliberate sideways one turns the
+				// page (moving left shows what's to the right)
+				if (event.pointerType === 'touch') return
 				const swipe = swipeTurn(swipeOf(dx, dy, ms, box.width))
 				if (swipe) turn(swipe)
 				return
@@ -486,15 +521,46 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		[turn, step, tapSidesToNavigate, toggleBar, zoom, zoomAt],
 	)
 
-	// A pinch: only a GPU transform while the fingers move, the zoom committed once they lift
+	// The page turn for a finger's swipe (kept current for the touch listeners below)
+	const turnRef = useRef(turn)
+	useEffect(() => {
+		turnRef.current = turn
+	}, [turn])
+
+	// Touches: a pinch, and a finger's swipe.
+	// - A pinch: only a GPU transform while the fingers move, the zoom committed once they lift.
+	//   The transform is held to what the committed zoom can show (the page covers the screen or
+	//   stays centred), so at the fit it holds still instead of wandering and springing back.
+	// - A swipe: judged when the finger lifts (the page never follows the finger). The browser
+	//   pans a page bigger than the screen; a swipe turns the page only when the page was already
+	//   at its edge that way when the finger came down (KOReader, Mihon). A page that fits is at
+	//   both edges, so any deliberate swipe turns it.
 	useEffect(() => {
 		const element = scrollRef.current
 		if (!element) return undefined
-		let start: { distance: number; mid: Point; origin: Point; zoom: number } | null = null
+		let start: {
+			distance: number
+			mid: Point
+			origin: Point
+			zoom: number
+			bounds: { content: DOMRect; view: DOMRect }
+		} | null = null
 		let ratio = 1
 		let mid: Point = { x: 0, y: 0 }
+		let swipeStart: { x: number; y: number; time: number; edges: ScrollEdges } | null = null
 		const pointOf = (touch: Touch): Point => ({ x: touch.clientX, y: touch.clientY })
 		const onTouchStart = (event: TouchEvent) => {
+			const first = event.touches[0]
+			// a second finger makes it a pinch, not a swipe
+			swipeStart =
+				event.touches.length === 1 && first
+					? {
+							x: first.clientX,
+							y: first.clientY,
+							time: performance.now(),
+							edges: scrollEdges(element),
+						}
+					: null
 			if (event.touches.length !== 2) return
 			const a = pointOf(event.touches[0]!)
 			const b = pointOf(event.touches[1]!)
@@ -508,6 +574,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				// the content point under the fingers, in the content's own px
 				origin: { x: mid.x - innerBox.left, y: mid.y - innerBox.top },
 				zoom: zoomRef.current,
+				bounds: { content: innerBox, view: element.getBoundingClientRect() },
 			}
 			ratio = 1
 			inner.style.willChange = 'transform'
@@ -519,16 +586,16 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const a = pointOf(event.touches[0]!)
 			const b = pointOf(event.touches[1]!)
 			mid = midpoint(a, b)
-			ratio = clampRatio(start.zoom, distance(a, b) / start.distance, 1, MAX_ZOOM)
+			ratio = clampRatio(start.zoom, distance(a, b) / start.distance, MIN_ZOOM, MAX_ZOOM)
 			const inner = contentRef.current
 			if (inner) {
-				const look = pinchTransform(start.origin, start.mid, mid, ratio)
+				const look = pinchTransform(start.origin, start.mid, mid, ratio, start.bounds)
 				inner.style.transformOrigin = look.transformOrigin
 				inner.style.transform = look.transform
 			}
 		}
-		const onTouchEnd = (event: TouchEvent) => {
-			if (!start || event.touches.length > 0) return
+		const endPinch = () => {
+			if (!start) return
 			const { zoom: startZoom, mid: startMid } = start
 			start = null
 			lastGestureRef.current = performance.now()
@@ -536,31 +603,52 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const inner = contentRef.current
 			const transform = inner?.style.transform ?? ''
 			if (inner) inner.style.transform = ''
-			const next = Math.min(MAX_ZOOM, Math.max(1, startZoom * ratio))
+			const next = clampZoom(startZoom * ratio)
 			zoomAtRef.current(next, mid, startMid)
 			// kept until the new zoom is laid out (in the same frame), so nothing jumps
 			if (inner && transform && next !== startZoom) inner.style.transform = transform
 			ratio = 1
 		}
+		const onTouchEnd = (event: TouchEvent) => {
+			if (event.touches.length > 0) return
+			if (start) {
+				endPinch()
+				return
+			}
+			const from = swipeStart
+			swipeStart = null
+			const touch = event.changedTouches[0]
+			if (!from || !touch) return
+			const swipe = swipeOf(
+				touch.clientX - from.x,
+				touch.clientY - from.y,
+				performance.now() - from.time,
+				element.clientWidth,
+			)
+			const screenTurn = edgeSwipeTurn(swipe, from.edges, scrollEdges(element))
+			if (!screenTurn) return
+			lastGestureRef.current = performance.now()
+			turnRef.current(screenTurn)
+		}
+		const onTouchCancel = () => {
+			swipeStart = null
+			endPinch()
+		}
 		element.addEventListener('touchstart', onTouchStart, { passive: true })
 		element.addEventListener('touchmove', onTouchMove, { passive: false })
 		element.addEventListener('touchend', onTouchEnd)
-		element.addEventListener('touchcancel', onTouchEnd)
+		element.addEventListener('touchcancel', onTouchCancel)
 		return () => {
 			element.removeEventListener('touchstart', onTouchStart)
 			element.removeEventListener('touchmove', onTouchMove)
 			element.removeEventListener('touchend', onTouchEnd)
-			element.removeEventListener('touchcancel', onTouchEnd)
+			element.removeEventListener('touchcancel', onTouchCancel)
 		}
 	}, [])
 
 	// The wheel: Ctrl/⌘ + wheel (a trackpad pinch) zooms around the mouse; otherwise it scrolls a
 	// page bigger than the screen, and turns the page at its end on a new wheel gesture (or right
 	// away when the page fits)
-	const turnRef = useRef(turn)
-	useEffect(() => {
-		turnRef.current = turn
-	}, [turn])
 	const forwardRef = useRef(forwardToward)
 	useEffect(() => {
 		forwardRef.current = forwardToward
@@ -571,28 +659,32 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		let zoomRatio = 1
 		let zoomPoint: Point = { x: 0, y: 0 }
 		let zoomOrigin: Point | null = null
+		let zoomBounds: { content: DOMRect; view: DOMRect } | null = null
 		let zoomTimeout: number | undefined
 		let lastWheel = 0
 		let gestureStartedAtEdge = false
 		let distanceSum = 0
 		let coolUntil = 0
 		const onWheel = (event: WheelEvent) => {
+			// the reader moves the view: it no longer sticks to the side it was entered from
+			enteredRef.current = null
 			if (event.ctrlKey || event.metaKey) {
 				event.preventDefault()
 				zoomPoint = { x: event.clientX, y: event.clientY }
 				zoomRatio = clampRatio(
 					zoomRef.current,
 					zoomRatio * Math.exp(-event.deltaY / 400),
-					1,
+					MIN_ZOOM,
 					MAX_ZOOM,
 				)
 				const inner = contentRef.current
 				if (inner) {
-					if (!zoomOrigin) {
+					if (!zoomOrigin || !zoomBounds) {
 						const innerBox = inner.getBoundingClientRect()
 						zoomOrigin = { x: zoomPoint.x - innerBox.left, y: zoomPoint.y - innerBox.top }
+						zoomBounds = { content: innerBox, view: element.getBoundingClientRect() }
 					}
-					const look = pinchTransform(zoomOrigin, zoomPoint, zoomPoint, zoomRatio)
+					const look = pinchTransform(zoomOrigin, zoomPoint, zoomPoint, zoomRatio, zoomBounds)
 					inner.style.transformOrigin = look.transformOrigin
 					inner.style.transform = look.transform
 				}
@@ -601,12 +693,13 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 					const innerNow = contentRef.current
 					const transform = innerNow?.style.transform ?? ''
 					if (innerNow) innerNow.style.transform = ''
-					const next = Math.min(MAX_ZOOM, Math.max(1, zoomRef.current * zoomRatio))
+					const next = clampZoom(zoomRef.current * zoomRatio)
 					zoomAtRef.current(next, zoomPoint)
 					if (innerNow && transform && next !== zoomRef.current)
 						innerNow.style.transform = transform
 					zoomRatio = 1
 					zoomOrigin = null
+					zoomBounds = null
 				}, 140)
 				return
 			}

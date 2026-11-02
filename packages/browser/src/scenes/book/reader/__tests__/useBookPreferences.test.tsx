@@ -22,12 +22,16 @@ describe('useBookPreferences: per-device defaults', () => {
 		act(() => useReaderStore.setState({ bookPreferences: {} }))
 	})
 
-	it('crops margins and fits the width by default on a phone, not on a desktop', () => {
+	it('crops margins and fits the page (upright) or the width (on its side) on a phone', () => {
 		setScreen(390, 844)
 		const phone = renderHook(() => useBookPreferences({ book: manga })).result.current
 		expect(phone.bookPreferences.cropBorders).toBe(true)
-		expect(phone.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Width)
+		expect(phone.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Auto)
 		expect(phone.bookPreferences.readingDirection).toBe(ReadingDirection.Rtl)
+
+		setScreen(844, 390)
+		const sideways = renderHook(() => useBookPreferences({ book: manga })).result.current
+		expect(sideways.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Width)
 
 		setScreen(1440, 900)
 		const desktop = renderHook(() => useBookPreferences({ book: manga })).result.current
@@ -47,5 +51,27 @@ describe('useBookPreferences: per-device defaults', () => {
 		// the phone's fit-width and crop weren't stored with it
 		expect(desktop.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Height)
 		expect(desktop.bookPreferences.cropBorders).toBe(false)
+	})
+
+	it('follows the phone when it turns', () => {
+		setScreen(390, 844)
+		const { result } = renderHook(() => useBookPreferences({ book: manga }))
+		expect(result.current.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Auto)
+		act(() => {
+			setScreen(844, 390)
+			window.dispatchEvent(new Event('resize'))
+		})
+		expect(result.current.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Width)
+	})
+
+	it('keeps a fit chosen for the book on every screen', () => {
+		setScreen(390, 844)
+		const { result } = renderHook(() => useBookPreferences({ book: manga }))
+		act(() =>
+			result.current.setBookPreferences({
+				imageScaling: { scaleToFit: ReadingImageScaleFit.Height },
+			}),
+		)
+		expect(result.current.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Height)
 	})
 })
