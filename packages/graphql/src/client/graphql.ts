@@ -492,7 +492,7 @@ export type ConfidenceFactor = {
 /** An event that is emitted by the core and consumed by a client */
 export type CoreEvent = CreatedManySeries | CreatedMedia | CreatedOrUpdatedManyMedia | DiscoveredMissingLibrary | JobOutput | JobStarted | JobUpdate;
 
-export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | SeriesScanOutput | ThumbnailGenerationOutput;
+export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | PostProcessOutput | SeriesScanOutput | ThumbnailGenerationOutput;
 
 export type CreateAnnotationInput = {
   annotationText?: InputMaybe<Scalars['String']['input']>;
@@ -1688,6 +1688,20 @@ export enum LibraryPattern {
   SeriesBased = 'SERIES_BASED'
 }
 
+/** A library's post-processing settings and where its work stands */
+export type LibraryPostProcessing = {
+  __typename?: 'LibraryPostProcessing';
+  /** Bytes saved by the replaced files */
+  bytesSaved: Scalars['Int']['output'];
+  config: PostProcessingConfig;
+  /** Task counts by kind and status */
+  counts: Array<PostProcessingCount>;
+  /** The PDF queue shared with the host runner, as Stump sees it */
+  pdfQueueDir: Scalars['String']['output'];
+  /** Where replaced originals go (nothing is replaced while this is unset) */
+  quarantineDir?: Maybe<Scalars['String']['output']>;
+};
+
 export type LibraryScanConfigInput = {
   /** Library IDs to scan. An empty list means "all libraries" */
   libraryIds: Array<Scalars['String']['input']>;
@@ -2704,6 +2718,11 @@ export type Mutation = {
   respondToBookClubInvitation: BookClubInvitation;
   /** Brings back a book removed with `deleteMedia` */
   restoreMedia: Scalars['Boolean']['output'];
+  /**
+   * Run post-processing on the whole library now: the 16-grey step (or its dry-run
+   * estimate) and/or the PDF steps (queued for the host runner)
+   */
+  runPostProcessing: Scalars['Boolean']['output'];
   /** Enqueue a scan job for every library which the authenticated user has access to */
   scanAllLibraries: Scalars['Boolean']['output'];
   /**
@@ -2774,6 +2793,11 @@ export type Mutation = {
   updateLibraryExcludedUsers: Library;
   /** Changes how the intake files books into a library */
   updateLibraryIntakeSettings: LibraryIntakeSettings;
+  /**
+   * Change a library's post-processing settings. Turning a step on for new books processes
+   * the books scans add from now on
+   */
+  updateLibraryPostProcessing: LibraryPostProcessing;
   /**
    * Update the thumbnail for a library. This will replace the existing thumbnail with the the one
    * associated with the provided input (book). If the book does not have a thumbnail, one
@@ -3394,6 +3418,15 @@ export type MutationRestoreMediaArgs = {
 };
 
 
+export type MutationRunPostProcessingArgs = {
+  dryRun?: Scalars['Boolean']['input'];
+  grey16?: Scalars['Boolean']['input'];
+  libraryId: Scalars['ID']['input'];
+  pdfOcr?: Scalars['Boolean']['input'];
+  pdfShrink?: Scalars['Boolean']['input'];
+};
+
+
 export type MutationScanLibraryArgs = {
   id: Scalars['ID']['input'];
   options?: InputMaybe<Scalars['JSON']['input']>;
@@ -3536,6 +3569,12 @@ export type MutationUpdateLibraryExcludedUsersArgs = {
 
 export type MutationUpdateLibraryIntakeSettingsArgs = {
   input: LibraryIntakeSettingsInput;
+  libraryId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpdateLibraryPostProcessingArgs = {
+  input: PostProcessingConfigInput;
   libraryId: Scalars['ID']['input'];
 };
 
@@ -4048,6 +4087,125 @@ export type PlaceholderGenerationOutput = {
   visitedEntities: Scalars['Int']['output'];
 };
 
+/** What a post-processing task does */
+export enum PostProcessKind {
+  /** CBZ pages reduced to 16 grey levels (in Stump) */
+  Grey_16 = 'GREY_16',
+  /** A PDF sent to the host runner for OCR and/or shrinking (see `steps`) */
+  Pdf = 'PDF'
+}
+
+/** When a post-processing step runs for a library */
+export enum PostProcessMode {
+  /** The step runs on books a scan adds after it was turned on */
+  New = 'NEW',
+  /** The step never runs on its own (it can still be started from the library settings) */
+  Off = 'OFF'
+}
+
+export type PostProcessOutput = {
+  __typename?: 'PostProcessOutput';
+  bytesAfter: Scalars['Int']['output'];
+  /** Sizes before and after (or expected after, for a dry run) of the processed volumes */
+  bytesBefore: Scalars['Int']['output'];
+  /** Volumes whose 16-grey copy replaced the original */
+  converted: Scalars['Int']['output'];
+  /** Volumes estimated by a dry run */
+  estimated: Scalars['Int']['output'];
+  failed: Scalars['Int']['output'];
+  /** PDFs written to the host runner's queue */
+  pdfsQueued: Scalars['Int']['output'];
+  /** Volumes processed but kept (the saving was too small) */
+  rejected: Scalars['Int']['output'];
+  /** Volumes with nothing to do (already 16 greys, no grey PNG pages) */
+  skipped: Scalars['Int']['output'];
+  /** CBZ volumes looked at */
+  volumes: Scalars['Int']['output'];
+};
+
+/** Where a post-processing task stands */
+export enum PostProcessStatus {
+  /** The smaller (or OCRed) file replaced the original, which went to quarantine */
+  Done = 'DONE',
+  /** A dry run's estimate (nothing was changed) */
+  Estimated = 'ESTIMATED',
+  /** Something went wrong; the original is untouched */
+  Failed = 'FAILED',
+  /** Waiting in the queue (PDFs: written for the host runner) */
+  Pending = 'PENDING',
+  /** Processed, but the result was not used (saves too little, or a quality check failed) */
+  Rejected = 'REJECTED',
+  /** Being processed */
+  Running = 'RUNNING',
+  /** Nothing to do (already 16 greys, born-digital PDF, ...) */
+  Skipped = 'SKIPPED'
+}
+
+/** A library's post-processing settings (stored as JSON in `library_configs`) */
+export type PostProcessingConfig = {
+  __typename?: 'PostProcessingConfig';
+  /** Reduce the grey pages of CBZ files to 16 grey levels (4-bit PNG); colour pages stay */
+  grey16: PostProcessMode;
+  /**
+   * Parts of a book's path (relative to the library, e.g. `/Berserk/`) that keep a CBZ out
+   * of the 16-grey step
+   */
+  grey16Exclude: Array<Scalars['String']['output']>;
+  /** When the 16-grey step was set to new books: books added from then on are processed */
+  grey16Since?: Maybe<Scalars['DateTime']['output']>;
+  /** OCR scanned PDFs whose text layer is missing or poor (host runner) */
+  pdfOcr: PostProcessMode;
+  /** When PDF OCR was set to new books */
+  pdfOcrSince?: Maybe<Scalars['DateTime']['output']>;
+  /** Shrink scanned PDFs when it saves enough without visible loss (host runner) */
+  pdfShrink: PostProcessMode;
+  /** When PDF shrinking was set to new books */
+  pdfShrinkSince?: Maybe<Scalars['DateTime']['output']>;
+};
+
+/** The settable part of [`PostProcessingConfig`] */
+export type PostProcessingConfigInput = {
+  grey16: PostProcessMode;
+  grey16Exclude: Array<Scalars['String']['input']>;
+  pdfOcr: PostProcessMode;
+  pdfShrink: PostProcessMode;
+};
+
+export type PostProcessingCount = {
+  __typename?: 'PostProcessingCount';
+  count: Scalars['Int']['output'];
+  kind: PostProcessKind;
+  status: PostProcessStatus;
+};
+
+/**
+ * One post-processing step for one book: the 16-grey reduction of a CBZ, or a PDF sent to
+ * the host runner for OCR and/or shrinking. There is at most one row per book and kind; a
+ * new run updates it in place
+ */
+export type PostProcessingTaskModel = {
+  __typename?: 'PostProcessingTaskModel';
+  /** The size of the processed file (for an estimate, the expected size) */
+  bytesAfter?: Maybe<Scalars['Int']['output']>;
+  bytesBefore?: Maybe<Scalars['Int']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  /** Step details (pages converted, quality numbers, ...) */
+  details?: Maybe<Scalars['JSON']['output']>;
+  finishedAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['String']['output'];
+  kind: PostProcessKind;
+  libraryId: Scalars['String']['output'];
+  mediaId?: Maybe<Scalars['String']['output']>;
+  /** The book's path when the task was created */
+  path: Scalars['String']['output'];
+  /** Why the task ended the way it did, in a few words */
+  reason?: Maybe<Scalars['String']['output']>;
+  status: PostProcessStatus;
+  /** For PDFs, the requested steps (`OCR`, `SHRINK` or `OCR+SHRINK`) */
+  steps?: Maybe<Scalars['String']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
 export type ProviderCredentialVerification = {
   __typename?: 'ProviderCredentialVerification';
   error?: Maybe<Scalars['String']['output']>;
@@ -4133,6 +4291,8 @@ export type Query = {
   /** How the intake files books into a library (its defaults when never changed) */
   libraryIntakeSettings: LibraryIntakeSettings;
   libraryMissingEntities: PaginatedMissingEntityResponse;
+  /** A library's post-processing settings and task counts */
+  libraryPostProcessing: LibraryPostProcessing;
   listDirectory: PaginatedDirectoryListingResponse;
   /**
    * Get information about the Stump log file, located at STUMP_CONFIG_DIR/Stump.log, or
@@ -4179,6 +4339,8 @@ export type Query = {
   onDeck: PaginatedMediaResponse;
   /** Return all metadata fetch records that are awaiting user review. */
   pendingMetadataMatches: Array<MetadataFetchRecord>;
+  /** Post-processing tasks, most recently updated first */
+  postProcessingTasks: Array<PostProcessingTaskModel>;
   previousBookClubDiscussions: Array<BookClubDiscussion>;
   /**
    * Retrieves a reading list by ID for the current user.
@@ -4409,6 +4571,11 @@ export type QueryLibraryMissingEntitiesArgs = {
 };
 
 
+export type QueryLibraryPostProcessingArgs = {
+  libraryId: Scalars['ID']['input'];
+};
+
+
 export type QueryListDirectoryArgs = {
   input?: InputMaybe<DirectoryListingInput>;
   pagination: Pagination;
@@ -4480,6 +4647,14 @@ export type QueryMyReadingTimelineArgs = {
 
 export type QueryOnDeckArgs = {
   pagination?: Pagination;
+};
+
+
+export type QueryPostProcessingTasksArgs = {
+  kind?: InputMaybe<PostProcessKind>;
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: Scalars['Int']['input'];
+  statuses?: InputMaybe<Array<PostProcessStatus>>;
 };
 
 
@@ -5552,6 +5727,12 @@ export type StumpConfig = {
   port: Scalars['Int']['output'];
   /** Whether or not to pretty print logs */
   prettyLogs: Scalars['Boolean']['output'];
+  /**
+   * Where post-processing (16 greys for manga, PDF OCR and shrinking) keeps the originals it
+   * replaces, in dated batch folders with a `restore_log.csv`. Nothing is ever deleted, so
+   * post-processing replaces no file until this is set
+   */
+  quarantineDir?: Maybe<Scalars['String']['output']>;
   /** The time in seconds that a refresh token will be valid for */
   refreshTokenTtl: Scalars['Int']['output'];
   /** The time in seconds that a login session will be valid for */
@@ -7162,6 +7343,14 @@ export type NavigationEntityLibraryQueryVariables = Exact<{
 
 export type NavigationEntityLibraryQuery = { __typename?: 'Query', seriesById?: { __typename?: 'Series', libraryId?: string | null } | null, mediaById?: { __typename?: 'Media', libraryId: string } | null };
 
+export type PostProcessingTasksQueryVariables = Exact<{
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+}>;
+
+
+export type PostProcessingTasksQuery = { __typename?: 'Query', postProcessingTasks: Array<{ __typename?: 'PostProcessingTaskModel', id: string, libraryId: string, mediaId?: string | null, kind: PostProcessKind, steps?: string | null, status: PostProcessStatus, path: string, reason?: string | null, bytesBefore?: number | null, bytesAfter?: number | null, updatedAt: any }> };
+
 export type CreateReaderAnnotationMutationVariables = Exact<{
   input: CreateAnnotationInput;
 }>;
@@ -7343,7 +7532,7 @@ export type SeriesThumbnailSelectorUploadMutation = { __typename?: 'Mutation', u
 export type UseCoreEventSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type UseCoreEventSubscription = { __typename?: 'Subscription', readEvents: { __typename: 'CreatedManySeries', count: number, libraryId: string } | { __typename: 'CreatedMedia' } | { __typename: 'CreatedOrUpdatedManyMedia' } | { __typename: 'DiscoveredMissingLibrary', id: string } | { __typename: 'JobOutput', id: string, output: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', createdMedia: number, createdSeries: number, updatedMedia: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'SeriesScanOutput', createdMedia: number, updatedMedia: number } | { __typename: 'ThumbnailGenerationOutput' } } | { __typename: 'JobStarted', id: string } | { __typename: 'JobUpdate', id: string, status?: JobStatus | null, message?: string | null, completedTasks?: number | null, remainingTasks?: number | null, completedSubtasks?: number | null, totalSubtasks?: number | null, subtitle?: string | null } };
+export type UseCoreEventSubscription = { __typename?: 'Subscription', readEvents: { __typename: 'CreatedManySeries', count: number, libraryId: string } | { __typename: 'CreatedMedia' } | { __typename: 'CreatedOrUpdatedManyMedia' } | { __typename: 'DiscoveredMissingLibrary', id: string } | { __typename: 'JobOutput', id: string, output: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', createdMedia: number, createdSeries: number, updatedMedia: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput', createdMedia: number, updatedMedia: number } | { __typename: 'ThumbnailGenerationOutput' } } | { __typename: 'JobStarted', id: string } | { __typename: 'JobUpdate', id: string, status?: JobStatus | null, message?: string | null, completedTasks?: number | null, remainingTasks?: number | null, completedSubtasks?: number | null, totalSubtasks?: number | null, subtitle?: string | null } };
 
 export type UsePreferencesMutationVariables = Exact<{
   input: UpdateUserPreferencesInput;
@@ -7841,6 +8030,32 @@ export type UpdateLibraryAddBooksSettingsMutationVariables = Exact<{
 
 export type UpdateLibraryAddBooksSettingsMutation = { __typename?: 'Mutation', updateLibraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string } };
 
+export type LibraryPostProcessingQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+}>;
+
+
+export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', quarantineDir?: string | null, pdfQueueDir: string, bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
+
+export type UpdateLibraryPostProcessingMutationVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  input: PostProcessingConfigInput;
+}>;
+
+
+export type UpdateLibraryPostProcessingMutation = { __typename?: 'Mutation', updateLibraryPostProcessing: { __typename?: 'LibraryPostProcessing', bytesSaved: number } };
+
+export type RunPostProcessingMutationVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  grey16: Scalars['Boolean']['input'];
+  pdfOcr: Scalars['Boolean']['input'];
+  pdfShrink: Scalars['Boolean']['input'];
+  dryRun: Scalars['Boolean']['input'];
+}>;
+
+
+export type RunPostProcessingMutation = { __typename?: 'Mutation', runPostProcessing: boolean };
+
 export type ScanHistorySectionClearHistoryMutationVariables = Exact<{
   id: Scalars['ID']['input'];
 }>;
@@ -7861,7 +8076,7 @@ export type ScanRecordInspectorJobsQueryVariables = Exact<{
 }>;
 
 
-export type ScanRecordInspectorJobsQuery = { __typename?: 'Query', jobById?: { __typename?: 'Job', id: string, outputData?: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', totalFiles: number, totalDirectories: number, ignoredFiles: number, skippedFiles: number, ignoredDirectories: number, createdMedia: number, updatedMedia: number, createdSeries: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'SeriesScanOutput' } | { __typename: 'ThumbnailGenerationOutput' } | null, logs?: Array<{ __typename?: 'Log', id: number }> } | null };
+export type ScanRecordInspectorJobsQuery = { __typename?: 'Query', jobById?: { __typename?: 'Job', id: string, outputData?: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', totalFiles: number, totalDirectories: number, ignoredFiles: number, skippedFiles: number, ignoredDirectories: number, createdMedia: number, updatedMedia: number, createdSeries: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput' } | { __typename: 'ThumbnailGenerationOutput' } | null, logs?: Array<{ __typename?: 'Log', id: number }> } | null };
 
 export type DeleteLibraryThumbnailsMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -8169,11 +8384,13 @@ type JobDataInspector_MetadataFetchJobOutput_Fragment = { __typename: 'MetadataF
 
 type JobDataInspector_PlaceholderGenerationOutput_Fragment = { __typename: 'PlaceholderGenerationOutput' } & { ' $fragmentName'?: 'JobDataInspector_PlaceholderGenerationOutput_Fragment' };
 
+type JobDataInspector_PostProcessOutput_Fragment = { __typename: 'PostProcessOutput' } & { ' $fragmentName'?: 'JobDataInspector_PostProcessOutput_Fragment' };
+
 type JobDataInspector_SeriesScanOutput_Fragment = { __typename: 'SeriesScanOutput', totalFiles: number, ignoredFiles: number, skippedFiles: number, createdMedia: number, updatedMedia: number } & { ' $fragmentName'?: 'JobDataInspector_SeriesScanOutput_Fragment' };
 
 type JobDataInspector_ThumbnailGenerationOutput_Fragment = { __typename: 'ThumbnailGenerationOutput', visitedFiles: number, skippedFiles: number, generatedThumbnails: number, removedThumbnails: number } & { ' $fragmentName'?: 'JobDataInspector_ThumbnailGenerationOutput_Fragment' };
 
-export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragment | JobDataInspector_LibraryScanOutput_Fragment | JobDataInspector_MetadataFetchJobOutput_Fragment | JobDataInspector_PlaceholderGenerationOutput_Fragment | JobDataInspector_SeriesScanOutput_Fragment | JobDataInspector_ThumbnailGenerationOutput_Fragment;
+export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragment | JobDataInspector_LibraryScanOutput_Fragment | JobDataInspector_MetadataFetchJobOutput_Fragment | JobDataInspector_PlaceholderGenerationOutput_Fragment | JobDataInspector_PostProcessOutput_Fragment | JobDataInspector_SeriesScanOutput_Fragment | JobDataInspector_ThumbnailGenerationOutput_Fragment;
 
 export type JobDataInspectorLogsQueryVariables = Exact<{
   id: Scalars['String']['input'];
@@ -8214,6 +8431,9 @@ export type JobTableQuery = { __typename?: 'Query', jobs: { __typename?: 'Pagina
       ) | (
         { __typename?: 'PlaceholderGenerationOutput' }
         & { ' $fragmentRefs'?: { 'JobDataInspector_PlaceholderGenerationOutput_Fragment': JobDataInspector_PlaceholderGenerationOutput_Fragment } }
+      ) | (
+        { __typename?: 'PostProcessOutput' }
+        & { ' $fragmentRefs'?: { 'JobDataInspector_PostProcessOutput_Fragment': JobDataInspector_PostProcessOutput_Fragment } }
       ) | (
         { __typename?: 'SeriesScanOutput' }
         & { ' $fragmentRefs'?: { 'JobDataInspector_SeriesScanOutput_Fragment': JobDataInspector_SeriesScanOutput_Fragment } }
@@ -13881,6 +14101,23 @@ export const NavigationEntityLibraryDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<NavigationEntityLibraryQuery, NavigationEntityLibraryQueryVariables>;
+export const PostProcessingTasksDocument = new TypedDocumentString(`
+    query PostProcessingTasks($libraryId: ID, $limit: Int) {
+  postProcessingTasks(libraryId: $libraryId, limit: $limit) {
+    id
+    libraryId
+    mediaId
+    kind
+    steps
+    status
+    path
+    reason
+    bytesBefore
+    bytesAfter
+    updatedAt
+  }
+}
+    `) as unknown as TypedDocumentString<PostProcessingTasksQuery, PostProcessingTasksQueryVariables>;
 export const CreateReaderAnnotationDocument = new TypedDocumentString(`
     mutation CreateReaderAnnotation($input: CreateAnnotationInput!) {
   createAnnotation(input: $input) {
@@ -15898,6 +16135,47 @@ export const UpdateLibraryAddBooksSettingsDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateLibraryAddBooksSettingsMutation, UpdateLibraryAddBooksSettingsMutationVariables>;
+export const LibraryPostProcessingDocument = new TypedDocumentString(`
+    query LibraryPostProcessing($libraryId: ID!) {
+  libraryPostProcessing(libraryId: $libraryId) {
+    config {
+      grey16
+      grey16Exclude
+      pdfOcr
+      pdfShrink
+      grey16Since
+      pdfOcrSince
+      pdfShrinkSince
+    }
+    quarantineDir
+    pdfQueueDir
+    counts {
+      kind
+      status
+      count
+    }
+    bytesSaved
+  }
+}
+    `) as unknown as TypedDocumentString<LibraryPostProcessingQuery, LibraryPostProcessingQueryVariables>;
+export const UpdateLibraryPostProcessingDocument = new TypedDocumentString(`
+    mutation UpdateLibraryPostProcessing($libraryId: ID!, $input: PostProcessingConfigInput!) {
+  updateLibraryPostProcessing(libraryId: $libraryId, input: $input) {
+    bytesSaved
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateLibraryPostProcessingMutation, UpdateLibraryPostProcessingMutationVariables>;
+export const RunPostProcessingDocument = new TypedDocumentString(`
+    mutation RunPostProcessing($libraryId: ID!, $grey16: Boolean!, $pdfOcr: Boolean!, $pdfShrink: Boolean!, $dryRun: Boolean!) {
+  runPostProcessing(
+    libraryId: $libraryId
+    grey16: $grey16
+    pdfOcr: $pdfOcr
+    pdfShrink: $pdfShrink
+    dryRun: $dryRun
+  )
+}
+    `) as unknown as TypedDocumentString<RunPostProcessingMutation, RunPostProcessingMutationVariables>;
 export const ScanHistorySectionClearHistoryDocument = new TypedDocumentString(`
     mutation ScanHistorySectionClearHistory($id: ID!) {
   clearScanHistory(id: $id)
