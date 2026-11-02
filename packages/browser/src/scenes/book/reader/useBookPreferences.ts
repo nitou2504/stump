@@ -79,6 +79,22 @@ export function isMangaBook(book: { metadata?: { genres?: string[] | null } | nu
 	return (book.metadata?.genres ?? []).some((genre) => /(^|:\s*)manga$/i.test(genre.trim()))
 }
 
+/**
+ * A library's default fit is chosen for a wide screen: fit-to-height crops a page on a portrait
+ * phone (a manga page is wider than the screen there), so on such screens it becomes fit-page
+ * (the whole page). A fit the reader chose for the book itself is never changed.
+ */
+export function fitForScreen(
+	fit: ReadingImageScaleFit,
+	screen: { width: number; height: number } | undefined = typeof window === 'undefined'
+		? undefined
+		: { width: window.innerWidth, height: window.innerHeight },
+): ReadingImageScaleFit {
+	if (!screen || fit !== ReadingImageScaleFit.Height) return fit
+	const isPortraitPhone = screen.width < 640 && screen.height > screen.width
+	return isPortraitPhone ? ReadingImageScaleFit.Auto : fit
+}
+
 const defaultsFromLibraryConfig = (
 	libraryConfig?: PickSelect<NonNullable<BookReaderSceneQuery['mediaById']>, 'libraryConfig'>,
 	isManga = false,
@@ -89,7 +105,7 @@ const defaultsFromLibraryConfig = (
 	// },
 	imageScaling: libraryConfig?.defaultReadingImageScaleFit
 		? {
-				scaleToFit: libraryConfig?.defaultReadingImageScaleFit as ReadingImageScaleFit,
+				scaleToFit: fitForScreen(libraryConfig.defaultReadingImageScaleFit as ReadingImageScaleFit),
 			}
 		: undefined,
 	// manga reads right to left unless the book's own preference says otherwise
