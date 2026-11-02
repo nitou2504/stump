@@ -71,6 +71,9 @@ export function EntityHeader({
 	// crumb. it isn't _perfect_ but is okay enough. frankly as long as mobile is functional enough
 	// im happy, i use the mobile app and so RARELY visit web on my phone
 	const showTabSwitcher = isMobile && tabs.length > 1 && !!activeTabLabel && !isSettingsActive
+	// A single tab is the page itself (e.g. a smart list's 'Items', a book's 'Overview'): it's
+	// only worth showing on the settings page, as the way back to it
+	const showTabs = !isMobile && (tabs.length > 1 || (tabs.length === 1 && isSettingsActive))
 
 	return (
 		<PageHeader>
@@ -132,7 +135,7 @@ export function EntityHeader({
 				{endActions}
 				{onInfoClick && <HeaderIconButton label="Info" icon={Info} onClick={onInfoClick} />}
 
-				{!isMobile && tabs.length > 0 && (
+				{showTabs && (
 					<Tabs value={activeTab} size="sm">
 						<Tabs.List>
 							{tabs.map((tab) => (

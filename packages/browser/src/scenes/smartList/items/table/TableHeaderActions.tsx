@@ -8,9 +8,7 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { useSafeWorkingView, useSmartListContext } from '../../context'
 import { useSmartListViewStore } from '../../store'
-import SavedViewSelector from './SavedViewSelector'
 import SmartListMoreMenu from './SmartListMoreMenu'
-import TableColumnsBottomDrawer from './TableColumnsBottomDrawer'
 import ViewManagerDropdown from './ViewManagerDropdown'
 
 type Props = {
@@ -64,12 +62,12 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 		[updateWorkingView, setSearchParams],
 	)
 
-	// On a phone the toolbar is one row: the less frequent controls (saved views, columns) move
-	// into a '⋯' menu, and the search folds into an icon that opens across the row
+	// One row in the same order on every screen size (like the phone toolbar): the search, then
+	// save, filter, grouping and the layout, and the less frequent controls (saved views, the
+	// table's columns) in a '⋯' menu. On a phone the search folds into an icon.
 	const isNarrow = useMediaMatch('(max-width: 639px)')
 
 	return (
-		// Like the other lists: the search first, the controls at the end of the line
 		<ListToolbar className="-mt-2 mb-2 gap-x-2 gap-y-2 px-4 sm:flex-wrap flex w-full items-center justify-end bg-background">
 			<Search
 				key={selectedView?.id ?? 'default'}
@@ -78,18 +76,11 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 				placeholder={t('userSmartListScene.itemsScene.actionHeader.search.placeholder')}
 				className="mr-auto"
 			/>
-			<ListToolbarControls className="gap-x-1 sm:gap-x-2 flex shrink-0 items-center">
-				{!isNarrow && hasSavedViews && <SavedViewSelector />}
+			<ListToolbarControls className="gap-x-1 flex shrink-0 items-center">
 				{canSaveView && <ViewManagerDropdown compact={isNarrow} />}
 				<URLFilterDrawer entity="media" />
-				{!isNarrow && showColumnControls && <TableColumnsBottomDrawer />}
 				{layoutControls}
-				{isNarrow && (
-					<SmartListMoreMenu
-						hasSavedViews={hasSavedViews}
-						showColumnControls={showColumnControls}
-					/>
-				)}
+				<SmartListMoreMenu hasSavedViews={hasSavedViews} showColumnControls={showColumnControls} />
 			</ListToolbarControls>
 		</ListToolbar>
 	)

@@ -1,4 +1,3 @@
-import { NativeSelect } from '@stump/components'
 import { useCallback, useMemo } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -12,7 +11,7 @@ const withLocaleKey = (key: string) => `${LOCALE_BASE_KEY}.${key}`
 
 /**
  * The saved views of a smart list as options, the current one ("Custom view" once the view was
- * changed) and a way to pick one: shared by the toolbar's select and the phone's overflow menu
+ * changed) and a way to pick one, for the toolbar's '⋯' menu
  */
 export function useSavedViews() {
 	const { t } = useTranslate()
@@ -120,21 +119,4 @@ export function useSavedViews() {
 		selectView,
 		translateKey,
 	}
-}
-
-export default function SavedViewSelector() {
-	const { currentValue, emptyOption, isDisabled, options, selectView, translateKey } =
-		useSavedViews()
-
-	return (
-		<NativeSelect
-			title={isDisabled ? translateKey('noViewsSaved') : translateKey('selectView')}
-			className="h-8 py-0 w-[185px]"
-			options={options}
-			emptyOption={emptyOption}
-			disabled={isDisabled}
-			value={currentValue}
-			onChange={(e) => selectView(e.target.value)}
-		/>
-	)
 }

@@ -13,8 +13,9 @@ type Props = {
 }
 
 /**
- * A smart list's less frequent controls on a phone, where the toolbar is one row: the saved
- * views and the table's columns. Renders nothing when neither applies.
+ * A smart list's less frequent controls, so its toolbar stays one row in the same order on
+ * every screen size: the saved views and the table's columns. Renders nothing when neither
+ * applies.
  */
 export default function SmartListMoreMenu({ hasSavedViews, showColumnControls }: Props) {
 	const [isColumnsOpen, setIsColumnsOpen] = useState(false)

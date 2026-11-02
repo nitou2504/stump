@@ -22,6 +22,7 @@ import { useTheme } from './hooks'
 import { useCoreEvent } from './hooks/useCoreEvent'
 import { useRecordHistoryTrail } from './hooks/useHistoryTrail'
 import { useMainScrollRestoration } from './hooks/useMainScrollRestoration'
+import { getMainScrollElement as mainScrollElement } from './hooks/useScrollElement'
 import { useAppStore, useUserStore } from './stores'
 
 export function AppLayout() {
@@ -146,12 +147,7 @@ export function AppLayout() {
 	 * The element the pages scroll in: the custom scrollbars' viewport, or the main area
 	 * itself when they're off (or not set up yet)
 	 */
-	const getMainScrollElement = useCallback(
-		() =>
-			mainElement?.querySelector<HTMLElement>(':scope > [data-overlayscrollbars-viewport]') ??
-			mainElement,
-		[mainElement],
-	)
+	const getMainScrollElement = useCallback(() => mainScrollElement(mainElement), [mainElement])
 	// back/forward return to where each page was left; new pages start at the top
 	useMainScrollRestoration(getMainScrollElement, mainElement, { skip: hideAllNavigation })
 
