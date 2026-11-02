@@ -108,10 +108,13 @@ describe('pdf themes', () => {
 	it('inverts pages in dark themes unless turned off', () => {
 		expect(pdfThemeLook('light', true).imageFilter).toBeUndefined()
 		expect(pdfThemeLook('dark', true).imageFilter).toContain('invert(1)')
-		expect(pdfThemeLook('black', true).highlightBlend).toBe('screen')
+		expect(pdfThemeLook('black', true).highlightBlend).toBe('normal')
 		const plainDark = pdfThemeLook('dark', false)
 		expect(plainDark.imageFilter).toBeUndefined()
 		expect(plainDark.highlightBlend).toBe('multiply')
+		// marks stay dark on the light pages of a dark theme
+		expect(plainDark.text).toBe(pdfThemeLook('light', true).text)
+		expect(pdfThemeLook('dark', true).text).not.toBe(plainDark.text)
 		expect(pdfThemeLook('sepia', true).tint).toBe('#f4ecd8')
 	})
 })

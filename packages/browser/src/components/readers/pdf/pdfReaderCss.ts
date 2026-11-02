@@ -36,9 +36,9 @@ export const PDF_READER_CSS = `
 	color: #6b6f76;
 }
 .pdf-annotation-layer {
+	/* no z-index: a stacking context would isolate the blend modes from the picture */
 	position: absolute;
 	inset: 0;
-	z-index: 1;
 	pointer-events: none;
 }
 .pdf-annotation {

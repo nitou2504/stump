@@ -21,7 +21,10 @@ export function isDarkTheme(theme: PdfTheme): boolean {
 export type PdfThemeLook = {
 	/** The reader's background around the pages */
 	background: string
-	/** The theme's text colour, used for underline, strikethrough and notes */
+	/**
+	 * The colour of marks drawn on the page (underline, strikethrough, note glyphs): the
+	 * theme's text colour, or dark ink when a dark theme leaves the pages light
+	 */
 	text: string
 	/** CSS filter for the page picture */
 	imageFilter: string | undefined
@@ -29,8 +32,13 @@ export type PdfThemeLook = {
 	tint: string | undefined
 	/** The page's own background while its picture loads */
 	pagePlaceholder: string
-	/** How a highlight blends with the page underneath */
+	/**
+	 * How a highlight blends with the page underneath: multiplied on light pages (the text
+	 * stays black), a light wash on inverted dark pages (multiplying would hide it under the
+	 * black, screening would put white text on yellow)
+	 */
 	highlightBlend: CSSProperties['mixBlendMode']
+	highlightOpacity: number
 }
 
 /**
@@ -53,7 +61,7 @@ export function pdfThemeLook(theme: PdfTheme, invertPagesInDark: boolean): PdfTh
 
 	return {
 		background: colors.background,
-		text: colors.text,
+		text: dark && !invert ? READER_THEME_COLORS.light.text : colors.text,
 		imageFilter,
 		tint: theme === 'sepia' ? colors.background : undefined,
 		pagePlaceholder: invert
@@ -63,6 +71,7 @@ export function pdfThemeLook(theme: PdfTheme, invertPagesInDark: boolean): PdfTh
 			: theme === 'sepia'
 				? colors.background
 				: '#ffffff',
-		highlightBlend: invert ? 'screen' : 'multiply',
+		highlightBlend: invert ? 'normal' : 'multiply',
+		highlightOpacity: invert ? 0.35 : 0.6,
 	}
 }

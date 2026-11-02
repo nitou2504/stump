@@ -106,7 +106,11 @@ function annotationStyle(style: AnnotationStyle, look: PdfThemeLook): CSSPropert
 			return { background: '#ffffff', mixBlendMode: 'difference' }
 		case AnnotationStyle.Highlight:
 		default:
-			return { background: HIGHLIGHT_TINT, opacity: 0.45, mixBlendMode: look.highlightBlend }
+			return {
+				background: HIGHLIGHT_TINT,
+				opacity: look.highlightOpacity,
+				mixBlendMode: look.highlightBlend,
+			}
 	}
 }
 
