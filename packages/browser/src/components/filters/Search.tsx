@@ -3,6 +3,8 @@ import { SearchIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedValue } from 'rooks'
 
+import { isEditableTarget } from '@/components/readers/annotations/shortcuts'
+
 type Props = {
 	/**
 	 * The initial value of the search input. This is useful for when you load onto
@@ -76,6 +78,26 @@ export default function Search({
 		el.addEventListener('transitionend', onEnd)
 		return () => el.removeEventListener('transitionend', onEnd)
 	}, [expanded])
+
+	// `/` opens the search (as in many apps), and Firefox's quick find bar doesn't open
+	useEffect(() => {
+		if (isDisabled) return undefined
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== '/' || event.defaultPrevented) return
+			if (event.ctrlKey || event.metaKey || event.altKey) return
+			if (isEditableTarget(event.target)) return
+			if (document.querySelector('[role="dialog"][data-state="open"]')) return
+			event.preventDefault()
+			if (expanded) {
+				inputRef.current?.focus()
+			} else {
+				// focused once it has grown (see the transition above)
+				setExpanded(true)
+			}
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [isDisabled, expanded])
 
 	const handleBlur = () => {
 		if (!value) setExpanded(false)
