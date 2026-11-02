@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { IntakeItemData } from '../queries'
 import {
 	acceptableIds,
+	chosenTags,
 	confidenceLevel,
 	destinationPaths,
 	fieldSource,
@@ -17,6 +18,7 @@ import {
 	shouldPoll,
 	sourceLabel,
 	tagKind,
+	tagOrigin,
 	toggleGenre,
 	uploadPercent,
 } from '../reviewState'
@@ -170,6 +172,20 @@ describe('intake review state', () => {
 			['Mystery', true, false],
 		])
 		expect(destinationPaths(withExtra)).toEqual(['Umberto_Eco/El_nombre_de_la_rosa.epub'])
+	})
+
+	it('tells tags from the book apart from guessed ones', () => {
+		expect(tagOrigin({ reasons: ["subject 'Historical fiction'"], suggested: true })).toBe('book')
+		expect(tagOrigin({ reasons: ['3 other books by this author have it'], suggested: true })).toBe(
+			'guessed',
+		)
+		expect(tagOrigin({ reasons: ['Added by you'], suggested: false })).toBe('you')
+		const withExtra = item()
+		withExtra.decision?.metadata.genres.push('Mystery')
+		expect(chosenTags(withExtra)).toEqual([
+			{ origin: 'guessed', value: 'Historical Fiction' },
+			{ origin: 'you', value: 'Mystery' },
+		])
 	})
 
 	it('plans uploads: one request per loose book, one per folder, books only', () => {

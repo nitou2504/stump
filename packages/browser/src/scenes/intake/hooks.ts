@@ -1,5 +1,10 @@
 import { useGraphQL, useGraphQLMutation, useSDK } from '@stump/client'
-import { extractErrorMessage, IntakeReviewInput, IntakeUploadMode } from '@stump/graphql'
+import {
+	extractErrorMessage,
+	IntakeReviewInput,
+	IntakeState,
+	IntakeUploadMode,
+} from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -7,6 +12,7 @@ import { toast } from 'sonner'
 import {
 	intakeAcceptMutation,
 	intakeDiscardMutation,
+	type IntakeItemData,
 	intakeItemsQuery,
 	intakeReanalyseMutation,
 	intakeReviewMutation,
@@ -76,8 +82,33 @@ export function useIntakeActions() {
 		[review],
 	)
 
+	const { mutateAsync: reviewAsync } = review
+	const { mutate: acceptMutate } = accept
+	/**
+	 * Adds one item. An item the server flagged for checking must be confirmed first (any
+	 * review of an item with nothing blocking makes it ready), so this confirms its current
+	 * choices and then adds it.
+	 */
+	const acceptItem = useCallback(
+		async (item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>) => {
+			if (item.state === IntakeState.NeedsReview) {
+				try {
+					await reviewAsync({
+						id: item.id,
+						input: { genres: item.decision?.metadata.genres ?? [] },
+					})
+				} catch {
+					return
+				}
+			}
+			acceptMutate({ ids: [item.id] })
+		},
+		[reviewAsync, acceptMutate],
+	)
+
 	return {
 		accept: (ids: string[]) => accept.mutate({ ids }),
+		acceptItem,
 		discard: (ids: string[]) => discard.mutate({ ids }),
 		isAccepting: accept.isPending,
 		isReviewing: review.isPending,

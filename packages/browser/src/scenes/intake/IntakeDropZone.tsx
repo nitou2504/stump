@@ -60,13 +60,13 @@ export default function IntakeDropZone({ onFiles, entries, onClearFinished, disa
 			<div
 				{...getRootProps()}
 				className={cn(
-					'gap-3 p-6 sm:p-8 flex flex-col items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors',
+					'gap-3 p-4 sm:p-8 flex flex-col items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors',
 					isDragActive ? 'border-primary bg-primary/5' : 'border-border bg-muted/20',
 					disabled && 'opacity-60',
 				)}
 			>
 				<input {...getInputProps()} />
-				<Upload className="h-8 w-8 text-muted-foreground" aria-hidden />
+				<Upload className="h-8 w-8 sm:block hidden text-muted-foreground" aria-hidden />
 				<div>
 					<p className="font-medium">
 						{isDragActive ? 'Drop to upload' : 'Drop books, folders or .zip files here'}
@@ -101,8 +101,8 @@ export default function IntakeDropZone({ onFiles, entries, onClearFinished, disa
 						}}
 					/>
 				</div>
-				<label className="gap-2 text-xs flex items-center text-muted-foreground">
-					A folder is
+				<label className="gap-x-2 gap-y-1 text-xs flex flex-wrap items-center justify-center text-muted-foreground">
+					<span>Each folder becomes</span>
 					<select
 						value={folderMode}
 						onChange={(e) => setFolderMode(e.target.value as IntakeUploadMode)}

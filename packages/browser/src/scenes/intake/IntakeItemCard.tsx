@@ -45,7 +45,7 @@ import TagPicker from './TagPicker'
 type Props = {
 	item: IntakeItemData
 	onReview: (id: string, input: IntakeReviewInput) => void
-	onAccept: (ids: string[]) => void
+	onAccept: (item: IntakeItemData) => void
 	onDiscard: (ids: string[]) => void
 	onReanalyse: (id: string, online?: boolean) => void
 	isBusy?: boolean
@@ -458,13 +458,17 @@ export default function IntakeItemCard({
 				</Button>
 				<Button
 					size="sm"
-					onClick={() => onAccept([item.id])}
+					onClick={() => onAccept(item)}
 					disabled={
 						isBusy || !decision || item.problems.length > 0 || item.state === IntakeState.Failed
 					}
 					title={item.problems[0]}
 				>
-					{ready && !attention ? 'Add to library' : 'Add anyway'}
+					{item.state === IntakeState.NeedsReview
+						? 'Looks right, add it'
+						: ready && !attention
+							? 'Add to library'
+							: 'Add anyway'}
 				</Button>
 			</div>
 		</article>

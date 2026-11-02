@@ -10,6 +10,7 @@ import { SceneContainer } from '@/components/container'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { usePaths } from '@/paths'
 
+import AcceptAllSheet from './AcceptAllSheet'
 import { useIntakeActions, useIntakeInbox, useIntakeUploader } from './hooks'
 import IntakeDropZone from './IntakeDropZone'
 import IntakeItemCard, { FormatIcon } from './IntakeItemCard'
@@ -36,6 +37,11 @@ export default function IntakeScene() {
 	const uploader = useIntakeUploader(libraryId)
 	const groups = useMemo(() => groupInbox(items), [items])
 	const readyIds = useMemo(() => acceptableIds(items), [items])
+	const readyItems = useMemo(
+		() => items.filter((item) => readyIds.includes(item.id)),
+		[items, readyIds],
+	)
+	const [confirmingAll, setConfirmingAll] = useState(false)
 	const [showAllFiled, setShowAllFiled] = useState(false)
 	const now = useNow()
 
@@ -55,7 +61,7 @@ export default function IntakeScene() {
 	const busy = actions.isReviewing || actions.isAccepting
 	const cardProps = {
 		isBusy: busy,
-		onAccept: actions.accept,
+		onAccept: actions.acceptItem,
 		onDiscard: actions.discard,
 		onReanalyse: actions.reanalyse,
 		onReview: actions.reviewItem,
@@ -154,12 +160,7 @@ export default function IntakeScene() {
 						count={groups.ready.length}
 						action={
 							readyIds.length > 0 && (
-								<Button
-									size="sm"
-									onClick={() => actions.accept(readyIds)}
-									disabled={busy}
-									isLoading={actions.isAccepting}
-								>
+								<Button size="sm" onClick={() => setConfirmingAll(true)} disabled={busy}>
 									Add all ready ({readyIds.length})
 								</Button>
 							)
@@ -200,6 +201,17 @@ export default function IntakeScene() {
 					</Section>
 				)}
 			</SceneContainer>
+
+			<AcceptAllSheet
+				items={readyItems}
+				open={confirmingAll}
+				onClose={() => setConfirmingAll(false)}
+				isPending={actions.isAccepting}
+				onConfirm={() => {
+					actions.accept(readyIds)
+					setConfirmingAll(false)
+				}}
+			/>
 		</>
 	)
 }

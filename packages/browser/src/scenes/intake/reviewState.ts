@@ -152,6 +152,25 @@ export type GenreChip = {
 	suggested: boolean
 }
 
+export type TagOrigin = 'book' | 'guessed' | 'you'
+
+/**
+ * Where a proposed tag comes from: the book's own subjects (its file or the online
+ * lookup), a guess from similar library books (same author or series, similar
+ * description, publication year), or the uploader.
+ */
+export function tagOrigin(chip: Pick<GenreChip, 'suggested' | 'reasons'>): TagOrigin {
+	if (!chip.suggested) return 'you'
+	return chip.reasons.some((reason) => reason.startsWith("subject '")) ? 'book' : 'guessed'
+}
+
+/** The tags that will be written, each with where it comes from */
+export function chosenTags(item: Pick<IntakeItemData, 'proposal' | 'decision'>) {
+	return genreChips(item)
+		.filter((chip) => chip.chosen)
+		.map((chip) => ({ origin: tagOrigin(chip), value: chip.value }))
+}
+
 /** The tags shown as chips: the suggestions first, then any extra chosen tag */
 export function genreChips(item: Pick<IntakeItemData, 'proposal' | 'decision'>): GenreChip[] {
 	const chosen = item.decision?.metadata.genres ?? []

@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { useDebouncedValue } from 'rooks'
 
 import { intakeVocabularyQuery } from './queries'
-import { confidenceLevel, type GenreChip, toggleGenre } from './reviewState'
+import { confidenceLevel, type GenreChip, tagOrigin, toggleGenre } from './reviewState'
 
 type Props = {
 	libraryId: string
@@ -17,9 +17,9 @@ type Props = {
 }
 
 const DOT = {
-	high: 'bg-emerald-500',
-	low: 'bg-amber-500',
-	medium: 'bg-sky-500',
+	high: 'bg-emerald-500 border-emerald-500',
+	low: 'bg-amber-500 border-amber-500',
+	medium: 'bg-sky-500 border-sky-500',
 }
 
 /**
@@ -29,9 +29,21 @@ const DOT = {
 export default function TagPicker({ libraryId, chips, chosen, onChange, disabled }: Props) {
 	const genres = chips.filter((c) => c.kind !== 'FACET')
 	const facets = chips.filter((c) => c.kind === 'FACET')
+	const hasGuesses = chips.some((c) => tagOrigin(c) === 'guessed')
 
 	return (
 		<div className="gap-2 flex flex-col">
+			{hasGuesses && (
+				<p className="gap-3 text-xs flex flex-wrap text-muted-foreground">
+					<span className="gap-1.5 inline-flex items-center">
+						<span className="size-2 rounded-full bg-muted-foreground" aria-hidden /> from the book
+					</span>
+					<span className="gap-1.5 inline-flex items-center">
+						<span className="size-2 rounded-full border border-muted-foreground" aria-hidden />
+						guessed from similar books
+					</span>
+				</p>
+			)}
 			<ChipRow chips={genres} chosen={chosen} onChange={onChange} disabled={disabled} />
 			{facets.length > 0 && (
 				<ChipRow chips={facets} chosen={chosen} onChange={onChange} disabled={disabled} muted />
@@ -61,7 +73,9 @@ function ChipRow({
 			{chips.map((chip) => {
 				const isOn = chosen.includes(chip.value)
 				const level = confidenceLevel(chip.confidence)
+				const guessed = tagOrigin(chip) === 'guessed'
 				const why = [
+					chip.suggested ? (guessed ? 'Guessed from similar books' : 'From the book') : undefined,
 					...chip.reasons,
 					chip.libraryCount ? `${chip.libraryCount} books in the library have it` : undefined,
 					chip.suggested ? `${Math.round(chip.confidence * 100)}% sure` : undefined,
@@ -82,9 +96,17 @@ function ChipRow({
 							)}
 						>
 							{chip.suggested && (
-								<span className={cn('size-1.5 shrink-0 rounded-full', DOT[level])} aria-hidden />
+								<span
+									className={cn(
+										'size-2 shrink-0 rounded-full border',
+										DOT[level],
+										guessed && 'bg-transparent',
+									)}
+									aria-hidden
+								/>
 							)}
-							<span className="truncate">{chip.value}</span>
+							<span className={cn('truncate', guessed && 'italic')}>{chip.value}</span>
+							{guessed && <span className="sr-only">(guessed)</span>}
 							{isOn && <Check className="h-3 w-3 shrink-0" aria-hidden />}
 						</button>
 					</ToolTip>
