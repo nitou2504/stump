@@ -182,7 +182,7 @@ describe('restoreScrollTop', () => {
 		const clock = frames()
 		const element = makeScrollable(5000)
 		const onDone = vi.fn()
-		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3 })
+		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 0 })
 		expect(element.scrollTop).toBe(2400)
 
 		for (let i = 0; i < 3; i++) clock.tick()
@@ -194,7 +194,7 @@ describe('restoreScrollTop', () => {
 		const clock = frames()
 		const element = makeScrollable(1200)
 		const onDone = vi.fn()
-		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3 })
+		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 0 })
 		// as far as it goes for now
 		expect(element.scrollTop).toBe(400)
 
@@ -214,6 +214,23 @@ describe('restoreScrollTop', () => {
 		expect(element.scrollTop).toBe(2400)
 		for (let i = 0; i < 3; i++) clock.tick()
 		expect(onDone).toHaveBeenCalled()
+	})
+
+	it('holds the position for a while: a list attaching later resets it to its start', () => {
+		const clock = frames()
+		const element = makeScrollable(5000)
+		const onDone = vi.fn()
+		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 200 })
+		for (let i = 0; i < 5; i++) clock.tick()
+		expect(onDone).not.toHaveBeenCalled()
+
+		// e.g. TanStack Virtual scrolling its new scroll element to its initial offset
+		element.scrollTop = 0
+		clock.tick()
+		expect(element.scrollTop).toBe(2400)
+		for (let i = 0; i < 12; i++) clock.tick()
+		expect(onDone).toHaveBeenCalled()
+		expect(element.scrollTop).toBe(2400)
 	})
 
 	it('waits for the scroll element and gives up after the timeout', () => {

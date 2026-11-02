@@ -59,6 +59,11 @@ type RestoreOptions = {
 	timeout?: number
 	/** For how many frames the position must hold (with an unchanged height) to be done */
 	stableFrames?: number
+	/**
+	 * How long to hold the position at least, in ms: a virtualised list attaching to the
+	 * scroll element a little later scrolls it to its own start, which is undone
+	 */
+	minDuration?: number
 	onDone?: (element: Scrollable | null) => void
 	now?: () => number
 	requestFrame?: (callback: () => void) => number
@@ -71,8 +76,8 @@ const MAX_WAIT_FOR_ELEMENT = 10_000
 /**
  * Scrolls the element returned by `getElement` to `target`. The page under it is often not
  * tall enough yet (its data or a virtualised list is still arriving), so it scrolls as far
- * as it can and tries again every frame, until the target holds for a few frames or the
- * timeout passes. Returns a function that stops it.
+ * as it can and tries again every frame, until the target holds for a few frames (and at
+ * least `minDuration`) or the timeout passes. Returns a function that stops it.
  */
 export function restoreScrollTop(
 	getElement: () => Scrollable | null,
@@ -80,6 +85,7 @@ export function restoreScrollTop(
 	{
 		timeout = 4000,
 		stableFrames = 8,
+		minDuration = 1200,
 		onDone,
 		now = () => performance.now(),
 		requestFrame = (callback) => requestAnimationFrame(callback),
@@ -120,7 +126,8 @@ export function restoreScrollTop(
 		stable = reached && element.scrollHeight === lastHeight ? stable + 1 : reached ? 1 : 0
 		lastHeight = element.scrollHeight
 
-		if (stable >= stableFrames || time - elementSince > timeout) return finish(element)
+		const settled = stable >= stableFrames && time - elementSince >= minDuration
+		if (settled || time - elementSince > timeout) return finish(element)
 		frame = requestFrame(step)
 	}
 
@@ -163,13 +170,18 @@ export function useMainScrollRestoration(
 
 	/** The entry and page whose position scrolling records, i.e. the one shown */
 	const shownRef = useRef<{ index?: number; path: string; pathname: string } | undefined>(undefined)
-	/** Set while a position is being restored: its own scrolling isn't recorded */
-	const restoringRef = useRef(false)
+	/** The position being restored, if any: its own scrolling isn't recorded */
+	const restoreRef = useRef<{
+		index: number
+		pathname: string
+		top: number
+		stop: (recordPosition: boolean) => void
+	} | null>(null)
 
 	const record = useCallback(() => {
 		const shown = shownRef.current
 		const element = scrollElement()
-		if (!shown || shown.index === undefined || !element || restoringRef.current) return
+		if (!shown || shown.index === undefined || !element || restoreRef.current) return
 		updateHistoryEntry(shown.index, shown.path, { top: element.scrollTop })
 	}, [scrollElement])
 
@@ -198,12 +210,35 @@ export function useMainScrollRestoration(
 		}
 	}, [record])
 
+	// stop restoring when the layout goes away
+	useEffect(() => () => restoreRef.current?.stop(false), [])
+
 	// On each navigation (the other dependencies don't change between navigations)
 	useLayoutEffect(() => {
 		const previous = shownRef.current
 		const index = currentHistoryIndex()
 		shownRef.current = { index, path, pathname }
-		if (index === undefined || skip) return
+		if (index === undefined) return
+
+		const sameEntry = navigationType === 'REPLACE' && previous?.index === index
+		if (sameEntry && previous) {
+			// the same entry, now showing `path`: it keeps its page state
+			const replaced = readHistoryEntry(index, previous.path)
+			if (replaced?.state) updateHistoryEntry(index, path, { state: replaced.state })
+		}
+
+		const restoring = restoreRef.current
+		if (restoring) {
+			// a page syncing its URL as it loads (e.g. its search box) doesn't interrupt restoring
+			// its position; anything else does
+			if (sameEntry && restoring.index === index && restoring.pathname === pathname) {
+				updateHistoryEntry(index, path, { top: restoring.top })
+				return
+			}
+			// the next page is already in the DOM: the position read now would be that page's
+			restoring.stop(false)
+		}
+		if (skip) return
 
 		const plan = planMainScroll({
 			navigationType,
@@ -218,10 +253,6 @@ export function useMainScrollRestoration(
 		if (navigationType === 'PUSH') {
 			// a new entry: whatever was recorded at its index or after belongs to entries it dropped
 			dropHistoryEntriesAfter(index - 1)
-		} else if (navigationType === 'REPLACE' && previous && previous.index === index) {
-			// the same entry, now showing `path`: it keeps its page state
-			const replaced = readHistoryEntry(index, previous.path)
-			if (replaced?.state) updateHistoryEntry(index, path, { state: replaced.state })
 		}
 
 		const element = scrollElement()
@@ -236,24 +267,28 @@ export function useMainScrollRestoration(
 		}
 
 		// restore, until the position holds, the user scrolls themselves, or they leave
-		restoringRef.current = true
-		const restore: { stop?: () => void } = {}
-		const stop = (recordPosition: boolean) => {
-			if (!restoringRef.current) return
-			restoringRef.current = false
-			restore.stop?.()
-			for (const type of USER_INPUT_EVENTS) {
-				window.removeEventListener(type, onInput, { capture: true })
-			}
-			if (recordPosition) record()
+		const loop: { stop?: () => void } = {}
+		const onInput = () => controller.stop(true)
+		const controller = {
+			index,
+			pathname,
+			top: plan.top,
+			stop: (recordPosition: boolean) => {
+				if (restoreRef.current !== controller) return
+				restoreRef.current = null
+				loop.stop?.()
+				for (const type of USER_INPUT_EVENTS) {
+					window.removeEventListener(type, onInput, { capture: true })
+				}
+				if (recordPosition) record()
+			},
 		}
-		const onInput = () => stop(true)
+		restoreRef.current = controller
 		for (const type of USER_INPUT_EVENTS) {
 			window.addEventListener(type, onInput, { capture: true, passive: true })
 		}
-		restore.stop = restoreScrollTop(scrollElement, plan.top, { onDone: () => stop(true) })
-		// leaving before it's done: the next page is already in the DOM, so the position read
-		// now would be that page's, not this one's
-		return () => stop(false)
+		loop.stop = restoreScrollTop(scrollElement, plan.top, {
+			onDone: () => controller.stop(true),
+		})
 	}, [key, pathname, hash, path, navigationType, skip, scrollElement, record])
 }
