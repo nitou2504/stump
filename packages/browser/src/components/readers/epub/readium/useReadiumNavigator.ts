@@ -14,7 +14,7 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { forwardFrameKeyEvents } from '../../annotations/shortcuts'
 import { forwardFramePointerMoves } from '../../shared/useReaderChrome'
-import { clearFramesSelection } from '../annotations/clearSelection'
+import { clearFramesSelection, resyncFramesPage } from '../annotations/clearSelection'
 import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
 import { locatorToHref, resolvePublicationLinkLocator } from './locator'
 import {
@@ -78,6 +78,11 @@ export type ReadiumNavigatorApi = {
 	 * surface does not yet expose selection clearing.
 	 */
 	clearSelection: () => void
+	/**
+	 * The view was moved by hand (`scrollLeft`): Readium snaps to its page again and reports
+	 * the position. Uses `_cframes` like `clearSelection`.
+	 */
+	resyncPage: () => void
 }
 
 const MIN_VIEWPORT_PX = 1
@@ -202,6 +207,12 @@ export function useReadiumNavigator({
 		clearFramesSelection(nav._cframes)
 	}, [])
 
+	const resyncPage = useCallback(() => {
+		const nav = navigatorRef.current
+		if (!nav) return
+		resyncFramesPage(nav._cframes as Parameters<typeof resyncFramesPage>[0])
+	}, [])
+
 	const applyDecorations = useCallback((decorations: Decoration[], group: string) => {
 		navigatorRef.current?.applyDecorations(decorations, group)
 	}, [])
@@ -232,6 +243,9 @@ export function useReadiumNavigator({
 			// the reader's shortcuts still work. Lives as long as the frame's document
 			if (!keyForwardedDocsRef.current.has(doc)) {
 				keyForwardedDocsRef.current.add(doc)
+				// No double tap to zoom on the text: on Android a double tap is also how a word
+				// gets selected. Pinching still zooms
+				disableDoubleTapZoom(doc)
 				forwardFrameKeyEvents(doc, document)
 				// and its mouse moves, so the top bar shows when the mouse nears the top
 				forwardFramePointerMoves(doc)
@@ -517,8 +531,9 @@ export function useReadiumNavigator({
 			},
 			applyDecorations,
 			clearSelection,
+			resyncPage,
 		}),
-		[applyDecorations, clearSelection, currentLocator, enqueueNavigation, navButtons],
+		[applyDecorations, clearSelection, resyncPage, currentLocator, enqueueNavigation, navButtons],
 	)
 
 	return { loadState, api }
@@ -600,4 +615,15 @@ function tapFraction(navigator: EpubNavigator | null, event: FrameClickEvent): n
 	if (!width) return 0.5
 	const fraction = event.x / (width * (window.devicePixelRatio || 1))
 	return Math.min(1, Math.max(0, fraction))
+}
+
+const NO_DOUBLE_TAP_ZOOM_STYLE_ID = 'stump-no-double-tap-zoom'
+
+/** `touch-action: manipulation` in a book's frame: pans and pinch-zoom, no double-tap zoom */
+export function disableDoubleTapZoom(doc: Document) {
+	if (doc.getElementById(NO_DOUBLE_TAP_ZOOM_STYLE_ID)) return
+	const style = doc.createElement('style')
+	style.id = NO_DOUBLE_TAP_ZOOM_STYLE_ID
+	style.textContent = 'html, body { touch-action: manipulation; }'
+	;(doc.head ?? doc.documentElement).appendChild(style)
 }

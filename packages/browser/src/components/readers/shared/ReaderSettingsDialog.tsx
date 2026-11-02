@@ -1,40 +1,45 @@
-import { EPUB_READER_THEMES, type EpubReaderTheme } from '@stump/client'
-import { cn, Dialog, Heading, WideSwitch } from '@stump/components'
-import { Check } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { cn, Dialog } from '@stump/components'
+import { ChevronDown, Keyboard, Maximize, Minimize } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
-import { useTheme } from '@/hooks/useTheme'
 import { useTranslate } from '@/hooks/useTranslate'
 import { useReaderStore } from '@/stores'
 
-import { ReaderShortcutsList, type ShortcutRow } from '../annotations'
-import { resolveReaderTheme } from '../epub/readium/preferences'
+import { ReaderShortcutsHelp, type ShortcutRow } from '../annotations'
+import { HELP_SHORTCUT } from '../annotations/styles'
 import type { ReaderLayout } from './layout'
 import LayoutPicker from './LayoutPicker'
+import { SettingRow, SwitchRow, ThemeSwatches } from './settingsControls'
 import { useDocumentFullscreen } from './useReaderChrome'
 
 type Props = {
 	open: boolean
 	onOpenChange: (open: boolean) => void
-	/** `shortcuts`: opened with `?`, so the shortcuts list is scrolled into view */
+	/** `shortcuts`: opened with `?`, so the keyboard shortcuts sheet shows instead */
 	section?: 'shortcuts' | null
 	layout: ReaderLayout
 	onLayoutChange: (layout: ReaderLayout) => void
-	/** Why a layout can't be used here (shown disabled with the reason), or `null` */
+	/** Why a layout can't be used here (shown dimmed with the reason), or `null` */
 	layoutDisabledReason?: (option: ReaderLayout) => string | null
-	/** Reader-specific layout settings under the picker (e.g. reading direction) */
-	layoutExtra?: React.ReactNode
-	/** The reader's own section: the text for an EPUB, the page for a PDF or comic */
-	readerSection: { title: string; content: React.ReactNode }
+	/** The reader's own rows, under the theme: the text for an EPUB, the page for a PDF or comic */
+	children: React.ReactNode
+	/** Rarely used reader settings, under More (e.g. reading direction, cover alone) */
+	more?: React.ReactNode
 	/** The reader's own shortcuts, listed before the shared ones */
 	shortcuts?: ShortcutRow[]
-	/** Last, e.g. other ways to open the book */
+	/** Last under More, e.g. other ways to open the book */
 	footer?: React.ReactNode
 }
 
 /**
- * The settings menu every reader shares, in the same order everywhere: theme, page layout,
- * the reader's own settings (text or page), display, then the keyboard shortcuts.
+ * The reading settings every reader shares, as a small panel over the page (like a Kindle's
+ * or Apple Books' `Aa` panel): no backdrop, so every change shows on the page behind it.
+ * A card under the settings button on wider screens, a sheet from the bottom on phones.
+ *
+ * Always in the same order: the page colours (and full screen), the reader's own controls,
+ * the page layout, then More (the reader's rarer settings, the page number, the keyboard
+ * shortcuts and the footer). The shortcuts open in a sheet of their own; `?` opens it
+ * directly (`section: 'shortcuts'`).
  */
 export default function ReaderSettingsDialog({
 	open,
@@ -43,163 +48,139 @@ export default function ReaderSettingsDialog({
 	layout,
 	onLayoutChange,
 	layoutDisabledReason,
-	layoutExtra,
-	readerSection,
+	children,
+	more,
 	shortcuts,
 	footer,
 }: Props) {
 	const { translate } = useTranslate()
-	const shortcutsRef = useRef<HTMLElement>(null)
+	const [moreOpen, setMoreOpen] = useState(false)
+	const [shortcutsRequested, setShortcutsRequested] = useState(false)
+	const showShortcuts = open && (section === 'shortcuts' || shortcutsRequested)
 
 	useEffect(() => {
-		if (!open || section !== 'shortcuts') return undefined
-		const frame = window.requestAnimationFrame(() =>
-			shortcutsRef.current?.scrollIntoView({ block: 'start' }),
-		)
-		return () => window.cancelAnimationFrame(frame)
-	}, [open, section])
+		if (!open) setShortcutsRequested(false)
+	}, [open])
 
-	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<Dialog.Content
-				size="md"
-				className="gap-5 z-101 flex max-h-[calc(100dvh-2rem)] flex-col overflow-y-auto overscroll-contain bg-muted"
-				data-testid="reader-settings"
-			>
-				<Dialog.Header>
-					<Heading size="md">{translate('shared.reader.settings.title')}</Heading>
-					<Dialog.Close />
-				</Dialog.Header>
-
-				<Section title={translate('shared.reader.settings.theme')}>
-					<ThemePicker />
-				</Section>
-
-				<Section title={translate('shared.reader.layout.label')}>
-					<LayoutPicker
-						value={layout}
-						onChange={onLayoutChange}
-						disabledReason={layoutDisabledReason}
-					/>
-					{layoutExtra}
-				</Section>
-
-				<Section title={readerSection.title}>{readerSection.content}</Section>
-
-				<Section title={translate('shared.reader.settings.display')}>
-					<DisplaySettings />
-				</Section>
-
-				<Section
-					ref={shortcutsRef}
-					title={translate('shared.readerAnnotations.shortcuts.title')}
-					className="pointer-coarse:hidden"
-				>
-					<ReaderShortcutsList extra={shortcuts} />
-				</Section>
-
-				{footer}
-			</Dialog.Content>
-		</Dialog>
-	)
-}
-
-type SectionProps = {
-	title: string
-	children: React.ReactNode
-	className?: string
-	ref?: React.Ref<HTMLElement>
-}
-
-export function Section({ title, children, className, ref }: SectionProps) {
-	return (
-		<section ref={ref} className={cn('gap-2.5 scroll-mt-4 flex flex-col', className)}>
-			<h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
-			{children}
-		</section>
-	)
-}
-
-const THEME_KEYS: Record<EpubReaderTheme, string> = {
-	auto: 'shared.reader.themes.auto',
-	light: 'shared.reader.themes.light',
-	sepia: 'shared.reader.themes.sepia',
-	dark: 'shared.reader.themes.dark',
-	black: 'shared.reader.themes.black',
-}
-
-/** The reader colour themes, shared by every reader and every book */
-export function ThemePicker() {
-	const { translate } = useTranslate()
-	const { isDarkVariant } = useTheme()
-	const theme = useReaderStore((state) => state.settings.theme ?? 'auto')
-	const setSettings = useReaderStore((state) => state.setSettings)
-
-	return (
-		<div>
-			<div
-				className="gap-2 grid grid-cols-5"
-				role="radiogroup"
-				aria-label={translate('shared.reader.settings.theme')}
-			>
-				{EPUB_READER_THEMES.map((option) => {
-					const colors = resolveReaderTheme(option, isDarkVariant)
-					const isActive = theme === option
-					const label = translate(THEME_KEYS[option])
-					return (
-						<button
-							key={option}
-							type="button"
-							role="radio"
-							aria-checked={isActive}
-							aria-label={label}
-							title={option === 'auto' ? translate('shared.reader.themes.autoHint') : label}
-							onClick={() => setSettings({ theme: option })}
-							data-theme-option={option}
-							className={cn(
-								'h-14 gap-0.5 flex flex-col items-center justify-center rounded-lg border-2 transition-colors',
-								isActive ? 'border-primary' : 'border-border hover:border-muted-foreground',
-							)}
-							style={{ backgroundColor: colors.background, color: colors.text }}
-						>
-							<span className="font-serif text-base leading-none">Aa</span>
-							<span className="gap-0.5 flex items-center text-[11px] leading-none">
-								{isActive && <Check className="h-3 w-3" />}
-								{label}
-							</span>
-						</button>
-					)
-				})}
-			</div>
-			<p className="mt-1.5 text-xs text-muted-foreground pointer-coarse:hidden">
-				{translate('shared.reader.themes.dayNightHint')}
-			</p>
-		</div>
-	)
-}
-
-/** Settings about the reader's frame, the same in every reader */
-function DisplaySettings() {
-	const { translate } = useTranslate()
 	const showPageIndicator = useReaderStore((state) => state.settings.showPageIndicator ?? true)
 	const setSettings = useReaderStore((state) => state.setSettings)
-	const fullscreen = useDocumentFullscreen()
 
 	return (
-		<div className="gap-3 flex flex-col">
-			<WideSwitch
-				label={translate('shared.reader.settings.pageNumber')}
-				description={translate('shared.reader.settings.pageNumberHint')}
-				checked={showPageIndicator}
-				onCheckedChange={(checked) => setSettings({ showPageIndicator: checked })}
+		<>
+			<Dialog open={open && !showShortcuts} onOpenChange={onOpenChange}>
+				<Dialog.Content
+					size="sm"
+					aria-describedby={undefined}
+					// the page stays visible (and undimmed) behind the panel; a click on it closes the panel
+					overlayClassName="z-100 bg-transparent backdrop-blur-none supports-backdrop-filter:backdrop-blur-none"
+					className={cn(
+						'gap-2 p-3 shadow-2xl z-101 flex flex-col overflow-y-auto overscroll-contain bg-popover text-popover-foreground',
+						// phones: a sheet from the bottom edge
+						'bottom-0 left-0 translate-x-0 translate-y-0 top-auto max-h-[78dvh] w-full max-w-none rounded-b-none',
+						'pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+						// wider screens: a card under the settings button in the top right corner
+						'sm:right-3 sm:bottom-auto sm:left-auto sm:max-h-[calc(100dvh-5rem)] sm:w-[22rem] sm:max-w-[22rem] sm:rounded-b-xl sm:top-[calc(3.5rem+env(safe-area-inset-top))]',
+					)}
+					data-testid="reader-settings"
+				>
+					<Dialog.Title className="sr-only">
+						{translate('shared.reader.settings.title')}
+					</Dialog.Title>
+					<span
+						aria-hidden
+						className="sm:hidden h-1 w-9 mb-1 shrink-0 self-center rounded-full bg-foreground/20"
+					/>
+
+					<div className="gap-2 flex items-center justify-between">
+						<ThemeSwatches />
+						<FullscreenButton />
+					</div>
+					<div className="my-0.5 h-px shrink-0 bg-border/70" />
+
+					{children}
+
+					<SettingRow label={translate('shared.reader.settings.layout')}>
+						<LayoutPicker
+							value={layout}
+							onChange={onLayoutChange}
+							disabledReason={layoutDisabledReason}
+						/>
+					</SettingRow>
+
+					<button
+						type="button"
+						onClick={() => setMoreOpen((value) => !value)}
+						aria-expanded={moreOpen}
+						className="gap-1 py-1 text-xs flex items-center self-start text-muted-foreground hover:text-foreground"
+						data-testid="reader-settings-more"
+					>
+						{translate(moreOpen ? 'shared.reader.settings.less' : 'shared.reader.settings.more')}
+						<ChevronDown
+							className={cn('h-3.5 w-3.5 transition-transform', moreOpen && 'rotate-180')}
+						/>
+					</button>
+
+					{moreOpen && (
+						<div className="gap-1 flex flex-col" data-testid="reader-settings-more-content">
+							{more}
+							<SwitchRow
+								label={translate('shared.reader.settings.pageNumber')}
+								hint={translate('shared.reader.settings.pageNumberHint')}
+								checked={showPageIndicator}
+								onCheckedChange={(checked) => setSettings({ showPageIndicator: checked })}
+							/>
+							<button
+								type="button"
+								onClick={() => setShortcutsRequested(true)}
+								className="gap-2 min-h-9 text-sm flex items-center justify-between text-foreground/90 hover:text-foreground pointer-coarse:hidden"
+								data-testid="reader-settings-shortcuts"
+							>
+								<span className="gap-2 flex items-center">
+									<Keyboard className="h-4 w-4 text-muted-foreground" />
+									{translate('shared.readerAnnotations.shortcuts.title')}
+								</span>
+								<kbd className="px-1.5 font-mono text-xs rounded border border-border bg-muted">
+									{HELP_SHORTCUT}
+								</kbd>
+							</button>
+							{footer}
+						</div>
+					)}
+				</Dialog.Content>
+			</Dialog>
+
+			<ReaderShortcutsHelp
+				open={showShortcuts}
+				onOpenChange={(next) => {
+					if (!next) onOpenChange(false)
+				}}
+				extra={shortcuts}
 			/>
-			{fullscreen.supported && (
-				<WideSwitch
-					label={translate('shared.pdfReader.fullscreen')}
-					checked={fullscreen.isFullscreen}
-					onCheckedChange={() => fullscreen.toggle()}
-				/>
+		</>
+	)
+}
+
+/** The reader's own full screen (the whole page, so its menus still show), also on F11 */
+function FullscreenButton() {
+	const { translate } = useTranslate()
+	const fullscreen = useDocumentFullscreen()
+	if (!fullscreen.supported) return null
+	const label = `${translate('shared.pdfReader.fullscreen')} (F11)`
+	return (
+		<button
+			type="button"
+			onClick={fullscreen.toggle}
+			aria-pressed={fullscreen.isFullscreen}
+			aria-label={label}
+			title={label}
+			className="size-8 pointer-coarse:size-10 flex shrink-0 items-center justify-center rounded-md text-foreground/70 hover:bg-foreground/6 hover:text-foreground"
+			data-testid="reader-fullscreen"
+		>
+			{fullscreen.isFullscreen ? (
+				<Minimize className="h-4 w-4" />
+			) : (
+				<Maximize className="h-4 w-4" />
 			)}
-		</div>
+		</button>
 	)
 }

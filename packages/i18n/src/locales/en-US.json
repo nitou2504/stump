@@ -3900,7 +3900,26 @@
         "page": "Page",
         "display": "Display",
         "pageNumber": "Page Number",
-        "pageNumberHint": "The small page number in the bottom corner"
+        "pageNumberHint": "The small page number in the bottom corner",
+        "layout": "Pages",
+        "size": "Size",
+        "smaller": "Smaller Text",
+        "larger": "Larger Text",
+        "font": "Typeface",
+        "bookFont": "Book",
+        "spacing": "Spacing",
+        "spacingTight": "Tight Line Spacing",
+        "spacingNormal": "Normal Line Spacing",
+        "spacingLoose": "Loose Line Spacing",
+        "margins": "Margins",
+        "marginsNarrow": "Narrow Margins",
+        "marginsNormal": "Normal Margins",
+        "marginsWide": "Wide Margins",
+        "align": "Align",
+        "direction": "Direction",
+        "brightness": "Light",
+        "more": "More",
+        "less": "Less"
       },
       "layout": {
         "label": "Page Layout",
@@ -3927,12 +3946,12 @@
       "shortcuts": {
         "dayNight": "Switch Day / Night",
         "settings": "Reader Settings",
-        "toggleBar": "Show / Hide the Top Bar"
+        "toggleBar": "Show / Hide the Top Bar",
+        "turnPageAlways": "Turn the Page (Also When Zoomed)",
+        "panZoomed": "Move Around a Zoomed Page (at Its Edge: Turn)"
       },
       "extend": {
-        "button": "Extend to the Next Page",
-        "hint": "Select where the passage ends",
-        "cancel": "Cancel",
+        "continues": "Continues from the previous page",
         "acrossChapters": "A selection can't run into another chapter"
       },
       "direction": {
@@ -3944,7 +3963,8 @@
         "label": "Fit",
         "width": "Fit Width",
         "height": "Fit Height",
-        "page": "Fit Page"
+        "page": "Fit Page",
+        "original": "Original Size"
       },
       "text": {
         "alignment": "Text Alignment",

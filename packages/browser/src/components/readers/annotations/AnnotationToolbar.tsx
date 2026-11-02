@@ -1,6 +1,6 @@
 import { cn } from '@stump/components'
 import type { AnnotationStyle } from '@stump/graphql'
-import { ArrowRightToLine, Copy, NotebookPen, Trash2 } from 'lucide-react'
+import { Copy, NotebookPen, Trash2 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -81,11 +81,6 @@ type Props = {
 	onNote: () => void
 	/** Copies the selected (or annotated) text; no Copy button without it */
 	onCopy?: () => void
-	/**
-	 * Carries the selection over to the next page (paginated EPUBs), where the next selection
-	 * marks the end of the passage; no button without it
-	 */
-	onExtend?: () => void
 	onDelete?: () => void
 	className?: string
 }
@@ -104,7 +99,6 @@ export default function AnnotationToolbar({
 	onStyle,
 	onNote,
 	onCopy,
-	onExtend,
 	onDelete,
 	className,
 }: Props) {
@@ -172,8 +166,10 @@ export default function AnnotationToolbar({
 				className,
 			)}
 			style={placementStyle}
-			// Keep the focus (and so the text selection) where it is
+			// Keep the focus (and so the text selection) where it is: on touch screens too, where
+			// a tap would otherwise collapse the selection before the button reads it
 			onMouseDown={(event) => event.preventDefault()}
+			onPointerDown={(event) => event.preventDefault()}
 		>
 			{ANNOTATION_STYLES.map((meta) => renderStyleButton(meta))}
 			<Divider />
@@ -191,15 +187,6 @@ export default function AnnotationToolbar({
 						<Copy className="h-4 w-4 shrink-0" />
 					</ToolbarButton>
 				</>
-			)}
-			{mode === 'selection' && onExtend && (
-				<ToolbarButton
-					label={translate('shared.reader.extend.button')}
-					onClick={onExtend}
-					data-testid="annotation-extend"
-				>
-					<ArrowRightToLine className="h-4 w-4 shrink-0" />
-				</ToolbarButton>
 			)}
 			{mode === 'annotation' && onDelete && (
 				<ToolbarButton

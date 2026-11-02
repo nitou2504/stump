@@ -1,5 +1,5 @@
 import { useSDK } from '@stump/client'
-import { FullScreenLoader, Text, WideSwitch } from '@stump/components'
+import { FullScreenLoader, Text } from '@stump/components'
 import type { BookReaderSceneQuery } from '@stump/graphql'
 import type { PdfLayout, PdfSearchResult } from '@stump/sdk'
 import { useQueryClient } from '@tanstack/react-query'
@@ -34,10 +34,12 @@ import {
 	rowOfPage,
 	spreadRows,
 } from '../shared/layout'
+import { PAN_STEP, panOrTurn, SCREEN_STEP, ZOOMED_EPSILON } from '../shared/panKeys'
 import { copyText, nextDayNightTheme } from '../shared/readerKeys'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
+import { SwitchRow } from '../shared/settingsControls'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
 	anchorOnPage,
@@ -754,38 +756,51 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		annotationAnchor,
 	])
 
+	/**
+	 * What a toolbar button or key acts on, read when it's pressed: the selection's handles
+	 * (phones) may have moved since the toolbar showed, without a settled `selectionchange` yet
+	 */
+	const liveTarget = useCallback(
+		(): AnnotationTarget | null =>
+			target?.kind === 'selection' ? (readSelectionTarget() ?? target) : target,
+		[target, readSelectionTarget],
+	)
+
 	const applyStyle = useCallback(
 		(style: ReaderAnnotation['style']) => {
-			if (!target) return
-			if (target.kind === 'selection') {
-				createAnnotation(target.selection.locator, { style })
+			const current = liveTarget()
+			if (!current) return
+			if (current.kind === 'selection') {
+				createAnnotation(current.selection.locator, { style })
 				clearSelection()
 			} else {
-				updateAnnotation(target.annotationId, { style })
+				updateAnnotation(current.annotationId, { style })
 			}
 		},
-		[target, createAnnotation, updateAnnotation, clearSelection],
+		[liveTarget, createAnnotation, updateAnnotation, clearSelection],
 	)
 
 	const openNote = useCallback(() => {
-		if (!target) return
-		if (target.kind === 'selection') {
+		const current = liveTarget()
+		if (!current) return
+		if (current.kind === 'selection') {
 			setNoteDialog({
 				mode: 'create',
-				locator: target.selection.locator,
-				quotedText: target.selection.text,
+				locator: current.selection.locator,
+				quotedText: current.selection.text,
 				style: 'HIGHLIGHT' as ReaderAnnotation['style'],
 			})
 		} else if (targetAnnotation) {
 			setNoteDialog({ mode: 'edit', annotation: targetAnnotation })
 		}
-	}, [target, targetAnnotation, setNoteDialog])
+	}, [liveTarget, targetAnnotation, setNoteDialog])
 
 	const copyTarget = useCallback(async () => {
-		if (!target) return
+		const current = liveTarget()
+		if (!current) return
 		const text =
-			target.kind === 'selection'
-				? target.selection.text
+			current.kind === 'selection'
+				? current.selection.text
 				: (targetAnnotation?.locator.text?.highlight ?? '')
 		const copied = await copyText(text)
 		if (copied) {
@@ -794,7 +809,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		} else {
 			toast.error(translate('shared.readerAnnotations.copyFailed'))
 		}
-	}, [target, targetAnnotation, translate, clearSelection])
+	}, [liveTarget, targetAnnotation, translate, clearSelection])
 
 	const removeTargetAnnotation = useCallback(() => {
 		if (target?.kind !== 'annotation') return
@@ -896,6 +911,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				hasTarget: !!target,
 				targetIsAnnotation: target?.kind === 'annotation',
 				continuous,
+				zoomedPage: !continuous && zoom > 1 + ZOOMED_EPSILON,
 			})
 			if (!action) return
 			event.preventDefault()
@@ -957,6 +973,33 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				case 'goToPage':
 					setGoToOpen(true)
 					break
+				case 'pan': {
+					const element = scrollRef.current
+					if (!element) break
+					const result = panOrTurn(
+						element,
+						action.direction,
+						action.screen ? SCREEN_STEP : PAN_STEP,
+					)
+					if (result.type === 'pan') {
+						element.scrollTo({
+							left: result.left,
+							top: result.top,
+							behavior: event.repeat ? 'auto' : 'smooth',
+						})
+					} else {
+						goRelative(result.delta)
+						// the next page from its start, the previous one from its end
+						window.requestAnimationFrame(() =>
+							element.scrollTo(
+								result.delta > 0
+									? { left: 0, top: 0 }
+									: { left: element.scrollWidth, top: element.scrollHeight },
+							),
+						)
+					}
+					break
+				}
 				case 'search':
 					if (layout.hasText) setSearchOpen(true)
 					break
@@ -1178,8 +1221,14 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				return
 			}
 			if (!isCoarsePointer) return
-			// The middle: a double tap zooms to 2x around the tap (or back to the fit); a single
-			// tap shows or hides the top bar once it's clear no second tap follows
+			// A page with selectable text: a tap shows or hides the top bar right away. No double
+			// tap to zoom there: on Android a double tap is also how text gets selected (pinch zooms)
+			if (layout.hasText) {
+				chrome.toggle()
+				return
+			}
+			// A scan (no text): a double tap zooms to 2x around the tap (or back to the fit); a
+			// single tap shows or hides the top bar once it's clear no second tap follows
 			const now = performance.now()
 			if (isDoubleTap(lastTapRef.current, now, point)) {
 				window.clearTimeout(pendingTapRef.current)
@@ -1202,6 +1251,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			zoom,
 			chrome,
 			setTarget,
+			layout.hasText,
 		],
 	)
 
@@ -1250,6 +1300,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const shortcutRows = useMemo<ShortcutRow[]>(
 		() => [
 			{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') },
+			{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
+			{ keys: ['←', '↑', '↓', '→'], label: translate('shared.reader.shortcuts.panZoomed') },
 			{ keys: ['Space'], label: translate('shared.pdfReader.shortcuts.screen') },
 			{ keys: ['+', '-', '0'], label: translate('shared.pdfReader.shortcuts.zoom') },
 			{ keys: ['F'], label: translate('shared.pdfReader.shortcuts.fit') },
@@ -1384,30 +1436,26 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					})
 				}
 				layoutDisabledReason={layoutDisabledReason}
-				layoutExtra={
+				more={
 					storedLayout.spread === 'double' ? (
-						<WideSwitch
+						<SwitchRow
 							label={translate('shared.reader.layout.coverAlone')}
-							description={translate('shared.reader.layout.coverAloneHint')}
+							hint={translate('shared.reader.layout.coverAloneHint')}
 							checked={coverAlone}
 							onCheckedChange={(checked) => setPreferences({ coverAlone: checked })}
 						/>
 					) : null
 				}
-				readerSection={{
-					title: translate('shared.reader.settings.page'),
-					content: (
-						<PdfPageSettings
-							fit={fit}
-							zoom={zoom}
-							invertPagesInDark={invertPagesInDark}
-							onChange={setPreferences}
-						/>
-					),
-				}}
 				shortcuts={shortcutRows}
 				footer={<PdfOpenAs bookId={mediaId} onChange={setPreferences} />}
-			/>
+			>
+				<PdfPageSettings
+					fit={fit}
+					zoom={zoom}
+					invertPagesInDark={invertPagesInDark}
+					onChange={setPreferences}
+				/>
+			</ReaderSettingsDialog>
 
 			<PdfSearchDialog
 				mediaId={mediaId}

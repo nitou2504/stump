@@ -42,13 +42,15 @@ export const DIALOG_CONTENT_SIZES = {
 }
 export type DialogContentProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
 	size?: keyof typeof DIALOG_CONTENT_SIZES
+	/** Classes for the overlay behind the dialog, e.g. to keep the page visible under it */
+	overlayClassName?: string
 }
 const DialogContent = React.forwardRef<
 	ComponentRef<typeof DialogPrimitive.Content>,
 	DialogContentProps
->(({ className, children, size = 'md', ...props }, ref) => (
+>(({ className, children, size = 'md', overlayClassName, ...props }, ref) => (
 	<DialogPortal>
-		<DialogOverlay />
+		<DialogOverlay className={overlayClassName} />
 		<DialogPrimitive.Content
 			ref={ref}
 			className={cn(

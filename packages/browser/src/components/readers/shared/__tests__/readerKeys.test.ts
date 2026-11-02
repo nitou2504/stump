@@ -34,3 +34,21 @@ describe('nextDayNightTheme', () => {
 		expect(nextDayNightTheme('auto', false)).toBe('dark')
 	})
 })
+
+describe('isFullscreenKey', () => {
+	it('is a plain F11', async () => {
+		const { isFullscreenKey } = await import('../useReaderChrome')
+		const key = (extra: Partial<KeyboardEvent>) =>
+			({
+				key: 'F11',
+				ctrlKey: false,
+				metaKey: false,
+				altKey: false,
+				shiftKey: false,
+				...extra,
+			}) as KeyboardEvent
+		expect(isFullscreenKey(key({}))).toBe(true)
+		expect(isFullscreenKey(key({ ctrlKey: true }))).toBe(false)
+		expect(isFullscreenKey(key({ key: 'F10' }))).toBe(false)
+	})
+})

@@ -34,6 +34,7 @@ export function readerShortcutRows(
 				label: translate('shared.reader.shortcuts.dayNight'),
 			},
 			{ keys: [HELP_SHORTCUT], label: translate('shared.readerAnnotations.shortcuts.help') },
+			{ keys: ['F11'], label: translate('shared.pdfReader.fullscreen') },
 		],
 		withSelection: [
 			...ANNOTATION_STYLES.map((meta) => ({
@@ -48,7 +49,7 @@ export function readerShortcutRows(
 	}
 }
 
-/** The shortcuts as a list (the reader settings show it in their last section) */
+/** The shortcuts as a list (the shortcuts sheet, opened from the reading settings or with `?`) */
 export function ReaderShortcutsList({ extra = [] }: { extra?: ShortcutRow[] }) {
 	const { translate } = useTranslate()
 	const { general, withSelection } = readerShortcutRows(translate, extra)
@@ -76,7 +77,12 @@ export default function ReaderShortcutsHelp({ open, onOpenChange, extra = [] }: 
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<Dialog.Content size="sm">
+			<Dialog.Content
+				size="sm"
+				aria-describedby={undefined}
+				className="z-101 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain"
+				data-testid="reader-shortcuts"
+			>
 				<Dialog.Header>
 					<Dialog.Title>{translate('shared.readerAnnotations.shortcuts.title')}</Dialog.Title>
 					<Dialog.Close onClick={() => onOpenChange(false)} />
