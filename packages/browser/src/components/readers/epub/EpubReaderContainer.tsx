@@ -14,6 +14,7 @@ import ReadingBar, { useClockText } from '../shared/ReadingBar'
 import { chapterLabel, useReadingProgress } from '../shared/readingProgress'
 import { useDocumentFullscreen, useReaderChrome } from '../shared/useReaderChrome'
 import {
+	type EpubReaderChapterMeta,
 	EpubReaderContext,
 	EpubReaderControls,
 	EpubReaderMeta,
@@ -33,6 +34,7 @@ type Props = {
 		| 'onPaginateBackward'
 		| 'onPaginateForward'
 		| 'jumpToSection'
+		| 'goToPosition'
 		| 'onGoToLocator'
 		| 'getLocatorPreviewText'
 		| 'searchBook'
@@ -57,6 +59,12 @@ export default function EpubReaderContainer({
 	const [settingsSection, setSettingsSection] = useState<'shortcuts' | null>(null)
 	const [searchOpen, setSearchOpen] = useState(false)
 	const [contentsOpen, setContentsOpen] = useState(false)
+	/** The contents were opened to go to a location: its field has the focus */
+	const [goToFocus, setGoToFocus] = useState(false)
+	const openContents = useCallback((focusGoTo = false) => {
+		setGoToFocus(focusGoTo)
+		setContentsOpen(true)
+	}, [])
 	const chrome = useReaderChrome({ pinned: settingsOpen || searchOpen || contentsOpen })
 	const fullscreen = useDocumentFullscreen()
 
@@ -80,6 +88,7 @@ export default function EpubReaderContainer({
 					setFullscreen: (enabled) => enabled !== fullscreen.isFullscreen && fullscreen.toggle(),
 					openSettings,
 					openSearch: () => controls.searchBook && setSearchOpen(true),
+					openGoTo: () => openContents(true),
 					onMouseEnterControls: chrome.barProps.onMouseEnter,
 					onMouseLeaveControls: chrome.barProps.onMouseLeave,
 					setVisible,
@@ -93,13 +102,14 @@ export default function EpubReaderContainer({
 				<EpubNavigationControls>{children}</EpubNavigationControls>
 				<EpubTopBar
 					chrome={chrome}
-					onContents={() => setContentsOpen(true)}
+					onContents={() => openContents()}
+					onGoTo={() => openContents(true)}
 					onSearch={controls.searchBook ? () => setSearchOpen(true) : undefined}
 					onSettings={() => openSettings()}
 					settingsOpen={settingsOpen}
 				/>
 				<EpubProgress
-					onClick={() => setContentsOpen(true)}
+					onClick={() => openContents(true)}
 					chromeVisible={chrome.visible}
 					settingsOpen={settingsOpen}
 				/>
@@ -109,7 +119,11 @@ export default function EpubReaderContainer({
 					section={settingsSection}
 					isFixedLayout={isFixedLayout}
 				/>
-				<LocationManager open={contentsOpen} onOpenChange={setContentsOpen} />
+				<LocationManager
+					open={contentsOpen}
+					onOpenChange={setContentsOpen}
+					focusGoTo={goToFocus}
+				/>
 				<SearchCommand open={searchOpen} onOpenChange={setSearchOpen} />
 			</div>
 		</EpubReaderContext.Provider>
@@ -119,20 +133,25 @@ export default function EpubReaderContainer({
 function EpubTopBar({
 	chrome,
 	onContents,
+	onGoTo,
 	onSearch,
 	onSettings,
 	settingsOpen,
 }: {
 	chrome: ReturnType<typeof useReaderChrome>
 	onContents: () => void
+	/** Opens the contents with the "go to location" field focused */
+	onGoTo: () => void
 	onSearch?: () => void
 	onSettings: () => void
 	settingsOpen: boolean
 }) {
 	const paths = usePaths()
+	const { translate } = useTranslate()
 	const {
-		readerMeta: { bookEntity },
+		readerMeta: { bookEntity, bookMeta, progress },
 	} = useEpubReaderContext()
+	const position = epubPositionText(bookMeta?.chapter, progress)
 	const {
 		createBookmark,
 		deleteBookmark,
@@ -158,6 +177,15 @@ function EpubTopBar({
 			}}
 			onSettings={onSettings}
 			settingsOpen={settingsOpen}
+			position={
+				position
+					? {
+							text: position,
+							label: `${translate('shared.reader.goToLocation')} (G)`,
+							onClick: onGoTo,
+						}
+					: undefined
+			}
 		/>
 	)
 }
@@ -292,6 +320,22 @@ function useTextColumnPlacement(at: number | undefined): React.CSSProperties {
 }
 
 /**
+ * Where the reader is in the book, for the top bar: the location (Readium's positions, about
+ * a page each, which "go to" takes) and the book's percentage, e.g. `123 / 2310 · 5%`
+ */
+function epubPositionText(
+	chapter: EpubReaderChapterMeta | undefined,
+	progress: number | null,
+): string | null {
+	const total = Math.min(1, Math.max(0, chapter?.totalProgression ?? progress ?? 0))
+	const percent = `${Math.round(total * 100)}%`
+	if (chapter?.locatorPosition != null && chapter.totalPositions != null) {
+		return `${chapter.locatorPosition} / ${chapter.totalPositions} · ${percent}`
+	}
+	return chapter || progress != null ? percent : null
+}
+
+/**
  * The position in the book (Readium's positions, about a page of text each); a tap on it
  * opens the contents, to go to another chapter
  */
@@ -347,6 +391,7 @@ function EpubSettings({
 							label: translate('shared.reader.shortcuts.scrollScreenChapter'),
 						},
 						{ keys: ['Home', 'End'], label: translate('shared.reader.shortcuts.chapterStartEnd') },
+						{ keys: ['G'], label: translate('shared.reader.goToLocation') },
 					]
 				: [
 						{
@@ -357,6 +402,7 @@ function EpubSettings({
 							keys: ['Space', '⇧ Space'],
 							label: translate('shared.readerAnnotations.shortcuts.turnPage'),
 						},
+						{ keys: ['G'], label: translate('shared.reader.goToLocation') },
 					],
 		[translate, layout.flow],
 	)

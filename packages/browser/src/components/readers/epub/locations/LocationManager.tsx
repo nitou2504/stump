@@ -3,6 +3,8 @@ import { useCallback, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
+import GoToField, { resolvePlaceInput } from '../../shared/GoToField'
+import { useEpubReaderContext } from '../context'
 import Annotations from './Annotations'
 import Bookmarks from './Bookmarks'
 import TableOfContents from './TableOfContents'
@@ -12,12 +14,26 @@ type LocationTab = 'contents' | 'annotations' | 'bookmarks'
 type Props = {
 	open: boolean
 	onOpenChange: (open: boolean) => void
+	/** Opened to go to a location (`g`, the top bar's position): its field has the focus */
+	focusGoTo?: boolean
 }
 
-/** The book's contents, bookmarks and annotations, opened from the top bar */
-export default function LocationManager({ open: isOpen, onOpenChange: setIsOpen }: Props) {
+/**
+ * The book's contents, bookmarks and annotations, opened from the top bar; at the top, a
+ * field to go to a location (Readium's positions, about a page each) or a share of the book
+ */
+export default function LocationManager({
+	open: isOpen,
+	onOpenChange: setIsOpen,
+	focusGoTo = false,
+}: Props) {
 	const { translate } = useTranslate()
 	const [activeTab, setActiveTab] = useState<LocationTab>('contents')
+	const {
+		readerMeta: { bookMeta },
+		controls: { goToPosition },
+	} = useEpubReaderContext()
+	const totalPositions = bookMeta?.chapter.totalPositions ?? 0
 
 	const handleClose = () => setIsOpen(false)
 	const handleOpenChange = (nowOpen: boolean) => setIsOpen(nowOpen)
@@ -84,6 +100,20 @@ export default function LocationManager({ open: isOpen, onOpenChange: setIsOpen 
 
 					<Dialog.Close onClick={handleClose} />
 				</Dialog.Header>
+				{goToPosition && totalPositions > 0 && (
+					<GoToField
+						label={translate('shared.reader.goToLocation')}
+						placeholder={`1 – ${totalPositions}, %`}
+						resolve={(input) => resolvePlaceInput(input, totalPositions)}
+						invalidMessage={translate('shared.reader.noSuchLocation')}
+						onGo={(position) => {
+							goToPosition(position)
+							handleClose()
+						}}
+						autoFocus={isOpen && focusGoTo}
+						resetKey={isOpen}
+					/>
+				)}
 				<div className="scrollbar-hide h-[300px] overflow-y-auto">{renderTabContent()}</div>
 			</Dialog.Content>
 		</Dialog>

@@ -1,7 +1,8 @@
-import { Button, Dialog, Input } from '@stump/components'
-import { useEffect, useState } from 'react'
+import { Dialog } from '@stump/components'
 
 import { useTranslate } from '@/hooks/useTranslate'
+
+import GoToField from '../shared/GoToField'
 
 type Props = {
 	open: boolean
@@ -15,26 +16,6 @@ type Props = {
 /** "Go to page": a page number, or the PDF's own page label (e.g. "xix") */
 export default function PdfGoToPageDialog({ open, onOpenChange, pageCount, resolve, onGo }: Props) {
 	const { translate } = useTranslate()
-	const [value, setValue] = useState('')
-	const [invalid, setInvalid] = useState(false)
-
-	useEffect(() => {
-		if (open) {
-			setValue('')
-			setInvalid(false)
-		}
-	}, [open])
-
-	const submit = () => {
-		const page = resolve(value)
-		if (page == null) {
-			setInvalid(true)
-			return
-		}
-		onGo(page)
-		onOpenChange(false)
-	}
-
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<Dialog.Content size="sm">
@@ -42,29 +23,18 @@ export default function PdfGoToPageDialog({ open, onOpenChange, pageCount, resol
 					<Dialog.Title>{translate('shared.pdfReader.goToPage')}</Dialog.Title>
 					<Dialog.Close />
 				</Dialog.Header>
-				<form
-					className="gap-2 flex items-start"
-					onSubmit={(event) => {
-						event.preventDefault()
-						submit()
+				<GoToField
+					label={translate('shared.pdfReader.goToPage')}
+					placeholder={`1 – ${pageCount}`}
+					resolve={resolve}
+					invalidMessage={translate('shared.pdfReader.noSuchPage')}
+					onGo={(page) => {
+						onGo(page)
+						onOpenChange(false)
 					}}
-				>
-					<div className="flex-1">
-						<Input
-							autoFocus
-							inputMode="numeric"
-							aria-label={translate('shared.pdfReader.goToPage')}
-							placeholder={`1 – ${pageCount}`}
-							value={value}
-							onChange={(event) => {
-								setValue(event.target.value)
-								setInvalid(false)
-							}}
-							errorMessage={invalid ? translate('shared.pdfReader.noSuchPage') : undefined}
-						/>
-					</div>
-					<Button type="submit">{translate('shared.pdfReader.go')}</Button>
-				</form>
+					autoFocus={open}
+					resetKey={open}
+				/>
 			</Dialog.Content>
 		</Dialog>
 	)

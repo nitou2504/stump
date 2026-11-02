@@ -20,6 +20,12 @@ type Props = {
 	onSettings: () => void
 	/** The reading settings are open: their button shows pressed */
 	settingsOpen?: boolean
+	/**
+	 * Where the reader is (`23 / 315`, `Chapter 3 · 47%`), under the title; a tap on it opens
+	 * "go to" (a page, a location). The way to another page whatever the reading progress is
+	 * set to, even off
+	 */
+	position?: { text: string; label: string; onClick: () => void }
 	className?: string
 }
 
@@ -38,6 +44,7 @@ export default function ReaderTopBar({
 	bookmark,
 	onSettings,
 	settingsOpen = false,
+	position,
 	className,
 }: Props) {
 	const { translate } = useTranslate()
@@ -92,9 +99,33 @@ export default function ReaderTopBar({
 				</ControlButton>
 			)}
 
-			<p className="px-2 text-sm min-w-0 flex-1 truncate text-center" title={title}>
-				{title}
-			</p>
+			<div className="px-2 min-w-0 flex flex-1 flex-col items-center justify-center">
+				<p
+					className={cn('text-sm max-w-full truncate text-center', position && 'leading-[18px]')}
+					title={title}
+				>
+					{title}
+				</p>
+				{position && (
+					// where the reader is, as a button: tapping it opens "go to" (like the position
+					// slider in the controls of Kindle, Apple Books or Mihon)
+					<button
+						type="button"
+						onClick={position.onClick}
+						title={position.label}
+						aria-label={`${position.text}, ${position.label}`}
+						className={cn(
+							'px-1.5 max-w-full truncate rounded text-[11px] leading-[15px] text-muted-foreground tabular-nums',
+							'hover:bg-foreground/7 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none',
+							// a finger-sized hit area on touch screens, without changing how it looks
+							"relative after:absolute after:-inset-x-1 after:-inset-y-2 after:content-['']",
+						)}
+						data-testid="reader-position"
+					>
+						{position.text}
+					</button>
+				)}
+			</div>
 
 			{onSearch && (
 				<ControlButton

@@ -13,6 +13,7 @@ import { useReaderStore } from '@/stores'
 import { isEditableTarget, resolveReaderShortcut, type ShortcutRow } from '../../annotations'
 import { useReaderChromeTheme } from '../../epub/readium/useReaderChromeTheme'
 import { usePdfReaderStore } from '../../pdf/store'
+import GoToField, { resolvePlaceInput } from '../../shared/GoToField'
 import { canShowTwoPages, pageIndicatorText, type ReaderLayout } from '../../shared/layout'
 import { nextDayNightTheme } from '../../shared/readerKeys'
 import ReaderPageIndicator from '../../shared/ReaderPageIndicator'
@@ -55,6 +56,12 @@ export default function ControlsOverlay() {
 	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [settingsSection, setSettingsSection] = useState<'shortcuts' | null>(null)
 	const [pagesOpen, setPagesOpen] = useState(false)
+	/** The pages were opened to go to one (`g`, the position in the top bar): its field has the focus */
+	const [goToFocus, setGoToFocus] = useState(false)
+	const openPages = useCallback((focusGoTo = false) => {
+		setGoToFocus(focusGoTo)
+		setPagesOpen(true)
+	}, [])
 	const setToolbar = useCallback(
 		(visible: boolean) => setSettings({ showToolBar: visible }),
 		[setSettings],
@@ -85,12 +92,25 @@ export default function ControlsOverlay() {
 				openSettings('shortcuts')
 			} else if (action.type === 'search') {
 				event.preventDefault()
-				setPagesOpen(true)
+				openPages()
 			}
 		}
 		window.addEventListener('keydown', onKeyDown)
 		return () => window.removeEventListener('keydown', onKeyDown)
-	}, [setSettings, theme, isDarkVariant, openSettings])
+	}, [setSettings, theme, isDarkVariant, openSettings, openPages])
+
+	// g: go to a page (the pages, with their go-to field focused), as in the other readers
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || isEditableTarget(event.target)) return
+			if (event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== 'g') return
+			if (document.querySelector('[role="dialog"][data-state="open"]')) return
+			event.preventDefault()
+			openPages(true)
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [openPages])
 
 	const isPdf = !!book.extension?.match(PDF_EXTENSION)
 	const setPdfPreferences = usePdfReaderStore((state) => state.setBookPreferences)
@@ -143,12 +163,14 @@ export default function ControlsOverlay() {
 							label: translate('shared.reader.shortcuts.scrollScreen'),
 						},
 						{ keys: ['Home', 'End'], label: translate('shared.reader.shortcuts.firstLastPage') },
+						{ keys: ['G'], label: translate('shared.reader.goToPage') },
 					]
 				: [
 						{ keys: ['←', '→'], label: translate('shared.reader.shortcuts.stepPage') },
 						{ keys: ['Space', '⇧ Space'], label: translate('shared.reader.shortcuts.stepPage') },
 						{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollPage') },
 						{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
+						{ keys: ['G'], label: translate('shared.reader.goToPage') },
 					],
 		[translate, layout.flow],
 	)
@@ -159,9 +181,14 @@ export default function ControlsOverlay() {
 				chrome={chrome}
 				title={book.resolvedName}
 				backTo={paths.bookOverview(book.id)}
-				onContents={() => setPagesOpen(true)}
+				onContents={() => openPages()}
 				onSettings={() => openSettings()}
 				settingsOpen={settingsOpen}
+				position={{
+					text: indicator,
+					label: `${translate('shared.reader.goToPage')} (G)`,
+					onClick: () => openPages(true),
+				}}
 				className="fixed"
 			/>
 			{readingProgress.display === 'bar' ? (
@@ -173,15 +200,15 @@ export default function ControlsOverlay() {
 					// with the top bar: the pages use the whole screen, so the bar would lie on them
 					visible={chrome.visible && !(settingsOpen && window.innerWidth < 640)}
 					emphasized={chrome.visible}
-					onClick={() => setPagesOpen(true)}
+					onClick={() => openPages(true)}
 				/>
 			) : (
 				<ReaderPageIndicator
 					text={indicator}
 					shown={readingProgress.display === 'number'}
 					className="fixed"
-					onClick={() => setPagesOpen(true)}
-					title={translate('shared.reader.pages')}
+					onClick={() => openPages(true)}
+					title={`${translate('shared.reader.goToPage')} (G)`}
 				/>
 			)}
 			<NextInSeries />
@@ -235,6 +262,7 @@ export default function ControlsOverlay() {
 			<PagesDialog
 				open={pagesOpen}
 				onOpenChange={setPagesOpen}
+				focusGoTo={goToFocus}
 				currentPage={currentPage}
 				onGo={(page) => {
 					setPagesOpen(false)
@@ -371,13 +399,25 @@ function OnePageSettings({ onePage }: { onePage: boolean }) {
 type PagesDialogProps = {
 	open: boolean
 	onOpenChange: (open: boolean) => void
+	/** Opened to go to a page: the go-to field has the focus */
+	focusGoTo?: boolean
 	currentPage: number
 	onGo: (page: number) => void
 	rtl: boolean
 }
 
-/** The book's pages as a grid, to jump to one (the comic reader's 'contents') */
-function PagesDialog({ open, onOpenChange, currentPage, onGo, rtl }: PagesDialogProps) {
+/**
+ * The book's pages as a grid, to jump to one (the comic reader's 'contents'), with a field
+ * to type the page (or a share of the book, `45%`) at the top
+ */
+function PagesDialog({
+	open,
+	onOpenChange,
+	focusGoTo = false,
+	currentPage,
+	onGo,
+	rtl,
+}: PagesDialogProps) {
 	const { translate } = useTranslate()
 	const { book, getPageUrl } = useImageBaseReaderContext()
 	const pages = Array.from({ length: book.pages }, (_, index) => index + 1)
@@ -393,6 +433,15 @@ function PagesDialog({ open, onOpenChange, currentPage, onGo, rtl }: PagesDialog
 					<Heading size="md">{translate('shared.reader.pages')}</Heading>
 					<Dialog.Close />
 				</Dialog.Header>
+				<GoToField
+					label={translate('shared.reader.goToPage')}
+					placeholder={`1 – ${book.pages}`}
+					resolve={(input) => resolvePlaceInput(input, book.pages)}
+					invalidMessage={translate('shared.pdfReader.noSuchPage')}
+					onGo={onGo}
+					autoFocus={open && focusGoTo}
+					resetKey={open}
+				/>
 				<div
 					className="gap-2 pb-2 sm:grid-cols-5 md:grid-cols-6 grid grid-cols-3 overflow-y-auto overscroll-contain"
 					dir={rtl ? 'rtl' : 'ltr'}

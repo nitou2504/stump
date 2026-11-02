@@ -1447,6 +1447,11 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				bookmark={{ active: !!currentBookmark, onToggle: () => void toggleBookmark() }}
 				onSettings={() => openSettings()}
 				settingsOpen={settingsOpen}
+				position={{
+					text: indicator,
+					label: `${translate('shared.pdfReader.goToPage')} (G)`,
+					onClick: () => setGoToOpen(true),
+				}}
 			/>
 
 			{readingProgress.display === 'bar' ? (
@@ -1582,6 +1587,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				annotations={annotations}
 				hasText={layout.hasText}
 				labelOf={labelOf}
+				pageCount={pageCount}
+				resolvePage={(input) => resolvePageInput(layout, input)}
 				onGoToPage={goToPage}
 				onDeleteBookmark={deleteBookmark}
 			/>

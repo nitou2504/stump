@@ -1202,6 +1202,14 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		[api, opened],
 	)
 
+	const goToPosition = useCallback(
+		(position: number) => {
+			const target = opened?.positions[Math.round(position) - 1]
+			if (target) void api.go(target)
+		},
+		[api, opened],
+	)
+
 	const jumpToSection = useCallback(
 		(section: number) => {
 			const item = opened?.publication.manifest.readingOrder?.items?.[section]
@@ -1325,6 +1333,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				onPaginateBackward,
 				onPaginateForward,
 				jumpToSection,
+				goToPosition,
 				searchBook,
 				canGoForward: api.canGoForward,
 				canGoBackward: api.canGoBackward,

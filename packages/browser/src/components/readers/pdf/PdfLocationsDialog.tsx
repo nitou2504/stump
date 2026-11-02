@@ -7,6 +7,7 @@ import GenericEmptyState from '@/components/GenericEmptyState'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { AnnotationsList, type ReaderAnnotation } from '../annotations'
+import GoToField from '../shared/GoToField'
 import { flattenOutline } from './outline'
 import type { PdfBookmark } from './usePdfData'
 
@@ -23,6 +24,9 @@ type Props = {
 	/** The PDF has no text layer, so it can't be annotated */
 	hasText: boolean
 	labelOf: (page: number) => string
+	pageCount: number
+	/** Resolves a typed page (a number or the PDF's own label) to a 1-based page, or `null` */
+	resolvePage: (input: string) => number | null
 	onGoToPage: (page: number, progression?: number) => void
 	onDeleteBookmark: (id: string) => void
 }
@@ -38,6 +42,8 @@ export default function PdfLocationsDialog({
 	annotations,
 	hasText,
 	labelOf,
+	pageCount,
+	resolvePage,
 	onGoToPage,
 	onDeleteBookmark,
 }: Props) {
@@ -174,6 +180,16 @@ export default function PdfLocationsDialog({
 					</Tabs>
 					<Dialog.Close onClick={() => onOpenChange(false)} />
 				</Dialog.Header>
+				{/* go to a page by its number, before the outline, bookmarks and annotations */}
+				<GoToField
+					className="px-2"
+					label={translate('shared.pdfReader.goToPage')}
+					placeholder={`1 – ${pageCount}`}
+					resolve={resolvePage}
+					invalidMessage={translate('shared.pdfReader.noSuchPage')}
+					onGo={(page) => go(page)}
+					resetKey={open}
+				/>
 				<div className="scrollbar-hide max-h-[min(60vh,420px)] min-h-[200px] overflow-y-auto">
 					{tab === 'contents' && renderContents()}
 					{tab === 'bookmarks' && renderBookmarks()}

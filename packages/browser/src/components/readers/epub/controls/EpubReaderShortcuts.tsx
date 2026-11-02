@@ -29,8 +29,8 @@ type Props = {
 
 /**
  * The EPUB reader's shortcuts: annotate the selection (h/u/s/i/n/c, Delete), toggle a
- * bookmark (b), switch day/night (d), search (Ctrl/Cmd+F, `/`) and the shortcuts in the
- * settings (?). Key presses inside the book's frame are forwarded here by the navigator, so
+ * bookmark (b), switch day/night (d), search (Ctrl/Cmd+F, `/`), go to a location (g) and the
+ * shortcuts in the settings (?). Key presses inside the book's frame are forwarded here by the navigator, so
  * they work wherever the focus is (and the browser's find bar or quick find doesn't open);
  * typing in an input or a dialog is never intercepted.
  */
@@ -41,7 +41,7 @@ export default function EpubReaderShortcuts({
 }: Props) {
 	const { translate } = useTranslate()
 	const { isDarkVariant } = useTheme()
-	const { openSettings, openSearch } = useEpubReaderControls()
+	const { openSettings, openSearch, openGoTo } = useEpubReaderControls()
 	const theme = useReaderStore((state) => state.settings.theme ?? 'auto')
 	const setSettings = useReaderStore((state) => state.setSettings)
 	const { createBookmark, deleteBookmark, currentIsBookmarked, canBookmarkCurrent } =
@@ -54,6 +54,7 @@ export default function EpubReaderShortcuts({
 		onAnnotationAction,
 		openSettings,
 		openSearch,
+		openGoTo,
 		toggleDayNight: () => {},
 		toggleBookmark: () => {},
 	})
@@ -64,6 +65,7 @@ export default function EpubReaderShortcuts({
 			onAnnotationAction,
 			openSettings,
 			openSearch,
+			openGoTo,
 			toggleDayNight: () => setSettings({ theme: nextDayNightTheme(theme, isDarkVariant) }),
 			// Feedback, as the top bar (and its bookmark icon) may be hidden
 			toggleBookmark: () => {
@@ -83,6 +85,20 @@ export default function EpubReaderShortcuts({
 			if (event.defaultPrevented || isEditableTarget(event.target)) return
 
 			const state = stateRef.current
+			// g: go to a location (the contents, with their go-to field focused), as in the
+			// other readers
+			if (
+				!state.hasTarget &&
+				!event.ctrlKey &&
+				!event.metaKey &&
+				!event.altKey &&
+				typeof event.key === 'string' &&
+				event.key.toLowerCase() === 'g'
+			) {
+				event.preventDefault()
+				state.openGoTo()
+				return
+			}
 			const action = resolveReaderShortcut(event, state)
 			if (!action) return
 

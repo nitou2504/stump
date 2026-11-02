@@ -3993,6 +3993,9 @@
         "alignStart": "Left Aligned"
       },
       "pages": "Pages",
+      "goToPage": "Go to Page",
+      "goToLocation": "Go to Location",
+      "noSuchLocation": "No such location in this book",
       "progress": {
         "label": "Progress",
         "off": "Off",

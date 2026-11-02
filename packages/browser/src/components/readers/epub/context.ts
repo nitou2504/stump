@@ -59,6 +59,10 @@ export type EpubReaderControls = {
 	openSettings: (section?: 'shortcuts' | null) => void
 	/** Opens the search (Ctrl/Cmd+F, `/`) */
 	openSearch: () => void
+	/** Opens the contents with its "go to location" field focused (`g`, the top bar's position) */
+	openGoTo: () => void
+	/** Goes to one of the book's locations (Readium's positions, about a page each), from 1 */
+	goToPosition?: (position: number) => void
 	setVisible: (visible: boolean) => void
 	/** A tap in the middle of the page: show or hide the top bar */
 	toggleVisible: () => void
@@ -97,6 +101,7 @@ export const EpubReaderContext = createContext<EpubReaderContextProps>({
 		setFullscreen: noop,
 		openSettings: noop,
 		openSearch: noop,
+		openGoTo: noop,
 		setVisible: noop,
 		toggleVisible: noop,
 		visible: false,
