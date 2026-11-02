@@ -266,7 +266,12 @@ export function chosenTags(item: ChipSource, chosen?: string[]) {
 /** One short line explaining a tag, e.g. `subject 'Fantasy fiction'` */
 export function tagWhy(chip: Pick<GenreChip, 'reasons' | 'origin'>) {
 	if (chip.origin === 'you') return 'added by you'
-	const [first, ...rest] = chip.reasons
+	// for a tag backed by the book, lead with that evidence rather than the votes
+	const reasons =
+		chip.origin === 'book'
+			? [...chip.reasons.filter((r) => !isVoteReason(r)), ...chip.reasons.filter(isVoteReason)]
+			: chip.reasons
+	const [first, ...rest] = reasons
 	const reason = first ?? 'suggested'
 	return `${chip.origin === 'guessed' ? 'guessed: ' : ''}${reason}${rest.length ? ` (+${rest.length} more)` : ''}`
 }

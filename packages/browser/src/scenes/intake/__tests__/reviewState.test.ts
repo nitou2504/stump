@@ -264,6 +264,12 @@ describe('intake review state', () => {
 			"subject 'Rome' (+1 more)",
 		)
 		expect(tagWhy({ origin: 'you', reasons: ['Added by you'] })).toBe('added by you')
+		expect(
+			tagWhy({
+				origin: 'book',
+				reasons: ['8 of 8 books by this author have it', 'manga / light novel'],
+			}),
+		).toBe('manga / light novel (+1 more)')
 		const withExtra = item()
 		withExtra.decision?.metadata.genres.push('Mystery')
 		expect(chosenTags(withExtra)).toEqual([

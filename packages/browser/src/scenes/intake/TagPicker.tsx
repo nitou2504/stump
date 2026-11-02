@@ -59,7 +59,7 @@ export default function TagPicker({ libraryId, chips, chosen, onChange, disabled
 							>
 								{chip.value}
 							</span>
-							<span className="truncate" title={chip.reasons.join(' · ')}>
+							<span className="min-w-0 line-clamp-2 break-words" title={chip.reasons.join(' · ')}>
 								{tagWhy(chip)}
 								{chip.origin === 'guessed' &&
 									!chip.chosen &&
