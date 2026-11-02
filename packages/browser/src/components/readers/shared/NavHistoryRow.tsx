@@ -28,7 +28,11 @@ export default function NavHistoryRow({ back, forward, onBack, onForward, classN
 		: ''
 
 	return (
-		<div className={cn('gap-1 flex items-center', className)} data-testid="reader-nav-history">
+		// min-w-0: in a dialog's grid a long place name is cut short instead of widening it
+		<div
+			className={cn('gap-1 min-w-0 flex items-center', className)}
+			data-testid="reader-nav-history"
+		>
 			{back && (
 				<button
 					type="button"

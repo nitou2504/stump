@@ -46,7 +46,7 @@ export default function PdfGoToPageDialog({
 							history.goForward()
 							onOpenChange(false)
 						}}
-						className="-mx-2 -mb-1"
+						className="-mb-1"
 					/>
 				)}
 				<GoToField
