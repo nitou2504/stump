@@ -18,6 +18,8 @@ import { nextDayNightTheme } from '../../shared/readerKeys'
 import ReaderPageIndicator from '../../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../../shared/ReaderTopBar'
+import ReadingBar, { useClockText } from '../../shared/ReadingBar'
+import { type ReadingBarItem, useReadingProgress } from '../../shared/readingProgress'
 import {
 	DirectionRow,
 	FitGlyph,
@@ -48,6 +50,7 @@ export default function ControlsOverlay() {
 	} = useBookPreferences({ book })
 	const theme = useReaderStore((state) => state.settings.theme ?? 'auto')
 	useReaderChromeTheme(theme)
+	const readingProgress = useReadingProgress('comic')
 
 	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [settingsSection, setSettingsSection] = useState<'shortcuts' | null>(null)
@@ -146,20 +149,38 @@ export default function ControlsOverlay() {
 				backTo={paths.bookOverview(book.id)}
 				onContents={() => setPagesOpen(true)}
 				onSettings={() => openSettings()}
+				settingsOpen={settingsOpen}
 				className="fixed"
 			/>
-			<ReaderPageIndicator
-				text={indicator}
-				className="fixed"
-				onClick={() => setPagesOpen(true)}
-				title={translate('shared.reader.pages')}
-			/>
+			{readingProgress.display === 'bar' ? (
+				<ComicReadingBar
+					pages={currentSet.map((index) => index + 1)}
+					pageCount={book.pages}
+					items={readingProgress.items}
+					rtl={readingDirection === ReadingDirection.Rtl}
+					visible={
+						(readingProgress.show === 'always' || chrome.visible) &&
+						!(settingsOpen && window.innerWidth < 640)
+					}
+					emphasized={chrome.visible}
+					onClick={() => setPagesOpen(true)}
+				/>
+			) : (
+				<ReaderPageIndicator
+					text={indicator}
+					shown={readingProgress.display === 'number'}
+					className="fixed"
+					onClick={() => setPagesOpen(true)}
+					title={translate('shared.reader.pages')}
+				/>
+			)}
 			<NextInSeries />
 
 			<ReaderSettingsDialog
 				open={settingsOpen}
 				onOpenChange={setSettingsOpen}
 				section={settingsSection}
+				reader="comic"
 				layout={layout}
 				onLayoutChange={(next) =>
 					setBookPreferences({
@@ -178,6 +199,7 @@ export default function ControlsOverlay() {
 								onCheckedChange={(checked) => setBookPreferences({ coverAlone: checked })}
 							/>
 						) : null}
+						<OnePageSettings onePage={layout.flow === 'paged' && layout.spread === 'single'} />
 						<BackgroundRow />
 					</>
 				}
@@ -198,7 +220,7 @@ export default function ControlsOverlay() {
 					value={readingDirection}
 					onChange={(direction) => setBookPreferences({ readingDirection: direction })}
 				/>
-				<ImagePageSettings onePage={layout.flow === 'paged' && layout.spread === 'single'} />
+				<ImagePageSettings />
 			</ReaderSettingsDialog>
 
 			<PagesDialog
@@ -228,14 +250,11 @@ const FIT_LABELS: Record<ReadingImageScaleFit, string> = {
 	[ReadingImageScaleFit.None]: 'shared.reader.fit.original',
 }
 
-/**
- * The comic's own rows: how the page fits and how bright it is; one page at a time, also
- * whether its blank margins are cropped and how a wide (two-page) image shows
- */
-function ImagePageSettings({ onePage }: { onePage: boolean }) {
+/** The comic's own rows: how the page fits and how bright it is */
+function ImagePageSettings() {
 	const { book } = useImageBaseReaderContext()
 	const {
-		bookPreferences: { imageScaling, brightness, cropBorders, widePages = 'zoom' },
+		bookPreferences: { imageScaling, brightness },
 		setBookPreferences,
 	} = useBookPreferences({ book })
 	const { translate } = useTranslate()
@@ -262,48 +281,9 @@ function ImagePageSettings({ onePage }: { onePage: boolean }) {
 					}))}
 				/>
 			</SettingRow>
-			{onePage && (
-				<>
-					<SwitchRow
-						label={translate('shared.reader.comic.crop')}
-						hint={translate('shared.reader.comic.cropHint')}
-						checked={!!cropBorders}
-						onCheckedChange={(checked) => setBookPreferences({ cropBorders: checked })}
-					/>
-					<SettingRow
-						label={translate('shared.reader.comic.widePages')}
-						hint={translate('shared.reader.comic.widePagesHint')}
-					>
-						<Segmented<WidePagesBehavior>
-							label={translate('shared.reader.comic.widePages')}
-							testId="reader-wide-pages"
-							className="w-full"
-							value={widePages}
-							onChange={(value) => setBookPreferences({ widePages: value })}
-							options={[
-								{
-									value: 'zoom',
-									label: translate('shared.reader.comic.wideZoom'),
-									icon: <ZoomIn aria-hidden className="h-4 w-4" />,
-								},
-								{
-									value: 'split',
-									label: translate('shared.reader.comic.wideSplit'),
-									icon: <Columns2 aria-hidden className="h-4 w-4" />,
-								},
-								{
-									value: 'fit',
-									label: translate('shared.reader.comic.wideFit'),
-									icon: <Scan aria-hidden className="h-4 w-4" />,
-								},
-							]}
-						/>
-					</SettingRow>
-				</>
-			)}
 			<SettingRow label={translate('shared.reader.settings.brightness')}>
-				<div className="gap-2 px-1 flex w-full items-center">
-					<Sun className="h-3 w-3 shrink-0 text-muted-foreground" />
+				<div className="gap-2.5 pointer-coarse:h-10 flex h-[30px] w-full items-center text-foreground/80">
+					<Sun aria-hidden className="size-3 shrink-0" />
 					<Slider
 						value={[level]}
 						min={0.1}
@@ -313,9 +293,67 @@ function ImagePageSettings({ onePage }: { onePage: boolean }) {
 						onValueChange={([value]) =>
 							value !== undefined && setBookPreferences({ brightness: Math.max(0.1, value) })
 						}
+						className={cn(
+							// the panel's ink on paper: a track of ink at 7%, filled with ink, a paper knob
+							'[&>span:first-child]:h-1 [&>span:first-child]:bg-foreground/7 [&>span:first-child>span]:bg-foreground',
+							'[&_[role=slider]]:border-0 [&_[role=slider]]:bg-popover [&_[role=slider]]:shadow-[0_0_0_1.5px_var(--foreground),0_1px_3px_rgb(0_0_0/0.2)]',
+						)}
 					/>
-					<Sun className="h-4 w-4 shrink-0 text-muted-foreground" />
+					<Sun aria-hidden className="size-[17px] shrink-0" />
 				</div>
+			</SettingRow>
+		</>
+	)
+}
+
+/**
+ * One page at a time, under More: whether its blank margins are cropped and how a wide (two
+ * page) image shows on a narrow screen
+ */
+function OnePageSettings({ onePage }: { onePage: boolean }) {
+	const { book } = useImageBaseReaderContext()
+	const {
+		bookPreferences: { cropBorders, widePages = 'zoom' },
+		setBookPreferences,
+	} = useBookPreferences({ book })
+	const { translate } = useTranslate()
+	if (!onePage) return null
+	return (
+		<>
+			<SwitchRow
+				label={translate('shared.reader.comic.crop')}
+				hint={translate('shared.reader.comic.cropHint')}
+				checked={!!cropBorders}
+				onCheckedChange={(checked) => setBookPreferences({ cropBorders: checked })}
+			/>
+			<SettingRow
+				label={translate('shared.reader.comic.widePages')}
+				hint={translate('shared.reader.comic.widePagesHint')}
+			>
+				<Segmented<WidePagesBehavior>
+					label={translate('shared.reader.comic.widePages')}
+					testId="reader-wide-pages"
+					className="w-full"
+					value={widePages}
+					onChange={(value) => setBookPreferences({ widePages: value })}
+					options={[
+						{
+							value: 'zoom',
+							label: translate('shared.reader.comic.wideZoom'),
+							icon: <ZoomIn aria-hidden />,
+						},
+						{
+							value: 'split',
+							label: translate('shared.reader.comic.wideSplit'),
+							icon: <Columns2 aria-hidden />,
+						},
+						{
+							value: 'fit',
+							label: translate('shared.reader.comic.wideFit'),
+							icon: <Scan aria-hidden />,
+						},
+					]}
+				/>
 			</SettingRow>
 		</>
 	)
@@ -359,11 +397,11 @@ function BackgroundRow() {
 					icon: (
 						<span
 							aria-hidden
-							className="size-4 font-serif flex items-center justify-center rounded-full border border-foreground/25 text-[9px] leading-none text-foreground"
+							className="h-3.5 flex w-[18px] items-center justify-center rounded-[3px] font-literata text-[9px] leading-none text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,currentColor_30%,transparent)]"
 							style={{ background: swatch }}
 						>
 							{/* the theme's own paper, with its text colour: not just another white */}
-							{value === 'theme' ? 'A' : null}
+							{value === 'theme' ? 'Aa' : null}
 						</span>
 					),
 				}))}
@@ -425,5 +463,61 @@ function PagesDialog({ open, onOpenChange, currentPage, onGo, rtl }: PagesDialog
 				</div>
 			</Dialog.Content>
 		</Dialog>
+	)
+}
+
+type ComicReadingBarProps = {
+	/** The pages on screen, from 1 (two in a spread) */
+	pages: number[]
+	pageCount: number
+	items: ReadingBarItem[]
+	rtl: boolean
+	visible: boolean
+	emphasized: boolean
+	onClick: () => void
+}
+
+/**
+ * The comic's reading bar: the page and the percentage on the right, the rule filling from
+ * the right in a right-to-left book. (A comic's chapters aren't known here: no ticks.)
+ */
+function ComicReadingBar({
+	pages,
+	pageCount,
+	items,
+	rtl,
+	visible,
+	emphasized,
+	onClick,
+}: ComicReadingBarProps) {
+	const { translate } = useTranslate()
+	const clock = useClockText(items.includes('clock'))
+	const total = Math.max(1, pageCount)
+	const last = Math.max(1, ...pages)
+	const right: string[] = []
+	if (items.includes('page')) {
+		right.push(
+			translate('shared.reader.progress.pageOf', {
+				page: pages.length > 1 ? `${Math.min(...pages)}–${last}` : last,
+				total,
+			}),
+		)
+	}
+	if (items.includes('percent')) right.push(`${Math.round((last / total) * 100)}%`)
+	if (items.includes('clock')) right.push(clock)
+	return (
+		<ReadingBar
+			chapters={[]}
+			position={total > 1 ? (last - 1) / (total - 1) : 1}
+			right={right}
+			rtl={rtl}
+			onClick={onClick}
+			label={[...right, translate('shared.reader.pages')].join(', ')}
+			visible={visible}
+			emphasized={emphasized}
+			band
+			fixed
+			className="sm:inset-x-auto sm:left-1/2 sm:w-[min(680px,calc(100%-96px))] sm:-translate-x-1/2 inset-x-[22px]"
+		/>
 	)
 }

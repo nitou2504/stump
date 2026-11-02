@@ -39,6 +39,13 @@ import {
 	isOptimisticAnnotationId,
 } from '../../annotations'
 import { copyText } from '../../shared/readerKeys'
+import { READING_BAR_ZONE } from '../../shared/ReadingBar'
+import {
+	type ChapterPages,
+	chapterPages,
+	tocPath,
+	useReadingProgress,
+} from '../../shared/readingProgress'
 import { annotationsToDecorations, type DecorationTheme } from '../annotations/decorations'
 import { useEdgeHoldExtend } from '../annotations/edgeExtend'
 import { liveFrameSelection } from '../annotations/liveSelection'
@@ -262,6 +269,8 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		[themeColors.text, themeColors.background],
 	)
 	useReaderChromeTheme(readerTheme)
+	const readingBar = useReadingProgress('epub')
+	const reserveReadingBar = readingBar.display === 'bar' && readingBar.show === 'always'
 
 	// Measures the viewport parent — i.e. the parent of the element Readium itself treats
 	// as its viewport (`containerRef`'s parent, see `useReadiumNavigator`). Keeping the
@@ -996,6 +1005,58 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		return map
 	}, [ebook.bookmarks])
 
+	// The reading bar: where the chapters start (its ticks) and how many pages of the chapter
+	// are left, measured in the book's frame (pages that turn: screens across the chapter;
+	// scrolling: screen heights down it)
+	const chapterStarts = useMemo(() => {
+		const positions = opened?.positions ?? NO_POSITIONS
+		if (!positions.length) return []
+		const starts = toc
+			.map((item) => {
+				const base = item.content.split('#')[0] ?? item.content
+				const first = positions.find((position) => hrefsMatch(position.href, base))
+				return first?.locations.totalProgression
+			})
+			.filter((start): start is number => typeof start === 'number')
+		return [...new Set(starts)].sort((a, b) => a - b)
+	}, [opened, toc])
+
+	const [chapterPageCount, setChapterPageCount] = useState<ChapterPages | null>(null)
+	const isScrolled = readingMode === ReadingMode.ContinuousVertical
+	useEffect(() => {
+		const container = containerRef.current
+		if (!container || !currentLocator) return undefined
+		const measure = () => {
+			const measured = measureChapterPages(container, isScrolled)
+			if (measured) {
+				setChapterPageCount(measured)
+				return
+			}
+			// the frame can't be read: count Readium's positions (about a page each) instead
+			const positions = opened?.positions ?? NO_POSITIONS
+			const inChapter = positions.filter((position) =>
+				hrefsMatch(position.href, currentLocator.href),
+			)
+			const here = currentLocator.locations.position ?? 0
+			const index = Math.max(
+				0,
+				inChapter.findIndex((position) => position.locations.position === here),
+			)
+			setChapterPageCount(
+				inChapter.length
+					? { page: index + 1, pages: inChapter.length, left: inChapter.length - index - 1 }
+					: null,
+			)
+		}
+		// after Readium has settled the page it reported
+		const frame = window.requestAnimationFrame(() => window.requestAnimationFrame(measure))
+		window.addEventListener('resize', measure)
+		return () => {
+			window.cancelAnimationFrame(frame)
+			window.removeEventListener('resize', measure)
+		}
+	}, [currentLocator, isScrolled, opened])
+
 	const chapterMeta = useMemo(() => {
 		const chapterTitle = findChapterTitle(currentLocator?.href ?? '', toc) ?? currentLocator?.title
 		const readingOrder = opened?.publication.manifest.readingOrder?.items ?? []
@@ -1009,8 +1070,21 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			? toolkitLocatorToReaderLocator(currentLocator, chapterTitle ?? undefined)
 			: null
 
+		const href = currentLocator?.href ?? ''
+		const path = href
+			? tocPath(
+					toc,
+					(item) =>
+						hrefsMatch(item.content, href) || item.content.endsWith(href.split('#')[0] ?? ''),
+				)
+			: []
+
 		return {
 			name: chapterTitle,
+			path: path.length ? path : chapterTitle ? [chapterTitle] : [],
+			pageInChapter: chapterPageCount?.page,
+			pagesInChapter: chapterPageCount?.pages,
+			pagesLeftInChapter: chapterPageCount?.left,
 			position: sectionSpineIndex >= 0 ? sectionSpineIndex : undefined,
 			sectionSpineIndex: sectionSpineIndex >= 0 ? sectionSpineIndex : undefined,
 			totalProgression: currentLocator?.locations.totalProgression,
@@ -1018,7 +1092,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			totalPositions,
 			currentLocator: readerLocator,
 		}
-	}, [currentLocator, toc, opened])
+	}, [currentLocator, toc, opened, chapterPageCount])
 
 	const onPaginateForward = useCallback(() => {
 		void api.goForward()
@@ -1167,6 +1241,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 					bookmarks: existingBookmarks,
 					annotations,
 					chapter: chapterMeta,
+					chapterStarts,
 					toc,
 				},
 				progress: localProgress,
@@ -1210,12 +1285,17 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 						// landscape, paged and scrolled); Readium lays the pages out inside the
 						// padding, which keeps the page colour
 						paddingTop: 'env(safe-area-inset-top)',
-						paddingBottom: 'env(safe-area-inset-bottom)',
+						// the reading bar, when it stays, has its own room: it never covers text
+						paddingBottom: reserveReadingBar ? READING_BAR_ZONE : 'env(safe-area-inset-bottom)',
 						paddingLeft: 'env(safe-area-inset-left)',
 						paddingRight: 'env(safe-area-inset-right)',
 					}}
 				>
-					<div ref={containerRef} className="relative mx-auto h-full w-full overflow-hidden" />
+					<div
+						ref={containerRef}
+						className="relative mx-auto h-full w-full overflow-hidden"
+						data-epub-column
+					/>
 				</div>
 
 				{isLoading && (
@@ -1363,4 +1443,37 @@ function findChapterTitle(href: string, toc: EpubContent[]): string | undefined 
 		stack.push(...item.children)
 	}
 	return undefined
+}
+
+/**
+ * The pages of the chapter on screen, read from the book's frame that shows: pages that
+ * turn are screens across it, scrolling is screen heights down it (`null` when there's no
+ * frame to read)
+ */
+function measureChapterPages(container: HTMLElement, scrolled: boolean): ChapterPages | null {
+	const frames = [...container.querySelectorAll('iframe')].filter(
+		(frame) => frame.style.visibility !== 'hidden',
+	)
+	for (const frame of frames.reverse()) {
+		try {
+			const view = frame.contentWindow
+			const scroller = view?.document.scrollingElement as HTMLElement | null | undefined
+			if (!view || !scroller) continue
+			const measured = scrolled
+				? chapterPages({
+						scrollSize: scroller.scrollHeight,
+						viewportSize: view.innerHeight,
+						offset: scroller.scrollTop,
+					})
+				: chapterPages({
+						scrollSize: scroller.scrollWidth,
+						viewportSize: view.innerWidth,
+						offset: scroller.scrollLeft,
+					})
+			if (measured) return measured
+		} catch {
+			// a frame from another origin, or one being torn down
+		}
+	}
+	return null
 }

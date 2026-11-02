@@ -18,6 +18,8 @@ type Props = {
 	onSearch?: () => void
 	bookmark?: { active: boolean; disabled?: boolean; onToggle: () => void }
 	onSettings: () => void
+	/** The reading settings are open: their button shows pressed */
+	settingsOpen?: boolean
 	className?: string
 }
 
@@ -35,6 +37,7 @@ export default function ReaderTopBar({
 	onSearch,
 	bookmark,
 	onSettings,
+	settingsOpen = false,
 	className,
 }: Props) {
 	const { translate } = useTranslate()
@@ -116,8 +119,11 @@ export default function ReaderTopBar({
 			<ControlButton
 				title={translate('shared.reader.settings.title')}
 				aria-label={translate('shared.reader.settings.title')}
+				aria-haspopup="dialog"
+				aria-expanded={settingsOpen}
 				onClick={onSettings}
 				data-testid="reader-settings-button"
+				className={cn(settingsOpen && 'bg-foreground/7 text-foreground')}
 			>
 				<ReaderStyleGlyph className="h-5 w-5" />
 			</ControlButton>

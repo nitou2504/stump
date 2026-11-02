@@ -2,6 +2,7 @@ import { DEFAULT_EPUB_FONT_SIZE, type EpubTextAlign } from '@stump/client'
 import { cn } from '@stump/components'
 import { isSupportedFont } from '@stump/sdk'
 import { AlignJustify, AlignLeft, BookOpen } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
@@ -9,13 +10,14 @@ import { SUPPORTED_FONT_OPTIONS } from '@/scenes/settings/app/preferences/FontSe
 import { useReaderStore } from '@/stores'
 
 import {
+	CELL,
+	CHOSEN,
 	DirectionRow,
-	GLYPH_BUTTON_IDLE,
-	GLYPH_BUTTON_PRESSED,
-	GLYPH_TRACK,
-	Segmented,
+	FOCUS,
+	SegmentedTrio,
 	SettingRow,
 	Stepper,
+	TRACK,
 } from '../../shared/settingsControls'
 import { useEpubReaderContext } from '../context'
 
@@ -50,9 +52,9 @@ export function shortFontName(label: string): string {
 }
 
 /**
- * The EPUB reader's own settings, compact like the `Aa` panel of reading apps: the size as
- * a small A and a big A, the typefaces as `Aa` samples in each face, then spacing, margins
- * and alignment as three-way glyph switches.
+ * The EPUB reader's own settings, compact like the `Aa` panel of reading apps: the
+ * typefaces as `Aa` samples in each face (every one in view), the size as a small A and a
+ * big A, then spacing, margins and alignment as three small glyph switches in one row.
  */
 export default function TextSettings() {
 	const { translate } = useTranslate()
@@ -74,6 +76,14 @@ export default function TextSettings() {
 
 	return (
 		<>
+			<FontChips
+				value={fontFamily}
+				onChange={(font) => setBookPreferences({ fontFamily: font })}
+				label={t('font')}
+				bookLabel={t('bookFont')}
+				bookName={t('bookFontName')}
+			/>
+
 			<SettingRow label={t('size')}>
 				<Stepper
 					label={t('size')}
@@ -81,8 +91,12 @@ export default function TextSettings() {
 					display={String(fontSize)}
 					decreaseLabel={t('smaller')}
 					increaseLabel={t('larger')}
-					decreaseIcon={<span className="font-serif text-[13px] leading-none">A</span>}
-					increaseIcon={<span className="font-serif text-[19px] leading-none">A</span>}
+					decreaseIcon={
+						<span className="font-medium font-literata text-[13px] leading-none">A</span>
+					}
+					increaseIcon={
+						<span className="font-medium font-literata text-[20px] leading-none">A</span>
+					}
 					canDecrease={fontSize > MIN_FONT_SIZE}
 					canIncrease={fontSize < MAX_FONT_SIZE}
 					onDecrease={() => setBookPreferences({ fontSize: clampFontSize(fontSize - 1) })}
@@ -90,69 +104,58 @@ export default function TextSettings() {
 				/>
 			</SettingRow>
 
-			<FontChips
-				value={fontFamily}
-				onChange={(font) => setBookPreferences({ fontFamily: font })}
-				label={t('font')}
-				bookLabel={t('bookFont')}
+			<SegmentedTrio
+				groups={[
+					{
+						caption: t('spacing'),
+						label: t('spacing'),
+						testId: 'reader-line-spacing',
+						value: nearestOption(LINE_SPACINGS, lineHeight),
+						onChange: (value: number) => setBookPreferences({ lineHeight: value }),
+						options: LINE_SPACINGS.map((value, index) => ({
+							value,
+							label: t(['spacingTight', 'spacingNormal', 'spacingLoose'][index]!),
+							icon: <SpacingGlyph gap={[2, 3.5, 5][index]!} />,
+						})),
+					},
+					{
+						caption: t('margins'),
+						label: t('margins'),
+						testId: 'reader-margins',
+						value: nearestOption(PAGE_MARGINS, pageMargins),
+						onChange: (value: number) => setBookPreferences({ pageMargins: value }),
+						options: PAGE_MARGINS.map((value, index) => ({
+							value,
+							label: t(['marginsNarrow', 'marginsNormal', 'marginsWide'][index]!),
+							icon: <MarginGlyph inset={[1.5, 3, 4.5][index]!} />,
+						})),
+					},
+					{
+						caption: t('align'),
+						label: translate('shared.reader.text.alignment'),
+						testId: 'reader-text-align',
+						value: textAlign,
+						onChange: (value: EpubTextAlign) => setSettings({ textAlign: value }),
+						options: [
+							{
+								value: 'auto',
+								label: translate('shared.reader.text.alignBook'),
+								icon: <BookOpen aria-hidden />,
+							},
+							{
+								value: 'justify',
+								label: translate('shared.reader.text.alignJustify'),
+								icon: <AlignJustify aria-hidden />,
+							},
+							{
+								value: 'start',
+								label: translate('shared.reader.text.alignStart'),
+								icon: <AlignLeft aria-hidden />,
+							},
+						],
+					},
+				]}
 			/>
-
-			<SettingRow label={t('spacing')}>
-				<Segmented
-					label={t('spacing')}
-					testId="reader-line-spacing"
-					className="w-full"
-					value={nearestOption(LINE_SPACINGS, lineHeight)}
-					onChange={(value) => setBookPreferences({ lineHeight: value })}
-					options={LINE_SPACINGS.map((value, index) => ({
-						value,
-						label: t(['spacingTight', 'spacingNormal', 'spacingLoose'][index]!),
-						icon: <SpacingGlyph gap={[2, 3.5, 5][index]!} />,
-					}))}
-				/>
-			</SettingRow>
-
-			<SettingRow label={t('margins')}>
-				<Segmented
-					label={t('margins')}
-					testId="reader-margins"
-					className="w-full"
-					value={nearestOption(PAGE_MARGINS, pageMargins)}
-					onChange={(value) => setBookPreferences({ pageMargins: value })}
-					options={PAGE_MARGINS.map((value, index) => ({
-						value,
-						label: t(['marginsNarrow', 'marginsNormal', 'marginsWide'][index]!),
-						icon: <MarginGlyph inset={[1.5, 3, 4.5][index]!} />,
-					}))}
-				/>
-			</SettingRow>
-
-			<SettingRow label={t('align')}>
-				<Segmented<EpubTextAlign>
-					label={translate('shared.reader.text.alignment')}
-					testId="reader-text-align"
-					className="w-full"
-					value={textAlign}
-					onChange={(value) => setSettings({ textAlign: value })}
-					options={[
-						{
-							value: 'auto',
-							label: translate('shared.reader.text.alignBook'),
-							icon: <BookOpen className="h-4 w-4" />,
-						},
-						{
-							value: 'justify',
-							label: translate('shared.reader.text.alignJustify'),
-							icon: <AlignJustify className="h-4 w-4" />,
-						},
-						{
-							value: 'start',
-							label: translate('shared.reader.text.alignStart'),
-							icon: <AlignLeft className="h-4 w-4" />,
-						},
-					]}
-				/>
-			</SettingRow>
 		</>
 	)
 }
@@ -178,29 +181,74 @@ type FontChipsProps = {
 	value: string | undefined
 	onChange: (font: string | undefined) => void
 	label: string
+	/** The book's own font: its chip's tooltip */
 	bookLabel: string
+	/** ...and its name above the grid when it's the one in use */
+	bookName: string
+}
+
+/** Faces that run large or small at the same size, set so every `Aa` looks the same size */
+const CHIP_FACE_SIZE: Record<string, string> = {
+	LIBREBASKERVILLE: 'text-[15.5px] pointer-coarse:text-[19px]',
+	OPENDYSLEXIC: 'text-[13.5px] pointer-coarse:text-[17px]',
 }
 
 /**
- * The typefaces as a grid of `Aa` samples, each in its own face, the book's own font first.
- * They all fit (two rows of five), so nothing hides behind a scroll; the picked face's name
- * shows under the row's label and every sample names itself in its tooltip.
+ * The typefaces as `Aa` samples, each in its own face, the book's own font first (an open
+ * book: its face isn't known here). The face in use is named once, above them. With a mouse
+ * every face is in view (two rows of five, nothing behind a scroll); on a touch screen they
+ * are one row that scrolls under the finger.
  */
-function FontChips({ value, onChange, label, bookLabel }: FontChipsProps) {
+function FontChips({ value, onChange, label, bookLabel, bookName }: FontChipsProps) {
 	const selected = value && isSupportedFont(value.toUpperCase()) ? value.toUpperCase() : ''
 	const chips = [{ value: '', label: bookLabel, fontClassName: '' }, ...SUPPORTED_FONT_OPTIONS]
 	const current = chips.find((font) => font.value === selected)
+	const groupRef = useRef<HTMLDivElement>(null)
+
+	// a touch screen's row scrolls: bring the face in use into view when the panel opens
+	useEffect(() => {
+		const chosen = groupRef.current?.querySelector<HTMLElement>('[aria-checked="true"]')
+		chosen?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+	}, [])
+
+	const onKeyDown = (event: React.KeyboardEvent) => {
+		const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+		if (!step) return
+		event.preventDefault()
+		event.stopPropagation()
+		const index = Math.max(
+			0,
+			chips.findIndex((font) => font.value === selected),
+		)
+		const next = chips[(index + step + chips.length) % chips.length]!
+		onChange(next.value || undefined)
+		groupRef.current
+			?.querySelector<HTMLButtonElement>(`[data-font="${next.value || 'book'}"]`)
+			?.focus()
+	}
 
 	return (
-		<SettingRow
-			label={label}
-			caption={current && (current.value ? shortFontName(current.label) : current.label)}
-		>
+		<div className="flex flex-col">
+			<div className="mb-1.5 gap-2 flex items-baseline justify-between">
+				<span className="leading-4 font-medium text-[12px] text-muted-foreground">{label}</span>
+				<span
+					className="min-w-0 font-semibold truncate text-[12.5px] text-foreground"
+					data-testid="reader-font-name"
+				>
+					{current?.value ? current.label : bookName}
+				</span>
+			</div>
 			<div
+				ref={groupRef}
 				role="radiogroup"
 				aria-label={label}
 				data-testid="reader-font-family"
-				className={cn('gap-0.5 p-0.5 grid w-full grid-cols-5', GLYPH_TRACK)}
+				onKeyDown={onKeyDown}
+				className={cn(
+					'gap-1.5 grid grid-cols-5',
+					// one row that scrolls under the finger on a touch screen, past the sheet's edge
+					'pointer-coarse:-mr-5 pointer-coarse:gap-2 pointer-coarse:pr-5 pointer-coarse:flex pointer-coarse:overflow-x-auto pointer-coarse:overscroll-x-contain pointer-coarse:[scrollbar-width:none] pointer-coarse:[&::-webkit-scrollbar]:hidden',
+				)}
 			>
 				{chips.map((font) => {
 					const checked = font.value === selected
@@ -212,24 +260,28 @@ function FontChips({ value, onChange, label, bookLabel }: FontChipsProps) {
 							aria-checked={checked}
 							aria-label={font.label}
 							title={font.label}
+							tabIndex={checked ? 0 : -1}
 							data-font={font.value || 'book'}
 							onClick={() => onChange(font.value || undefined)}
 							className={cn(
-								'h-8 pointer-coarse:h-10 flex items-center justify-center rounded-md transition-colors',
-								checked ? GLYPH_BUTTON_PRESSED : GLYPH_BUTTON_IDLE,
+								'flex h-[34px] shrink-0 items-center justify-center rounded-lg text-[17px] leading-none transition-[background-color,color,transform] duration-100 active:scale-[.97] motion-reduce:transition-none pointer-coarse:h-[46px] pointer-coarse:w-[58px] pointer-coarse:text-[21px]',
+								'pointer-coarse:[&_svg]:size-5 [&_svg]:size-[17px]',
+								checked ? CHOSEN : cn(TRACK, CELL),
+								FOCUS,
 							)}
 						>
 							{font.value ? (
-								<span className={cn('text-base leading-none', font.fontClassName)}>Aa</span>
+								<span aria-hidden className={cn(font.fontClassName, CHIP_FACE_SIZE[font.value])}>
+									Aa
+								</span>
 							) : (
-								// the book's own font: an open book, since its face isn't known here
-								<BookOpen aria-hidden className="h-4 w-4" />
+								<BookOpen aria-hidden />
 							)}
 						</button>
 					)
 				})}
 			</div>
-		</SettingRow>
+		</div>
 	)
 }
 

@@ -130,6 +130,29 @@ export type BookPreferences = {
 	pageMargins?: number
 }
 
+/** The three readers, which keep their own reading progress settings */
+export type ReaderKind = 'epub' | 'pdf' | 'comic'
+
+/** How a reader shows the reading progress: nothing, the small number, or the reading bar */
+export type ReadingProgressDisplay = 'off' | 'number' | 'bar'
+
+/**
+ * What the reading bar can show, in its fixed order: the chapter on the left; the page
+ * (in the chapter for an EPUB, `x of y` for a PDF or comic), the pages left in the chapter,
+ * the book's percentage and the clock on the right
+ */
+export const READING_BAR_ITEMS = ['chapter', 'page', 'pagesLeft', 'percent', 'clock'] as const
+export type ReadingBarItem = (typeof READING_BAR_ITEMS)[number]
+
+/** The reading bar stays while reading, or comes and goes with the top bar */
+export type ReadingBarShow = 'always' | 'withControls'
+
+export type ReadingProgressPreferences = {
+	display?: ReadingProgressDisplay
+	items?: ReadingBarItem[]
+	show?: ReadingBarShow
+}
+
 /**
  * A type alias for a book ID
  */
@@ -144,9 +167,15 @@ export type ReaderSettings = {
 	 */
 	showToolBar: boolean
 	/**
-	 * Whether the readers show the small page number in a corner (unset: shown)
+	 * Whether the readers show the small page number in a corner (unset: shown). Replaced by
+	 * `readingProgress` (store version 7), which this still seeds for older stores
 	 */
 	showPageIndicator?: boolean
+	/**
+	 * Each reader's reading progress: off, the small number in a corner or the reading bar,
+	 * and what the bar shows. Unset values take the reader's defaults
+	 */
+	readingProgress?: Partial<Record<ReaderKind, ReadingProgressPreferences>>
 	/**
 	 * The preferences for preloading pages
 	 */
@@ -257,7 +286,7 @@ export const createReaderStore = (storage?: StateStorage) =>
 				{
 					name: 'stump-new-reader-store',
 					storage: storage ? createJSONStorage(() => storage) : undefined,
-					version: 6,
+					version: 7,
 					migrate: migrateReaderStore,
 				},
 			),
@@ -268,7 +297,9 @@ export const createReaderStore = (storage?: StateStorage) =>
  * Upgrades a persisted reader store to the current version. Version 6 raised the default
  * EPUB font size from 13 to 22px: the old default, kept in the settings and copied into
  * every book whose preferences were changed, becomes the new one (a size someone picked
- * stays). Stores older than version 5 are dropped, as before migrations existed.
+ * stays). Version 7 replaced the page number switch with each reader's reading progress:
+ * a page number that was turned off stays off in every reader. Stores older than version 5
+ * are dropped, as before migrations existed.
  */
 export function migrateReaderStore(persisted: unknown, version: number): ReaderStore {
 	const state = persisted as Partial<ReaderStore> | undefined
@@ -282,9 +313,21 @@ export function migrateReaderStore(persisted: unknown, version: number): ReaderS
 			? { ...preferences, fontSize: DEFAULT_EPUB_FONT_SIZE }
 			: preferences
 
+	const upgradeProgress = (settings: ReaderSettings): ReaderSettings =>
+		version < 7 && settings.showPageIndicator === false && !settings.readingProgress
+			? {
+					...settings,
+					readingProgress: {
+						epub: { display: 'off' },
+						pdf: { display: 'off' },
+						comic: { display: 'off' },
+					},
+				}
+			: settings
+
 	return {
 		...state,
-		...(state.settings ? { settings: upgradeFontSize(state.settings) } : {}),
+		...(state.settings ? { settings: upgradeProgress(upgradeFontSize(state.settings)) } : {}),
 		...(state.bookPreferences
 			? {
 					bookPreferences: Object.fromEntries(

@@ -1,26 +1,31 @@
 import { cn } from '@stump/components'
 
-import { useReaderStore } from '@/stores'
-
 type Props = {
 	/** e.g. `23 / 327`, `22–23 / 327` */
 	text: string
 	/** Opens "go to": a page number (PDF), the contents (EPUB) or the pages (comics) */
 	onClick?: () => void
 	title?: string
+	/** The reader's progress is set to the page number (not off, not the reading bar) */
+	shown?: boolean
 	className?: string
 }
 
 /**
- * The small page number in the bottom corner, the only reading progress shown over the
- * pages. It can be turned off in the reader settings.
+ * The small page number in the bottom corner, one of the reader's ways to show the reading
+ * progress (Settings → More → Progress: off, this number, or the reading bar).
  *
  * It's a tap target of its own on every device: a tap on it opens "go to" and never reaches
  * the page under it (where the right edge would turn the page). It stays visually small, with
  * a comfortable, invisible hit area around it.
  */
-export default function ReaderPageIndicator({ text, onClick, title, className }: Props) {
-	const shown = useReaderStore((state) => state.settings.showPageIndicator ?? true)
+export default function ReaderPageIndicator({
+	text,
+	onClick,
+	title,
+	shown = true,
+	className,
+}: Props) {
 	if (!shown || !text) return null
 
 	const pill = 'px-1.5 py-0.5 rounded text-[11px] leading-none tabular-nums text-foreground/55'

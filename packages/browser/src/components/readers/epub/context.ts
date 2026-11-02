@@ -13,6 +13,13 @@ export type { EpubSearchResponse, EpubSearchResult } from '@stump/sdk'
 
 export type EpubReaderChapterMeta = {
 	name?: string
+	/** The chapter's place in the contents, from its part down to its own title */
+	path?: string[]
+	/** The page (screen) of the chapter on screen, from 1, and the chapter's pages */
+	pageInChapter?: number
+	pagesInChapter?: number
+	/** The pages after this one in the chapter */
+	pagesLeftInChapter?: number
 	position?: number
 	sectionSpineIndex?: number
 	totalProgression?: number
@@ -30,6 +37,8 @@ export interface EpubContent {
 
 export type EpubReaderBookMeta = {
 	chapter: EpubReaderChapterMeta
+	/** Where the top-level chapters start in the book, from 0 to 1 (the reading bar's ticks) */
+	chapterStarts?: number[]
 	toc: EpubContent[]
 	bookmarks: Record<string, Bookmark>
 	annotations: EpubAnnotation[]

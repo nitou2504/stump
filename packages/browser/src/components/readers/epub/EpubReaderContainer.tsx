@@ -1,5 +1,5 @@
-import { ReadingMode } from '@stump/graphql'
-import { useCallback, useMemo, useState } from 'react'
+import { ReadingDirection, ReadingMode } from '@stump/graphql'
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
@@ -10,6 +10,8 @@ import { canShowTwoPages, type ReaderLayout } from '../shared/layout'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
+import ReadingBar, { useClockText } from '../shared/ReadingBar'
+import { chapterLabel, useReadingProgress } from '../shared/readingProgress'
 import { useDocumentFullscreen, useReaderChrome } from '../shared/useReaderChrome'
 import {
 	EpubReaderContext,
@@ -87,15 +89,20 @@ export default function EpubReaderContainer({
 				readerMeta,
 			}}
 		>
-			<div className="min-h-0 relative h-full w-full overflow-hidden">
+			<div className="min-h-0 relative h-full w-full overflow-hidden" data-epub-stage>
 				<EpubNavigationControls>{children}</EpubNavigationControls>
 				<EpubTopBar
 					chrome={chrome}
 					onContents={() => setContentsOpen(true)}
 					onSearch={controls.searchBook ? () => setSearchOpen(true) : undefined}
 					onSettings={() => openSettings()}
+					settingsOpen={settingsOpen}
 				/>
-				<EpubPageIndicator onClick={() => setContentsOpen(true)} />
+				<EpubProgress
+					onClick={() => setContentsOpen(true)}
+					chromeVisible={chrome.visible}
+					settingsOpen={settingsOpen}
+				/>
 				<EpubSettings
 					open={settingsOpen}
 					onOpenChange={setSettingsOpen}
@@ -114,11 +121,13 @@ function EpubTopBar({
 	onContents,
 	onSearch,
 	onSettings,
+	settingsOpen,
 }: {
 	chrome: ReturnType<typeof useReaderChrome>
 	onContents: () => void
 	onSearch?: () => void
 	onSettings: () => void
+	settingsOpen: boolean
 }) {
 	const paths = usePaths()
 	const {
@@ -148,15 +157,144 @@ function EpubTopBar({
 				},
 			}}
 			onSettings={onSettings}
+			settingsOpen={settingsOpen}
 		/>
 	)
+}
+
+/**
+ * The reading progress the reader picked: the reading bar at the foot of the page (the
+ * default: the chapter, the pages left in it and the book's percentage), the small number
+ * in a corner, or nothing. A tap on either opens the contents.
+ */
+function EpubProgress({
+	onClick,
+	chromeVisible,
+	settingsOpen,
+}: {
+	onClick: () => void
+	chromeVisible: boolean
+	settingsOpen: boolean
+}) {
+	const { display } = useReadingProgress('epub')
+	if (display === 'bar') {
+		return (
+			<EpubReadingBar onClick={onClick} chromeVisible={chromeVisible} settingsOpen={settingsOpen} />
+		)
+	}
+	return <EpubPageIndicator onClick={onClick} shown={display === 'number'} />
+}
+
+/** Phones: below Tailwind's `sm`, where the settings are a sheet over the page's foot */
+const PHONE_QUERY = '(max-width: 639.98px)'
+/** The bar's side margins on a phone, and its widest on a larger screen */
+const PHONE_BAR_INSET = 22
+const MAX_BAR_WIDTH = 680
+
+function EpubReadingBar({
+	onClick,
+	chromeVisible,
+	settingsOpen,
+}: {
+	onClick: () => void
+	chromeVisible: boolean
+	settingsOpen: boolean
+}) {
+	const { translate } = useTranslate()
+	const {
+		readerMeta: { bookMeta, progress, bookEntity: book },
+	} = useEpubReaderContext()
+	const {
+		bookPreferences: { readingDirection },
+	} = useBookPreferences({ book })
+	const { items, show } = useReadingProgress('epub')
+	const clock = useClockText(items.includes('clock'))
+	const placement = useTextColumnPlacement(bookMeta?.chapter.totalProgression)
+	if (!bookMeta) return null
+
+	const { chapter } = bookMeta
+	const position = Math.min(1, Math.max(0, chapter.totalProgression ?? progress ?? 0))
+	const isPhone = !!window.matchMedia?.(PHONE_QUERY).matches
+	const t = (key: string, options?: Record<string, unknown>) =>
+		translate(`shared.reader.progress.${key}`, options)
+
+	const left = items.includes('chapter') ? chapterLabel(chapter.path ?? []) : undefined
+	const right: string[] = []
+	if (items.includes('page') && chapter.pageInChapter && chapter.pagesInChapter) {
+		right.push(t('pageInChapter', { page: chapter.pageInChapter, total: chapter.pagesInChapter }))
+	}
+	if (items.includes('pagesLeft') && chapter.pagesLeftInChapter != null) {
+		right.push(
+			t(isPhone ? 'pagesLeftShort' : 'pagesLeftInChapter', { count: chapter.pagesLeftInChapter }),
+		)
+	}
+	if (items.includes('percent')) right.push(`${Math.round(position * 100)}%`)
+	if (items.includes('clock')) right.push(clock)
+
+	return (
+		<ReadingBar
+			chapters={bookMeta.chapterStarts ?? []}
+			position={position}
+			left={left}
+			right={right}
+			rtl={readingDirection === ReadingDirection.Rtl}
+			onClick={onClick}
+			label={[left, ...right, translate('shared.epubReader.locationManager')]
+				.filter(Boolean)
+				.join(', ')}
+			visible={(show === 'always' || chromeVisible) && !(settingsOpen && isPhone)}
+			emphasized={chromeVisible}
+			style={placement}
+		/>
+	)
+}
+
+/**
+ * Where the bar sits: across the book's text column (Readium narrows its container to the
+ * column), at most 680px wide; on a phone, across the screen less 22px at each side
+ */
+function useTextColumnPlacement(at: number | undefined): React.CSSProperties {
+	const [placement, setPlacement] = useState<React.CSSProperties>({
+		left: PHONE_BAR_INSET,
+		right: PHONE_BAR_INSET,
+	})
+	// measured again as the book moves on: Readium sizes its column once a chapter is laid out
+	useLayoutEffect(() => {
+		const measure = () => {
+			const column = document.querySelector<HTMLElement>('[data-epub-column]')
+			const stage = column?.closest<HTMLElement>('[data-epub-stage]')
+			if (!column || !stage || window.matchMedia?.(PHONE_QUERY).matches) {
+				setPlacement({
+					left: `calc(${PHONE_BAR_INSET}px + env(safe-area-inset-left))`,
+					right: `calc(${PHONE_BAR_INSET}px + env(safe-area-inset-right))`,
+				})
+				return
+			}
+			const box = column.getBoundingClientRect()
+			const frame = stage.getBoundingClientRect()
+			const width = Math.min(MAX_BAR_WIDTH, Math.max(0, box.width - 2 * PHONE_BAR_INSET))
+			const left = box.left - frame.left + (box.width - width) / 2
+			setPlacement({ left, width })
+		}
+		measure()
+		const column = document.querySelector<HTMLElement>('[data-epub-column]')
+		const observer =
+			typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => measure())
+		if (column) observer?.observe(column)
+		window.addEventListener('resize', measure)
+		return () => {
+			observer?.disconnect()
+			window.removeEventListener('resize', measure)
+		}
+	}, [at])
+	return placement
 }
 
 /**
  * The position in the book (Readium's positions, about a page of text each); a tap on it
  * opens the contents, to go to another chapter
  */
-function EpubPageIndicator({ onClick }: { onClick: () => void }) {
+function EpubPageIndicator({ onClick, shown }: { onClick: () => void; shown: boolean }) {
 	const { translate } = useTranslate()
 	const { bookMeta, progress } = useEpubReaderContext().readerMeta
 	if (!bookMeta) return null
@@ -170,6 +308,7 @@ function EpubPageIndicator({ onClick }: { onClick: () => void }) {
 		<ReaderPageIndicator
 			text={text}
 			onClick={onClick}
+			shown={shown}
 			title={translate('shared.epubReader.locationManager')}
 		/>
 	)
@@ -220,6 +359,7 @@ function EpubSettings({
 			open={open}
 			onOpenChange={onOpenChange}
 			section={section}
+			reader="epub"
 			layout={layout}
 			onLayoutChange={(next) =>
 				setBookPreferences({

@@ -5,10 +5,9 @@ type Props = {
 }
 
 /**
- * The reading settings glyph: a serif capital A with a smaller, two-storey lowercase a,
- * drawn on lucide's 24px grid with a matching round stroke, so it sits with the bar's other
- * icons. Bookish rather than technical (lucide's `ALargeSmall` is a geometric sans), which is
- * what a reader's type and page settings are about.
+ * The reading settings glyph, `Aa`: a monoline capital A and a single-storey a, drawn on
+ * lucide's 24px grid with its round 1.75 stroke so it sits with the bar's other icons and
+ * stays clear at 16px (see the reader design's components board)
  */
 export default function ReaderStyleGlyph({ className }: Props) {
 	return (
@@ -23,15 +22,12 @@ export default function ReaderStyleGlyph({ className }: Props) {
 			className={cn('h-[18px] w-[18px] shrink-0', className)}
 			data-testid="reader-style-glyph"
 		>
-			<g transform="translate(0.7 0)">
-				{/* A: the two strokes, the bar and its two feet */}
-				<path d="M2.6 19 7.5 4.5 12.4 19" />
-				<path d="M4.4 14h6.2" />
-				<path d="M1.4 19h2.5M11.1 19h2.6" />
-				{/* a: the hooked stem with its little tail, then the bowl */}
-				<path d="M15.8 12.3C16.4 11.4 17.3 11 18.3 11 19.6 11 20.2 11.7 20.2 13V18.1c0 .6.35.95 1 .95" />
-				<path d="M20.2 15C18.4 15 15.4 15.3 15.4 17.2 15.4 18.4 16.3 19.1 17.4 19.1 18.8 19.1 19.8 18.2 20.2 17.1" />
-			</g>
+			{/* A: the two strokes and the bar */}
+			<path d="M2.75 19.25 8 5l5.25 14.25" />
+			<path d="M4.75 14.25h6.5" />
+			{/* a: the bowl and its stem */}
+			<circle cx="17.6" cy="16.15" r="3.1" />
+			<path d="M20.7 12.9v6.35" />
 		</svg>
 	)
 }

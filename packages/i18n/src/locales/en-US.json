@@ -3919,7 +3919,9 @@
         "direction": "Direction",
         "brightness": "Light",
         "more": "More",
-        "less": "Less"
+        "less": "Less",
+        "shortcuts": "Shortcuts",
+        "bookFontName": "Book's own"
       },
       "layout": {
         "label": "Page Layout",
@@ -3988,7 +3990,31 @@
         "alignJustify": "Justified (with Hyphenation)",
         "alignStart": "Left Aligned"
       },
-      "pages": "Pages"
+      "pages": "Pages",
+      "progress": {
+        "label": "Progress",
+        "off": "Off",
+        "number": "Number",
+        "bar": "Bar",
+        "barShows": "The bar shows",
+        "show": "Show",
+        "always": "Always",
+        "withControls": "With controls",
+        "items": {
+          "chapter": "Chapter",
+          "page": "Page",
+          "pagesLeft": "Pages left",
+          "percent": "Book %",
+          "clock": "Clock"
+        },
+        "pagesLeftInChapter_one": "{{count}} page left in chapter",
+        "pagesLeftInChapter_other": "{{count}} pages left in chapter",
+        "pagesLeftShort_one": "{{count}} page left",
+        "pagesLeftShort_other": "{{count}} pages left",
+        "pageInChapter": "Page {{page}} of {{total}} in chapter",
+        "pageOf": "Page {{page}} of {{total}}",
+        "leftInChapter": "{{count}} left in chapter"
+      }
     }
   }
 }

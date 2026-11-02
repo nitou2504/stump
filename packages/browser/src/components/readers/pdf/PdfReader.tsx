@@ -40,6 +40,7 @@ import { copyText, nextDayNightTheme } from '../shared/readerKeys'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
+import { useReadingProgress } from '../shared/readingProgress'
 import { SwitchRow } from '../shared/settingsControls'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
@@ -75,9 +76,9 @@ import PdfLocationsDialog, { type PdfLocationTab } from './PdfLocationsDialog'
 import PdfPageView from './PdfPageView'
 import { PDF_READER_CSS } from './pdfReaderCss'
 import PdfSearchDialog from './PdfSearchDialog'
-import { PdfOpenAs, PdfPageSettings } from './PdfSettings'
+import { PdfOpenAs, PdfPageSettings, PdfReadingBar } from './PdfSettings'
 import { resolvePdfShortcut } from './pdfShortcuts'
-import { pdfThemeLook, resolvePdfTheme } from './pdfThemes'
+import { isDarkTheme, pdfThemeLook, resolvePdfTheme } from './pdfThemes'
 import {
 	buildScrollLayout,
 	dominantPage,
@@ -203,6 +204,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const invertPagesInDark = preferences.invertPagesInDark ?? true
 	const look = useMemo(() => pdfThemeLook(theme, invertPagesInDark), [theme, invertPagesInDark])
 	useReaderChromeTheme(themeSetting)
+	const readingProgress = useReadingProgress('pdf')
 
 	const {
 		bookPreferences: { trackElapsedTime },
@@ -1436,13 +1438,30 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				onSearch={layout.hasText ? () => setSearchOpen(true) : undefined}
 				bookmark={{ active: !!currentBookmark, onToggle: () => void toggleBookmark() }}
 				onSettings={() => openSettings()}
+				settingsOpen={settingsOpen}
 			/>
 
-			<ReaderPageIndicator
-				text={indicator}
-				onClick={() => setGoToOpen(true)}
-				title={`${translate('shared.pdfReader.goToPage')} (G)`}
-			/>
+			{readingProgress.display === 'bar' ? (
+				<PdfReadingBar
+					outline={flatOutline}
+					page={currentPage}
+					pageCount={pageCount}
+					items={readingProgress.items}
+					visible={
+						(readingProgress.show === 'always' || chrome.visible) && !(settingsOpen && isPhone)
+					}
+					emphasized={chrome.visible}
+					onClick={() => setGoToOpen(true)}
+					label={translate('shared.pdfReader.goToPage')}
+				/>
+			) : (
+				<ReaderPageIndicator
+					text={indicator}
+					shown={readingProgress.display === 'number'}
+					onClick={() => setGoToOpen(true)}
+					title={`${translate('shared.pdfReader.goToPage')} (G)`}
+				/>
+			)}
 
 			{target && (
 				<AnnotationToolbar
@@ -1501,6 +1520,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				open={settingsOpen}
 				onOpenChange={setSettingsOpen}
 				section={settingsSection}
+				reader="pdf"
 				layout={storedLayout}
 				onLayoutChange={(next) =>
 					setPreferences({
@@ -1526,6 +1546,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					fit={fit}
 					zoom={zoom}
 					invertPagesInDark={invertPagesInDark}
+					darkTheme={isDarkTheme(theme)}
 					onChange={setPreferences}
 				/>
 			</ReaderSettingsDialog>

@@ -10,7 +10,7 @@ import {
 	Plus,
 	Scan,
 } from 'lucide-react'
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 
 import { useTheme } from '@/hooks/useTheme'
 import { useTranslate } from '@/hooks/useTranslate'
@@ -20,53 +20,51 @@ import { resolveReaderTheme } from '../epub/readium/preferences'
 
 /**
  * The small building blocks of the reader settings panel, shared by every reader so the
- * EPUB, PDF and comic panels look and behave the same: a row with a short label and its
- * control, segmented glyph buttons, a stepper, a switch row and the theme swatches.
+ * EPUB, PDF and comic panels look and behave the same ("ink and paper"): the panel is
+ * printed with the book's own ink on the book's own paper. An option not chosen is drawn in
+ * ink at 80% on a track of ink at 7%; the chosen one is inked solid, its glyph knocked out
+ * in the paper's colour. Orange only marks keyboard focus and switches that are on.
  */
+
+/** The track options sit in: ink at 7% (never `muted`, which vanishes in dark and black) */
+export const TRACK = 'bg-foreground/7'
+/** An option not chosen: ink at 80%, darker under a mouse */
+export const CELL =
+	'text-foreground/80 pointer-fine:hover:bg-foreground/7 pointer-fine:hover:text-foreground'
+/** The chosen option: solid ink, the glyph in the paper's colour */
+export const CHOSEN = 'bg-foreground text-popover'
+/** Keyboard focus: the panel's only orange, a 2px ring with a gap in the panel's colour */
+export const FOCUS =
+	'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-popover'
+/** A label at the start of a row, and the captions under the controls */
+const LABEL = 'text-[12px] leading-4 font-medium text-muted-foreground'
 
 type RowProps = {
 	label: string
 	children: React.ReactNode
 	/** A short explanation, shown as the row's tooltip */
 	hint?: string
-	/** A second line under the label, e.g. the name of the picked typeface */
-	caption?: string
 	className?: string
 }
 
-/** One line of the panel: the label on the left, the control on the right */
-export function SettingRow({ label, children, hint, caption, className }: RowProps) {
+/** One line of the panel: a short label, then its control filling the rest */
+export function SettingRow({ label, children, hint, className }: RowProps) {
 	return (
-		<div className={cn('gap-3 min-h-9 flex items-center', className)} title={hint}>
-			<span className="w-16 gap-0.5 flex shrink-0 flex-col">
-				<span className="text-xs text-muted-foreground">{label}</span>
-				{caption && (
-					<span className="leading-tight truncate text-[11px] text-foreground" title={caption}>
-						{caption}
-					</span>
-				)}
-			</span>
+		<div
+			className={cn('gap-2.5 pointer-coarse:min-h-11 flex min-h-[34px] items-center', className)}
+			title={hint}
+		>
+			<span className={cn(LABEL, 'w-[58px] shrink-0 pointer-coarse:w-[62px]')}>{label}</span>
 			<div className="min-w-0 flex flex-1 justify-end">{children}</div>
 		</div>
 	)
 }
 
-/**
- * The look of a pressed and an unpressed glyph button, shared by every control of the panel
- * (segments, typefaces, steppers) so they read the same in every page colour: the unpressed
- * glyphs in full-contrast text (never faded), the pressed one lifted onto the panel's ground
- * with an accent outline
- */
-export const GLYPH_BUTTON_IDLE = 'text-foreground/85 hover:bg-background/70 hover:text-foreground'
-export const GLYPH_BUTTON_PRESSED =
-	'shadow-sm bg-background text-foreground ring-1 ring-inset ring-primary/70'
-/** The track the glyph buttons sit in */
-export const GLYPH_TRACK = 'rounded-lg bg-foreground/[0.07]'
-
 export type SegmentOption<T extends string | number> = {
 	value: T
 	/** The option's name, for its tooltip and screen readers */
 	label: string
+	/** A glyph, or a short word for the `text` variant */
 	icon: React.ReactNode
 	/** Why it can't be picked here (it's shown dimmed with this as its tooltip) */
 	disabledReason?: string | null
@@ -79,25 +77,68 @@ type SegmentedProps<T extends string | number> = {
 	value: T | null
 	options: SegmentOption<T>[]
 	onChange: (value: T) => void
+	/** `text`: the options are short words (e.g. Off · Number · Bar) instead of glyphs */
+	variant?: 'glyph' | 'text'
 	className?: string
 	testId?: string
 }
 
-/** A row of glyph buttons, one of them pressed (a radio group) */
+/**
+ * A row of options, one of them chosen (a radio group). The arrow keys move the choice
+ * (Home and End jump to the ends), and only the chosen option is in the tab order.
+ */
 export function Segmented<T extends string | number>({
 	label,
 	value,
 	options,
 	onChange,
+	variant = 'glyph',
 	className,
 	testId,
 }: SegmentedProps<T>) {
+	const groupRef = useRef<HTMLDivElement>(null)
+	const enabled = options.filter((option) => !option.disabledReason)
+	const focusable = options.find((option) => option.value === value && !option.disabledReason)
+		? value
+		: enabled[0]?.value
+
+	const onKeyDown = (event: React.KeyboardEvent) => {
+		const keys: Record<string, number | 'first' | 'last'> = {
+			ArrowLeft: -1,
+			ArrowUp: -1,
+			ArrowRight: 1,
+			ArrowDown: 1,
+			Home: 'first',
+			End: 'last',
+		}
+		const move = keys[event.key]
+		if (move === undefined || !enabled.length) return
+		event.preventDefault()
+		// a keyboard choice stays in the panel's control (not the reader's page turns)
+		event.stopPropagation()
+		const index = enabled.findIndex((option) => option.value === value)
+		const next =
+			move === 'first'
+				? enabled[0]
+				: move === 'last'
+					? enabled[enabled.length - 1]
+					: enabled[(Math.max(0, index) + move + enabled.length) % enabled.length]
+		if (!next) return
+		onChange(next.value)
+		const button = groupRef.current?.querySelector<HTMLButtonElement>(
+			`[data-option="${String(next.value)}"]`,
+		)
+		button?.focus()
+	}
+
 	return (
 		<div
+			ref={groupRef}
 			role="radiogroup"
 			aria-label={label}
 			data-testid={testId}
-			className={cn('gap-0.5 p-0.5 flex', GLYPH_TRACK, className)}
+			onKeyDown={onKeyDown}
+			className={cn('gap-0.5 p-0.5 flex rounded-[10px]', TRACK, className)}
 		>
 			{options.map((option) => {
 				const checked = option.value === value
@@ -110,18 +151,53 @@ export function Segmented<T extends string | number>({
 						aria-label={option.label}
 						title={option.disabledReason ?? option.label}
 						disabled={!!option.disabledReason}
+						tabIndex={option.value === focusable ? 0 : -1}
+						data-option={String(option.value)}
 						onClick={() => onChange(option.value)}
 						{...option.attributes}
 						className={cn(
-							'h-8 min-w-9 px-2 pointer-coarse:h-10 flex flex-1 items-center justify-center rounded-md transition-colors',
-							checked ? GLYPH_BUTTON_PRESSED : GLYPH_BUTTON_IDLE,
-							'disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent',
+							'pointer-coarse:h-10 min-w-7 flex h-[30px] flex-1 items-center justify-center rounded-lg transition-[background-color,color,transform] duration-100 active:scale-[.97] motion-reduce:transition-none',
+							'[&_svg]:size-[17px]',
+							variant === 'text' && 'px-2 font-medium text-[12px] whitespace-nowrap',
+							checked ? CHOSEN : CELL,
+							'disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 pointer-fine:disabled:hover:bg-transparent',
+							FOCUS,
 						)}
 					>
 						{option.icon}
 					</button>
 				)
 			})}
+		</div>
+	)
+}
+
+type TrioGroup<T extends string | number> = Omit<SegmentedProps<T>, 'variant'> & {
+	/** The short word under the group, e.g. Spacing */
+	caption: string
+}
+
+/**
+ * Three small choices side by side with a caption under each (spacing, margins and
+ * alignment): one row instead of three labelled ones
+ */
+export function SegmentedTrio({
+	groups,
+}: {
+	// the three groups hold different value types
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	groups: TrioGroup<any>[]
+}) {
+	return (
+		<div className="gap-2 grid grid-cols-3">
+			{groups.map(({ caption, ...group }) => (
+				<div key={caption} className="min-w-0 flex flex-col">
+					<Segmented {...group} className={cn('w-full', group.className)} />
+					<span className={cn(LABEL, 'mt-1 text-center text-[11px] leading-[14px]')}>
+						{caption}
+					</span>
+				</div>
+			))}
 		</div>
 	)
 }
@@ -162,15 +238,21 @@ export function Stepper({
 	testId,
 }: StepperProps) {
 	const buttonClass = cn(
-		'h-8 w-11 pointer-coarse:h-10 flex items-center justify-center rounded-md transition-colors disabled:opacity-35 disabled:hover:bg-transparent',
-		GLYPH_BUTTON_IDLE,
+		'pointer-coarse:h-10 pointer-coarse:w-14 flex h-[30px] w-[46px] shrink-0 items-center justify-center rounded-lg text-foreground transition-[background-color,transform] duration-100 active:scale-[.97] motion-reduce:transition-none',
+		'pointer-fine:hover:bg-foreground/7 [&_svg]:size-[15px]',
+		'disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 pointer-fine:disabled:hover:bg-transparent',
+		FOCUS,
 	)
+	const value = 'text-[13px] font-semibold tabular-nums text-foreground'
 	return (
 		<div
 			role="group"
 			aria-label={label}
 			data-testid={testId}
-			className={cn('p-0.5 flex w-full items-center', GLYPH_TRACK)}
+			className={cn(
+				'p-0.5 pointer-coarse:h-11 flex h-[34px] w-full items-center rounded-[10px]',
+				TRACK,
+			)}
 		>
 			<button
 				type="button"
@@ -180,12 +262,16 @@ export function Stepper({
 				disabled={!canDecrease}
 				onClick={onDecrease}
 			>
-				{decreaseIcon ?? <Minus className="h-3.5 w-3.5" />}
+				{decreaseIcon ?? <Minus aria-hidden />}
 			</button>
 			{onReset ? (
 				<button
 					type="button"
-					className="h-8 text-sm pointer-coarse:h-10 flex-1 rounded-md text-center tabular-nums hover:bg-background/60"
+					className={cn(
+						'h-full flex-1 rounded-lg text-center pointer-fine:hover:bg-foreground/7',
+						value,
+						FOCUS,
+					)}
 					onClick={onReset}
 					title={resetLabel}
 					aria-label={`${display}${resetLabel ? `, ${resetLabel}` : ''}`}
@@ -193,7 +279,7 @@ export function Stepper({
 					{display}
 				</button>
 			) : (
-				<span className="text-sm flex-1 text-center tabular-nums" aria-live="polite">
+				<span className={cn('flex-1 text-center', value)} aria-live="polite">
 					{display}
 				</span>
 			)}
@@ -205,7 +291,7 @@ export function Stepper({
 				disabled={!canIncrease}
 				onClick={onIncrease}
 			>
-				{increaseIcon ?? <Plus className="h-3.5 w-3.5" />}
+				{increaseIcon ?? <Plus aria-hidden />}
 			</button>
 		</div>
 	)
@@ -222,13 +308,82 @@ type SwitchRowProps = {
 export function SwitchRow({ label, checked, onCheckedChange, hint }: SwitchRowProps) {
 	const id = useId()
 	return (
-		<div className="gap-3 min-h-9 flex items-center justify-between" title={hint}>
-			<label htmlFor={id} className="text-sm cursor-pointer text-foreground/90">
+		<div
+			className="gap-3 pointer-coarse:min-h-11 flex min-h-[34px] items-center justify-between"
+			title={hint}
+		>
+			<label htmlFor={id} className="cursor-pointer text-[13px] text-foreground">
 				{label}
 			</label>
 			<RawSwitch id={id} checked={checked} onCheckedChange={onCheckedChange} />
 		</div>
 	)
+}
+
+type ChipOption<T extends string> = { value: T; label: string }
+
+/** Options that can each be on or off, as small pills (e.g. what the reading bar shows) */
+export function ToggleChips<T extends string>({
+	label,
+	options,
+	value,
+	onChange,
+	testId,
+}: {
+	label: string
+	options: ChipOption<T>[]
+	value: T[]
+	onChange: (value: T[]) => void
+	testId?: string
+}) {
+	return (
+		<div role="group" aria-label={label} className="gap-1.5 flex flex-wrap" data-testid={testId}>
+			{options.map((option) => {
+				const on = value.includes(option.value)
+				return (
+					<button
+						key={option.value}
+						type="button"
+						aria-pressed={on}
+						data-option={option.value}
+						onClick={() =>
+							onChange(
+								on
+									? value.filter((item) => item !== option.value)
+									: // kept in the options' order
+										options
+											.map((candidate) => candidate.value)
+											.filter((item) => item === option.value || value.includes(item)),
+							)
+						}
+						className={cn(
+							'gap-1.5 px-2.5 pointer-coarse:h-9 font-medium inline-flex h-[26px] items-center rounded-full text-[12px] transition-colors duration-100',
+							on ? CHOSEN : cn(TRACK, CELL),
+							FOCUS,
+						)}
+					>
+						{on && (
+							<svg aria-hidden viewBox="0 0 16 16" className="size-[13px]" fill="none">
+								<path
+									d="M3.5 8.5 6.5 11.5 12.5 4.5"
+									stroke="currentColor"
+									strokeWidth="1.75"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								/>
+							</svg>
+						)}
+						{option.label}
+					</button>
+				)
+			})}
+		</div>
+	)
+}
+
+/** A small heading inside the panel (e.g. "The bar shows") */
+export function PanelSubheading({ children }: { children: React.ReactNode }) {
+	return <p className={cn(LABEL, 'mt-1 text-[11px]')}>{children}</p>
 }
 
 const THEME_KEYS: Record<EpubReaderTheme, string> = {
@@ -240,21 +395,37 @@ const THEME_KEYS: Record<EpubReaderTheme, string> = {
 }
 
 /**
- * The page colours as small round swatches of paper, each showing its text colour. `auto`
- * is split between the light and dark papers: it follows the app.
+ * The page colours as small sheets of each paper, each showing "Aa" in its own ink. `auto`
+ * is split down the middle, a light half and a dark one: it follows the app.
  */
 export function ThemeSwatches() {
 	const { translate } = useTranslate()
 	const { isDarkVariant } = useTheme()
 	const theme = useReaderStore((state) => state.settings.theme ?? 'auto')
 	const setSettings = useReaderStore((state) => state.setSettings)
+	const groupRef = useRef<HTMLDivElement>(null)
+
+	const choose = (option: EpubReaderTheme) => setSettings({ theme: option })
+	const onKeyDown = (event: React.KeyboardEvent) => {
+		const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+		if (!step) return
+		event.preventDefault()
+		event.stopPropagation()
+		const index = EPUB_READER_THEMES.indexOf(theme)
+		const next =
+			EPUB_READER_THEMES[(index + step + EPUB_READER_THEMES.length) % EPUB_READER_THEMES.length]!
+		choose(next)
+		groupRef.current?.querySelector<HTMLButtonElement>(`[data-theme-option="${next}"]`)?.focus()
+	}
 
 	return (
 		<div
-			className="gap-1.5 flex items-center"
+			ref={groupRef}
+			className="gap-2 pointer-coarse:gap-2.5 flex items-center"
 			role="radiogroup"
 			aria-label={translate('shared.reader.settings.theme')}
 			data-testid="reader-theme-swatches"
+			onKeyDown={onKeyDown}
 		>
 			{EPUB_READER_THEMES.map((option) => {
 				const isActive = theme === option
@@ -268,16 +439,17 @@ export function ThemeSwatches() {
 						role="radio"
 						aria-checked={isActive}
 						aria-label={label}
+						tabIndex={isActive ? 0 : -1}
 						title={auto ? `${label}: ${translate('shared.reader.themes.autoHint')}` : label}
-						onClick={() => setSettings({ theme: option })}
+						onClick={() => choose(option)}
 						data-theme-option={option}
 						className={cn(
-							'size-8 font-serif pointer-coarse:size-10 relative flex shrink-0 items-center justify-center rounded-full text-[11px] transition-shadow',
-							// the Auto swatch draws its own edge (an SVG circle), the papers a border
-							!auto && 'border border-foreground/15',
-							isActive
-								? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-								: 'hover:ring-1 hover:ring-foreground/30',
+							'w-10 font-medium relative grid h-[30px] shrink-0 place-items-center overflow-hidden rounded-lg font-literata text-[14px] leading-none tracking-[-0.01em] transition-shadow duration-100 pointer-coarse:h-[38px] pointer-coarse:w-[52px] pointer-coarse:rounded-[10px] pointer-coarse:text-[16px]',
+							// the paper's edge, drawn over its contents so the split Auto keeps it too
+							'after:inset-0 after:pointer-events-none after:absolute after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_16%,transparent)]',
+							// chosen: an ink ring outside a gap in the panel's colour
+							isActive && 'shadow-[0_0_0_2px_var(--popover),0_0_0_3.5px_var(--foreground)]',
+							'focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--primary)] focus-visible:outline-none',
 						)}
 						style={auto ? undefined : { backgroundColor: colors.background, color: colors.text }}
 					>
@@ -290,44 +462,26 @@ export function ThemeSwatches() {
 }
 
 /**
- * The Auto swatch: one round paper cut diagonally, light on one half and dark on the other,
- * with `Aa` running across the cut in each half's own ink (what the page does: it follows the
- * app between the two). The papers are one SVG, so the halves meet cleanly at the circle's
- * edge; the letters are the same text as the other swatches', clipped to each half.
+ * The Auto paper: two halves side by side, a light page with a dark `A` and a dark page
+ * with a light `a` (what the page does: it follows the app between the two)
  */
 export function AutoPaperGlyph() {
 	const light = resolveReaderTheme('light', false)
 	const dark = resolveReaderTheme('dark', true)
-	// the cut runs from the top-right corner to the bottom-left one: light above, dark below
-	const lightHalf = 'polygon(0 0, 100% 0, 0 100%)'
-	const darkHalf = 'polygon(100% 0, 100% 100%, 0 100%)'
-	const letters = (color: string, clipPath: string) => (
-		<span className="inset-0 absolute flex items-center justify-center" style={{ color, clipPath }}>
-			Aa
-		</span>
-	)
 	return (
-		<span
-			aria-hidden
-			className="inset-0 absolute overflow-hidden rounded-full"
-			data-testid="auto-paper-glyph"
-		>
-			<svg viewBox="0 0 32 32" className="inset-0 absolute size-full">
-				<path d="M0 0 L32 0 L0 32 Z" fill={light.background} />
-				<path d="M32 0 L32 32 L0 32 Z" fill={dark.background} />
-				{/* the same hairline edge as the other papers */}
-				<circle
-					cx="16"
-					cy="16"
-					r="15.5"
-					fill="none"
-					stroke="currentColor"
-					strokeOpacity="0.15"
-					className="text-foreground"
-				/>
-			</svg>
-			{letters(light.text, lightHalf)}
-			{letters(dark.text, darkHalf)}
+		<span aria-hidden className="inset-0 absolute flex" data-testid="auto-paper-glyph">
+			<span
+				className="flex flex-1 items-center justify-end pr-px"
+				style={{ backgroundColor: light.background, color: light.text }}
+			>
+				A
+			</span>
+			<span
+				className="flex flex-1 items-center justify-start pl-px"
+				style={{ backgroundColor: dark.background, color: dark.text }}
+			>
+				a
+			</span>
 		</span>
 	)
 }
@@ -353,12 +507,12 @@ export function DirectionRow({ value, onChange }: DirectionRowProps) {
 					{
 						value: ReadingDirection.Ltr,
 						label: translate('shared.reader.direction.ltr'),
-						icon: <ArrowRight className="h-4 w-4" />,
+						icon: <ArrowRight aria-hidden />,
 					},
 					{
 						value: ReadingDirection.Rtl,
 						label: translate('shared.reader.direction.rtl'),
-						icon: <ArrowLeft className="h-4 w-4" />,
+						icon: <ArrowLeft aria-hidden />,
 					},
 				]}
 			/>
@@ -375,14 +529,14 @@ export type FitGlyphMode = 'width' | 'height' | 'page' | 'original'
 export function FitGlyph({ mode }: { mode: FitGlyphMode }) {
 	switch (mode) {
 		case 'width':
-			return <MoveHorizontal aria-hidden className="h-4 w-4" />
+			return <MoveHorizontal aria-hidden />
 		case 'height':
-			return <MoveVertical aria-hidden className="h-4 w-4" />
+			return <MoveVertical aria-hidden />
 		case 'page':
-			return <Scan aria-hidden className="h-4 w-4" />
+			return <Scan aria-hidden />
 		case 'original':
 			return (
-				<span aria-hidden className="font-medium text-[11px] leading-none tabular-nums">
+				<span aria-hidden className="font-semibold text-[11.5px] leading-none tabular-nums">
 					1:1
 				</span>
 			)

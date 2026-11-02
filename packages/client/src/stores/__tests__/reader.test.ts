@@ -38,4 +38,26 @@ describe('migrateReaderStore', () => {
 	it('copes with a store without settings or books', () => {
 		expect(migrateReaderStore({}, 5)).toEqual({} as ReaderStore)
 	})
+
+	it('keeps a page number that was turned off off in every reader (version 7)', () => {
+		const migrated = migrateReaderStore(
+			{ settings: { fontSize: 22, showPageIndicator: false }, bookPreferences: {} },
+			6,
+		)
+		expect(migrated.settings.readingProgress).toEqual({
+			epub: { display: 'off' },
+			pdf: { display: 'off' },
+			comic: { display: 'off' },
+		})
+	})
+
+	it("leaves each reader's progress to its defaults when the page number was shown", () => {
+		const migrated = migrateReaderStore(
+			{ settings: { fontSize: 22, showPageIndicator: true }, bookPreferences: {} },
+			6,
+		)
+		expect(migrated.settings.readingProgress).toBeUndefined()
+		const untouched = migrateReaderStore({ settings: { fontSize: 22 }, bookPreferences: {} }, 6)
+		expect(untouched.settings.readingProgress).toBeUndefined()
+	})
 })

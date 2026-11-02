@@ -35,7 +35,8 @@ export const READER_CHROME: Record<Exclude<EpubReaderTheme, 'auto'>, ChromePalet
 		colorScheme: 'light',
 		foreground: '#5b4636',
 		muted: '#ece2c9',
-		mutedForeground: '#8a7560',
+		// 5.3:1 on the sepia panel (the old #8a7560 was 3.9:1, under AA for small labels)
+		mutedForeground: '#74604b',
 		surface: '#f7f0df',
 	},
 	dark: {
