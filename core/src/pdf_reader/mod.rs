@@ -250,17 +250,52 @@ impl PdfReaderService {
 	}
 
 	/// The document's layout: page sizes, outline, whether it has text, the allowed tiers
-	pub async fn layout(&self, path: &Path) -> Result<Arc<PdfLayout>, PdfReaderError> {
+	pub async fn layout(
+		&'static self,
+		path: &Path,
+	) -> Result<Arc<PdfLayout>, PdfReaderError> {
+		self.layout_then(path, None).await
+	}
+
+	/// The layout, with the picture of the page the reader will show first queued right
+	/// behind it (`first_page = (page, width, reader)`): the page request that follows the
+	/// layout finds the picture in flight or cached instead of starting it.
+	pub async fn layout_then(
+		&'static self,
+		path: &Path,
+		first_page: Option<(i32, u32, ClientKey)>,
+	) -> Result<Arc<PdfLayout>, PdfReaderError> {
 		let version = document_version(path)?;
-		if let Some(layout) = self.layouts.lock().ok().and_then(|mut l| l.get(&version)) {
+		let cached = self.layouts.lock().ok().and_then(|mut l| l.get(&version));
+		// the layout job is queued first (synchronously), then the picture behind it
+		let layout_job = match cached {
+			Some(_) => None,
+			None => Some(self.submit(
+				JobKey {
+					path: path.to_path_buf(),
+					version: version.clone(),
+					kind: JobKind::Layout,
+				},
+				Priority::Foreground,
+				None,
+				0,
+			)),
+		};
+		if let Some((page, width, client)) = first_page {
+			self.prepare_picture(path, page, width, client);
+		}
+		if let Some(layout) = cached {
 			return Ok(layout);
 		}
-		let key = JobKey {
-			path: path.to_path_buf(),
-			version: version.clone(),
-			kind: JobKind::Layout,
-		};
-		match self.run(key, Priority::Foreground, None, 0).await? {
+		let result = layout_job
+			.expect("submitted above")
+			.await
+			.unwrap_or_else(|_| {
+				Err(PdfReaderError::Failed(
+					"The PDF render thread stopped".into(),
+				))
+			})?;
+		match result {
 			JobOutput::Layout(layout) => {
 				if let Ok(mut layouts) = self.layouts.lock() {
 					layouts.put(version, layout.clone());
@@ -269,6 +304,48 @@ impl PdfReaderService {
 			},
 			_ => Err(PdfReaderError::Failed("unexpected render result".into())),
 		}
+	}
+
+	/// Starts rendering a page the reader is about to show, at prefetch priority (behind any
+	/// page a reader waits for) and counted as the reader's page, then caches it
+	fn prepare_picture(
+		&'static self,
+		path: &Path,
+		page: i32,
+		width: u32,
+		client: ClientKey,
+	) {
+		if page < 1 {
+			return;
+		}
+		let Ok(version) = document_version(path) else {
+			return;
+		};
+		let tier = snap_tier(width, self.max_tier());
+		let file_name = format!("pdfr_{version}_{page}_{tier}.webp");
+		if self.cache.path_for(&file_name).exists() {
+			return;
+		}
+		self.note_foreground(Some(client.clone()), page);
+		let receiver = self.submit(
+			JobKey {
+				path: path.to_path_buf(),
+				version,
+				kind: JobKind::Picture { page, tier },
+			},
+			Priority::Prefetch,
+			Some(client),
+			page,
+		);
+		let cache = self.cache.clone();
+		tokio::spawn(async move {
+			if let Ok(Ok(JobOutput::Picture(picture))) = receiver.await {
+				let _ = tokio::task::spawn_blocking(move || {
+					cache.write(&file_name, &picture.bytes)
+				})
+				.await;
+			}
+		});
 	}
 
 	/// A page picture at the tier that covers `width` pixels

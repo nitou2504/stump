@@ -205,6 +205,23 @@ async fn test_pdf_layout_pages_text_and_search() {
 	app.get(&format!("/api/v2/pdf/{book_id}/search?q=a"))
 		.await
 		.assert_status_bad_request();
+
+	// the layout can start the first page's picture; the page request then gets it
+	if page_count >= 2 {
+		let response = app
+			.get(&format!("/api/v2/pdf/{book_id}/layout?page=2&w=1000"))
+			.await;
+		response.assert_status_ok();
+		let response = app
+			.get(&format!("/api/v2/pdf/{book_id}/page/2?w=1000&v={version}"))
+			.await;
+		response.assert_status_ok();
+		assert_eq!(response.headers()["x-pdf-tier"], "1000");
+	}
+	// a hinted page out of range doesn't break the layout
+	app.get(&format!("/api/v2/pdf/{book_id}/layout?page=99999"))
+		.await
+		.assert_status_ok();
 }
 
 const CREATE_ANNOTATION: &str = r#"mutation CreateAnnotation($input: CreateAnnotationInput!) {

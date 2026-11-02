@@ -88,8 +88,18 @@ fn cache_control(requested: Option<&str>, current: &str) -> &'static str {
 	}
 }
 
+#[derive(Debug, Deserialize)]
+struct LayoutQuery {
+	/// The page the reader will show first: its picture starts rendering with the layout,
+	/// so the page request that follows finds it in flight or cached
+	page: Option<u32>,
+	/// The width for that picture, as in `/page/{n}?w=`
+	w: Option<u32>,
+}
+
 async fn get_pdf_layout(
 	Path(id): Path<String>,
+	Query(query): Query<LayoutQuery>,
 	State(ctx): State<AppState>,
 	Extension(req): Extension<AuthContext>,
 	headers: HeaderMap,
@@ -97,7 +107,21 @@ async fn get_pdf_layout(
 	let book = find_pdf_for_user(ctx.conn.as_ref(), &req.user, &id).await?;
 	let path = std::path::Path::new(&book.path);
 	let service = PdfReaderService::global(ctx.config.as_ref());
-	let layout = service.layout(path).await.map_err(reader_error)?;
+
+	let first_page = query
+		.page
+		.and_then(|page| i32::try_from(page).ok())
+		.map(|page| {
+			let client = ClientKey {
+				user_id: req.user.id.clone(),
+				media_id: book.id.clone(),
+			};
+			(page, query.w.unwrap_or(DEFAULT_WIDTH).max(1), client)
+		});
+	let layout = service
+		.layout_then(path, first_page)
+		.await
+		.map_err(reader_error)?;
 
 	let etag = format!("\"{}\"", layout.v);
 	let not_modified = headers
