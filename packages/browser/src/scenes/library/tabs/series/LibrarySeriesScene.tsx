@@ -9,6 +9,7 @@ import {
 } from '@stump/graphql'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet'
+import { useNavigationType } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
 
 import { DynamicCardGrid, GridSizeSlider } from '@/components/container'
@@ -193,15 +194,17 @@ export default function LibrarySeriesScene({
 
 	const previousPage = usePrevious(pageInfo.currentPage)
 	const shouldScroll = !!previousPage && previousPage !== pageInfo.currentPage
+	// back/forward to another page of results returns to where it was left instead
+	const navigationType = useNavigationType()
 	useEffect(() => {
-		if (!isInView && shouldScroll) {
+		if (!isInView && shouldScroll && navigationType !== 'POP') {
 			containerRef.current?.scrollIntoView({
 				behavior: 'smooth',
 				block: 'nearest',
 				inline: 'start',
 			})
 		}
-	}, [shouldScroll, isInView, containerRef])
+	}, [shouldScroll, isInView, containerRef, navigationType])
 
 	const renderContent = () => {
 		if (layoutMode === InterfaceLayout.Grid) {

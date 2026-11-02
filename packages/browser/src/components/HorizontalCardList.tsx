@@ -15,6 +15,11 @@ type Props = {
 	footerHeight?: number
 	/** An item to show centred when the list mounts (e.g. the current book of its series) */
 	initialFocusIndex?: number
+	/**
+	 * Keeps the row's position with the history entry under this key (unique on the page),
+	 * so going back to the page returns the row to where it was
+	 */
+	restoreKey?: string
 }
 
 export default function HorizontalCardList({
@@ -25,13 +30,14 @@ export default function HorizontalCardList({
 	height: heightProp,
 	footerHeight = 96,
 	initialFocusIndex,
+	restoreKey,
 }: Props) {
 	const {
 		preferences: { thumbnailRatio },
 	} = usePreferences()
 
 	const { scrollerRef, canSkipBackward, canSkipForward, handleSkipBackward, handleSkipAhead } =
-		useHorizontalScroll()
+		useHorizontalScroll({ restoreKey })
 
 	const isAtLeastSmall = useMediaMatch('(min-width: 640px)')
 	const isAtLeastMedium = useMediaMatch('(min-width: 768px)')

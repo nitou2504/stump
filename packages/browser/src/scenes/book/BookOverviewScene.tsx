@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Helmet } from 'react-helmet'
 import { useParams } from 'react-router'
 
@@ -24,12 +24,6 @@ export default function BookOverviewScene() {
 	}
 
 	const [isInfoSheetOpen, setIsInfoSheetOpen] = useState(false)
-
-	useEffect(() => {
-		const el =
-			document.querySelector('[data-artificial-scroll="true"]') || document.getElementById('main')
-		el?.scrollTo({ top: 0, behavior: 'smooth' })
-	}, [id])
 
 	return (
 		<>

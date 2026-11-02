@@ -13,13 +13,14 @@ import {
 	useReactTable,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { SortIcon } from '@/components/table'
 import { columnStyle, tableMinWidth, useTableScroll } from '@/components/table/columnLayout'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { useTranslate } from '@/hooks/useTranslate'
 
+import { useHistoryEntryState } from '../../../../hooks/useHistoryEntryState'
 import { useScrollElement } from '../../../../hooks/useScrollElement'
 import { useSafeWorkingView, useSmartListContext } from '../../context'
 import { naturalBookOrder, naturalGroupOrder } from './bookOrder'
@@ -58,7 +59,8 @@ export default function GroupedVirtualSmartListTable({ items, fieldGroup }: Prop
 
 	const { workingView, updateWorkingView } = useSafeWorkingView()
 	const search = workingView.search
-	const [expanded, setExpanded] = useState<ExpandedState>({})
+	// kept with the history entry, so back returns to the same open groups (and position)
+	const [expanded, setExpanded] = useHistoryEntryState<ExpandedState>('smart-list-groups', {})
 
 	const isGroupedBySeries = grouping === 'BY_SERIES'
 	const standaloneLabel = fieldGroup?.ungroupedLabel ?? translate('shared.common.standaloneBooks')

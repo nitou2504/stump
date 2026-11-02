@@ -4,6 +4,7 @@ import { graphql, InterfaceLayout, MediaFilterInput, MediaOrderBy } from '@stump
 import { useQueryClient } from '@tanstack/react-query'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet'
+import { useNavigationType } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
 
 import { BookCard, BookTable } from '@/components/book'
@@ -244,15 +245,17 @@ function BookSearchScene() {
 
 	const previousPage = usePrevious(pageInfo.currentPage)
 	const shouldScroll = !!previousPage && previousPage !== pageInfo.currentPage
+	// back/forward to another page of results returns to where it was left instead
+	const navigationType = useNavigationType()
 	useEffect(() => {
-		if (!isInView && shouldScroll) {
+		if (!isInView && shouldScroll && navigationType !== 'POP') {
 			containerRef.current?.scrollIntoView({
 				behavior: 'smooth',
 				block: 'nearest',
 				inline: 'start',
 			})
 		}
-	}, [shouldScroll, isInView, containerRef])
+	}, [shouldScroll, isInView, containerRef, navigationType])
 
 	const renderContent = () => {
 		if (layoutMode === InterfaceLayout.Grid) {

@@ -158,6 +158,7 @@ function ContinueReading() {
 	return (
 		<HorizontalCardList
 			title={translate('shared.homeSections.continueReading.label')}
+			restoreKey="home-continue-reading"
 			items={cards}
 			height={listHeight}
 			onFetchMore={handleFetchMore}

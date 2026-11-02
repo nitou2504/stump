@@ -21,6 +21,7 @@ import { AppContext, PermissionEnforcerOptions } from './context'
 import { useTheme } from './hooks'
 import { useCoreEvent } from './hooks/useCoreEvent'
 import { useRecordHistoryTrail } from './hooks/useHistoryTrail'
+import { useMainScrollRestoration } from './hooks/useMainScrollRestoration'
 import { useAppStore, useUserStore } from './stores'
 
 export function AppLayout() {
@@ -140,6 +141,19 @@ export function AppLayout() {
 		() => (location.pathname.match(/\/book(s?)\/.+\/(.*-?reader)/) ?? []).length > 0,
 		[location],
 	)
+
+	/**
+	 * The element the pages scroll in: the custom scrollbars' viewport, or the main area
+	 * itself when they're off (or not set up yet)
+	 */
+	const getMainScrollElement = useCallback(
+		() =>
+			mainElement?.querySelector<HTMLElement>(':scope > [data-overlayscrollbars-viewport]') ??
+			mainElement,
+		[mainElement],
+	)
+	// back/forward return to where each page was left; new pages start at the top
+	useMainScrollRestoration(getMainScrollElement, mainElement, { skip: hideAllNavigation })
 
 	useCoreEvent({ liveRefetch, onConnectionWithServerChanged })
 

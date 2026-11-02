@@ -15,6 +15,11 @@ type Props<T> = {
 	emptyState?: ReactNode
 	cardHeight: number // Not including gaps/padding, component will calculate total height
 	rowCount?: number | 'responsive'
+	/**
+	 * Keeps the row's position with the history entry under this key (unique on the page),
+	 * so going back to the page returns the row to where it was
+	 */
+	restoreKey?: string
 }
 
 export default function MultiRowHorizontalCardList<T>({
@@ -26,13 +31,14 @@ export default function MultiRowHorizontalCardList<T>({
 	emptyState,
 	cardHeight,
 	rowCount: rowCountProp = 'responsive',
+	restoreKey,
 }: Props<T>) {
 	const {
 		preferences: { enableHideScrollbar },
 	} = usePreferences()
 
 	const { scrollerRef, canSkipBackward, canSkipForward, handleSkipBackward, handleSkipAhead } =
-		useHorizontalScroll()
+		useHorizontalScroll({ restoreKey })
 
 	const isAtLeastLarge = useMediaMatch('(min-width: 1024px)')
 

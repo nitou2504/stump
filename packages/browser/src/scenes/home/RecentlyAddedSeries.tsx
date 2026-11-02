@@ -121,6 +121,7 @@ function RecentlyAddedSeries() {
 	return (
 		<MultiRowHorizontalCardList
 			title={translate('shared.homeSections.recentlyAddedSeries.label')}
+			restoreKey="home-recently-added-series"
 			items={nodes}
 			keyExtractor={(series) => series.id}
 			renderItem={(series) => (

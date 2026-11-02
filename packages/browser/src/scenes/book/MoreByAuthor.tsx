@@ -53,6 +53,7 @@ export default function MoreByAuthor({ bookId, seriesId, author }: Props) {
 	return (
 		<HorizontalCardList
 			title={`More by ${author}`}
+			restoreKey="more-by-author"
 			items={nodes.map((node) => (
 				<BookCard key={node.id} fragment={node} fullWidth={false} />
 			))}
