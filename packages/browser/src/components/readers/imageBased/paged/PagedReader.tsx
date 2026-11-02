@@ -139,6 +139,11 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		forward: true,
 	})
 	const pendingAnchorRef = useRef<{ fx: number; fy: number; vx: number; vy: number } | null>(null)
+	/**
+	 * The side the view on screen was entered from, until the reader moves it: a size that
+	 * arrives later (the page's crop, its image) keeps the view at that side, its reading start
+	 */
+	const enteredRef = useRef<{ toward: 1 | -1; forward: boolean } | null>(null)
 	const lastGestureRef = useRef(0)
 
 	// The view on screen: follows the page in the URL (go to page, progress), keeping the half
@@ -244,6 +249,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		const anchor = pendingAnchorRef.current
 		if (anchor) {
 			pendingAnchorRef.current = null
+			enteredRef.current = null
 			const offsetX = Math.max(0, (viewport.w - content.w) / 2)
 			const offsetY = Math.max(0, (viewport.h - content.h) / 2)
 			element.scrollTo({
@@ -252,9 +258,10 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			})
 			return
 		}
-		const entry = pendingEntryRef.current
+		const entry = pendingEntryRef.current ?? enteredRef.current
 		if (entry) {
 			pendingEntryRef.current = null
+			enteredRef.current = entry
 			const pos = entryPos(content, viewport, entry.toward, entry.forward)
 			element.scrollTo({ left: pos.x, top: pos.y })
 		}
@@ -289,6 +296,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	 * press during a move retargets it, so a held key moves on steadily)
 	 */
 	const scrollToSmoothly = useCallback((target: ViewPos) => {
+		enteredRef.current = null
 		const element = scrollRef.current
 		if (element) scrollMoveTo(element, target)
 	}, [])
@@ -443,6 +451,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 	)
 
 	const onPointerDown = useCallback((event: React.PointerEvent) => {
+		// the reader takes over where the view is
+		enteredRef.current = null
 		if (!event.isPrimary || event.button > 0) return
 		pressRef.current = {
 			id: event.pointerId,
@@ -656,6 +666,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		let distanceSum = 0
 		let coolUntil = 0
 		const onWheel = (event: WheelEvent) => {
+			// the reader moves the view: it no longer sticks to the side it was entered from
+			enteredRef.current = null
 			if (event.ctrlKey || event.metaKey) {
 				event.preventDefault()
 				zoomPoint = { x: event.clientX, y: event.clientY }

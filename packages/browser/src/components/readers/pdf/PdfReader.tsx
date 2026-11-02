@@ -435,8 +435,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				setScrollTop(element.scrollTop)
 			} else {
 				setPagedIndex(index)
-				// a zoomed page taller than the screen: scroll to the target inside it
+				// a zoomed page opens at its start, its top left (the next swipe pans across it
+				// before turning), or at the target inside it
 				element?.scrollTo({
+					left: 0,
 					top:
 						target != null && slot
 							? Math.max(0, pageTop(index) + target * slot.height - element.clientHeight * 0.3)
