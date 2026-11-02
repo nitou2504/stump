@@ -131,14 +131,26 @@ export default function ControlsOverlay() {
 		[translate],
 	)
 
+	// the keys of the layout on screen: pages that turn (stepping through a big page), or the
+	// strip that scrolls
 	const shortcuts = useMemo<ShortcutRow[]>(
-		() => [
-			{ keys: ['←', '→'], label: translate('shared.reader.shortcuts.stepPage') },
-			{ keys: ['Space', '⇧ Space'], label: translate('shared.reader.shortcuts.stepPage') },
-			{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollPage') },
-			{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
-		],
-		[translate],
+		() =>
+			layout.flow === 'continuous'
+				? [
+						{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollLine') },
+						{
+							keys: ['Space', 'PgUp', 'PgDn'],
+							label: translate('shared.reader.shortcuts.scrollScreen'),
+						},
+						{ keys: ['Home', 'End'], label: translate('shared.reader.shortcuts.firstLastPage') },
+					]
+				: [
+						{ keys: ['←', '→'], label: translate('shared.reader.shortcuts.stepPage') },
+						{ keys: ['Space', '⇧ Space'], label: translate('shared.reader.shortcuts.stepPage') },
+						{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollPage') },
+						{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
+					],
+		[translate, layout.flow],
 	)
 
 	return (

@@ -72,11 +72,18 @@ describe('resolvePdfShortcut', () => {
 	})
 
 	it('turns pages and scrolls screens', () => {
-		expect(resolvePdfShortcut(key('ArrowRight'), idle)).toEqual({ type: 'next' })
-		expect(resolvePdfShortcut(key('PageUp'), idle)).toEqual({ type: 'previous' })
-		expect(resolvePdfShortcut(key(' '), idle)).toEqual({ type: 'screenDown' })
-		expect(resolvePdfShortcut(key(' ', { shiftKey: true }), idle)).toEqual({ type: 'screenUp' })
-		expect(resolvePdfShortcut(key(' '), { ...idle, continuous: false })).toEqual({ type: 'next' })
+		const paged = { ...idle, continuous: false }
+		expect(resolvePdfShortcut(key('ArrowRight'), paged)).toEqual({ type: 'next' })
+		expect(resolvePdfShortcut(key('PageUp'), paged)).toEqual({ type: 'previous' })
+		expect(resolvePdfShortcut(key(' '), idle)).toEqual({
+			type: 'scroll',
+			action: { type: 'screen', dy: 1 },
+		})
+		expect(resolvePdfShortcut(key(' ', { shiftKey: true }), idle)).toEqual({
+			type: 'scroll',
+			action: { type: 'screen', dy: -1 },
+		})
+		expect(resolvePdfShortcut(key(' '), paged)).toEqual({ type: 'step', delta: 1 })
 		expect(resolvePdfShortcut(key('End'), idle)).toEqual({ type: 'last' })
 	})
 

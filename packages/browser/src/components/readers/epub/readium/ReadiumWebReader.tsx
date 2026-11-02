@@ -46,6 +46,8 @@ import {
 	tocPath,
 	useReadingProgress,
 } from '../../shared/readingProgress'
+import { atScrollEdge, scrollKeyOf, scrollKeyTarget } from '../../shared/scrollKeys'
+import { cancelScrollMove, scrollMoveTo, scrollTarget } from '../../shared/scrollMove'
 import { annotationsToDecorations, type DecorationTheme } from '../annotations/decorations'
 import { useEdgeHoldExtend } from '../annotations/edgeExtend'
 import { liveFrameSelection } from '../annotations/liveSelection'
@@ -1227,21 +1229,58 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		[sdk, id],
 	)
 
-	/** Keyboard navigation — RTL aware, ignores keystrokes aimed at inputs/dialogs */
+	/**
+	 * Keyboard navigation — RTL aware, ignores keystrokes aimed at inputs/dialogs. Key presses
+	 * inside the book's frame are forwarded here (`forwardFrameKeyEvents`), so the keys work
+	 * wherever the focus is; handling one here also stops the frame's own scrolling for it.
+	 *
+	 * - Pages that turn: `←` / `→` the previous / next page (mirrored right to left), and
+	 *   `Page Up` / `Page Down`, `Shift+Space` / `Space` too
+	 * - Scrolling: the shared scroll keys (`scrollKeyOf`): `↑` / `↓` a line, `Space` /
+	 *   `Page Down` a screen (at the chapter's end: the next chapter, from its start; going
+	 *   back past its start: the previous one, from its end), `Home` / `End` the chapter's
+	 *   start / end. `←` / `→` do nothing there (they used to jump chapters)
+	 */
 	useEffect(() => {
 		const isLtr = readingDirection !== ReadingDirection.Rtl
 
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (isEditableTarget(event.target)) return
-			// Shift+arrows extend a text selection, other modifiers belong to the browser
-			if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+			if (event.ctrlKey || event.metaKey || event.altKey) return
 
+			if (isScrolled) {
+				const action = scrollKeyOf(event)
+				if (!action) return
+				event.preventDefault()
+				if (action.type === 'line' && action.dx !== 0) return
+				const scroller = shownFrameScroller(containerRef.current)
+				if (!scroller) return
+				const from = scrollTarget(scroller)
+				if (action.type === 'screen' && atScrollEdge(scroller, action, from)) {
+					// the chapter is read to its end (or start): on to the next (previous) one
+					cancelScrollMove(scroller)
+					void (action.dy > 0 ? api.goForward() : api.goBackward())
+					return
+				}
+				scrollMoveTo(scroller, scrollKeyTarget(scroller, action, from), {
+					instant: action.type === 'edge',
+				})
+				return
+			}
+
+			const isSpace = event.key === ' ' || event.key === 'Spacebar'
+			// Shift+arrows extend a text selection (Shift+Space goes back a page)
+			if (event.shiftKey && !isSpace) return
 			const nextKey = isLtr ? 'ArrowRight' : 'ArrowLeft'
 			const prevKey = isLtr ? 'ArrowLeft' : 'ArrowRight'
-			if (event.key === nextKey) {
+			const forward =
+				event.key === nextKey || event.key === 'PageDown' || (isSpace && !event.shiftKey)
+			const backward =
+				event.key === prevKey || event.key === 'PageUp' || (isSpace && event.shiftKey)
+			if (forward) {
 				event.preventDefault()
 				void api.goForward()
-			} else if (event.key === prevKey) {
+			} else if (backward) {
 				event.preventDefault()
 				void api.goBackward()
 			}
@@ -1249,7 +1288,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 
 		window.addEventListener('keydown', handleKeyDown, { capture: true })
 		return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
-	}, [api, readingDirection])
+	}, [api, readingDirection, isScrolled])
 
 	if (!ebook.media) {
 		return null
@@ -1476,6 +1515,23 @@ function findChapterTitle(href: string, toc: EpubContent[]): string | undefined 
 		stack.push(...item.children)
 	}
 	return undefined
+}
+
+/** The scrolling element of the book's frame that shows (`null` when it can't be read) */
+function shownFrameScroller(container: HTMLElement | null): Element | null {
+	if (!container) return null
+	const frames = [...container.querySelectorAll('iframe')].filter(
+		(frame) => frame.style.visibility !== 'hidden',
+	)
+	for (const frame of frames.reverse()) {
+		try {
+			const scroller = frame.contentWindow?.document.scrollingElement
+			if (scroller) return scroller
+		} catch {
+			// a frame from another origin, or one being torn down
+		}
+	}
+	return null
 }
 
 /**

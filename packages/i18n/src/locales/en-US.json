@@ -3852,7 +3852,6 @@
       "noTextShort": "No text: bookmarks only",
       "bookmarksDisabledInIncognito": "Bookmarks are disabled in incognito mode",
       "shortcuts": {
-        "screen": "Scroll a Screen",
         "zoom": "Zoom In / Out / Reset",
         "fit": "Fit Width / Fit Page"
       }
@@ -3959,9 +3958,17 @@
         "settings": "Reader Settings",
         "toggleBar": "Show / Hide the Top Bar",
         "turnPageAlways": "Turn the Page (Also When Zoomed)",
-        "panZoomed": "Move Around a Zoomed Page (at Its Edge: Turn)",
+        "panZoomed": "Move Around a Zoomed Page",
         "stepPage": "Next / Previous Part of the Page, Then the Page",
-        "scrollPage": "Scroll the Page (at Its End: Turn)"
+        "stepScreen": "Next / Previous Screen of the Page, Then the Page",
+        "scrollPage": "Scroll the Page (at Its End: Turn)",
+        "scrollLine": "Scroll Up / Down",
+        "scrollScreen": "Scroll a Screen",
+        "scrollScreenChapter": "Scroll a Screen (at the End: the Next Chapter)",
+        "scrollSideways": "Move Sideways on a Zoomed Page",
+        "firstLastPage": "First / Last Page",
+        "chapterStartEnd": "Start / End of the Chapter",
+        "goTo": "Go To"
       },
       "extend": {
         "continues": "Continues from the previous page",

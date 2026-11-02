@@ -14,6 +14,7 @@ import {
 	zoneTurn,
 } from '../../shared/gestures'
 import { panOrTurn } from '../../shared/panKeys'
+import { cancelScrollMove, scrollMoveTo, scrollTarget } from '../../shared/scrollMove'
 import {
 	clampRatio,
 	distance,
@@ -52,15 +53,10 @@ const MAX_ZOOM = 5
 const GESTURE_QUIET_MS = 250
 /** A press longer than this isn't a tap */
 const TAP_MAX_MS = 500
-/** How long a step's move takes */
-const STEP_MS = 220
 /** A wheel pause longer than this starts a new wheel gesture */
 const WHEEL_GESTURE_GAP_MS = 300
 /** Wheel distance (px) that turns a page that fits the screen */
 const WHEEL_TURN_DISTANCE = 80
-
-const prefersReducedMotion = () =>
-	typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 /**
  * The comic reader, one page (or one spread) at a time, like Mihon or KOReader:
@@ -249,6 +245,8 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const view = views[index]
 			if (!view?.length) return
 			const forward = rtl ? toward < 0 : toward > 0
+			// a move still under way belongs to the view being left
+			if (scrollRef.current) cancelScrollMove(scrollRef.current)
 			pendingEntryRef.current = { toward, forward }
 			setZoom(1)
 			setViewIndex(index)
@@ -263,30 +261,20 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		[views, rtl, currentPage, onPageChange],
 	)
 
-	/** Moves the screen to a spot of the view, quickly and smoothly */
-	const animateRef = useRef<number | undefined>(undefined)
+	/**
+	 * Moves the screen to a spot of the view, quickly and smoothly (the shared key move: a
+	 * press during a move retargets it, so a held key moves on steadily)
+	 */
 	const scrollToSmoothly = useCallback((target: ViewPos) => {
 		const element = scrollRef.current
-		if (!element) return
-		window.cancelAnimationFrame(animateRef.current ?? 0)
-		if (prefersReducedMotion()) {
-			element.scrollTo({ left: target.x, top: target.y })
-			return
-		}
-		const from = { x: element.scrollLeft, y: element.scrollTop }
-		const start = performance.now()
-		const frame = (now: number) => {
-			const t = Math.min(1, (now - start) / STEP_MS)
-			const eased = 1 - Math.pow(1 - t, 3)
-			element.scrollTo({
-				left: from.x + (target.x - from.x) * eased,
-				top: from.y + (target.y - from.y) * eased,
-			})
-			if (t < 1) animateRef.current = window.requestAnimationFrame(frame)
-		}
-		animateRef.current = window.requestAnimationFrame(frame)
+		if (element) scrollMoveTo(element, target)
 	}, [])
-	useEffect(() => () => window.cancelAnimationFrame(animateRef.current ?? 0), [])
+	useEffect(() => {
+		const element = scrollRef.current
+		return () => {
+			if (element) cancelScrollMove(element)
+		}
+	}, [])
 
 	/**
 	 * A step on screen: rightward (+1) or leftward (-1). Shows the next part of a view bigger
@@ -297,8 +285,9 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			const element = scrollRef.current
 			if (!element) return
 			const forward = rtl ? toward < 0 : toward > 0
+			// from where a move under way is going: presses during a move add up
 			const next = stepView({
-				pos: { x: element.scrollLeft, y: element.scrollTop },
+				pos: scrollTarget(element),
 				content: { w: element.scrollWidth, h: element.scrollHeight },
 				viewport: { w: element.clientWidth, h: element.clientHeight },
 				toward,
@@ -339,7 +328,18 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 				case 'down': {
 					// fine moves down or up the page, turning at its end (forward going down)
 					if (!element) break
-					const result = panOrTurn(element, { dx: 0, dy: key === 'down' ? 1 : -1 })
+					const at = scrollTarget(element)
+					const result = panOrTurn(
+						{
+							scrollLeft: at.x,
+							scrollTop: at.y,
+							scrollWidth: element.scrollWidth,
+							scrollHeight: element.scrollHeight,
+							clientWidth: element.clientWidth,
+							clientHeight: element.clientHeight,
+						},
+						{ dx: 0, dy: key === 'down' ? 1 : -1 },
+					)
 					if (result.type === 'turn')
 						turn(key === 'down' ? forwardToward : (-forwardToward as 1 | -1))
 					else scrollToSmoothly({ x: result.left, y: result.top })

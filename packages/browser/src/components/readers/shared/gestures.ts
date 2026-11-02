@@ -8,7 +8,8 @@
  *   screen (Mihon's right-and-left zones), a quarter with a mouse (Komga, Kavita, KOReader).
  *   The middle shows or hides the controls. The zones are screen sides: a reader maps them to
  *   forward or back for its reading direction (right to left: the left side goes forward).
- *   In a scrolled layout every tap is a middle tap: scrolling is the way through the book.
+ *   In a scrolled layout every tap is a middle tap: scrolling is the way through the book. So
+ *   it is on a zoomed PDF page: moving around it must never turn it (Page Up / Page Down do).
  * - Swipes: the page doesn't follow the finger (no drag, no wobble); a drag is judged when
  *   the finger lifts. It must move past the 16 px slop, mostly sideways (the cross-axis
  *   travel under half the main one), within 900 ms, and be either a quick flick or a drag
@@ -44,18 +45,21 @@ type NavigationTapOptions = {
 	coarse: boolean
 	/** The reader's 'tap the sides to turn' preference (on unless turned off) */
 	sidesNavigate?: boolean
+	/** A page zoomed in past its fit: a tap at its side mustn't turn it */
+	zoomed?: boolean
 }
 
 /**
  * What a tap does: the side zones turn the page only when pages turn. In a scrolled
  * (continuous) layout every tap is a middle tap, because the sides have nothing to turn: an
- * EPUB's 'next page' there is the next chapter, which a stray tap must not jump to.
+ * EPUB's 'next page' there is the next chapter, which a stray tap must not jump to. The same
+ * on a zoomed page, which is being moved around, not turned.
  */
 export function navigationTapZone(
 	xFraction: number,
-	{ flow, coarse, sidesNavigate = true }: NavigationTapOptions,
+	{ flow, coarse, sidesNavigate = true, zoomed = false }: NavigationTapOptions,
 ): PageTapZone {
-	if (flow === 'continuous' || !sidesNavigate) return 'middle'
+	if (flow === 'continuous' || !sidesNavigate || zoomed) return 'middle'
 	return pageTapZone(xFraction, coarse)
 }
 

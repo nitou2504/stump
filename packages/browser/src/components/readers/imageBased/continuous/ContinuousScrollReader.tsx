@@ -4,11 +4,14 @@ import { ReadingImageScaleFit } from '@stump/graphql'
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import AutoSizer from 'react-virtualized-auto-sizer'
-import { ScrollerProps, Virtuoso } from 'react-virtuoso'
+import { ScrollerProps, Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 
 import { EntityImage } from '@/components/entity'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
+import { isEditableTarget } from '../../annotations'
+import { scrollKeyOf, scrollKeyTarget } from '../../shared/scrollKeys'
+import { cancelScrollMove, scrollMoveTo, scrollTarget } from '../../shared/scrollMove'
 import { ImageReaderBookRef } from '../context'
 
 export type ContinuousReaderOrientation = 'horizontal' | 'vertical'
@@ -85,6 +88,37 @@ export default function ContinuousScrollReader({
 		[orientation],
 	)
 
+	// The keys move along the strip, like the other readers' scrolled layouts: ↑ ↓ a line,
+	// Space / Shift+Space and Page Down / Page Up a screen, Home / End the first / last page
+	// (nothing sideways: the strip is one page wide)
+	const virtuosoRef = useRef<VirtuosoHandle>(null)
+	const scrollerRef = useRef<HTMLElement | null>(null)
+	const pageCount = media.pages
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || isEditableTarget(event.target)) return
+			// the settings, the pages grid: their own keys
+			if (document.querySelector('[role="dialog"][data-state="open"]')) return
+			const action = scrollKeyOf(event)
+			const element = scrollerRef.current
+			if (!action || !element) return
+			if (action.type === 'line' && action.dx !== 0) return
+			event.preventDefault()
+			if (action.type === 'edge') {
+				// a virtual list only knows the pages it has drawn: it goes to the page itself
+				cancelScrollMove(element)
+				virtuosoRef.current?.scrollToIndex({
+					index: action.to === 'start' ? 0 : Math.max(0, pageCount - 1),
+					align: action.to === 'start' ? 'start' : 'end',
+				})
+				return
+			}
+			scrollMoveTo(element, scrollKeyTarget(element, action, scrollTarget(element)))
+		}
+		window.addEventListener('keydown', onKeyDown)
+		return () => window.removeEventListener('keydown', onKeyDown)
+	}, [pageCount])
+
 	useEffect(() => {
 		const hasPageURL = !!search.get('page')
 		if (hasPageURL) {
@@ -112,6 +146,10 @@ export default function ContinuousScrollReader({
 				{({ height, width }) => (
 					<Virtuoso
 						key={readingMode}
+						ref={virtuosoRef}
+						scrollerRef={(element) => {
+							scrollerRef.current = element instanceof HTMLElement ? element : null
+						}}
 						className="[scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 						// scrolled along the strip only: no sideways wobble, no bounce, no scrollbar
 						// (taps on the pages only show or hide the top bar; scrolling is the navigation)

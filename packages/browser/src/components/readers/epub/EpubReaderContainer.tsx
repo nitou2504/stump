@@ -336,9 +336,29 @@ function EpubSettings({
 	} = useBookPreferences({ book })
 
 	const layout = useMemo(() => epubLayout(readingMode, columnCount), [readingMode, columnCount])
+	// the keys of the layout on screen: pages that turn, or a chapter that scrolls
 	const shortcuts = useMemo<ShortcutRow[]>(
-		() => [{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') }],
-		[translate],
+		() =>
+			layout.flow === 'continuous'
+				? [
+						{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollLine') },
+						{
+							keys: ['Space', 'PgUp', 'PgDn'],
+							label: translate('shared.reader.shortcuts.scrollScreenChapter'),
+						},
+						{ keys: ['Home', 'End'], label: translate('shared.reader.shortcuts.chapterStartEnd') },
+					]
+				: [
+						{
+							keys: ['←', '→', 'PgUp', 'PgDn'],
+							label: translate('shared.readerAnnotations.shortcuts.turnPage'),
+						},
+						{
+							keys: ['Space', '⇧ Space'],
+							label: translate('shared.readerAnnotations.shortcuts.turnPage'),
+						},
+					],
+		[translate, layout.flow],
 	)
 
 	const disabledReason = useCallback(

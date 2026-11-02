@@ -35,12 +35,14 @@ import {
 	rowOfPage,
 	spreadRows,
 } from '../shared/layout'
-import { PAN_STEP, panOrTurn, SCREEN_STEP, ZOOMED_EPSILON } from '../shared/panKeys'
+import { ZOOMED_EPSILON } from '../shared/panKeys'
 import { copyText, nextDayNightTheme } from '../shared/readerKeys'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
 import { useReadingProgress } from '../shared/readingProgress'
+import { atScrollEdge, scrollKeyTarget } from '../shared/scrollKeys'
+import { cancelScrollMove, scrollMoveTo, scrollTarget } from '../shared/scrollMove'
 import { SwitchRow } from '../shared/settingsControls'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
@@ -417,6 +419,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				within = Math.max(0, targetY - (element.clientHeight * 0.3) / Math.max(1, row.height))
 			}
 			anchorRef.current = { index, progression: within }
+			// a key's move still under way belongs to where the reader was
+			if (element) cancelScrollMove(element)
 			if (continuous) {
 				if (!element) return
 				programmaticScrollRef.current = true
@@ -444,12 +448,6 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		},
 		[rows, currentRow, goToPage],
 	)
-
-	const scrollByScreen = useCallback((direction: 1 | -1) => {
-		const element = scrollRef.current
-		if (!element) return
-		element.scrollBy({ top: direction * element.clientHeight * 0.9 })
-	}, [])
 
 	// Progress ------------------------------------------------------------------------------
 	const getElapsedSeconds = timer.getCurrentTime
@@ -951,12 +949,32 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				case 'next':
 					goRelative(1)
 					break
-				case 'screenUp':
-					scrollByScreen(-1)
+				case 'scroll': {
+					// a line or a screen, stopping at the pages' edges (a zoomed page never turns
+					// here: only Page Up / Page Down do)
+					const element = scrollRef.current
+					if (!element) break
+					const from = scrollTarget(element)
+					scrollMoveTo(element, scrollKeyTarget(element, action.action, from))
 					break
-				case 'screenDown':
-					scrollByScreen(1)
+				}
+				case 'step': {
+					// Space: the next screen of a page taller than the screen, then the next page
+					// (from its start; Shift+Space: the previous page from its end)
+					const element = scrollRef.current
+					if (!element) break
+					const scroll = { type: 'screen', dy: action.delta } as const
+					const from = scrollTarget(element)
+					if (!atScrollEdge(element, scroll, from)) {
+						scrollMoveTo(element, scrollKeyTarget(element, scroll, from))
+						break
+					}
+					goRelative(action.delta)
+					window.requestAnimationFrame(() =>
+						element.scrollTo({ top: action.delta > 0 ? 0 : element.scrollHeight }),
+					)
 					break
+				}
 				case 'first':
 					goToPage(1)
 					break
@@ -978,33 +996,6 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				case 'goToPage':
 					setGoToOpen(true)
 					break
-				case 'pan': {
-					const element = scrollRef.current
-					if (!element) break
-					const result = panOrTurn(
-						element,
-						action.direction,
-						action.screen ? SCREEN_STEP : PAN_STEP,
-					)
-					if (result.type === 'pan') {
-						element.scrollTo({
-							left: result.left,
-							top: result.top,
-							behavior: event.repeat ? 'auto' : 'smooth',
-						})
-					} else {
-						goRelative(result.delta)
-						// the next page from its start, the previous one from its end
-						window.requestAnimationFrame(() =>
-							element.scrollTo(
-								result.delta > 0
-									? { left: 0, top: 0 }
-									: { left: element.scrollWidth, top: element.scrollHeight },
-							),
-						)
-					}
-					break
-				}
 				case 'search':
 					if (layout.hasText) setSearchOpen(true)
 					break
@@ -1026,7 +1017,6 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		isDarkVariant,
 		clearSelection,
 		goRelative,
-		scrollByScreen,
 		goToPage,
 		pageCount,
 		setPreferences,
@@ -1271,11 +1261,12 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const relative = (event.clientX - box.left) / box.width
 			const point = { x: event.clientX, y: event.clientY }
 			// the same side zones as the other readers (a third of the width at each side on a
-			// touch screen, a quarter with a mouse); in the scrolled layout the sides don't turn
-			// anything, a tap only shows the controls
+			// touch screen, a quarter with a mouse); in the scrolled layout, and on a zoomed page,
+			// the sides don't turn anything: a tap only shows the controls
 			const zone = navigationTapZone(relative, {
 				flow: continuous ? 'continuous' : 'paged',
 				coarse: isCoarsePointer,
+				zoomed: zoomedIn,
 			})
 			if (zone !== 'middle') {
 				goRelative(zoneTurn(zone))
@@ -1306,6 +1297,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			openAnnotation,
 			target,
 			continuous,
+			zoomedIn,
 			goRelative,
 			isCoarsePointer,
 			zoomAround,
@@ -1358,17 +1350,33 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		}
 	}
 
+	// the keys of the layout on screen: pages that turn, or pages that scroll
 	const shortcutRows = useMemo<ShortcutRow[]>(
 		() => [
-			{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') },
-			{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
-			{ keys: ['←', '↑', '↓', '→'], label: translate('shared.reader.shortcuts.panZoomed') },
-			{ keys: ['Space'], label: translate('shared.pdfReader.shortcuts.screen') },
+			...(continuous
+				? [
+						{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollLine') },
+						{
+							keys: ['Space', 'PgUp', 'PgDn'],
+							label: translate('shared.reader.shortcuts.scrollScreen'),
+						},
+						{ keys: ['←', '→'], label: translate('shared.reader.shortcuts.scrollSideways') },
+					]
+				: [
+						{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') },
+						{
+							keys: ['PgUp', 'PgDn'],
+							label: translate('shared.reader.shortcuts.turnPageAlways'),
+						},
+						{ keys: ['Space', '⇧ Space'], label: translate('shared.reader.shortcuts.stepScreen') },
+						{ keys: ['←', '↑', '↓', '→'], label: translate('shared.reader.shortcuts.panZoomed') },
+					]),
+			{ keys: ['Home', 'End'], label: translate('shared.reader.shortcuts.firstLastPage') },
 			{ keys: ['+', '-', '0'], label: translate('shared.pdfReader.shortcuts.zoom') },
 			{ keys: ['F'], label: translate('shared.pdfReader.shortcuts.fit') },
 			{ keys: ['G'], label: translate('shared.pdfReader.goToPage') },
 		],
-		[translate],
+		[translate, continuous],
 	)
 
 	const pagedContentHeight = !continuous

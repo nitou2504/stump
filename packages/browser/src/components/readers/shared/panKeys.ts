@@ -1,13 +1,16 @@
+import { LINE_STEP, SCREEN_STEP } from './scrollKeys'
+
 /**
- * Arrow keys on a zoomed page (PDF in page-by-page mode, comics): they move around the page
- * instead of turning it, like KOReader or a PDF viewer. At the page's edge in that direction
- * the next press turns the page. Page Up / Page Down always turn pages.
+ * Arrow keys on a comic page bigger than the screen: they move around the page instead of
+ * turning it, like KOReader; at the page's edge in that direction the next press turns the
+ * page. Page Up / Page Down always turn pages. (A zoomed PDF page stops at its edges instead:
+ * there only Page Up / Page Down turn, see `pdfShortcuts`.)
  */
 
 /** How far one arrow press moves: about an eighth of the screen */
-export const PAN_STEP = 0.12
+export const PAN_STEP = LINE_STEP
 /** Space moves by most of a screen */
-export const SCREEN_STEP = 0.9
+export { SCREEN_STEP }
 
 /** A page counts as zoomed when it's bigger than the fit by more than this */
 export const ZOOMED_EPSILON = 0.01

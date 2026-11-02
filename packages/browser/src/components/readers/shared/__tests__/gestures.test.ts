@@ -40,6 +40,15 @@ describe('reader tap zones (every reader)', () => {
 		}
 	})
 
+	it('never turns a zoomed page from a tap at its side', () => {
+		for (const coarse of [true, false]) {
+			for (const x of [0.02, 0.1, 0.9, 0.98]) {
+				expect(navigationTapZone(x, { flow: 'paged', coarse, zoomed: true })).toBe('middle')
+			}
+		}
+		expect(navigationTapZone(0.95, { flow: 'paged', coarse: true, zoomed: false })).toBe('right')
+	})
+
 	it("honours the 'tap the sides to turn' preference", () => {
 		expect(navigationTapZone(0.95, { flow: 'paged', coarse: true, sidesNavigate: false })).toBe(
 			'middle',
