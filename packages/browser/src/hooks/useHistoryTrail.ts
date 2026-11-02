@@ -1,6 +1,8 @@
 import { useCallback, useEffect } from 'react'
 import { useLocation, useNavigate, useNavigationType } from 'react-router'
 
+import { currentHistoryIndex } from './historyEntries'
+
 /**
  * The app page each of this tab's browser history entries shows, by the entry's index
  * (React Router keeps it in `history.state.idx`). It lives in session storage, like the
@@ -11,11 +13,6 @@ export type HistoryTrail = Record<number, string>
 const STORAGE_KEY = 'stump-history-trail'
 /** Entries further back than this are forgotten, so the trail stays small in long sessions */
 const MAX_ENTRIES = 200
-
-const currentHistoryIndex = (): number | undefined => {
-	const index = window.history.state?.idx
-	return typeof index === 'number' ? index : undefined
-}
 
 const readTrail = (): HistoryTrail => {
 	try {
