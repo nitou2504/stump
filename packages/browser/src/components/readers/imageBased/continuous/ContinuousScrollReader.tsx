@@ -100,7 +100,16 @@ export default function ContinuousScrollReader({
 				{({ height, width }) => (
 					<Virtuoso
 						key={readingMode}
-						style={{ height, width }}
+						className="comic-strip"
+						// scrolled along the strip only: no sideways wobble, no bounce, no scrollbar
+						// (taps on the pages only show or hide the top bar; scrolling is the navigation)
+						style={{
+							height,
+							width,
+							touchAction: orientation === 'horizontal' ? 'pan-x pinch-zoom' : 'pan-y pinch-zoom',
+							overscrollBehavior: 'none',
+							scrollbarWidth: 'none',
+						}}
 						useWindowScroll={false}
 						horizontalDirection={orientation === 'horizontal'}
 						data={Array.from({ length: media.pages }).map((_, index) => getPageUrl(index + 1))}
@@ -131,6 +140,7 @@ export default function ContinuousScrollReader({
 				)}
 			</AutoSizer>
 
+			<style>{`.comic-strip::-webkit-scrollbar{display:none}`}</style>
 			{/* TODO: this is actually incorrect, so lets just not display until it works right */}
 			{/* <div className="fixed bottom-2 left-2 z-50 rounded-lg bg-black bg-opacity-75 px-2 py-1 text-white">
 				{visibleRange.startIndex + 1}

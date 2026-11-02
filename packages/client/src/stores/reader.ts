@@ -7,6 +7,19 @@ export type BookImageScaling = {
 }
 
 export type DoublePageBehavior = 'auto' | 'always' | 'off'
+
+/**
+ * How the comic reader shows a wide page (a two-page spread on one image) when it shows one
+ * page at a time on a narrow screen: `zoom` so half of it fills the width and step across it,
+ * `split` into its two halves, or `fit` it whole (small)
+ */
+export type WidePagesBehavior = 'zoom' | 'split' | 'fit'
+
+/**
+ * The colour around a comic's pages: the reader theme's paper, black, white, or `auto` (the
+ * colour of the page's own margins)
+ */
+export type PageBackground = 'theme' | 'auto' | 'black' | 'white'
 export const isDoublePageBehavior = (value: string): value is DoublePageBehavior =>
 	['auto', 'always', 'off'].includes(value)
 
@@ -90,6 +103,21 @@ export type BookPreferences = {
 	 * Whether the Ctrl key (or also Cmd key on Mac) is required to use panning and zooming.
 	 */
 	panzoomWithoutCtrl?: boolean
+	/**
+	 * Trim the blank margins of a comic's pages (one page at a time; spreads are never
+	 * cropped). Unset: on for phones. This will have no effect if the book is not image-based
+	 */
+	cropBorders?: boolean
+	/**
+	 * How a wide page shows on a narrow screen, one page at a time. Unset: `zoom`. This will
+	 * have no effect if the book is not image-based
+	 */
+	widePages?: WidePagesBehavior
+	/**
+	 * The colour around a comic's pages. Unset: the reader theme's. This will have no effect
+	 * if the book is not image-based
+	 */
+	pageBackground?: PageBackground
 	/**
 	 * The number of columns to render for a paginated EPUB. This will have no effect if the
 	 * book is not an EPUB, or if the reading mode is continuous scroll.

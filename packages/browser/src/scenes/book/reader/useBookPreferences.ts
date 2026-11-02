@@ -52,14 +52,13 @@ export function useBookPreferences({ book }: Params): Return {
 		[storedBookPreferences, libraryDefaults, settings],
 	)
 
+	// Only what was changed is kept for the book: the rest stays a default, which may depend on
+	// the screen (a phone's fit-width, crop, ...), so it isn't frozen into the book on one device
 	const setBookPreferences = useCallback(
 		(preferences: Partial<typeof bookPreferences>) => {
-			storedSetBookPreferences(book.id, {
-				...bookPreferences,
-				...preferences,
-			})
+			storedSetBookPreferences(book.id, preferences as BookPreferences)
 		},
-		[book.id, storedSetBookPreferences, bookPreferences],
+		[book.id, storedSetBookPreferences],
 	)
 
 	return {
@@ -98,6 +97,13 @@ export function fitForScreen(
 	return isPhoneScreen(screen) ? ReadingImageScaleFit.Width : fit
 }
 
+/** Whether this screen is a phone's (see {@link isPhoneScreen}) */
+export function isPhoneNow(): boolean {
+	return typeof window !== 'undefined'
+		? isPhoneScreen({ width: window.innerWidth, height: window.innerHeight })
+		: false
+}
+
 /** A phone (or a small tablet in portrait): narrower than two pages need, or short in landscape */
 export function isPhoneScreen(screen: { width: number; height: number }): boolean {
 	return screen.width < 900 || Math.min(screen.width, screen.height) < 500
@@ -118,6 +124,8 @@ const defaultsFromLibraryConfig = (
 		: undefined,
 	// manga reads right to left unless the book's own preference says otherwise
 	readingDirection: isManga ? ReadingDirection.Rtl : libraryConfig?.defaultReadingDir,
+	// phones trim the pages' blank margins: every pixel of a small screen counts
+	cropBorders: isPhoneNow(),
 	// and shows two pages side by side when there's room: a wide screen in landscape
 	...(isManga ? { doublePageBehavior: 'auto' as const } : {}),
 	readingMode: libraryConfig?.defaultReadingMode,

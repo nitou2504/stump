@@ -15,13 +15,18 @@ type Params = {
 	 * A callback to store the dimensions of a page after it has been preloaded
 	 */
 	onStoreDimensions?: (page: number, dimensions: ImagePageDimensionRef) => void
+	/**
+	 * A callback with each page's loaded image, e.g. to look at it (the comic reader's crop)
+	 * while it isn't on screen yet
+	 */
+	onLoaded?: (page: number, image: HTMLImageElement) => void
 }
 /**
  * A hook to preload a list of pages, provided a function to build the url for each page
  *
  * TODO: handle errors a bit better?
  */
-export function usePreloadPage({ pages, urlBuilder, onStoreDimensions }: Params) {
+export function usePreloadPage({ pages, urlBuilder, onStoreDimensions, onLoaded }: Params) {
 	const [isPreloading, setIsPreloading] = useState(false)
 
 	const preloadRef = useRef<Record<number, boolean>>({})
@@ -53,6 +58,7 @@ export function usePreloadPage({ pages, urlBuilder, onStoreDimensions }: Params)
 							ratio: image.width / image.height,
 							width: image.width,
 						})
+						onLoaded?.(page, image)
 					}
 					resolve(image)
 				}
@@ -71,7 +77,7 @@ export function usePreloadPage({ pages, urlBuilder, onStoreDimensions }: Params)
 		}
 
 		preloadPages()
-	}, [pages, urlBuilder, onStoreDimensions])
+	}, [pages, urlBuilder, onStoreDimensions, onLoaded])
 
 	return { isPreloading }
 }

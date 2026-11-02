@@ -1,408 +1,819 @@
-import Panzoom from '@panzoom/panzoom'
-import { ReadingDirection } from '@stump/graphql'
-import clsx from 'clsx'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ReadingDirection, ReadingImageScaleFit } from '@stump/graphql'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Hotkey } from 'react-hotkeys-hook/dist/types'
-import { useMediaMatch, useWindowSize } from 'rooks'
 
+import { EntityImage } from '@/components/entity'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
-import { type PanDirection, panOrTurnTransformed, ZOOMED_EPSILON } from '../../shared/panKeys'
+import { panOrTurn } from '../../shared/panKeys'
+import {
+	clampRatio,
+	distance,
+	DOUBLE_TAP_MS,
+	isDoubleTap,
+	midpoint,
+	pinchTransform,
+	type Point,
+} from '../../shared/zoomAnchor'
 import { useImageBaseReaderContext } from '../context'
-import PageSet from './PageSet'
+import { analysePage, type PageAnalysis, usePageAnalyses } from '../pageAnalysis'
+import {
+	type Box,
+	buildViews,
+	entryPos,
+	fitSize,
+	isWide,
+	itemBox,
+	type Size,
+	stepView,
+	SWIPE_SLOP,
+	swipeOf,
+	tapZone,
+	type ViewItem,
+	viewOfPage,
+	type ViewPos,
+	wideZoomSize,
+} from './pagedView'
 
 export type PagedReaderProps = {
-	/** The current page which the reader should render */
+	/** The current page which the reader should render (1-based) */
 	currentPage: number
 	/** A callback that is called in order to change the page */
 	onPageChange: (page: number) => void
 }
 
+const MAX_ZOOM = 5
+/** Taps right after a pinch, a pan or a step's scroll are the end of it, not a tap */
+const GESTURE_QUIET_MS = 250
+/** A press longer than this isn't a tap */
+const TAP_MAX_MS = 500
+/** How long a step's move takes */
+const STEP_MS = 220
+/** A wheel pause longer than this starts a new wheel gesture */
+const WHEEL_GESTURE_GAP_MS = 300
+/** Wheel distance (px) that turns a page that fits the screen */
+const WHEEL_TURN_DISTANCE = 80
+
+const prefersReducedMotion = () =>
+	typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const isCoarsePointer = () =>
+	typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
 /**
- * A reader component for image-based media. Images are displayed one at a time,
- * however preloading is done to reduce wait times for consecutive pages.
+ * The comic reader, one page (or one spread) at a time, like Mihon or KOReader:
  *
- * Note: This component lacks animations between pages. The `AnimatedPagedReader` component
- * will have animations between pages, but is currently a WIP
+ * - The page is drawn at its fit inside a scroller as big as the screen. It never moves under
+ *   the finger at its fit; a page bigger than the screen (fit width, zoomed, a wide page) is
+ *   panned by the browser's own scrolling, only along the sides that overflow, and never shows
+ *   empty space.
+ * - Taps at the sides, the arrow keys and Space step through a page bigger than the screen
+ *   (the next part, with a small overlap, in reading order) and turn the page after its last
+ *   part. Page Up / Page Down always turn. A quick sideways swipe turns the page.
+ * - A pinch (or Ctrl + wheel, or a double tap in the middle) zooms around the fingers.
+ * - Pages can be cropped to their content, and wide pages on a narrow screen zoomed so half of
+ *   them fills the width, or split in two.
  */
 function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
-	const { pageSets, book, getPageUrl } = useImageBaseReaderContext()
+	const { pageSets, book, getPageUrl, imageSizes, setPageSize } = useImageBaseReaderContext()
 	const {
 		bookPreferences: {
 			tapSidesToNavigate,
 			imageScaling,
-			secondPageSeparate,
-			doublePageBehavior,
-			panzoomWithoutCtrl,
 			readingDirection,
+			brightness,
+			cropBorders,
+			widePages = 'zoom',
+			pageBackground = 'theme',
 		},
 		settings: { showToolBar },
 		setSettings,
 	} = useBookPreferences({ book })
 
-	const { innerWidth } = useWindowSize()
+	const rtl = readingDirection === ReadingDirection.Rtl
+	const fit = imageScaling?.scaleToFit ?? ReadingImageScaleFit.Height
+	const analyses = usePageAnalyses(book.id)
 
-	const isMobile = useMediaMatch('(max-width: 768px)')
+	const scrollRef = useRef<HTMLDivElement | null>(null)
+	const contentRef = useRef<HTMLDivElement | null>(null)
 
-	const pageSetRef = useRef<HTMLDivElement | null>(null)
-	const panzoomRef = useRef<ReturnType<typeof Panzoom> | null>(null)
-
-	const panningDetected = useRef(false)
-
-	const [pageSetWidth, setPageSetWidth] = useState(0)
-	useEffect(() => {
-		const pageSetElement = pageSetRef.current
-		if (!pageSetElement) return
-
-		const resizeObserver = new ResizeObserver((entries) => {
-			if (!entries[0]) return
-			const newWidth = entries[0].contentRect.width
-			setPageSetWidth(newWidth)
-		})
-		resizeObserver.observe(pageSetElement)
-		return () => {
-			resizeObserver.disconnect()
-		}
+	// The screen the pages are drawn in (the scroller, inside the safe area)
+	const [viewport, setViewport] = useState<Size>({ w: 0, h: 0 })
+	useLayoutEffect(() => {
+		const element = scrollRef.current
+		if (!element) return undefined
+		const measure = () => setViewport({ w: element.clientWidth, h: element.clientHeight })
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(element)
+		return () => observer.disconnect()
 	}, [])
 
+	const portrait = viewport.h > viewport.w
+	const onePageAtATime = pageSets.every((set) => set.length === 1)
+	const ratioOf = useCallback(
+		(page: number) => {
+			const size = imageSizes[page]
+			return size ? size.width / size.height : undefined
+		},
+		[imageSizes],
+	)
+	const split = onePageAtATime && portrait && widePages === 'split'
+	const views = useMemo(() => buildViews(pageSets, ratioOf, split), [pageSets, ratioOf, split])
+
+	// Zoom (1 = the fit), reset on every turn
+	const [zoom, setZoom] = useState(1)
+	// Where to put the screen after the next layout: the entry of a turned-to view, or the spot
+	// a zoom keeps under the fingers
+	const pendingEntryRef = useRef<{ toward: 1 | -1; forward: boolean } | null>({
+		toward: rtl ? -1 : 1,
+		forward: true,
+	})
+	const pendingAnchorRef = useRef<{ fx: number; fy: number; vx: number; vy: number } | null>(null)
+	const lastGestureRef = useRef(0)
+
+	// The view on screen: follows the page in the URL (go to page, progress), keeping the half
+	// of a split page that a step or turn chose
+	const [viewIndex, setViewIndex] = useState(() => Math.max(0, viewOfPage(views, currentPage - 1)))
+	const chosenViewRef = useRef<number | null>(null)
 	useEffect(() => {
-		const pageSetElement = pageSetRef.current
-		if (!pageSetElement) return
-
-		const parentElement = pageSetElement.parentElement
-		if (!parentElement) return
-
-		const handleWheel = (event: WheelEvent) => {
-			if (event.ctrlKey || panzoomWithoutCtrl) {
-				panzoomRef.current?.zoomWithWheel(event)
-			}
+		const chosen = chosenViewRef.current
+		chosenViewRef.current = null
+		if (chosen !== null && views[chosen]?.some((item) => item.page === currentPage - 1)) {
+			setViewIndex(chosen)
+			return
 		}
+		setViewIndex((index) => {
+			if (views[index]?.some((item) => item.page === currentPage - 1)) return index
+			// another page from outside (go to page, the pages grid): its start, at its fit
+			pendingEntryRef.current = { toward: rtl ? -1 : 1, forward: true }
+			setZoom(1)
+			return Math.max(0, viewOfPage(views, currentPage - 1))
+		})
+	}, [currentPage, views, rtl])
 
-		// Check panning vs clicking
-		let startX = 0
-		let startY = 0
-		const handlePointerDown = (event: PointerEvent) => {
-			if (event.button === 2) return
-
-			startX = event.clientX
-			startY = event.clientY
-
-			const isSidebarClicked = !!(event.target as HTMLElement).closest('.z-50')
-
-			if (!isSidebarClicked) {
-				panzoomRef.current?.handleDown(event)
-				parentElement.style.cursor = 'move'
-				pageSetElement.style.cursor = 'move'
-				event.preventDefault()
-			}
-		}
-		const handlePointerUp = (event: PointerEvent) => {
-			const deltaX = event.clientX - startX
-			const deltaY = event.clientY - startY
-			panzoomRef.current?.handleUp(event)
-			parentElement.style.cursor = 'default'
-			pageSetElement.style.cursor = 'default'
-			panningDetected.current = Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2
-			setTimeout(() => {
-				panningDetected.current = false
-			}, 100)
-		}
-		const handleMove = (event: PointerEvent) => {
-			panzoomRef.current?.handleMove(event)
-		}
-
-		/**
-		 * A function that manually calculates the correct panzoom origin due to the default origin X value being wrong
-		 *
-		 * Because we do not set pageSet imagesHolder to use w-full (for SideBarControl to expand up to the pageSet), then
-		 * for some reason '50%' from the left is marked as where this is: pageSetWidth / 2 to the left of the right side of the viewport.
-		 *
-		 * But the real center is at the center of the viewport so we must do the origin calculation with respect to this weird coordinate system.
-		 *
-		 * Hence we:
-		 * 1. Calculate the stretch factor required -> viewportWidth / pageSetWidth
-		 * 2. Calculate the fraction it is from the right side of the viewport -> 50% * viewportWidth / pageSetWidth
-		 * 3. Calculate the fraction it is from the left side of the viewport -> 1 - 50% * viewportWidth / pageSetWidth
-		 * 4. Convert to a percentage
-		 */
-		const panzoomOriginCalculation = () => {
-			const viewportWidth = window.innerWidth
-			const xOrigin = (1 - viewportWidth / (2 * pageSetWidth)) * 100
-			const origin = `${xOrigin}% 50%`
-			return origin
-		}
-
-		const createPanzoom = () => {
-			if (panzoomRef.current) {
-				panzoomRef.current.destroy()
-			}
-
-			const pz = Panzoom(pageSetElement, {
-				noBind: true,
-				cursor: 'default',
-				minScale: 0.8,
-				maxScale: 2.5,
-				origin: panzoomOriginCalculation(),
-			})
-
-			panzoomRef.current = pz
-		}
-
-		createPanzoom()
-
-		parentElement.addEventListener('wheel', handleWheel)
-		parentElement.addEventListener('pointerdown', handlePointerDown)
-		document.addEventListener('pointermove', handleMove)
-		document.addEventListener('pointerup', handlePointerUp)
-		window.addEventListener('resize', createPanzoom)
-
-		return () => {
-			parentElement.removeEventListener('wheel', handleWheel)
-			parentElement.removeEventListener('pointerdown', handlePointerDown)
-			document.removeEventListener('pointermove', handleMove)
-			document.removeEventListener('pointerup', handlePointerUp)
-			window.removeEventListener('resize', createPanzoom)
-			panzoomRef.current?.destroy()
-		}
-	}, [
-		currentPage,
-		imageScaling,
-		secondPageSeparate,
-		doublePageBehavior,
-		pageSetWidth,
-		panzoomWithoutCtrl,
-	])
-
-	const currentSetIdx = useMemo(
-		() => pageSets.findIndex((set) => set.includes(currentPage - 1)),
-		[currentPage, pageSets],
+	const items = useMemo<ViewItem[]>(
+		() => views[viewIndex] ?? [{ page: currentPage - 1, part: 'whole' }],
+		[views, viewIndex, currentPage],
 	)
 
-	/**
-	 * If the image parts are collective >= 86% of the screen width, we want to fix the side navigation
-	 */
-	const fixSideNavigation = useMemo(() => {
-		return (!!innerWidth && pageSetWidth >= innerWidth * 0.86) || isMobile
-	}, [pageSetWidth, innerWidth, isMobile])
+	// What's drawn: each item's box in its image (cropped, a half), and the view's size at its fit
+	const crops = cropBorders && items.length === 1
+	const geometry = useMemo(() => {
+		const sizes = items.map((item) => imageSizes[item.page])
+		if (sizes.some((size) => !size) || !viewport.w || !viewport.h) return null
+		const boxes = items.map((item, index) => {
+			const size = sizes[index]!
+			const analysis = crops ? analyses[item.page + 1] : undefined
+			return itemBox(item.part, { w: size.width, h: size.height }, analysis?.crop)
+		})
+		const only = items.length === 1 ? items[0] : undefined
+		const onlyBox = boxes[0]!
+		const wideZoom =
+			!!only &&
+			only.part === 'whole' &&
+			portrait &&
+			widePages === 'zoom' &&
+			isWide(onlyBox.w / onlyBox.h)
+		const base = wideZoom
+			? wideZoomSize(onlyBox.w / onlyBox.h, viewport)
+			: fitSize(boxes, fit, viewport)
+		return { boxes, base }
+	}, [items, imageSizes, viewport, crops, analyses, portrait, widePages, fit])
 
-	/**
-	 * Record previous scroll position to restore if backtracked within 3 seconds
-	 */
-	const scrollPositionMap = useRef(new Map<number, { scrollTop: number; timestamp: number }>())
+	const content = useMemo<Size>(
+		() =>
+			geometry
+				? { w: geometry.base.w * zoom, h: geometry.base.h * zoom }
+				: { w: viewport.w, h: viewport.h },
+		[geometry, zoom, viewport],
+	)
+	const overflowX = content.w > viewport.w + 1
+	const overflowY = content.h > viewport.h + 1
 
-	useEffect(() => {
-		const scrollElement = pageSetRef.current?.parentElement?.parentElement?.parentElement
-		const storedScrollState = scrollPositionMap.current.get(currentSetIdx)
-		let scrollTop = 0
-		if (storedScrollState && Date.now() - storedScrollState.timestamp < 3000) {
-			scrollTop = storedScrollState.scrollTop
+	useLayoutEffect(() => {
+		const element = scrollRef.current
+		const inner = contentRef.current
+		if (!element || !geometry) return
+		if (inner) {
+			inner.style.transform = ''
+			inner.style.willChange = ''
 		}
-		scrollElement?.scrollTo({ top: scrollTop, behavior: 'smooth' })
-	}, [currentSetIdx])
+		const anchor = pendingAnchorRef.current
+		if (anchor) {
+			pendingAnchorRef.current = null
+			const offsetX = Math.max(0, (viewport.w - content.w) / 2)
+			const offsetY = Math.max(0, (viewport.h - content.h) / 2)
+			element.scrollTo({
+				left: offsetX + anchor.fx * content.w - anchor.vx,
+				top: offsetY + anchor.fy * content.h - anchor.vy,
+			})
+			return
+		}
+		const entry = pendingEntryRef.current
+		if (entry) {
+			pendingEntryRef.current = null
+			const pos = entryPos(content, viewport, entry.toward, entry.forward)
+			element.scrollTo({ left: pos.x, top: pos.y })
+		}
+	}, [viewIndex, geometry, content, viewport])
 
-	/**
-	 * A callback to actually change the page. This should not be called directly, but rather
-	 * through the `handleLeftwardPageChange` and `handleRightwardPageChange` callbacks to
-	 * ensure that the reading direction is respected.
-	 *
-	 * @param newPage The new page to navigate to (1-indexed)
-	 */
-	const doChangePage = useCallback(
-		(newPage: number) => {
-			const scrollElement = pageSetRef.current?.parentElement?.parentElement?.parentElement
-			const scrollTop = scrollElement?.scrollTop ?? 0
-			scrollPositionMap.current.set(currentSetIdx, { scrollTop: scrollTop, timestamp: Date.now() })
+	// Changing the view -----------------------------------------------------------------------------
 
-			if (newPage <= book.pages && newPage > 0) {
-				onPageChange(newPage)
+	/** Shows another view, entered from the side the input comes from */
+	const turnTo = useCallback(
+		(index: number, toward: 1 | -1) => {
+			const view = views[index]
+			if (!view?.length) return
+			const forward = rtl ? toward < 0 : toward > 0
+			pendingEntryRef.current = { toward, forward }
+			setZoom(1)
+			setViewIndex(index)
+			// the page reported: the one read first in the new view
+			const pages = view.map((item) => item.page)
+			const page = (forward ? Math.min(...pages) : Math.max(...pages)) + 1
+			if (page !== currentPage) {
+				chosenViewRef.current = index
+				onPageChange(page)
 			}
 		},
-		[book.pages, onPageChange, currentSetIdx],
+		[views, rtl, currentPage, onPageChange],
 	)
 
-	/**
-	 * A callback to change the page to the left. This will respect the reading direction
-	 * and the double spread setting.
-	 */
-	const handleLeftwardPageChange = useCallback(() => {
-		const nextSetIdx = currentSetIdx - 1
-		const nextSet = pageSets[nextSetIdx]
-		const endOfNextSet = nextSet?.at(-1)
-
-		if (!nextSet || endOfNextSet == null || panningDetected.current) {
+	/** Moves the screen to a spot of the view, quickly and smoothly */
+	const animateRef = useRef<number | undefined>(undefined)
+	const scrollToSmoothly = useCallback((target: ViewPos) => {
+		const element = scrollRef.current
+		if (!element) return
+		window.cancelAnimationFrame(animateRef.current ?? 0)
+		if (prefersReducedMotion()) {
+			element.scrollTo({ left: target.x, top: target.y })
 			return
 		}
-
-		if (nextSetIdx >= 0 && nextSetIdx < pageSets.length) {
-			doChangePage(endOfNextSet + 1)
+		const from = { x: element.scrollLeft, y: element.scrollTop }
+		const start = performance.now()
+		const frame = (now: number) => {
+			const t = Math.min(1, (now - start) / STEP_MS)
+			const eased = 1 - Math.pow(1 - t, 3)
+			element.scrollTo({
+				left: from.x + (target.x - from.x) * eased,
+				top: from.y + (target.y - from.y) * eased,
+			})
+			if (t < 1) animateRef.current = window.requestAnimationFrame(frame)
 		}
-	}, [doChangePage, currentSetIdx, pageSets])
-	/**
-	 * A callback to change the page to the right. This will respect the reading direction
-	 * and the double spread setting.
-	 */
-	const handleRightwardPageChange = useCallback(() => {
-		const nextSetIdx = currentSetIdx + 1
-		const nextSet = pageSets[nextSetIdx]
-		const startOfNextSet = nextSet?.at(0)
-
-		if (!nextSet || startOfNextSet == null || panningDetected.current) {
-			return
-		}
-
-		if (nextSetIdx >= 0 && nextSetIdx < pageSets.length) {
-			doChangePage(startOfNextSet + 1)
-		}
-	}, [doChangePage, currentSetIdx, pageSets])
-
-	/** The next and previous pages in reading order (right to left for manga) */
-	const goForward =
-		readingDirection === ReadingDirection.Rtl ? handleLeftwardPageChange : handleRightwardPageChange
-	const goBackward =
-		readingDirection === ReadingDirection.Rtl ? handleRightwardPageChange : handleLeftwardPageChange
-
-	/**
-	 * An arrow key on a zoomed page: moves around it (`pan`), or says it's at its edge in that
-	 * direction (`turn`); `none` when the page isn't zoomed
-	 */
-	const zoomedStep = useCallback((direction: PanDirection): 'pan' | 'turn' | 'none' => {
-		const panzoom = panzoomRef.current
-		const page = pageSetRef.current
-		if (!panzoom || !page) return 'none'
-		const scale = panzoom.getScale()
-		if (scale <= 1 + ZOOMED_EPSILON) return 'none'
-		const box = page.getBoundingClientRect()
-		const result = panOrTurnTransformed(
-			{ left: box.left, top: box.top, right: box.right, bottom: box.bottom },
-			{ left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight },
-			direction,
-		)
-		if (result.type === 'turn') return 'turn'
-		// the page is drawn as scale(s) translate(x, y): a move of x on screen is x / s
-		panzoom.pan(result.x / scale, result.y / scale, { relative: true, animate: true })
-		return 'pan'
+		animateRef.current = window.requestAnimationFrame(frame)
 	}, [])
+	useEffect(() => () => window.cancelAnimationFrame(animateRef.current ?? 0), [])
 
 	/**
-	 * A callback handler for changing the page or toggling the toolbar visibility via
-	 * keyboard shortcuts. On a zoomed page the arrows move around it and turn the page at its
-	 * edge; Page Up / Page Down always turn pages.
+	 * A step on screen: rightward (+1) or leftward (-1). Shows the next part of a view bigger
+	 * than the screen, or turns to the next view at its end.
 	 */
-	const hotKeyHandler = useCallback(
-		(hotkey: Hotkey) => {
-			const targetKey = hotkey.keys?.at(0)
-			switch (targetKey) {
+	const step = useCallback(
+		(toward: 1 | -1) => {
+			const element = scrollRef.current
+			if (!element) return
+			const forward = rtl ? toward < 0 : toward > 0
+			const next = stepView({
+				pos: { x: element.scrollLeft, y: element.scrollTop },
+				content: { w: element.scrollWidth, h: element.scrollHeight },
+				viewport: { w: element.clientWidth, h: element.clientHeight },
+				toward,
+				forward,
+			})
+			if (next === 'turn') turnTo(viewIndex + toward, toward)
+			else scrollToSmoothly(next)
+		},
+		[rtl, turnTo, viewIndex, scrollToSmoothly],
+	)
+
+	/** A whole page (view) turn, whatever part of it shows */
+	const turn = useCallback(
+		(toward: 1 | -1) => turnTo(viewIndex + toward, toward),
+		[turnTo, viewIndex],
+	)
+
+	/** Reading order: forward is leftward in a right-to-left book */
+	const forwardToward: 1 | -1 = rtl ? -1 : 1
+
+	// Keys ------------------------------------------------------------------------------------------
+	useHotkeys(
+		'right, left, up, down, pageup, pagedown, space, shift+space, escape',
+		(event, handler) => {
+			// the settings, the pages grid: their own keys
+			if (document.querySelector('[role="dialog"][data-state="open"]')) return
+			const key = handler.keys?.at(0)
+			const element = scrollRef.current
+			event.preventDefault()
+			switch (key) {
 				case 'right':
-					if (zoomedStep({ dx: 1, dy: 0 }) !== 'pan') handleRightwardPageChange()
+					step(1)
 					break
 				case 'left':
-					if (zoomedStep({ dx: -1, dy: 0 }) !== 'pan') handleLeftwardPageChange()
+					step(-1)
 					break
 				case 'up':
-					if (zoomedStep({ dx: 0, dy: -1 }) === 'turn') goBackward()
+				case 'down': {
+					// fine moves down or up the page, turning at its end (forward going down)
+					if (!element) break
+					const result = panOrTurn(element, { dx: 0, dy: key === 'down' ? 1 : -1 })
+					if (result.type === 'turn')
+						turn(key === 'down' ? forwardToward : (-forwardToward as 1 | -1))
+					else scrollToSmoothly({ x: result.left, y: result.top })
 					break
-				case 'down':
-					if (zoomedStep({ dx: 0, dy: 1 }) === 'turn') goForward()
-					break
+				}
 				case 'pageup':
-					goBackward()
+					turn(-forwardToward as 1 | -1)
 					break
 				case 'pagedown':
-					goForward()
+					turn(forwardToward)
 					break
 				case 'space':
-					setSettings({
-						showToolBar: !showToolBar,
-					})
+					step(handler.shift ? (-forwardToward as 1 | -1) : forwardToward)
 					break
 				case 'escape':
-					setSettings({
-						showToolBar: false,
-					})
-					break
-				default:
+					setSettings({ showToolBar: false })
 					break
 			}
 		},
-		[
-			setSettings,
-			showToolBar,
-			handleRightwardPageChange,
-			handleLeftwardPageChange,
-			zoomedStep,
-			goForward,
-			goBackward,
-		],
+		[step, turn, forwardToward, scrollToSmoothly, setSettings],
 	)
-	/**
-	 * Register the hotkeys for the reader component
-	 */
-	// (`d` is the readers' day/night switch, so a/d don't turn pages any more)
-	useHotkeys('right, left, up, down, pageup, pagedown, space, escape', (_, handler) =>
-		hotKeyHandler(handler),
+
+	// Zoom ------------------------------------------------------------------------------------------
+
+	/** Commits a zoom, keeping the spot under `point` (screen px) where it is */
+	const zoomAt = useCallback(
+		(next: number, point: Point, from?: Point) => {
+			const element = scrollRef.current
+			if (!element) return
+			const clamped = Math.min(MAX_ZOOM, Math.max(1, next))
+			const box = element.getBoundingClientRect()
+			const offsetX = Math.max(0, (box.width - content.w) / 2)
+			const offsetY = Math.max(0, (box.height - content.h) / 2)
+			// the spot of the view under the starting point, as fractions of the view
+			const start = from ?? point
+			const fx = (element.scrollLeft + start.x - box.left - offsetX) / Math.max(1, content.w)
+			const fy = (element.scrollTop + start.y - box.top - offsetY) / Math.max(1, content.h)
+			pendingAnchorRef.current = {
+				fx: Math.min(1, Math.max(0, fx)),
+				fy: Math.min(1, Math.max(0, fy)),
+				vx: point.x - box.left,
+				vy: point.y - box.top,
+			}
+			lastGestureRef.current = performance.now()
+			if (clamped === zoom) {
+				pendingAnchorRef.current = null
+				if (contentRef.current) contentRef.current.style.transform = ''
+				return
+			}
+			setZoom(clamped)
+		},
+		[content.w, content.h, zoom],
 	)
+	const zoomAtRef = useRef(zoomAt)
+	useEffect(() => {
+		zoomAtRef.current = zoomAt
+	}, [zoomAt])
+	const zoomRef = useRef(zoom)
+	useEffect(() => {
+		zoomRef.current = zoom
+	}, [zoom])
+
+	// Pointer: taps, swipes ------------------------------------------------------------------------
+	const pressRef = useRef<{
+		id: number
+		x: number
+		y: number
+		at: number
+		cancelled: boolean
+	} | null>(null)
+	const lastTapRef = useRef<{ time: number; point: Point } | null>(null)
+	const pendingTapRef = useRef<number | undefined>(undefined)
+	useEffect(() => () => window.clearTimeout(pendingTapRef.current), [])
+
+	const toggleBar = useCallback(
+		() => setSettings({ showToolBar: !showToolBar }),
+		[setSettings, showToolBar],
+	)
+
+	const onPointerDown = useCallback((event: React.PointerEvent) => {
+		if (!event.isPrimary || event.button > 0) return
+		pressRef.current = {
+			id: event.pointerId,
+			x: event.clientX,
+			y: event.clientY,
+			at: performance.now(),
+			cancelled: false,
+		}
+	}, [])
+
+	const onPointerCancel = useCallback(() => {
+		// the browser took the gesture (a scroll or a pinch): not a tap, not a swipe
+		if (pressRef.current) pressRef.current.cancelled = true
+		lastGestureRef.current = performance.now()
+	}, [])
+
+	const onPointerUp = useCallback(
+		(event: React.PointerEvent) => {
+			const press = pressRef.current
+			pressRef.current = null
+			const element = scrollRef.current
+			if (!press || press.id !== event.pointerId || press.cancelled || !element) return
+			if (performance.now() - lastGestureRef.current < GESTURE_QUIET_MS) return
+			const dx = event.clientX - press.x
+			const dy = event.clientY - press.y
+			const ms = performance.now() - press.at
+			const box = element.getBoundingClientRect()
+
+			if (Math.hypot(dx, dy) > SWIPE_SLOP) {
+				// a drag the page didn't follow: a deliberate sideways swipe turns the page
+				// (the finger moving left shows what's to the right)
+				const swipe = swipeOf(dx, dy, ms, box.width)
+				if (swipe) turn(swipe === 'left' ? 1 : -1)
+				return
+			}
+			if (ms > TAP_MAX_MS) return
+
+			const coarse = event.pointerType !== 'mouse' && isCoarsePointer()
+			const zone = tapZone((event.clientX - box.left) / box.width, coarse)
+			if (zone !== 'middle' && tapSidesToNavigate !== false) {
+				window.clearTimeout(pendingTapRef.current)
+				lastTapRef.current = null
+				step(zone === 'right' ? 1 : -1)
+				return
+			}
+			if (!coarse) {
+				toggleBar()
+				return
+			}
+			// the middle of a touch screen: a double tap zooms to 2x around it (or back to the fit);
+			// a single tap shows or hides the top bar once it's clear no second tap follows
+			const point = { x: event.clientX, y: event.clientY }
+			const now = performance.now()
+			if (isDoubleTap(lastTapRef.current, now, point)) {
+				window.clearTimeout(pendingTapRef.current)
+				lastTapRef.current = null
+				zoomAt(zoom > 1.05 ? 1 : 2, point)
+				return
+			}
+			lastTapRef.current = { time: now, point }
+			window.clearTimeout(pendingTapRef.current)
+			pendingTapRef.current = window.setTimeout(toggleBar, DOUBLE_TAP_MS)
+		},
+		[turn, step, tapSidesToNavigate, toggleBar, zoom, zoomAt],
+	)
+
+	// A pinch: only a GPU transform while the fingers move, the zoom committed once they lift
+	useEffect(() => {
+		const element = scrollRef.current
+		if (!element) return undefined
+		let start: { distance: number; mid: Point; origin: Point; zoom: number } | null = null
+		let ratio = 1
+		let mid: Point = { x: 0, y: 0 }
+		const pointOf = (touch: Touch): Point => ({ x: touch.clientX, y: touch.clientY })
+		const onTouchStart = (event: TouchEvent) => {
+			if (event.touches.length !== 2) return
+			const a = pointOf(event.touches[0]!)
+			const b = pointOf(event.touches[1]!)
+			mid = midpoint(a, b)
+			const inner = contentRef.current
+			if (!inner) return
+			const innerBox = inner.getBoundingClientRect()
+			start = {
+				distance: Math.max(1, distance(a, b)),
+				mid,
+				// the content point under the fingers, in the content's own px
+				origin: { x: mid.x - innerBox.left, y: mid.y - innerBox.top },
+				zoom: zoomRef.current,
+			}
+			ratio = 1
+			inner.style.willChange = 'transform'
+			if (pressRef.current) pressRef.current.cancelled = true
+		}
+		const onTouchMove = (event: TouchEvent) => {
+			if (!start || event.touches.length !== 2) return
+			event.preventDefault()
+			const a = pointOf(event.touches[0]!)
+			const b = pointOf(event.touches[1]!)
+			mid = midpoint(a, b)
+			ratio = clampRatio(start.zoom, distance(a, b) / start.distance, 1, MAX_ZOOM)
+			const inner = contentRef.current
+			if (inner) {
+				const look = pinchTransform(start.origin, start.mid, mid, ratio)
+				inner.style.transformOrigin = look.transformOrigin
+				inner.style.transform = look.transform
+			}
+		}
+		const onTouchEnd = (event: TouchEvent) => {
+			if (!start || event.touches.length > 0) return
+			const { zoom: startZoom, mid: startMid } = start
+			start = null
+			lastGestureRef.current = performance.now()
+			// measured without the gesture's transform, so the anchor is where the page really is
+			const inner = contentRef.current
+			const transform = inner?.style.transform ?? ''
+			if (inner) inner.style.transform = ''
+			const next = Math.min(MAX_ZOOM, Math.max(1, startZoom * ratio))
+			zoomAtRef.current(next, mid, startMid)
+			// kept until the new zoom is laid out (in the same frame), so nothing jumps
+			if (inner && transform && next !== startZoom) inner.style.transform = transform
+			ratio = 1
+		}
+		element.addEventListener('touchstart', onTouchStart, { passive: true })
+		element.addEventListener('touchmove', onTouchMove, { passive: false })
+		element.addEventListener('touchend', onTouchEnd)
+		element.addEventListener('touchcancel', onTouchEnd)
+		return () => {
+			element.removeEventListener('touchstart', onTouchStart)
+			element.removeEventListener('touchmove', onTouchMove)
+			element.removeEventListener('touchend', onTouchEnd)
+			element.removeEventListener('touchcancel', onTouchEnd)
+		}
+	}, [])
+
+	// The wheel: Ctrl/⌘ + wheel (a trackpad pinch) zooms around the mouse; otherwise it scrolls a
+	// page bigger than the screen, and turns the page at its end on a new wheel gesture (or right
+	// away when the page fits)
+	const turnRef = useRef(turn)
+	useEffect(() => {
+		turnRef.current = turn
+	}, [turn])
+	const forwardRef = useRef(forwardToward)
+	useEffect(() => {
+		forwardRef.current = forwardToward
+	}, [forwardToward])
+	useEffect(() => {
+		const element = scrollRef.current
+		if (!element) return undefined
+		let zoomRatio = 1
+		let zoomPoint: Point = { x: 0, y: 0 }
+		let zoomOrigin: Point | null = null
+		let zoomTimeout: number | undefined
+		let lastWheel = 0
+		let gestureStartedAtEdge = false
+		let distanceSum = 0
+		let coolUntil = 0
+		const onWheel = (event: WheelEvent) => {
+			if (event.ctrlKey || event.metaKey) {
+				event.preventDefault()
+				zoomPoint = { x: event.clientX, y: event.clientY }
+				zoomRatio = clampRatio(
+					zoomRef.current,
+					zoomRatio * Math.exp(-event.deltaY / 400),
+					1,
+					MAX_ZOOM,
+				)
+				const inner = contentRef.current
+				if (inner) {
+					if (!zoomOrigin) {
+						const innerBox = inner.getBoundingClientRect()
+						zoomOrigin = { x: zoomPoint.x - innerBox.left, y: zoomPoint.y - innerBox.top }
+					}
+					const look = pinchTransform(zoomOrigin, zoomPoint, zoomPoint, zoomRatio)
+					inner.style.transformOrigin = look.transformOrigin
+					inner.style.transform = look.transform
+				}
+				window.clearTimeout(zoomTimeout)
+				zoomTimeout = window.setTimeout(() => {
+					const innerNow = contentRef.current
+					const transform = innerNow?.style.transform ?? ''
+					if (innerNow) innerNow.style.transform = ''
+					const next = Math.min(MAX_ZOOM, Math.max(1, zoomRef.current * zoomRatio))
+					zoomAtRef.current(next, zoomPoint)
+					if (innerNow && transform && next !== zoomRef.current)
+						innerNow.style.transform = transform
+					zoomRatio = 1
+					zoomOrigin = null
+				}, 140)
+				return
+			}
+			const now = performance.now()
+			const newGesture = now - lastWheel > WHEEL_GESTURE_GAP_MS
+			lastWheel = now
+			if (now < coolUntil || Math.abs(event.deltaY) < Math.abs(event.deltaX)) return
+			const down = event.deltaY > 0
+			const maxTop = element.scrollHeight - element.clientHeight
+			const atEdge = down ? element.scrollTop >= maxTop - 1 : element.scrollTop <= 1
+			if (maxTop > 1) {
+				// a page bigger than the screen scrolls; at its end, the next wheel gesture turns
+				if (newGesture) {
+					gestureStartedAtEdge = atEdge
+					distanceSum = 0
+				}
+				if (!atEdge || !gestureStartedAtEdge) return
+			} else if (newGesture) {
+				distanceSum = 0
+			}
+			distanceSum += Math.abs(event.deltaY)
+			if (distanceSum < WHEEL_TURN_DISTANCE) return
+			distanceSum = 0
+			coolUntil = now + 400
+			turnRef.current(down ? forwardRef.current : (-forwardRef.current as 1 | -1))
+		}
+		element.addEventListener('wheel', onWheel, { passive: false })
+		return () => {
+			window.clearTimeout(zoomTimeout)
+			element.removeEventListener('wheel', onWheel)
+		}
+	}, [])
+
+	// Looking at pages for crop and the auto background -------------------------------------------
+	const imagesRef = useRef(new Map<number, HTMLImageElement>())
+	const wantsAnalysis = !!cropBorders || pageBackground === 'auto'
+	const onImageLoad = useCallback(
+		(page: number, size: { width: number; height: number }) => {
+			setPageSize(page, { ...size, ratio: size.width / size.height })
+			const image = imagesRef.current.get(page)
+			if (wantsAnalysis && image) analysePage(book.id, page + 1, image, true)
+		},
+		[setPageSize, wantsAnalysis, book.id],
+	)
+
+	// The colour around the pages
+	const tone = items.length === 1 ? analyses[items[0]!.page + 1]?.tone : undefined
+	const background = backgroundColor(pageBackground, tone)
+
+	// The views next to this one, drawn invisibly so a turn shows a decoded image right away
+	const neighbours = useMemo(() => {
+		const pages = new Set<number>()
+		for (const index of [viewIndex - 1, viewIndex + 1]) {
+			views[index]?.forEach((item) => pages.add(item.page))
+		}
+		items.forEach((item) => pages.delete(item.page))
+		return [...pages]
+	}, [views, viewIndex, items])
+
+	const touchAction =
+		overflowX && overflowY ? 'pan-x pan-y' : overflowX ? 'pan-x' : overflowY ? 'pan-y' : 'none'
 
 	return (
-		<div className="relative m-auto flex w-screen justify-center">
-			{!showToolBar && tapSidesToNavigate && (
-				<SideBarControl
-					fixed={fixSideNavigation}
-					position="left"
-					onClick={() => handleLeftwardPageChange()}
-				/>
-			)}
-
-			<PageSet
-				ref={pageSetRef}
-				currentPage={currentPage}
-				getPageUrl={getPageUrl}
-				onPageClick={() => {
-					if (!panningDetected.current) {
-						setSettings({ showToolBar: !showToolBar })
-					}
-				}}
+		<>
+			<div
+				aria-hidden
+				className="inset-0 fixed bg-background"
+				style={background ? { backgroundColor: background } : undefined}
 			/>
-
-			{!showToolBar && tapSidesToNavigate && (
-				<SideBarControl
-					fixed={fixSideNavigation}
-					position="right"
-					onClick={() => handleRightwardPageChange()}
+			<div
+				ref={scrollRef}
+				data-testid="comic-pages"
+				data-view={viewIndex}
+				data-zoom={zoom}
+				className="comic-pages fixed overflow-auto overscroll-none select-none"
+				style={{
+					top: 'env(safe-area-inset-top)',
+					right: 'env(safe-area-inset-right)',
+					bottom: 'env(safe-area-inset-bottom)',
+					left: 'env(safe-area-inset-left)',
+					touchAction,
+					scrollbarWidth: 'none',
+				}}
+				onPointerDown={onPointerDown}
+				onPointerUp={onPointerUp}
+				onPointerCancel={onPointerCancel}
+				onScroll={() => {
+					if (pressRef.current) pressRef.current.cancelled = true
+				}}
+			>
+				<div
+					className="flex items-center justify-center"
+					style={{
+						width: Math.max(content.w, viewport.w),
+						height: Math.max(content.h, viewport.h),
+					}}
+				>
+					<div
+						ref={contentRef}
+						className="flex shrink-0 flex-row"
+						style={{
+							width: geometry ? content.w : '100%',
+							height: geometry ? content.h : '100%',
+							filter: brightness < 1 ? `brightness(${brightness * 100}%)` : undefined,
+						}}
+					>
+						{items.map((item, index) => (
+							<PageImage
+								key={`${item.page}-${item.part}`}
+								item={item}
+								src={getPageUrl(item.page + 1)}
+								box={geometry?.boxes[index]}
+								natural={imageSizes[item.page]}
+								height={geometry ? content.h : undefined}
+								onLoad={onImageLoad}
+								imageRef={(image) => {
+									if (image) imagesRef.current.set(item.page, image)
+									else imagesRef.current.delete(item.page)
+								}}
+							/>
+						))}
+					</div>
+				</div>
+			</div>
+			{neighbours.map((page) => (
+				<EntityImage
+					key={`next-${page}`}
+					src={getPageUrl(page + 1)}
+					aria-hidden
+					alt=""
+					className="top-0 left-0 pointer-events-none fixed -z-20 h-full w-auto opacity-0"
+					onLoad={(size) => setPageSize(page, { ...size, ratio: size.width / size.height })}
 				/>
-			)}
-		</div>
+			))}
+			<style>{`.comic-pages::-webkit-scrollbar{display:none}`}</style>
+		</>
 	)
 }
 
-type SideBarControlProps = {
-	/** A callback that is called when the sidebar is clicked */
-	onClick: () => void
-	/** The position of the sidebar control */
-	position: 'left' | 'right'
-	/** Whether the sidebar should be fixed to the screen */
-	fixed: boolean
+/** The colour around the pages for the background setting (`null`: the theme's own) */
+export function backgroundColor(
+	setting: 'theme' | 'auto' | 'black' | 'white',
+	tone: PageAnalysis['tone'] | undefined,
+): string | null {
+	switch (setting) {
+		case 'black':
+			return '#000000'
+		case 'white':
+			return '#ffffff'
+		case 'auto':
+			return tone === 'dark' ? '#000000' : tone === 'light' ? '#ffffff' : null
+		default:
+			return null
+	}
+}
+
+type PageImageProps = {
+	item: ViewItem
+	src: string
+	/** The part of the image to show (cropped, a half); unknown until its size is */
+	box?: Box
+	natural?: { width: number; height: number }
+	/** The view's drawn height; unset until the page's size is known */
+	height?: number
+	onLoad: (page: number, size: { width: number; height: number }) => void
+	imageRef: (image: HTMLImageElement | null) => void
 }
 
 /**
- * A component that renders an invisible div on either the left or right side of the screen that, when
- * clicked, will call the onClick callback. This is used in the `PagedReader` component for
- * navigating to the next/previous page.
+ * One page, or the part of it the view shows: a box of the page's own size scaled to the
+ * view's height, the image placed inside it so only the box shows (a crop or a half, without
+ * drawing to a canvas)
  */
-function SideBarControl({ onClick, position, fixed }: SideBarControlProps) {
+const PageImage = memo(function PageImage({
+	item,
+	src,
+	box,
+	natural,
+	height,
+	onLoad,
+	imageRef,
+}: PageImageProps) {
+	const handleLoad = useCallback(
+		(size: { width: number; height: number }) => onLoad(item.page, size),
+		[onLoad, item.page],
+	)
+	if (!box || !natural || !height) {
+		// the size isn't known yet: the whole page, fitted, until it loads
+		return (
+			<EntityImage
+				ref={imageRef}
+				src={src}
+				alt=""
+				draggable={false}
+				decoding="async"
+				className="h-full w-full object-contain"
+				onLoad={handleLoad}
+				onError={(event) => {
+					;(event.target as HTMLImageElement).src = '/favicon.png'
+				}}
+			/>
+		)
+	}
+	const scale = height / box.h
 	return (
 		<div
-			className={clsx(
-				'z-50 h-full shrink-0 border border-transparent transition-all duration-300',
-				'active:border-border active:bg-muted/50',
-				// the same side zones as the other readers: 15% of the width at each side
-				fixed ? 'absolute w-[15%]' : 'relative mx-[-3%] flex flex-1 grow',
-				{ 'right-0': position === 'right' },
-				{ 'left-0': position === 'left' },
-			)}
-			onClick={onClick}
-		/>
+			className="relative shrink-0 overflow-hidden"
+			style={{ width: box.w * scale, height }}
+			data-page={item.page + 1}
+			data-part={item.part}
+		>
+			<EntityImage
+				ref={imageRef}
+				src={src}
+				alt=""
+				draggable={false}
+				decoding="async"
+				className="absolute max-h-none max-w-none"
+				style={{
+					width: natural.width * scale,
+					height: natural.height * scale,
+					left: -box.x * scale,
+					top: -box.y * scale,
+				}}
+				onLoad={handleLoad}
+				onError={(event) => {
+					;(event.target as HTMLImageElement).src = '/favicon.png'
+				}}
+			/>
+		</div>
 	)
-}
+})
 
 export default memo(PagedReader)
