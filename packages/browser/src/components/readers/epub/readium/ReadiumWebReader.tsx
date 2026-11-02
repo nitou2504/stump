@@ -1008,18 +1008,23 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	// The reading bar: where the chapters start (its ticks) and how many pages of the chapter
 	// are left, measured in the book's frame (pages that turn: screens across the chapter;
 	// scrolling: screen heights down it)
-	const chapterStarts = useMemo(() => {
+	const tocStarts = useMemo(() => {
 		const positions = opened?.positions ?? NO_POSITIONS
 		if (!positions.length) return []
-		const starts = toc
-			.map((item) => {
-				const base = item.content.split('#')[0] ?? item.content
-				const first = positions.find((position) => hrefsMatch(position.href, base))
-				return first?.locations.totalProgression
-			})
-			.filter((start): start is number => typeof start === 'number')
-		return [...new Set(starts)].sort((a, b) => a - b)
+		return flattenTocWithPaths(toc).flatMap(({ item, path }) => {
+			const base = item.content.split('#')[0] ?? item.content
+			const first = positions.find((position) => hrefsMatch(position.href, base))
+			const start = first?.locations.totalProgression
+			return typeof start === 'number' ? [{ start, path, depth: path.length }] : []
+		})
 	}, [opened, toc])
+	const chapterStarts = useMemo(
+		() =>
+			[...new Set(tocStarts.filter((entry) => entry.depth === 1).map((entry) => entry.start))].sort(
+				(a, b) => a - b,
+			),
+		[tocStarts],
+	)
 
 	const [chapterPageCount, setChapterPageCount] = useState<ChapterPages | null>(null)
 	const isScrolled = readingMode === ReadingMode.ContinuousVertical
@@ -1079,9 +1084,32 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				)
 			: []
 
+		// the contents' links don't always name the page's file: the entry whose start is the
+		// last one at or before the position (the deepest when several start there) instead
+		const at = currentLocator?.locations.totalProgression
+		const byPosition =
+			at == null
+				? undefined
+				: tocStarts.reduce<(typeof tocStarts)[number] | undefined>(
+						(best, entry) =>
+							entry.start <= at + 1e-9 &&
+							(!best ||
+								entry.start > best.start ||
+								(entry.start === best.start && entry.depth >= best.depth))
+								? entry
+								: best,
+						undefined,
+					)
+
 		return {
 			name: chapterTitle,
-			path: path.length ? path : chapterTitle ? [chapterTitle] : [],
+			path: path.length
+				? path
+				: byPosition?.path.length
+					? byPosition.path
+					: chapterTitle
+						? [chapterTitle]
+						: [],
 			pageInChapter: chapterPageCount?.page,
 			pagesInChapter: chapterPageCount?.pages,
 			pagesLeftInChapter: chapterPageCount?.left,
@@ -1092,7 +1120,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			totalPositions,
 			currentLocator: readerLocator,
 		}
-	}, [currentLocator, toc, opened, chapterPageCount])
+	}, [currentLocator, toc, opened, chapterPageCount, tocStarts])
 
 	const onPaginateForward = useCallback(() => {
 		void api.goForward()
@@ -1476,4 +1504,15 @@ function measureChapterPages(container: HTMLElement, scrolled: boolean): Chapter
 		}
 	}
 	return null
+}
+
+/** Every contents entry in reading order, with the labels from the top down to it */
+function flattenTocWithPaths(
+	toc: EpubContent[],
+	parents: string[] = [],
+): { item: EpubContent; path: string[] }[] {
+	return toc.flatMap((item) => {
+		const path = [...parents, item.label.trim()]
+		return [{ item, path }, ...flattenTocWithPaths(item.children, path)]
+	})
 }
