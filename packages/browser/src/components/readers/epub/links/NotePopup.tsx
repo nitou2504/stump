@@ -40,7 +40,8 @@ export default function NotePopup({ note, onClose, onGoToNote }: Props) {
 
 	return (
 		<div
-			className="inset-x-0 bottom-0 p-2 md:p-4 pointer-events-none fixed z-50 flex justify-center"
+			// Above the reader's footer (33px), which would otherwise cover the note's last line
+			className="inset-x-0 p-2 md:p-4 pointer-events-none fixed bottom-[33px] z-50 flex justify-center"
 			data-testid="epub-note-popup"
 		>
 			<section
