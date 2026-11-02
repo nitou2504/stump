@@ -1,12 +1,9 @@
-import type { EpubTextAlign } from '@stump/client'
-import { Label, NativeSelect } from '@stump/components'
 import { ReadingMode } from '@stump/graphql'
 import { useCallback, useMemo, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
-import { useReaderStore } from '@/stores'
 
 import type { ShortcutRow } from '../annotations'
 import { canShowTwoPages, type ReaderLayout } from '../shared/layout'
@@ -20,10 +17,8 @@ import {
 	EpubReaderMeta,
 	useEpubReaderContext,
 } from './context'
-import { EpubNavigationControls, PageMargins, ReadingDirection, SearchCommand } from './controls'
-import FontFamily from './controls/FontFamily'
-import FontSizeControl from './controls/FontSizeControl'
-import LineHeightControl from './controls/LineHeightControl'
+import { EpubNavigationControls, SearchCommand } from './controls'
+import TextSettings, { EpubReadingDirection } from './controls/TextSettings'
 import { useEpubBookmark } from './controls/useEpubBookmark'
 import { LocationManager } from './locations'
 
@@ -189,8 +184,6 @@ function EpubSettings({
 		bookPreferences: { readingMode, columnCount },
 		setBookPreferences,
 	} = useBookPreferences({ book })
-	const textAlign = useReaderStore((state) => state.settings.textAlign ?? 'auto')
-	const setSettings = useReaderStore((state) => state.setSettings)
 
 	const layout = useMemo(() => epubLayout(readingMode, columnCount), [readingMode, columnCount])
 	const shortcuts = useMemo<ShortcutRow[]>(
@@ -226,35 +219,11 @@ function EpubSettings({
 				})
 			}
 			layoutDisabledReason={disabledReason}
-			layoutExtra={<ReadingDirection />}
-			readerSection={{
-				title: translate('shared.reader.settings.text'),
-				content: (
-					<div className="gap-1 flex flex-col">
-						<FontFamily />
-						<FontSizeControl />
-						<LineHeightControl />
-						<div className="py-1.5">
-							<Label htmlFor="text-align">{translate('shared.reader.text.alignment')}</Label>
-							<NativeSelect
-								id="text-align"
-								size="sm"
-								className="mt-1.5"
-								value={textAlign}
-								onChange={(e) => setSettings({ textAlign: e.target.value as EpubTextAlign })}
-								options={[
-									{ label: translate('shared.reader.text.alignBook'), value: 'auto' },
-									{ label: translate('shared.reader.text.alignJustify'), value: 'justify' },
-									{ label: translate('shared.reader.text.alignStart'), value: 'start' },
-								]}
-							/>
-						</div>
-						<PageMargins />
-					</div>
-				),
-			}}
+			more={<EpubReadingDirection />}
 			shortcuts={shortcuts}
-		/>
+		>
+			<TextSettings />
+		</ReaderSettingsDialog>
 	)
 }
 

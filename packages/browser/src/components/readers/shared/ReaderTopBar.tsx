@@ -1,11 +1,11 @@
 import { cn } from '@stump/components'
-import { ArrowLeft, Bookmark, List, Search, Settings2 } from 'lucide-react'
+import { ALargeSmall, ArrowLeft, Bookmark, List, Search } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
 import ControlButton from '../epub/controls/ControlButton'
-import type { ReaderChrome } from './useReaderChrome'
+import { type ReaderChrome, useDocumentFullscreen, useFullscreenKey } from './useReaderChrome'
 
 type Props = {
 	chrome: ReaderChrome
@@ -23,7 +23,8 @@ type Props = {
 /**
  * The top bar every reader shares. It lies over the pages (they keep the whole screen) and
  * slides away when not needed; see `useReaderChrome` for when it shows. Only the essentials:
- * back and contents on the left, the book's title, then search, bookmark and settings.
+ * back and contents on the left, the book's title, then search, bookmark and the reading
+ * settings (an `Aa` glyph, like other reading apps).
  */
 export default function ReaderTopBar({
 	chrome,
@@ -37,6 +38,9 @@ export default function ReaderTopBar({
 }: Props) {
 	const { translate } = useTranslate()
 	const { visible, barProps } = chrome
+	// F11 takes the reader to the page's own full screen, which hides all of the browser's bars
+	const fullscreen = useDocumentFullscreen()
+	useFullscreenKey(fullscreen.toggle, fullscreen.supported)
 
 	const bookmarkLabel = translate(
 		bookmark?.active
@@ -114,7 +118,7 @@ export default function ReaderTopBar({
 				onClick={onSettings}
 				data-testid="reader-settings-button"
 			>
-				<Settings2 className="h-4 w-4" />
+				<ALargeSmall className="h-[18px] w-[18px]" />
 			</ControlButton>
 		</header>
 	)

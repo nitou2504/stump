@@ -236,3 +236,30 @@ export function useDocumentFullscreen() {
 	}, [])
 	return { isFullscreen, supported, toggle }
 }
+
+/**
+ * F11 in a reader: the page's own full screen (`useDocumentFullscreen`) instead of the
+ * browser's. The browser's full screen keeps its bars a mouse move away (Firefox slides its
+ * tab bar back in at the top edge, right where the reader's own bar shows); the page's hides
+ * them all until Esc. Browsers that keep F11 for themselves don't send it to the page: there
+ * the full screen button in the reading settings does the same.
+ */
+export function useFullscreenKey(toggle: () => void, supported: boolean) {
+	useEffect(() => {
+		if (!supported) return undefined
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (!isFullscreenKey(event)) return
+			event.preventDefault()
+			toggle()
+		}
+		window.addEventListener('keydown', onKeyDown, { capture: true })
+		return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+	}, [toggle, supported])
+}
+
+/** A plain F11 press */
+export function isFullscreenKey(
+	event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
+): boolean {
+	return event.key === 'F11' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+}

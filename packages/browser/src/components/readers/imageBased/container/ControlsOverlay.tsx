@@ -1,6 +1,7 @@
 import { PDF_EXTENSION } from '@stump/client'
-import { Button, cn, Dialog, Heading, Label, WideSwitch } from '@stump/components'
+import { cn, Dialog, Heading, Slider } from '@stump/components'
 import { ReadingDirection, ReadingImageScaleFit, ReadingMode } from '@stump/graphql'
+import { Sun } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useTheme } from '@/hooks/useTheme'
@@ -17,12 +18,17 @@ import { nextDayNightTheme } from '../../shared/readerKeys'
 import ReaderPageIndicator from '../../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../../shared/ReaderTopBar'
+import {
+	DirectionRow,
+	FitGlyph,
+	type FitGlyphMode,
+	Segmented,
+	SettingRow,
+	SwitchRow,
+} from '../../shared/settingsControls'
 import { useReaderChrome } from '../../shared/useReaderChrome'
 import { useImageBaseReaderContext } from '../context'
-import BrightnessControl from './BrightnessControl'
-import ImageScalingSelect from './ImageScalingSelect'
 import NextInSeries from './NextInSeries'
-import ReadingDirectionSelect from './ReadingDirectionSelect'
 
 /**
  * The image (comic, manga) reader's frame, the same as the other readers': the top bar over
@@ -149,46 +155,35 @@ export default function ControlsOverlay() {
 					})
 				}
 				layoutDisabledReason={layoutDisabledReason}
-				layoutExtra={
-					<div className="gap-3 flex flex-col">
-						<div>
-							<Label htmlFor="reading-direction">
-								{translate('shared.reader.direction.label')}
-							</Label>
-							<div className="mt-1.5">
-								<ReadingDirectionSelect
-									direction={readingDirection}
-									onChange={(direction) => setBookPreferences({ readingDirection: direction })}
-								/>
-							</div>
-						</div>
-						{layout.spread === 'double' && (
-							<WideSwitch
-								label={translate('shared.reader.layout.coverAlone')}
-								description={translate('shared.reader.layout.coverAloneHint')}
-								checked={coverAlone ?? true}
-								onCheckedChange={(checked) => setBookPreferences({ coverAlone: checked })}
-							/>
-						)}
-					</div>
+				more={
+					layout.spread === 'double' ? (
+						<SwitchRow
+							label={translate('shared.reader.layout.coverAlone')}
+							hint={translate('shared.reader.layout.coverAloneHint')}
+							checked={coverAlone ?? true}
+							onCheckedChange={(checked) => setBookPreferences({ coverAlone: checked })}
+						/>
+					) : null
 				}
-				readerSection={{
-					title: translate('shared.reader.settings.page'),
-					content: <ImagePageSettings />,
-				}}
 				shortcuts={shortcuts}
 				footer={
 					isPdf ? (
-						<Button
-							size="sm"
-							variant="outline"
+						<button
+							type="button"
+							className="h-8 px-2 text-xs self-start rounded-md text-foreground/85 hover:bg-foreground/6"
 							onClick={() => setPdfPreferences(book.id, { reader: 'pdf' })}
 						>
 							{translate('shared.pdfReader.openAsText')}
-						</Button>
+						</button>
 					) : null
 				}
-			/>
+			>
+				<DirectionRow
+					value={readingDirection}
+					onChange={(direction) => setBookPreferences({ readingDirection: direction })}
+				/>
+				<ImagePageSettings />
+			</ReaderSettingsDialog>
 
 			<PagesDialog
 				open={pagesOpen}
@@ -204,26 +199,67 @@ export default function ControlsOverlay() {
 	)
 }
 
+const FIT_GLYPHS: Record<ReadingImageScaleFit, FitGlyphMode> = {
+	[ReadingImageScaleFit.Auto]: 'page',
+	[ReadingImageScaleFit.Height]: 'height',
+	[ReadingImageScaleFit.Width]: 'width',
+	[ReadingImageScaleFit.None]: 'original',
+}
+const FIT_LABELS: Record<ReadingImageScaleFit, string> = {
+	[ReadingImageScaleFit.Auto]: 'shared.reader.fit.page',
+	[ReadingImageScaleFit.Height]: 'shared.reader.fit.height',
+	[ReadingImageScaleFit.Width]: 'shared.reader.fit.width',
+	[ReadingImageScaleFit.None]: 'shared.reader.fit.original',
+}
+
+/** The comic's own rows: how the page fits and how bright it is */
 function ImagePageSettings() {
 	const { book } = useImageBaseReaderContext()
 	const {
-		bookPreferences: { imageScaling },
+		bookPreferences: { imageScaling, brightness },
 		setBookPreferences,
 	} = useBookPreferences({ book })
 	const { translate } = useTranslate()
+	const fit = imageScaling?.scaleToFit ?? ReadingImageScaleFit.Height
+	const level = Number.isFinite(brightness) ? brightness : 1
 	return (
-		<div className="gap-3 flex flex-col">
-			<div>
-				<Label>{translate('shared.reader.fit.label')}</Label>
-				<div className="mt-1.5">
-					<ImageScalingSelect
-						value={imageScaling?.scaleToFit ?? ReadingImageScaleFit.Height}
-						onChange={(scaleToFit) => setBookPreferences({ imageScaling: { scaleToFit } })}
+		<>
+			<SettingRow label={translate('shared.reader.fit.label')}>
+				<Segmented<ReadingImageScaleFit>
+					label={translate('shared.reader.fit.label')}
+					testId="reader-fit"
+					className="w-full"
+					value={fit}
+					onChange={(scaleToFit) => setBookPreferences({ imageScaling: { scaleToFit } })}
+					options={[
+						ReadingImageScaleFit.Auto,
+						ReadingImageScaleFit.Height,
+						ReadingImageScaleFit.Width,
+						ReadingImageScaleFit.None,
+					].map((value) => ({
+						value,
+						label: translate(FIT_LABELS[value]),
+						icon: <FitGlyph mode={FIT_GLYPHS[value]} />,
+					}))}
+				/>
+			</SettingRow>
+			<SettingRow label={translate('shared.reader.settings.brightness')}>
+				<div className="gap-2 px-1 flex w-full items-center">
+					<Sun className="h-3 w-3 shrink-0 text-muted-foreground" />
+					<Slider
+						value={[level]}
+						min={0.1}
+						max={1}
+						step={0.01}
+						aria-label={translate('shared.reader.settings.brightness')}
+						onValueChange={([value]) =>
+							value !== undefined && setBookPreferences({ brightness: Math.max(0.1, value) })
+						}
 					/>
+					<Sun className="h-4 w-4 shrink-0 text-muted-foreground" />
 				</div>
-			</div>
-			<BrightnessControl />
-		</div>
+			</SettingRow>
+		</>
 	)
 }
 

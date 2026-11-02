@@ -1,5 +1,5 @@
 import { useSDK } from '@stump/client'
-import { FullScreenLoader, Text, WideSwitch } from '@stump/components'
+import { FullScreenLoader, Text } from '@stump/components'
 import type { BookReaderSceneQuery } from '@stump/graphql'
 import type { PdfLayout, PdfSearchResult } from '@stump/sdk'
 import { useQueryClient } from '@tanstack/react-query'
@@ -38,6 +38,7 @@ import { copyText, nextDayNightTheme } from '../shared/readerKeys'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
+import { SwitchRow } from '../shared/settingsControls'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
 	anchorOnPage,
@@ -1384,30 +1385,26 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					})
 				}
 				layoutDisabledReason={layoutDisabledReason}
-				layoutExtra={
+				more={
 					storedLayout.spread === 'double' ? (
-						<WideSwitch
+						<SwitchRow
 							label={translate('shared.reader.layout.coverAlone')}
-							description={translate('shared.reader.layout.coverAloneHint')}
+							hint={translate('shared.reader.layout.coverAloneHint')}
 							checked={coverAlone}
 							onCheckedChange={(checked) => setPreferences({ coverAlone: checked })}
 						/>
 					) : null
 				}
-				readerSection={{
-					title: translate('shared.reader.settings.page'),
-					content: (
-						<PdfPageSettings
-							fit={fit}
-							zoom={zoom}
-							invertPagesInDark={invertPagesInDark}
-							onChange={setPreferences}
-						/>
-					),
-				}}
 				shortcuts={shortcutRows}
 				footer={<PdfOpenAs bookId={mediaId} onChange={setPreferences} />}
-			/>
+			>
+				<PdfPageSettings
+					fit={fit}
+					zoom={zoom}
+					invertPagesInDark={invertPagesInDark}
+					onChange={setPreferences}
+				/>
+			</ReaderSettingsDialog>
 
 			<PdfSearchDialog
 				mediaId={mediaId}
