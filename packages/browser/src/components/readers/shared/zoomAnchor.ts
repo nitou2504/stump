@@ -40,14 +40,60 @@ export function clampRatio(zoom: number, ratio: number, min: number, max: number
 /**
  * The CSS transform shown during a pinch, on the content element (whose own origin is its
  * top-left corner): scaled by `ratio` around the content point that was under the fingers
- * when the pinch started (`origin`, content px), and moved with the fingers' midpoint
+ * when the pinch started (`origin`, content px), and moved with the fingers' midpoint.
+ *
+ * With `bounds` (the content's and the screen's boxes when the gesture started, in viewport
+ * px) the move is held to what the zoom will show once it's committed: content bigger than
+ * the screen keeps covering it (no empty space past its edges), smaller content stays
+ * centred. So the page never wanders off and springs back, and at the fit (the smallest
+ * zoom) it holds still.
  */
-export function pinchTransform(origin: Point, startMid: Point, mid: Point, ratio: number) {
-	const dx = mid.x - startMid.x
-	const dy = mid.y - startMid.y
+export function pinchTransform(
+	origin: Point,
+	startMid: Point,
+	mid: Point,
+	ratio: number,
+	bounds?: { content: Box; view: Box },
+) {
+	let move = { x: mid.x - startMid.x, y: mid.y - startMid.y }
+	if (bounds) move = clampPinchTranslate(bounds.content, bounds.view, origin, ratio, move)
 	return {
 		transformOrigin: `${origin.x}px ${origin.y}px`,
-		transform: `translate3d(${dx}px, ${dy}px, 0) scale(${ratio})`,
+		transform: `translate3d(${move.x}px, ${move.y}px, 0) scale(${ratio})`,
+	}
+}
+
+/**
+ * The translation of a content box scaled by `ratio` around `origin` (content px) that keeps
+ * it where a scroller can show it: covering the view along an axis where it's bigger than the
+ * view (between its two ends), centred where it's smaller
+ */
+export function clampPinchTranslate(
+	content: Box,
+	view: Box,
+	origin: Point,
+	ratio: number,
+	translate: Point,
+): Point {
+	const axis = (
+		start: number,
+		size: number,
+		viewStart: number,
+		viewSize: number,
+		pivot: number,
+		move: number,
+	) => {
+		const scaled = size * ratio
+		// where the scaled content starts with no translation
+		const from = start + pivot - pivot * ratio
+		if (scaled <= viewSize) return viewStart + (viewSize - scaled) / 2 - from
+		const least = viewStart + viewSize - scaled - from
+		const most = viewStart - from
+		return Math.min(most, Math.max(least, move))
+	}
+	return {
+		x: axis(content.left, content.width, view.left, view.width, origin.x, translate.x),
+		y: axis(content.top, content.height, view.top, view.height, origin.y, translate.y),
 	}
 }
 

@@ -14,6 +14,11 @@
  *   the finger lifts. It must move past the 16 px slop, mostly sideways (the cross-axis
  *   travel under half the main one), within 900 ms, and be either a quick flick or a drag
  *   across a quarter of the screen.
+ * - A page bigger than the screen (zoomed in, a wide page): a finger pans it; a swipe turns
+ *   the page only when the page was already at its edge on the side the swipe goes toward
+ *   when the finger came down. A swipe that starts away from the edge pans the page to it
+ *   and stops there; the next one turns (KOReader, Mihon). A page that fits is at both edges,
+ *   so any deliberate swipe turns it.
  */
 
 // Tap zones -------------------------------------------------------------------------------------
@@ -109,6 +114,43 @@ export function swipeOf(dx: number, dy: number, ms: number, width: number): Swip
 /** The screen direction of a swipe's turn: a finger moving left turns to the right (`1`) */
 export function swipeTurn(swipe: SwipeDirection): -1 | 0 | 1 {
 	return swipe === 'left' ? 1 : swipe === 'right' ? -1 : 0
+}
+
+/** Whether a scrolled page is at its left and right edges (nothing more to show that way) */
+export type ScrollEdges = { left: boolean; right: boolean }
+
+/** A scroll offset this close to the end counts as the end (rounding, zoom) */
+const EDGE_SLACK = 1
+
+/** The edges a scroller is at: both for a page that fits the width */
+export function scrollEdges(box: {
+	scrollLeft: number
+	scrollWidth: number
+	clientWidth: number
+}): ScrollEdges {
+	const max = Math.max(0, box.scrollWidth - box.clientWidth)
+	return {
+		left: box.scrollLeft <= EDGE_SLACK,
+		right: box.scrollLeft >= max - EDGE_SLACK,
+	}
+}
+
+/**
+ * The screen direction a swipe turns a page that may be bigger than the screen, or `0`. The
+ * page must have been at its edge on the side the swipe goes toward when the finger came down
+ * (`atStart`), and still be (`atEnd`: the browser didn't pan it): a finger moving left shows
+ * what's to the right, so it turns only from the right edge. A swipe that starts away from
+ * the edge pans the page to the edge and stops there: the next swipe turns.
+ */
+export function edgeSwipeTurn(
+	swipe: SwipeDirection,
+	atStart: ScrollEdges,
+	atEnd: ScrollEdges,
+): -1 | 0 | 1 {
+	const turn = swipeTurn(swipe)
+	if (turn === 1) return atStart.right && atEnd.right ? 1 : 0
+	if (turn === -1) return atStart.left && atEnd.left ? -1 : 0
+	return 0
 }
 
 /** Whether the main input is a finger (a touch screen, at any width) */

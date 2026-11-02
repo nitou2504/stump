@@ -1,8 +1,10 @@
 import {
 	bookTurn,
+	edgeSwipeTurn,
 	MOUSE_SIDE_ZONE,
 	navigationTapZone,
 	pageTapZone,
+	scrollEdges,
 	sideZoneWidth,
 	swipeOf,
 	swipeTurn,
@@ -94,5 +96,40 @@ describe('swipes (every reader): a drag the page did not follow', () => {
 		expect(swipeTurn('left')).toBe(1)
 		expect(swipeTurn('right')).toBe(-1)
 		expect(swipeTurn(null)).toBe(0)
+	})
+})
+
+describe('edge swipes on a page bigger than the screen (comic and PDF)', () => {
+	const box = (scrollLeft: number) => ({ scrollLeft, scrollWidth: 1170, clientWidth: 390 })
+
+	it('tells the edges a scroller is at, both for a page that fits', () => {
+		expect(scrollEdges(box(0))).toEqual({ left: true, right: false })
+		expect(scrollEdges(box(780))).toEqual({ left: false, right: true })
+		expect(scrollEdges(box(400))).toEqual({ left: false, right: false })
+		expect(scrollEdges({ scrollLeft: 0, scrollWidth: 390, clientWidth: 390 })).toEqual({
+			left: true,
+			right: true,
+		})
+	})
+
+	it('turns only from the edge the swipe goes toward, when it was there from the start', () => {
+		const right = { left: false, right: true }
+		const left = { left: true, right: false }
+		const middle = { left: false, right: false }
+		// a finger moving left shows what's to the right: from the right edge it turns (1)
+		expect(edgeSwipeTurn('left', right, right)).toBe(1)
+		expect(edgeSwipeTurn('right', left, left)).toBe(-1)
+		// a swipe that starts away from the edge only pans the page to it
+		expect(edgeSwipeTurn('left', middle, right)).toBe(0)
+		expect(edgeSwipeTurn('right', middle, left)).toBe(0)
+		// toward the other side the page pans back
+		expect(edgeSwipeTurn('right', right, middle)).toBe(0)
+		expect(edgeSwipeTurn(null, right, right)).toBe(0)
+	})
+
+	it('turns a page that fits on any deliberate swipe', () => {
+		const both = { left: true, right: true }
+		expect(edgeSwipeTurn('left', both, both)).toBe(1)
+		expect(edgeSwipeTurn('right', both, both)).toBe(-1)
 	})
 })
