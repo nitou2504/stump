@@ -3946,12 +3946,12 @@
       "shortcuts": {
         "dayNight": "Switch Day / Night",
         "settings": "Reader Settings",
-        "toggleBar": "Show / Hide the Top Bar"
+        "toggleBar": "Show / Hide the Top Bar",
+        "turnPageAlways": "Turn the Page (Also When Zoomed)",
+        "panZoomed": "Move Around a Zoomed Page (at Its Edge: Turn)"
       },
       "extend": {
-        "button": "Extend to the Next Page",
-        "hint": "Select where the passage ends",
-        "cancel": "Cancel",
+        "continues": "Continues from the previous page",
         "acrossChapters": "A selection can't run into another chapter"
       },
       "direction": {

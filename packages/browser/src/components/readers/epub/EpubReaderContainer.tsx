@@ -95,7 +95,7 @@ export default function EpubReaderContainer({
 					onSearch={controls.searchBook ? () => setSearchOpen(true) : undefined}
 					onSettings={() => openSettings()}
 				/>
-				<EpubPageIndicator />
+				<EpubPageIndicator onClick={() => setContentsOpen(true)} />
 				<EpubSettings
 					open={settingsOpen}
 					onOpenChange={setSettingsOpen}
@@ -152,8 +152,12 @@ function EpubTopBar({
 	)
 }
 
-/** The position in the book (Readium's positions, about a page of text each) */
-function EpubPageIndicator() {
+/**
+ * The position in the book (Readium's positions, about a page of text each); a tap on it
+ * opens the contents, to go to another chapter
+ */
+function EpubPageIndicator({ onClick }: { onClick: () => void }) {
+	const { translate } = useTranslate()
 	const { bookMeta, progress } = useEpubReaderContext().readerMeta
 	if (!bookMeta) return null
 	const { chapter } = bookMeta
@@ -162,7 +166,13 @@ function EpubPageIndicator() {
 		chapter.locatorPosition != null && chapter.totalPositions != null
 			? `${chapter.locatorPosition} / ${chapter.totalPositions}`
 			: `${Math.round(Math.min(1, Math.max(0, totalProgression)) * 100)}%`
-	return <ReaderPageIndicator text={text} />
+	return (
+		<ReaderPageIndicator
+			text={text}
+			onClick={onClick}
+			title={translate('shared.epubReader.locationManager')}
+		/>
+	)
 }
 
 function EpubSettings({
