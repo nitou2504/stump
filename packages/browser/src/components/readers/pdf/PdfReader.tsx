@@ -131,6 +131,8 @@ type NoteDialogState =
 
 type Flash = { page: number; rects: FractionRect[]; key: number }
 
+/** The share of the width at each side that turns the page in single-page mode */
+const SIDE_TAP_ZONE = 0.15
 const PAGE_GAP_DESKTOP = 16
 const PAGE_GAP_PHONE = 8
 const PHONE_MAX_WIDTH = 768
@@ -871,9 +873,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			if (!container) return
 			const box = container.getBoundingClientRect()
 			const relative = (event.clientX - box.left) / box.width
-			if (!continuous && relative < 0.25) {
+			// the same side zones as the EPUB reader (15% of the width at each side)
+			if (!continuous && relative < SIDE_TAP_ZONE) {
 				goRelative(-1)
-			} else if (!continuous && relative > 0.75) {
+			} else if (!continuous && relative > 1 - SIDE_TAP_ZONE) {
 				goRelative(1)
 			} else if (isCoarsePointer) {
 				setChromeVisible((visible) => !visible)
