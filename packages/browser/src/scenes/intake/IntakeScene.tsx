@@ -16,6 +16,7 @@ import IntakeDropZone from './IntakeDropZone'
 import IntakeItemCard, { FormatIcon } from './IntakeItemCard'
 import { type IntakeItemData, intakeLibrariesQuery } from './queries'
 import { acceptableIds, destinationPaths, groupInbox } from './reviewState'
+import { useTagReviewStore } from './tagReviewStore'
 
 const FILED_SHOWN = 10
 
@@ -32,7 +33,12 @@ export default function IntakeScene() {
 	const libraryId =
 		libraries.find((library) => library.id === requested)?.id ?? libraries[0]?.id ?? undefined
 
-	const { items, isLoading } = useIntakeInbox()
+	const { items, isLoading, data: inboxData } = useIntakeInbox()
+	// forget the tag choices of items that left the inbox
+	const keepOnlyReviewed = useTagReviewStore((store) => store.keepOnly)
+	useEffect(() => {
+		if (inboxData) keepOnlyReviewed(inboxData.intakeItems.map((item) => item.id))
+	}, [inboxData, keepOnlyReviewed])
 	const actions = useIntakeActions()
 	const uploader = useIntakeUploader(libraryId)
 	const groups = useMemo(() => groupInbox(items), [items])
@@ -207,8 +213,8 @@ export default function IntakeScene() {
 				open={confirmingAll}
 				onClose={() => setConfirmingAll(false)}
 				isPending={actions.isAccepting}
-				onConfirm={() => {
-					actions.accept(readyIds)
+				onConfirm={(entries) => {
+					actions.acceptWithGenres(entries)
 					setConfirmingAll(false)
 				}}
 			/>

@@ -7,8 +7,10 @@ import {
 	chosenTags,
 	confidenceLevel,
 	destinationPaths,
+	effectiveGenres,
 	fieldSource,
 	genreChips,
+	genresDiffer,
 	groupInbox,
 	isIntakeFile,
 	needsAttention,
@@ -18,9 +20,10 @@ import {
 	shouldPoll,
 	sourceLabel,
 	tagKind,
-	tagOrigin,
+	tagWhy,
 	toggleGenre,
 	uploadPercent,
+	weakGuesses,
 } from '../reviewState'
 
 const item = (overrides: Partial<IntakeItemData> = {}): IntakeItemData => ({
@@ -64,7 +67,7 @@ const item = (overrides: Partial<IntakeItemData> = {}): IntakeItemData => ({
 				confidence: 0.8,
 				kind: 'GENRE',
 				libraryCount: 40,
-				reasons: ['3 other books by this author have it'],
+				reasons: ['3 of 4 books by this author have it'],
 				selected: true,
 				value: 'Historical Fiction',
 			},
@@ -72,7 +75,7 @@ const item = (overrides: Partial<IntakeItemData> = {}): IntakeItemData => ({
 				confidence: 0.3,
 				kind: 'FACET',
 				libraryCount: 12,
-				reasons: ['similar description'],
+				reasons: ['2 books with a similar description have it'],
 				selected: false,
 				value: 'Origin: Italian',
 			},
@@ -174,18 +177,100 @@ describe('intake review state', () => {
 		expect(destinationPaths(withExtra)).toEqual(['Umberto_Eco/El_nombre_de_la_rosa.epub'])
 	})
 
-	it('tells tags from the book apart from guessed ones', () => {
-		expect(tagOrigin({ reasons: ["subject 'Historical fiction'"], suggested: true })).toBe('book')
-		expect(tagOrigin({ reasons: ['3 other books by this author have it'], suggested: true })).toBe(
-			'guessed',
+	it('tells tags backed by the book apart from guesses of similar books', () => {
+		const chips = genreChips(item())
+		expect(chips.map((c) => [c.value, c.origin, c.preselected])).toEqual([
+			['Historical Fiction', 'guessed', true],
+			['Origin: Italian', 'guessed', false],
+		])
+
+		const withSubject = item()
+		withSubject.proposal?.genreSuggestions.push(
+			{
+				confidence: 0.6,
+				kind: 'GENRE',
+				libraryCount: 3,
+				reasons: ["subject 'Space opera'", '1 of 4 books by this author have it'],
+				selected: true,
+				value: 'Science Fiction: Space Opera',
+			},
+			{
+				confidence: 0.6,
+				kind: 'GENRE',
+				libraryCount: 9,
+				reasons: ['the parent of a suggested tag'],
+				selected: true,
+				value: 'Science Fiction',
+			},
+			{
+				confidence: 0.95,
+				kind: 'FACET',
+				libraryCount: 9,
+				reasons: ['first published in 1980'],
+				selected: true,
+				value: 'Era: 20th Century',
+			},
 		)
-		expect(tagOrigin({ reasons: ['Added by you'], suggested: false })).toBe('you')
+		const origins = Object.fromEntries(genreChips(withSubject).map((c) => [c.value, c.origin]))
+		expect(origins['Science Fiction: Space Opera']).toBe('book')
+		// a parent is as good as its children
+		expect(origins['Science Fiction']).toBe('book')
+		expect(origins['Era: 20th Century']).toBe('book')
+
+		const guessedChild = item()
+		guessedChild.proposal?.genreSuggestions.push(
+			{
+				confidence: 0.6,
+				kind: 'GENRE',
+				libraryCount: 3,
+				reasons: ['2 of 4 books by this author have it'],
+				selected: true,
+				value: 'Science Fiction: Space Opera',
+			},
+			{
+				confidence: 0.6,
+				kind: 'GENRE',
+				libraryCount: 9,
+				reasons: ['the parent of a suggested tag'],
+				selected: true,
+				value: 'Science Fiction',
+			},
+		)
+		const guessedOrigins = Object.fromEntries(
+			genreChips(guessedChild).map((c) => [c.value, c.origin]),
+		)
+		expect(guessedOrigins['Science Fiction']).toBe('guessed')
+	})
+
+	it('leaves weak guesses unticked until the uploader chooses the tags', () => {
+		// Historical Fiction is pre-selected only from author votes at 0.8 (< 0.85)
+		expect(weakGuesses(item())).toEqual(['Historical Fiction'])
+		expect(effectiveGenres(item(), false)).toEqual([])
+		expect(effectiveGenres(item(), true)).toEqual(['Historical Fiction'])
+		const strong = item()
+		const first = strong.proposal?.genreSuggestions[0]
+		if (first) first.confidence = 0.9
+		expect(weakGuesses(strong)).toEqual([])
+		expect(effectiveGenres(strong, false)).toEqual(['Historical Fiction'])
+		// filing sends the tags when they differ from the server's
+		expect(genresDiffer(item(), [])).toBe(true)
+		expect(genresDiffer(item(), ['Historical Fiction'])).toBe(false)
+	})
+
+	it('explains each tag in one line', () => {
+		const [historical] = genreChips(item())
+		expect(historical && tagWhy(historical)).toBe('guessed: 3 of 4 books by this author have it')
+		expect(tagWhy({ origin: 'book', reasons: ["subject 'Rome'", 'first published in 1980'] })).toBe(
+			"subject 'Rome' (+1 more)",
+		)
+		expect(tagWhy({ origin: 'you', reasons: ['Added by you'] })).toBe('added by you')
 		const withExtra = item()
 		withExtra.decision?.metadata.genres.push('Mystery')
 		expect(chosenTags(withExtra)).toEqual([
 			{ origin: 'guessed', value: 'Historical Fiction' },
 			{ origin: 'you', value: 'Mystery' },
 		])
+		expect(chosenTags(withExtra, ['Mystery'])).toEqual([{ origin: 'you', value: 'Mystery' }])
 	})
 
 	it('plans uploads: one request per loose book, one per folder, books only', () => {

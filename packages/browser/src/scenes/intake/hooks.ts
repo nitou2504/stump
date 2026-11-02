@@ -19,6 +19,7 @@ import {
 	intakeUploadMutation,
 } from './queries'
 import {
+	genresDiffer,
 	type PendingFile,
 	planUploads,
 	shouldPoll,
@@ -85,30 +86,39 @@ export function useIntakeActions() {
 	const { mutateAsync: reviewAsync } = review
 	const { mutate: acceptMutate } = accept
 	/**
-	 * Adds one item. An item the server flagged for checking must be confirmed first (any
-	 * review of an item with nothing blocking makes it ready), so this confirms its current
-	 * choices and then adds it.
+	 * Files items with the tags the uploader confirmed. The server writes the tags of its
+	 * decision and only files items that are ready, so items whose tags differ (weak guesses
+	 * left unticked) or that were flagged for checking get their tags sent first (a review of
+	 * an item with nothing blocking makes it ready).
 	 */
-	const acceptItem = useCallback(
-		async (item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>) => {
-			if (item.state === IntakeState.NeedsReview) {
-				try {
-					await reviewAsync({
-						id: item.id,
-						input: { genres: item.decision?.metadata.genres ?? [] },
-					})
-				} catch {
-					return
+	const acceptWithGenres = useCallback(
+		async (
+			entries: Array<{ item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>; genres: string[] }>,
+		) => {
+			const needReview = entries.filter(
+				({ item, genres }) => item.state === IntakeState.NeedsReview || genresDiffer(item, genres),
+			)
+			try {
+				for (const { item, genres } of needReview) {
+					await reviewAsync({ id: item.id, input: { genres } })
 				}
+			} catch {
+				return
 			}
-			acceptMutate({ ids: [item.id] })
+			if (entries.length) acceptMutate({ ids: entries.map(({ item }) => item.id) })
 		},
 		[reviewAsync, acceptMutate],
 	)
 
+	const acceptItem = useCallback(
+		(item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>, genres: string[]) =>
+			acceptWithGenres([{ genres, item }]),
+		[acceptWithGenres],
+	)
+
 	return {
-		accept: (ids: string[]) => accept.mutate({ ids }),
 		acceptItem,
+		acceptWithGenres,
 		discard: (ids: string[]) => discard.mutate({ ids }),
 		isAccepting: accept.isPending,
 		isReviewing: review.isPending,

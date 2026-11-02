@@ -31,6 +31,7 @@ import FolderPicker from './FolderPicker'
 import type { IntakeItemData } from './queries'
 import { ReviewField } from './ReviewField'
 import {
+	effectiveGenres,
 	fieldSource,
 	formatAuthors,
 	genreChips,
@@ -41,11 +42,13 @@ import {
 	SERIES_KIND_LABELS,
 } from './reviewState'
 import TagPicker from './TagPicker'
+import { useTagReviewStore } from './tagReviewStore'
 
 type Props = {
 	item: IntakeItemData
 	onReview: (id: string, input: IntakeReviewInput) => void
-	onAccept: (item: IntakeItemData) => void
+	/** Files the item with these tags (sent first when they differ from the server's) */
+	onAccept: (item: IntakeItemData, genres: string[]) => void
 	onDiscard: (ids: string[]) => void
 	onReanalyse: (id: string, online?: boolean) => void
 	isBusy?: boolean
@@ -97,8 +100,14 @@ export default function IntakeItemCard({
 	const ready = isReady(item)
 	const review = (input: IntakeReviewInput) => onReview(item.id, input)
 
-	const chips = useMemo(() => genreChips(item), [item])
-	const chosenGenres = meta?.genres ?? []
+	const tagsReviewed = useTagReviewStore((store) => !!store.reviewed[item.id])
+	const markReviewed = useTagReviewStore((store) => store.markReviewed)
+	const chosenGenres = useMemo(() => effectiveGenres(item, tagsReviewed), [item, tagsReviewed])
+	const chips = useMemo(() => genreChips(item, chosenGenres), [item, chosenGenres])
+	const setGenres = (genres: string[]) => {
+		markReviewed(item.id)
+		review({ genres })
+	}
 	const firstFormat = item.files[0]?.format
 	const badge = STATE_BADGE[item.state]
 	const title = (filedAsSeries ? meta?.series : meta?.title) || item.name
@@ -347,7 +356,7 @@ export default function IntakeItemCard({
 								libraryId={item.libraryId}
 								chips={chips}
 								chosen={chosenGenres}
-								onChange={(genres) => review({ genres })}
+								onChange={setGenres}
 								disabled={isBusy}
 							/>
 						</section>
@@ -363,7 +372,7 @@ export default function IntakeItemCard({
 										size="xs"
 										variant="secondary"
 										disabled={isBusy}
-										onClick={() => review({ genres: chosenGenres })}
+										onClick={() => setGenres(chosenGenres)}
 									>
 										Looks right
 									</Button>
@@ -463,7 +472,7 @@ export default function IntakeItemCard({
 				</Button>
 				<Button
 					size="sm"
-					onClick={() => onAccept(item)}
+					onClick={() => onAccept(item, chosenGenres)}
 					disabled={
 						isBusy || !decision || item.problems.length > 0 || item.state === IntakeState.Failed
 					}

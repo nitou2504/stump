@@ -140,6 +140,8 @@ export const tagKind = (value: string) =>
 		? 'FACET'
 		: 'GENRE'
 
+export type TagOrigin = 'book' | 'guessed' | 'you'
+
 export type GenreChip = {
 	value: string
 	confidence: number
@@ -150,38 +152,90 @@ export type GenreChip = {
 	chosen: boolean
 	/** Proposed by the server (as opposed to added by the uploader) */
 	suggested: boolean
+	/** Part of the server's default choice */
+	preselected: boolean
+	/**
+	 * `book`: backed by the book itself (a subject in its file or found online, its year,
+	 * manga / light novel); `guessed`: only votes of other books (the author's or the
+	 * series' other books, similar descriptions); `you`: added by the uploader
+	 */
+	origin: TagOrigin
 }
 
-export type TagOrigin = 'book' | 'guessed' | 'you'
+/** Guessed tags under this confidence are not ticked until the uploader ticks them */
+export const GUESS_TICK_THRESHOLD = 0.85
+
+// "3 of 9 books by this author have it", "4 books with a similar description have it"
+const VOTE_REASON = /^\d+ (of \d+ .+|books with a similar description) have it$/
+const PARENT_REASON = 'the parent of a suggested tag'
+
+export const isVoteReason = (reason: string) => VOTE_REASON.test(reason)
+
+type ChipSource = Pick<IntakeItemData, 'proposal' | 'decision'>
 
 /**
- * Where a proposed tag comes from: the book's own subjects (its file or the online
- * lookup), a guess from similar library books (same author or series, similar
- * description, publication year), or the uploader.
+ * Every suggestion with where it comes from. A `Big` tag proposed only as the parent of
+ * suggested `Big: Small` tags is guessed when all those children are guessed.
  */
-export function tagOrigin(chip: Pick<GenreChip, 'suggested' | 'reasons'>): TagOrigin {
-	if (!chip.suggested) return 'you'
-	return chip.reasons.some((reason) => reason.startsWith("subject '")) ? 'book' : 'guessed'
+function suggestionsWithOrigin(item: ChipSource) {
+	const suggestions = item.proposal?.genreSuggestions ?? []
+	const base = suggestions.map((s) => ({
+		...s,
+		origin: (s.reasons.length > 0 && s.reasons.every(isVoteReason)
+			? 'guessed'
+			: 'book') as TagOrigin,
+	}))
+	return base.map((s) => {
+		if (!(s.reasons.length > 0 && s.reasons.every((r) => r === PARENT_REASON || isVoteReason(r)))) {
+			return s
+		}
+		if (!s.reasons.includes(PARENT_REASON)) return s
+		const children = base.filter((c) => c.value.startsWith(`${s.value}:`) && c.selected)
+		const guessed = children.length > 0 && children.every((c) => c.origin === 'guessed')
+		return { ...s, origin: (guessed ? 'guessed' : 'book') as TagOrigin }
+	})
 }
 
-/** The tags that will be written, each with where it comes from */
-export function chosenTags(item: Pick<IntakeItemData, 'proposal' | 'decision'>) {
-	return genreChips(item)
-		.filter((chip) => chip.chosen)
-		.map((chip) => ({ origin: tagOrigin(chip), value: chip.value }))
+/** Pre-selected guesses that stay unticked until the uploader ticks them */
+export function weakGuesses(item: ChipSource): string[] {
+	return suggestionsWithOrigin(item)
+		.filter((s) => s.selected && s.origin === 'guessed' && s.confidence < GUESS_TICK_THRESHOLD)
+		.map((s) => s.value)
+}
+
+/**
+ * The tags that will be written. Until the uploader has touched the tags, the server's
+ * choice minus its weak guesses (so a wrong author vote isn't written silently); after
+ * that, exactly what the uploader chose.
+ */
+export function effectiveGenres(item: ChipSource, tagsReviewed: boolean): string[] {
+	const genres = item.decision?.metadata.genres ?? []
+	if (tagsReviewed) return genres
+	const weak = new Set(weakGuesses(item))
+	return genres.filter((g) => !weak.has(g))
+}
+
+/** Whether filing needs the tags sent first (the written tags differ from the server's) */
+export function genresDiffer(item: ChipSource, genres: string[]) {
+	const current = item.decision?.metadata.genres ?? []
+	return current.length !== genres.length || current.some((g) => !genres.includes(g))
 }
 
 /** The tags shown as chips: the suggestions first, then any extra chosen tag */
-export function genreChips(item: Pick<IntakeItemData, 'proposal' | 'decision'>): GenreChip[] {
-	const chosen = item.decision?.metadata.genres ?? []
-	const suggestions = item.proposal?.genreSuggestions ?? []
+export function genreChips(
+	item: ChipSource,
+	chosen = item.decision?.metadata.genres ?? [],
+): GenreChip[] {
+	const suggestions = suggestionsWithOrigin(item)
 	const suggested = new Set(suggestions.map((s) => s.value))
 	return [
-		...suggestions.map(({ value, confidence, reasons, libraryCount, kind }) => ({
+		...suggestions.map(({ value, confidence, reasons, libraryCount, kind, selected, origin }) => ({
 			chosen: chosen.includes(value),
 			confidence,
 			kind,
 			libraryCount,
+			origin,
+			preselected: selected,
 			reasons,
 			suggested: true,
 			value,
@@ -193,11 +247,28 @@ export function genreChips(item: Pick<IntakeItemData, 'proposal' | 'decision'>):
 				confidence: 1,
 				kind: tagKind(value),
 				libraryCount: 0,
+				origin: 'you' as TagOrigin,
+				preselected: false,
 				reasons: ['Added by you'],
 				suggested: false,
 				value,
 			})),
 	]
+}
+
+/** The tags that will be written, each with where it comes from */
+export function chosenTags(item: ChipSource, chosen?: string[]) {
+	return genreChips(item, chosen)
+		.filter((chip) => chip.chosen)
+		.map((chip) => ({ origin: chip.origin, value: chip.value }))
+}
+
+/** One short line explaining a tag, e.g. `subject 'Fantasy fiction'` */
+export function tagWhy(chip: Pick<GenreChip, 'reasons' | 'origin'>) {
+	if (chip.origin === 'you') return 'added by you'
+	const [first, ...rest] = chip.reasons
+	const reason = first ?? 'suggested'
+	return `${chip.origin === 'guessed' ? 'guessed: ' : ''}${reason}${rest.length ? ` (+${rest.length} more)` : ''}`
 }
 
 export type PendingFile = {

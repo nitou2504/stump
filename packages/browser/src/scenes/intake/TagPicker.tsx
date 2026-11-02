@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { useDebouncedValue } from 'rooks'
 
 import { intakeVocabularyQuery } from './queries'
-import { confidenceLevel, type GenreChip, tagOrigin, toggleGenre } from './reviewState'
+import { confidenceLevel, type GenreChip, tagWhy, toggleGenre } from './reviewState'
 
 type Props = {
 	libraryId: string
@@ -24,29 +24,51 @@ const DOT = {
 
 /**
  * The tags of a book: the server's suggestions as chips you toggle (a dot shows how sure it
- * is; hovering tells why), plus a search over the tags the library already uses.
+ * is; a hollow, italic chip is a guess from similar books), why each proposed tag is there,
+ * and a search over the tags the library already uses.
  */
 export default function TagPicker({ libraryId, chips, chosen, onChange, disabled }: Props) {
 	const genres = chips.filter((c) => c.kind !== 'FACET')
 	const facets = chips.filter((c) => c.kind === 'FACET')
-	const hasGuesses = chips.some((c) => tagOrigin(c) === 'guessed')
+	// the "why" of every tag the server proposed and of everything that will be written
+	const explained = chips.filter((c) => c.preselected || c.chosen)
 
 	return (
 		<div className="gap-2 flex flex-col">
-			{hasGuesses && (
-				<p className="gap-3 text-xs flex flex-wrap text-muted-foreground">
-					<span className="gap-1.5 inline-flex items-center">
-						<span className="size-2 rounded-full bg-muted-foreground" aria-hidden /> from the book
-					</span>
-					<span className="gap-1.5 inline-flex items-center">
-						<span className="size-2 rounded-full border border-muted-foreground" aria-hidden />
-						guessed from similar books
-					</span>
-				</p>
-			)}
 			<ChipRow chips={genres} chosen={chosen} onChange={onChange} disabled={disabled} />
 			{facets.length > 0 && (
 				<ChipRow chips={facets} chosen={chosen} onChange={onChange} disabled={disabled} muted />
+			)}
+			{explained.length > 0 && (
+				<ul
+					className="gap-0.5 text-xs flex flex-col text-muted-foreground"
+					aria-label="Why these tags"
+				>
+					{explained.map((chip) => (
+						<li key={chip.value} className="gap-1.5 min-w-0 flex items-baseline">
+							<span
+								className={cn(
+									'size-2 shrink-0 translate-y-px rounded-full border border-muted-foreground',
+									chip.chosen && chip.origin !== 'guessed' && 'bg-muted-foreground',
+									chip.chosen && chip.origin === 'guessed' && 'border-warning bg-warning/40',
+								)}
+								aria-hidden
+							/>
+							<span
+								className={cn('shrink-0 text-foreground', chip.origin === 'guessed' && 'italic')}
+							>
+								{chip.value}
+							</span>
+							<span className="truncate" title={chip.reasons.join(' · ')}>
+								{tagWhy(chip)}
+								{chip.origin === 'guessed' &&
+									!chip.chosen &&
+									chip.preselected &&
+									' — not ticked, tick it if right'}
+							</span>
+						</li>
+					))}
+				</ul>
 			)}
 			<div>
 				<AddTag
@@ -60,6 +82,63 @@ export default function TagPicker({ libraryId, chips, chosen, onChange, disabled
 	)
 }
 
+/** A toggle chip for a tag; guessed ones are hollow and in italics */
+export function TagChip({
+	chip,
+	isOn,
+	onToggle,
+	disabled,
+	size = 'md',
+}: {
+	chip: GenreChip
+	isOn: boolean
+	onToggle: () => void
+	disabled?: boolean
+	size?: 'sm' | 'md'
+}) {
+	const level = confidenceLevel(chip.confidence)
+	const guessed = chip.origin === 'guessed'
+	const why = [
+		chip.suggested ? (guessed ? 'Guessed from similar books' : 'From the book') : undefined,
+		...chip.reasons,
+		chip.libraryCount ? `${chip.libraryCount} books in the library have it` : undefined,
+		chip.suggested ? `${Math.round(chip.confidence * 100)}% sure` : undefined,
+	].filter(Boolean)
+	return (
+		<ToolTip content={why.join(' · ')} isDisabled={!why.length} size="xs">
+			<button
+				type="button"
+				disabled={disabled}
+				aria-pressed={isOn}
+				onClick={onToggle}
+				className={cn(
+					'gap-1.5 inline-flex max-w-full items-center rounded-full border transition-colors disabled:opacity-50',
+					size === 'sm' ? 'px-2 py-0.5 text-xs min-h-6' : 'px-2.5 py-1 text-xs min-h-7',
+					isOn
+						? guessed
+							? 'border-warning/60 bg-warning/15 text-foreground'
+							: 'border-primary/40 bg-primary/15 text-foreground'
+						: 'border-dashed border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground',
+				)}
+			>
+				{chip.suggested && (
+					<span
+						className={cn(
+							'size-2 shrink-0 rounded-full border',
+							DOT[level],
+							guessed && 'bg-transparent',
+						)}
+						aria-hidden
+					/>
+				)}
+				<span className={cn('truncate', guessed && 'italic')}>{chip.value}</span>
+				{guessed && <span className="sr-only">(guessed)</span>}
+				{isOn && <Check className="h-3 w-3 shrink-0" aria-hidden />}
+			</button>
+		</ToolTip>
+	)
+}
+
 function ChipRow({
 	chips,
 	chosen,
@@ -69,49 +148,20 @@ function ChipRow({
 }: Omit<Props, 'libraryId'> & { muted?: boolean }) {
 	if (!chips.length) return null
 	return (
-		<div className="gap-1.5 flex flex-wrap" role="group" aria-label={muted ? 'Facets' : 'Genres'}>
-			{chips.map((chip) => {
-				const isOn = chosen.includes(chip.value)
-				const level = confidenceLevel(chip.confidence)
-				const guessed = tagOrigin(chip) === 'guessed'
-				const why = [
-					chip.suggested ? (guessed ? 'Guessed from similar books' : 'From the book') : undefined,
-					...chip.reasons,
-					chip.libraryCount ? `${chip.libraryCount} books in the library have it` : undefined,
-					chip.suggested ? `${Math.round(chip.confidence * 100)}% sure` : undefined,
-				].filter(Boolean)
-				return (
-					<ToolTip key={chip.value} content={why.join(' · ')} isDisabled={!why.length} size="xs">
-						<button
-							type="button"
-							disabled={disabled}
-							aria-pressed={isOn}
-							onClick={() => onChange(toggleGenre(chosen, chip.value))}
-							className={cn(
-								'gap-1.5 px-2.5 py-1 text-xs min-h-7 inline-flex max-w-full items-center rounded-full border transition-colors disabled:opacity-50',
-								isOn
-									? 'border-primary/40 bg-primary/15 text-foreground'
-									: 'border-dashed border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground',
-								muted && !isOn && 'opacity-80',
-							)}
-						>
-							{chip.suggested && (
-								<span
-									className={cn(
-										'size-2 shrink-0 rounded-full border',
-										DOT[level],
-										guessed && 'bg-transparent',
-									)}
-									aria-hidden
-								/>
-							)}
-							<span className={cn('truncate', guessed && 'italic')}>{chip.value}</span>
-							{guessed && <span className="sr-only">(guessed)</span>}
-							{isOn && <Check className="h-3 w-3 shrink-0" aria-hidden />}
-						</button>
-					</ToolTip>
-				)
-			})}
+		<div
+			className={cn('gap-1.5 flex flex-wrap', muted && 'opacity-90')}
+			role="group"
+			aria-label={muted ? 'Facets' : 'Genres'}
+		>
+			{chips.map((chip) => (
+				<TagChip
+					key={chip.value}
+					chip={chip}
+					isOn={chosen.includes(chip.value)}
+					disabled={disabled}
+					onToggle={() => onChange(toggleGenre(chosen, chip.value))}
+				/>
+			))}
 		</div>
 	)
 }
