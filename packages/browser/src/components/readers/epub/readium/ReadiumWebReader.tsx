@@ -1250,7 +1250,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				<div
 					role="status"
 					data-testid="extend-peek"
-					className="gap-0.5 px-3 py-2 text-sm shadow-lg fixed left-1/2 z-50 flex w-max max-w-[min(34rem,calc(100%-1rem))] -translate-x-1/2 flex-col rounded-lg border border-border bg-background/95 text-foreground"
+					className="gap-0.5 px-3 py-2 text-sm shadow-lg pointer-events-none fixed left-1/2 z-50 flex w-max max-w-[min(34rem,calc(100%-1rem))] -translate-x-1/2 flex-col rounded-lg border border-border bg-background/95 text-foreground"
 					style={{ top: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
 				>
 					<span className="text-[11px] text-muted-foreground">

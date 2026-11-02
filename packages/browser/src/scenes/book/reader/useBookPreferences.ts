@@ -80,8 +80,8 @@ export function isMangaBook(book: { metadata?: { genres?: string[] | null } | nu
 }
 
 /**
- * A library's default fit is chosen for a wide screen, where fit-to-height shows a whole page
- * (or a two-page spread). On a phone, in portrait or landscape, it shrinks the page (and in
+ * A library's default fit is chosen for a wide screen, where fit-to-height (or fit-page) shows
+ * a whole page (or a two-page spread). On a phone, in portrait or landscape, it shrinks the page (and in
  * landscape a page fitted to a 390px height is unreadable): there the page fits the screen's
  * width instead, scrolling down a tall page, like Mihon's or Kavita's fit-width (in portrait a
  * manga page at full width nearly fits anyway). A fit the reader chose for the book itself is
@@ -93,7 +93,8 @@ export function fitForScreen(
 		? undefined
 		: { width: window.innerWidth, height: window.innerHeight },
 ): ReadingImageScaleFit {
-	if (!screen || fit !== ReadingImageScaleFit.Height) return fit
+	const wholePage = fit === ReadingImageScaleFit.Height || fit === ReadingImageScaleFit.Auto
+	if (!screen || !wholePage) return fit
 	return isPhoneScreen(screen) ? ReadingImageScaleFit.Width : fit
 }
 

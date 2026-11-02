@@ -21,10 +21,16 @@ describe('fitForScreen', () => {
 		)
 	})
 
-	it('leaves the other fits alone', () => {
-		expect(fitForScreen(ReadingImageScaleFit.Auto, { width: 390, height: 844 })).toBe(
+	it('fits the width on a phone for a fit-page library default too', () => {
+		expect(fitForScreen(ReadingImageScaleFit.Auto, { width: 844, height: 390 })).toBe(
+			ReadingImageScaleFit.Width,
+		)
+		expect(fitForScreen(ReadingImageScaleFit.Auto, { width: 1440, height: 900 })).toBe(
 			ReadingImageScaleFit.Auto,
 		)
+	})
+
+	it('leaves the original size alone', () => {
 		expect(fitForScreen(ReadingImageScaleFit.None, { width: 390, height: 844 })).toBe(
 			ReadingImageScaleFit.None,
 		)

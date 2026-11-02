@@ -12,8 +12,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  *   selection's start moves to the left, the next page comes in on the right: the same idea
  *   as KOReader's half-page shift, with whole pages.
  * - one page: a half-page sideways shift would cut every line in two (the next page is to the
- *   right, not below), so the view moves by the whole page and a strip at the top keeps the end
- *   of what's already selected in sight (see `peek`).
+ *   right, not below), so the view moves by the whole page and a strip at the top shows the
+ *   end of what's already selected for a moment (see `peek`).
  *
  * When the selection is done or dropped the view snaps to a page boundary again: the page (or
  * spread) where the selection ends, or the starting one if it ends there. A selection can't
@@ -24,6 +24,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 export const EDGE_HOLD_MS = 600
 /** How long the move takes */
 const SHIFT_MS = 220
+/** How long the strip with the end of what's already selected shows after a whole-page move */
+const PEEK_MS = 3000
 
 export type CaretBox = { left: number; right: number; top: number; bottom: number }
 
@@ -194,6 +196,8 @@ export function useEdgeHoldExtend({
 	onChapterEnd,
 }: Options) {
 	const [peek, setPeek] = useState<string | null>(null)
+	const peekTimerRef = useRef<number | undefined>(undefined)
+	useEffect(() => () => window.clearTimeout(peekTimerRef.current), [])
 	const shiftRef = useRef<Shift | null>(null)
 	/** The column (page, from the chapter's start) where the selection's end was last seen */
 	const lastColumnRef = useRef<number | null>(null)
@@ -245,6 +249,10 @@ export function useEdgeHoldExtend({
 		scrollViewTo(document, to, true)
 		if (columns === 1) {
 			setPeek(selected.length > 140 ? `…${selected.slice(-140).trimStart()}` : selected)
+			// a cue at the turn, then out of the way of the page's first lines (where the
+			// selection goes on)
+			window.clearTimeout(peekTimerRef.current)
+			peekTimerRef.current = window.setTimeout(() => setPeek(null), PEEK_MS)
 			// On a touch screen the end's handle would be on the page that just left: put the
 			// selection's end at the top of the new page, where it can be dragged on
 			if (callbacksRef.current.isTouch) {

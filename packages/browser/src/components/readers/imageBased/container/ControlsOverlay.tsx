@@ -95,16 +95,18 @@ export default function ControlsOverlay() {
 	// Two pages show when picked ('always'), or for manga by default ('auto') on a wide
 	// screen in landscape: the picker shows what's on screen
 	const landscape = window.innerWidth > window.innerHeight
+	const wideEnough = canShowTwoPages(window.innerWidth)
 	const layout = useMemo<ReaderLayout>(
 		() => ({
 			flow: readingMode === ReadingMode.Paged ? 'paged' : 'continuous',
 			spread:
 				readingMode === ReadingMode.Paged &&
+				wideEnough &&
 				(doublePageBehavior === 'always' || (doublePageBehavior === 'auto' && landscape))
 					? 'double'
 					: 'single',
 		}),
-		[readingMode, doublePageBehavior, landscape],
+		[readingMode, doublePageBehavior, landscape, wideEnough],
 	)
 
 	const currentSet = pageSets.find((set) => set.includes(currentPage - 1)) ?? [currentPage - 1]
