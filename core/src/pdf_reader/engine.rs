@@ -1,11 +1,12 @@
 //! PDFium work for the reader: the layout, page pictures at a width tier, and text layers.
 //!
-//! Everything here runs on the render thread with PDFium's lock held (see [`super::worker`]).
+//! Everything here runs on the render thread with PDFium's lock held (`worker_loop` in `super`).
 
 use std::io::Cursor;
 
 use pdfium_render::prelude::{
-	PdfBookmark, PdfColor, PdfDocument, PdfPage, PdfPageIndex, PdfPoints, PdfRenderConfig,
+	PdfBitmap, PdfBitmapFormat, PdfBookmark, PdfColor, PdfDocument, PdfPage,
+	PdfPageIndex, PdfPoints, PdfRenderConfig,
 };
 use serde::Serialize;
 
@@ -192,23 +193,14 @@ pub fn render_tier(
 	tier: u32,
 ) -> Result<RenderedPage, MediaProcessorError> {
 	let page = get_page(document, page)?;
-	let config = PdfRenderConfig::new()
+	let config = render_config()
 		.set_target_width(tier as i32)
 		.set_maximum_height((tier * 4) as i32)
-		.set_reverse_byte_order(true)
-		.use_print_quality(false)
-		.set_text_smoothing(true)
-		.set_image_smoothing(true)
-		.set_path_smoothing(true)
-		.render_form_data(true)
-		.set_clear_color(PdfColor::new(255, 255, 255, 255))
-		.clear_before_rendering(true);
+		.render_form_data(true);
 	let bitmap = page.render_with_config(&config)?;
-	let width = bitmap.width().max(1) as u32;
-	let height = bitmap.height().max(1) as u32;
-	let rgba = bitmap.as_rgba_bytes();
+	let (rgb, width, height) = rgb_pixels(&bitmap)?;
 	drop(bitmap);
-	let bytes = encode_webp(&rgba, width, height)?;
+	let bytes = encode_webp(&rgb, width, height)?;
 	Ok(RenderedPage {
 		bytes,
 		width,
@@ -216,27 +208,60 @@ pub fn render_tier(
 	})
 }
 
-/// Lossy WebP at the reader's settings
+/// Opaque pages rendered straight to RGB (24-bit, byte order reversed from PDFium's BGR), so
+/// there is no alpha channel to convert or encode
+fn render_config() -> PdfRenderConfig {
+	PdfRenderConfig::new()
+		.set_format(PdfBitmapFormat::BGR)
+		.set_reverse_byte_order(true)
+		.use_print_quality(false)
+		.set_text_smoothing(true)
+		.set_image_smoothing(true)
+		.set_path_smoothing(true)
+		.set_clear_color(PdfColor::new(255, 255, 255, 255))
+		.clear_before_rendering(true)
+}
+
+/// The bitmap's RGB pixels, tightly packed (PDFium pads rows to 4 bytes when `width * 3`
+/// isn't a multiple of 4)
+fn rgb_pixels(
+	bitmap: &PdfBitmap<'_>,
+) -> Result<(Vec<u8>, u32, u32), MediaProcessorError> {
+	let width = bitmap.width().max(1) as usize;
+	let height = bitmap.height().max(1) as usize;
+	let raw = bitmap.as_raw_bytes();
+	let row = width * 3;
+	let stride = raw.len() / height;
+	if stride < row {
+		return Err(MediaProcessorError::PdfRenderFailed);
+	}
+	let pixels = if stride == row {
+		raw
+	} else {
+		let mut packed = Vec::with_capacity(row * height);
+		for line in raw.chunks_exact(stride).take(height) {
+			packed.extend_from_slice(&line[..row]);
+		}
+		packed
+	};
+	Ok((pixels, width as u32, height as u32))
+}
+
+/// Lossy WebP at the reader's settings, from tightly packed RGB pixels
 pub fn encode_webp(
-	rgba: &[u8],
+	rgb: &[u8],
 	width: u32,
 	height: u32,
 ) -> Result<Vec<u8>, MediaProcessorError> {
-	if rgba.len() < (width * height * 4) as usize {
+	if rgb.len() < (width * height * 3) as usize {
 		return Err(MediaProcessorError::PdfRenderFailed);
 	}
-	// pages are opaque: drop the alpha channel so no alpha plane is encoded
-	let rgb: Vec<u8> = rgba
-		.chunks_exact(4)
-		.take((width * height) as usize)
-		.flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
-		.collect();
 	let mut config =
 		webp::WebPConfig::new().map_err(|_| MediaProcessorError::PdfRenderFailed)?;
 	config.lossless = 0;
 	config.quality = WEBP_QUALITY;
 	config.method = WEBP_METHOD;
-	let encoded = webp::Encoder::from_rgb(&rgb, width, height)
+	let encoded = webp::Encoder::from_rgb(rgb, width, height)
 		.encode_advanced(&config)
 		.map_err(|error| {
 			tracing::warn!(?error, "Failed to encode a PDF page as WebP");
@@ -376,20 +401,11 @@ pub fn render_legacy(
 		target_width *= fit;
 		target_height *= fit;
 	}
-	let render_config = PdfRenderConfig::new()
+	let render_config = render_config()
 		.set_target_width(target_width.max(1.0) as i32)
-		.set_maximum_height(target_height.max(1.0) as i32)
-		.set_reverse_byte_order(true)
-		.use_print_quality(false)
-		.set_text_smoothing(true)
-		.set_image_smoothing(true)
-		.set_path_smoothing(true)
-		.set_clear_color(PdfColor::new(255, 255, 255, 255))
-		.clear_before_rendering(true);
+		.set_maximum_height(target_height.max(1.0) as i32);
 	let bitmap = page.render_with_config(&render_config)?;
-	let width = bitmap.width().max(1) as u32;
-	let height = bitmap.height().max(1) as u32;
-	let rgba = bitmap.as_rgba_bytes();
+	let (rgb, width, height) = rgb_pixels(&bitmap)?;
 	drop(bitmap);
 
 	let output_format = config.get_pdf_render_format();
@@ -398,9 +414,9 @@ pub fn render_legacy(
 		output_format,
 		models::shared::image_processor_options::SupportedImageFormat::Webp
 	) {
-		return Ok((content_type, encode_webp(&rgba, width, height)?));
+		return Ok((content_type, encode_webp(&rgb, width, height)?));
 	}
-	let image = image::RgbaImage::from_raw(width, height, rgba)
+	let image = image::RgbImage::from_raw(width, height, rgb)
 		.ok_or(MediaProcessorError::PdfRenderFailed)?;
 	let mut buffer = Cursor::new(vec![]);
 	image.write_to(&mut buffer, into_image_format(output_format))?;
@@ -430,10 +446,10 @@ mod tests {
 	#[test]
 	fn encodes_lossy_webp() {
 		let (width, height) = (64, 32);
-		let rgba: Vec<u8> = (0..width * height)
-			.flat_map(|i| [(i % 256) as u8, 128, 255, 255])
+		let rgb: Vec<u8> = (0..width * height)
+			.flat_map(|i| [(i % 256) as u8, 128, 255])
 			.collect();
-		let bytes = encode_webp(&rgba, width, height).unwrap();
+		let bytes = encode_webp(&rgb, width, height).unwrap();
 		assert_eq!(&bytes[0..4], b"RIFF");
 		assert_eq!(&bytes[8..12], b"WEBP");
 		assert_eq!(&bytes[12..16], b"VP8 ", "lossy");
