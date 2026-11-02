@@ -42,7 +42,7 @@ describe('EpubNavigationControls page taps', () => {
 		canGoBackward: true,
 	}
 
-	function setup({ phone = true, rtl = false } = {}) {
+	function setup({ phone = true, rtl = false, scroll = false, coarse = phone } = {}) {
 		vi.mocked(useEpubReaderContext).mockReturnValue({
 			readerMeta: { bookEntity: { id: 'book' } },
 		} as never)
@@ -50,11 +50,13 @@ describe('EpubNavigationControls page taps', () => {
 		vi.mocked(useBookPreferences).mockReturnValue({
 			bookPreferences: {
 				readingDirection: rtl ? ReadingDirection.Rtl : ReadingDirection.Ltr,
-				readingMode: ReadingMode.Paged,
+				readingMode: scroll ? ReadingMode.ContinuousVertical : ReadingMode.Paged,
 				tapSidesToNavigate: true,
 			},
 		} as never)
-		window.matchMedia = vi.fn().mockReturnValue({ matches: phone }) as never
+		window.matchMedia = vi.fn((query: string) => ({
+			matches: query.includes('coarse') ? coarse : phone,
+		})) as never
 
 		const { getByTestId } = render(
 			<EpubNavigationControls>
@@ -87,6 +89,25 @@ describe('EpubNavigationControls page taps', () => {
 		tap(0.95)
 		expect(controls.onPaginateBackward).toHaveBeenCalledTimes(1)
 		expect(controls.onPaginateForward).not.toHaveBeenCalled()
+	})
+
+	it("doesn't turn anything from the sides in the scroll layout: every tap toggles the controls", () => {
+		const tap = setup({ scroll: true })
+
+		tap(0.95)
+		tap(0.02)
+		expect(controls.onPaginateForward).not.toHaveBeenCalled()
+		expect(controls.onPaginateBackward).not.toHaveBeenCalled()
+		expect(controls.toggleVisible).toHaveBeenCalledTimes(2)
+	})
+
+	it('taps on a wide touch screen too (a phone in landscape)', () => {
+		const tap = setup({ phone: false, coarse: true })
+
+		tap(0.95)
+		expect(controls.onPaginateForward).toHaveBeenCalledTimes(1)
+		tap(0.5)
+		expect(controls.toggleVisible).toHaveBeenCalledTimes(1)
 	})
 
 	it('ignores page clicks on wider screens, which have chevrons', () => {

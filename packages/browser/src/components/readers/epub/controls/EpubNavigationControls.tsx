@@ -9,10 +9,13 @@ import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
 import { useEpubReaderContext, useEpubReaderControls } from '../context'
 import ControlButton from './ControlButton'
-import { pageTapZone, READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from './pageTap'
+import { navigationTapZone } from '../../shared/tapZones'
+import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from './pageTap'
 
 /** Phones and small tablets: below Tailwind's `md` breakpoint, where the chevrons are hidden */
 const PHONE_LAYOUT_QUERY = '(max-width: 767.98px)'
+/** Any touch screen, e.g. a phone turned sideways (wider than `md`), which has no mouse to hover */
+const TOUCH_QUERY = '(pointer: coarse)'
 
 type Props = {
 	children: React.ReactNode
@@ -82,10 +85,18 @@ export default function EpubNavigationControls({ children }: Props) {
 	const pageTapRef = useRef<(tap: ReaderPageTapDetail) => void>(() => {})
 	useEffect(() => {
 		pageTapRef.current = ({ xFraction }) => {
-			// Desktop keeps its chevrons and arrow keys; a click on the page does nothing
-			if (!window.matchMedia?.(PHONE_LAYOUT_QUERY).matches) return
+			// Desktop keeps its chevrons and arrow keys; a click on the page does nothing. A touch
+			// screen taps at any width: a phone in landscape is wider than the phone layout
+			const touchLayout =
+				!!window.matchMedia?.(PHONE_LAYOUT_QUERY).matches || !!window.matchMedia?.(TOUCH_QUERY).matches
+			if (!touchLayout) return
 
-			const zone = tapSidesToNavigate ? pageTapZone(xFraction) : 'middle'
+			// In the scroll layout the sides have no page to turn ('forward' there is the next
+			// chapter): every tap shows or hides the controls, scrolling moves through the book
+			const zone = navigationTapZone(xFraction, {
+				flow: isVerticalScrolling ? 'continuous' : 'paged',
+				sidesNavigate: !!tapSidesToNavigate,
+			})
 			if (zone === 'left' && canNavigateLeft) {
 				onBackwardNavigation()
 			} else if (zone === 'right' && canNavigateRight) {

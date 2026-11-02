@@ -10,13 +10,5 @@ export type ReaderPageTapDetail = {
 	xFraction: number
 }
 
-/** The share of the page width, at each side, that turns the page when tapped on a phone */
-export const SIDE_TAP_ZONE = 0.15
-
-export type PageTapZone = 'left' | 'middle' | 'right'
-
-export function pageTapZone(xFraction: number): PageTapZone {
-	if (xFraction < SIDE_TAP_ZONE) return 'left'
-	if (xFraction > 1 - SIDE_TAP_ZONE) return 'right'
-	return 'middle'
-}
+// The zones themselves are shared by every reader (see `shared/tapZones`)
+export { pageTapZone, type PageTapZone, SIDE_TAP_ZONE } from '../../shared/tapZones'
