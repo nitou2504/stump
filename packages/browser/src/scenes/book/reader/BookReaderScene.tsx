@@ -34,6 +34,9 @@ export const BOOK_READER_SCENE_QUERY = graphql(`
 				defaultReadingMode
 				defaultReadingDir
 			}
+			metadata {
+				genres
+			}
 			analysisData {
 				dimensions {
 					height
