@@ -150,7 +150,7 @@ function AnimatedPagedReader({ initialPage = 1, onPageChanged }: Props) {
 									scrollSnapType: isSafari || browserName === 'WebKit' ? undefined : 'x mandatory',
 									scrollBehavior: 'smooth',
 								}}
-								className="overflow-x-auto overflow-y-hidden"
+								className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 								initialScrollOffset={initialOffset}
 							>
 								{ItemRenderer}

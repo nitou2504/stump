@@ -95,12 +95,32 @@ export default function ContinuousScrollReader({
 
 	// TODO: use page dimensions to calculate the height of the page (if horizontal supports double spread)
 	return (
-		<div className="flex flex-1" data-overlayscrollbars-initialize ref={rootRef}>
+		<div
+			className="flex flex-1"
+			data-overlayscrollbars-initialize
+			ref={rootRef}
+			// the pages keep clear of a camera cutout or rounded corners (the auto-sizer measures
+			// inside this padding)
+			style={{
+				paddingTop: 'env(safe-area-inset-top)',
+				paddingRight: 'env(safe-area-inset-right)',
+				paddingBottom: 'env(safe-area-inset-bottom)',
+				paddingLeft: 'env(safe-area-inset-left)',
+			}}
+		>
 			<AutoSizer>
 				{({ height, width }) => (
 					<Virtuoso
 						key={readingMode}
-						style={{ height, width }}
+						className="[scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+						// scrolled along the strip only: no sideways wobble, no bounce, no scrollbar
+						// (taps on the pages only show or hide the top bar; scrolling is the navigation)
+						style={{
+							height,
+							width,
+							touchAction: orientation === 'horizontal' ? 'pan-x pinch-zoom' : 'pan-y pinch-zoom',
+							overscrollBehavior: 'none',
+						}}
 						useWindowScroll={false}
 						horizontalDirection={orientation === 'horizontal'}
 						data={Array.from({ length: media.pages }).map((_, index) => getPageUrl(index + 1))}

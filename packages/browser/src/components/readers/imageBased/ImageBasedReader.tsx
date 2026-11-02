@@ -15,6 +15,7 @@ import { canShowTwoPages } from '../shared/layout'
 import ReaderContainer from './container'
 import { ImageBaseReaderContext, ImageReaderBookRef } from './context'
 import { ContinuousScrollReader } from './continuous'
+import { analysePage } from './pageAnalysis'
 import { AnimatedPagedReader, PagedReader } from './paged'
 import { useImageSizes } from './useImageSizes'
 
@@ -57,9 +58,13 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 			trackElapsedTime,
 			secondPageSeparate,
 			coverAlone,
+			cropBorders,
+			pageBackground,
 		},
 		setSettings,
 	} = useBookPreferences({ book: media })
+	// pages are looked at (margins, edge colour) while they preload, so a turn doesn't wait
+	const wantsAnalysis = !!cropBorders || pageBackground === 'auto'
 
 	const timer = useBookTimer(media?.id || '', {
 		initial: media?.readProgress?.elapsedSeconds,
@@ -160,10 +165,20 @@ export default function ImageBasedReader({ media, isIncognito, initialPage, onPr
 	 * prevent wait times for the next page to load.
 	 */
 	// TODO: Fix on desktop
-	usePreloadPage({
-		onStoreDimensions: (page, dimensions) => {
-			setPageSize(page - 1, dimensions)
+	const storePreloadedSize = useCallback(
+		(page: number, dimensions: { width: number; height: number; ratio: number }) =>
+			setPageSize(page - 1, dimensions),
+		[setPageSize],
+	)
+	const analysePreloaded = useCallback(
+		(page: number, image: HTMLImageElement) => {
+			if (wantsAnalysis) analysePage(media.id, page, image)
 		},
+		[wantsAnalysis, media.id],
+	)
+	usePreloadPage({
+		onStoreDimensions: storePreloadedSize,
+		onLoaded: analysePreloaded,
 		pages: pagesToPreload,
 		urlBuilder: getPageUrl,
 	})

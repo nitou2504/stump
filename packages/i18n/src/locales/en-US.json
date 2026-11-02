@@ -3934,6 +3934,20 @@
         "coverAloneHint": "In two-page layouts the first page stays alone, like an open book",
         "spreadsTurnOnly": "Two-page spreads turn page by page"
       },
+      "comic": {
+        "crop": "Crop",
+        "cropHint": "Trims the blank margins around each page",
+        "widePages": "Wide",
+        "widePagesHint": "Two-page images on a narrow screen",
+        "wideZoom": "Zoom In and Pan",
+        "wideSplit": "Split in Two",
+        "wideFit": "Fit Whole",
+        "background": "Background",
+        "backgroundTheme": "Theme",
+        "backgroundAuto": "Match the Page",
+        "backgroundBlack": "Black",
+        "backgroundWhite": "White"
+      },
       "themes": {
         "auto": "Auto",
         "light": "Light",
@@ -3948,7 +3962,9 @@
         "settings": "Reader Settings",
         "toggleBar": "Show / Hide the Top Bar",
         "turnPageAlways": "Turn the Page (Also When Zoomed)",
-        "panZoomed": "Move Around a Zoomed Page (at Its Edge: Turn)"
+        "panZoomed": "Move Around a Zoomed Page (at Its Edge: Turn)",
+        "stepPage": "Next / Previous Part of the Page, Then the Page",
+        "scrollPage": "Scroll the Page (at Its End: Turn)"
       },
       "extend": {
         "continues": "Continues from the previous page",

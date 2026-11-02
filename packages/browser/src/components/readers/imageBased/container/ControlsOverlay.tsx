@@ -1,7 +1,7 @@
-import { PDF_EXTENSION } from '@stump/client'
+import { type PageBackground, PDF_EXTENSION, type WidePagesBehavior } from '@stump/client'
 import { cn, Dialog, Heading, Slider } from '@stump/components'
 import { ReadingDirection, ReadingImageScaleFit, ReadingMode } from '@stump/graphql'
-import { Sun } from 'lucide-react'
+import { Columns2, Scan, Sun, ZoomIn } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useTheme } from '@/hooks/useTheme'
@@ -130,10 +130,10 @@ export default function ControlsOverlay() {
 
 	const shortcuts = useMemo<ShortcutRow[]>(
 		() => [
-			{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') },
+			{ keys: ['←', '→'], label: translate('shared.reader.shortcuts.stepPage') },
+			{ keys: ['Space', '⇧ Space'], label: translate('shared.reader.shortcuts.stepPage') },
+			{ keys: ['↑', '↓'], label: translate('shared.reader.shortcuts.scrollPage') },
 			{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
-			{ keys: ['←', '↑', '↓', '→'], label: translate('shared.reader.shortcuts.panZoomed') },
-			{ keys: ['Space'], label: translate('shared.reader.shortcuts.toggleBar') },
 		],
 		[translate],
 	)
@@ -169,14 +169,17 @@ export default function ControlsOverlay() {
 				}
 				layoutDisabledReason={layoutDisabledReason}
 				more={
-					layout.spread === 'double' ? (
-						<SwitchRow
-							label={translate('shared.reader.layout.coverAlone')}
-							hint={translate('shared.reader.layout.coverAloneHint')}
-							checked={coverAlone ?? true}
-							onCheckedChange={(checked) => setBookPreferences({ coverAlone: checked })}
-						/>
-					) : null
+					<>
+						{layout.spread === 'double' ? (
+							<SwitchRow
+								label={translate('shared.reader.layout.coverAlone')}
+								hint={translate('shared.reader.layout.coverAloneHint')}
+								checked={coverAlone ?? true}
+								onCheckedChange={(checked) => setBookPreferences({ coverAlone: checked })}
+							/>
+						) : null}
+						<BackgroundRow />
+					</>
 				}
 				shortcuts={shortcuts}
 				footer={
@@ -195,7 +198,7 @@ export default function ControlsOverlay() {
 					value={readingDirection}
 					onChange={(direction) => setBookPreferences({ readingDirection: direction })}
 				/>
-				<ImagePageSettings />
+				<ImagePageSettings onePage={layout.flow === 'paged' && layout.spread === 'single'} />
 			</ReaderSettingsDialog>
 
 			<PagesDialog
@@ -225,11 +228,14 @@ const FIT_LABELS: Record<ReadingImageScaleFit, string> = {
 	[ReadingImageScaleFit.None]: 'shared.reader.fit.original',
 }
 
-/** The comic's own rows: how the page fits and how bright it is */
-function ImagePageSettings() {
+/**
+ * The comic's own rows: how the page fits and how bright it is; one page at a time, also
+ * whether its blank margins are cropped and how a wide (two-page) image shows
+ */
+function ImagePageSettings({ onePage }: { onePage: boolean }) {
 	const { book } = useImageBaseReaderContext()
 	const {
-		bookPreferences: { imageScaling, brightness },
+		bookPreferences: { imageScaling, brightness, cropBorders, widePages = 'zoom' },
 		setBookPreferences,
 	} = useBookPreferences({ book })
 	const { translate } = useTranslate()
@@ -256,6 +262,45 @@ function ImagePageSettings() {
 					}))}
 				/>
 			</SettingRow>
+			{onePage && (
+				<>
+					<SwitchRow
+						label={translate('shared.reader.comic.crop')}
+						hint={translate('shared.reader.comic.cropHint')}
+						checked={!!cropBorders}
+						onCheckedChange={(checked) => setBookPreferences({ cropBorders: checked })}
+					/>
+					<SettingRow
+						label={translate('shared.reader.comic.widePages')}
+						hint={translate('shared.reader.comic.widePagesHint')}
+					>
+						<Segmented<WidePagesBehavior>
+							label={translate('shared.reader.comic.widePages')}
+							testId="reader-wide-pages"
+							className="w-full"
+							value={widePages}
+							onChange={(value) => setBookPreferences({ widePages: value })}
+							options={[
+								{
+									value: 'zoom',
+									label: translate('shared.reader.comic.wideZoom'),
+									icon: <ZoomIn aria-hidden className="h-4 w-4" />,
+								},
+								{
+									value: 'split',
+									label: translate('shared.reader.comic.wideSplit'),
+									icon: <Columns2 aria-hidden className="h-4 w-4" />,
+								},
+								{
+									value: 'fit',
+									label: translate('shared.reader.comic.wideFit'),
+									icon: <Scan aria-hidden className="h-4 w-4" />,
+								},
+							]}
+						/>
+					</SettingRow>
+				</>
+			)}
 			<SettingRow label={translate('shared.reader.settings.brightness')}>
 				<div className="gap-2 px-1 flex w-full items-center">
 					<Sun className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -273,6 +318,57 @@ function ImagePageSettings() {
 				</div>
 			</SettingRow>
 		</>
+	)
+}
+
+const BACKGROUNDS: { value: PageBackground; key: string; swatch: string }[] = [
+	{
+		value: 'theme',
+		key: 'shared.reader.comic.backgroundTheme',
+		swatch: 'var(--color-background, var(--background))',
+	},
+	{
+		value: 'auto',
+		key: 'shared.reader.comic.backgroundAuto',
+		swatch: 'linear-gradient(135deg, #ffffff 0 50%, #000000 50% 100%)',
+	},
+	{ value: 'black', key: 'shared.reader.comic.backgroundBlack', swatch: '#000000' },
+	{ value: 'white', key: 'shared.reader.comic.backgroundWhite', swatch: '#ffffff' },
+]
+
+/** The colour around the pages: the theme's, the page's own margins', black or white */
+function BackgroundRow() {
+	const { book } = useImageBaseReaderContext()
+	const {
+		bookPreferences: { pageBackground = 'theme' },
+		setBookPreferences,
+	} = useBookPreferences({ book })
+	const { translate } = useTranslate()
+	const label = translate('shared.reader.comic.background')
+	return (
+		<SettingRow label={label}>
+			<Segmented<PageBackground>
+				label={label}
+				testId="reader-page-background"
+				className="w-full"
+				value={pageBackground}
+				onChange={(value) => setBookPreferences({ pageBackground: value })}
+				options={BACKGROUNDS.map(({ value, key, swatch }) => ({
+					value,
+					label: translate(key),
+					icon: (
+						<span
+							aria-hidden
+							className="size-4 font-serif flex items-center justify-center rounded-full border border-foreground/25 text-[9px] leading-none text-foreground"
+							style={{ background: swatch }}
+						>
+							{/* the theme's own paper, with its text colour: not just another white */}
+							{value === 'theme' ? 'A' : null}
+						</span>
+					),
+				}))}
+			/>
+		</SettingRow>
 	)
 }
 
