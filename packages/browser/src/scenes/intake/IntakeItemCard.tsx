@@ -406,8 +406,13 @@ export default function IntakeItemCard({
 												{dup.reason === 'SAME_FILE'
 													? 'the very same file'
 													: 'same author and title'}
-												{' — '}
-												<span className="break-all">{dup.path}</span>)
+												{dup.path && (
+													<>
+														{' — '}
+														<span className="break-all">{dup.path}</span>
+													</>
+												)}
+												)
 											</span>
 										</li>
 									))}
