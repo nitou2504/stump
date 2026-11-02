@@ -10,6 +10,7 @@ mod custom_emoji;
 mod email_device;
 mod emailer;
 mod epub;
+mod intake;
 mod filesystem;
 mod job;
 mod library;
@@ -44,6 +45,7 @@ use custom_emoji::CustomEmojiQuery;
 use email_device::EmailDeviceQuery;
 use emailer::EmailerQuery;
 use epub::EpubQuery;
+use intake::IntakeQuery;
 use filesystem::FilesystemQuery;
 use job::JobQuery;
 use library::LibraryQuery;
@@ -110,6 +112,7 @@ struct SystemQueries(
 
 #[derive(async_graphql::MergedObject, Default)]
 struct ListQueries(
+	IntakeQuery,
 	SmartListsQuery,
 	SmartListViewQuery,
 	ReadingListQuery,

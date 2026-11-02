@@ -1112,6 +1112,314 @@ export enum InheritPermissionValue {
   Inherit = 'INHERIT'
 }
 
+/** The values that will be filed: the proposal's defaults, then the uploader's edits */
+export type IntakeDecision = {
+  __typename?: 'IntakeDecision';
+  /** The file name per uploaded file (same order as the item's files), without folder */
+  fileNames: Array<Scalars['String']['output']>;
+  /** The author folder (books) or the series folder (series), a single path component */
+  folder: Scalars['String']['output'];
+  metadata: IntakeMetadata;
+  /**
+   * `None` files a book under its author folder; `Some` files it (or every volume)
+   * under the manga or light novel root
+   */
+  seriesKind?: Maybe<IntakeSeriesKind>;
+  /** Per-file volume numbers for series (same order as the item's files) */
+  volumes: Array<Maybe<Scalars['Float']['output']>>;
+};
+
+export type IntakeDestination = {
+  __typename?: 'IntakeDestination';
+  /** Whether that folder already exists */
+  dirExists: Scalars['Boolean']['output'];
+  files: Array<IntakeDestinationFile>;
+  /** The folder, relative to the library root */
+  relativeDir: Scalars['String']['output'];
+};
+
+/** Where each file of an item will go (or went) */
+export type IntakeDestinationFile = {
+  __typename?: 'IntakeDestinationFile';
+  /** Something already exists at that path (filing will fail for this file) */
+  exists: Scalars['Boolean']['output'];
+  originalName: Scalars['String']['output'];
+  /** Relative to the library root, e.g. `Umberto_Eco/El_nombre_de_la_rosa.epub` */
+  relativePath: Scalars['String']['output'];
+};
+
+/** A book in the library that looks like the same book */
+export type IntakeDuplicate = {
+  __typename?: 'IntakeDuplicate';
+  /** The uploaded file it matches */
+  fileName: Scalars['String']['output'];
+  mediaId: Scalars['String']['output'];
+  path: Scalars['String']['output'];
+  /** `SAME_FILE` (identical hash) or `SAME_TITLE` (same author and title) */
+  reason: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
+export type IntakeFieldSource = {
+  __typename?: 'IntakeFieldSource';
+  /**
+   * The camelCase name of the field (`title`, `authors`, `series`, `seriesIndex`,
+   * `language`, `year`, `publisher`, `description`, `isbn`, `subjects`)
+   */
+  field: Scalars['String']['output'];
+  source: IntakeSource;
+};
+
+/** One uploaded file of an item (a book, or a volume of a series) */
+export type IntakeFile = {
+  __typename?: 'IntakeFile';
+  /** `epub`, `pdf`, `cbz`, `cbr` */
+  format: Scalars['String']['output'];
+  /** Stump's own file hash, used to find duplicates */
+  hash?: Maybe<Scalars['String']['output']>;
+  /** The name it was uploaded with (for a folder upload, its path inside the folder) */
+  originalName: Scalars['String']['output'];
+  size: Scalars['Int']['output'];
+  /** The title read from this file (volumes may carry their own) */
+  title?: Maybe<Scalars['String']['output']>;
+  /** The volume number, for a series */
+  volume?: Maybe<Scalars['Float']['output']>;
+};
+
+/** An existing author or series folder, for the folder picker */
+export type IntakeFolder = {
+  __typename?: 'IntakeFolder';
+  books: Scalars['Int']['output'];
+  name: Scalars['String']['output'];
+};
+
+/** An existing (or proposed new) folder the item can go to */
+export type IntakeFolderCandidate = {
+  __typename?: 'IntakeFolderCandidate';
+  /** How many books the library already has in it */
+  books: Scalars['Int']['output'];
+  /** 0-1 */
+  confidence: Scalars['Float']['output'];
+  /**
+   * The folder name, relative to the library root (author folders) or to the series
+   * root (series folders)
+   */
+  folder: Scalars['String']['output'];
+  /** The folder does not exist yet and would be created */
+  isNew: Scalars['Boolean']['output'];
+  /** Why it is suggested, e.g. "same author written 'Eco, Umberto'" */
+  reason: Scalars['String']['output'];
+};
+
+/** A tag proposed for the item, taken from the tags the library already uses */
+export type IntakeGenreSuggestion = {
+  __typename?: 'IntakeGenreSuggestion';
+  /** 0-1 */
+  confidence: Scalars['Float']['output'];
+  /** `GENRE` (a `Big` or `Big: Small` tag) or `FACET` (`Origin:`, `Era:`, `Level:`...) */
+  kind: Scalars['String']['output'];
+  /** How many books of the library carry it */
+  libraryCount: Scalars['Int']['output'];
+  /** Short explanations, e.g. "3 other books by this author have it" */
+  reasons: Array<Scalars['String']['output']>;
+  /** Whether it is part of the default choice */
+  selected: Scalars['Boolean']['output'];
+  value: Scalars['String']['output'];
+};
+
+/** An item of the uploader's "Add books" inbox */
+export type IntakeItem = {
+  __typename?: 'IntakeItem';
+  createdAt: Scalars['DateTime']['output'];
+  /** What will be filed: the proposal's defaults plus the uploader's edits */
+  decision?: Maybe<IntakeDecision>;
+  /** Where each file goes, relative to the library root */
+  destination?: Maybe<IntakeDestination>;
+  error?: Maybe<Scalars['String']['output']>;
+  filedAt?: Maybe<Scalars['DateTime']['output']>;
+  files: Array<IntakeFile>;
+  id: Scalars['ID']['output'];
+  kind: IntakeKind;
+  libraryId: Scalars['String']['output'];
+  libraryName: Scalars['String']['output'];
+  /** The books created by the scan after filing (empty until the scan has run) */
+  mediaIds: Array<Scalars['String']['output']>;
+  /** The uploaded file or folder name */
+  name: Scalars['String']['output'];
+  /** What still keeps the decision from being filed (empty when it can be accepted) */
+  problems: Array<Scalars['String']['output']>;
+  /** What the server proposes (empty while analysing) */
+  proposal?: Maybe<IntakeProposal>;
+  /** What filing did */
+  result?: Maybe<IntakeResult>;
+  state: IntakeState;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** A single book, or a series (a folder or zip of volumes: manga, light novels) */
+export enum IntakeKind {
+  Book = 'BOOK',
+  Series = 'SERIES'
+}
+
+/** The descriptive metadata of an item, with where each value came from */
+export type IntakeMetadata = {
+  __typename?: 'IntakeMetadata';
+  /** 0 (all ages) or 18 (adults only), when known */
+  ageRating?: Maybe<Scalars['Int']['output']>;
+  authors: Array<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  /**
+   * The tags that will be written: library genres (`Big`, `Big: Small`) and facets
+   * (`Origin: X`, `Era: X`, ...)
+   */
+  genres: Array<Scalars['String']['output']>;
+  isbn?: Maybe<Scalars['String']['output']>;
+  /** Two-letter code (`en`, `es`, ...) */
+  language?: Maybe<Scalars['String']['output']>;
+  publisher?: Maybe<Scalars['String']['output']>;
+  /** 0-5 */
+  rating?: Maybe<Scalars['Float']['output']>;
+  series?: Maybe<Scalars['String']['output']>;
+  seriesIndex?: Maybe<Scalars['Float']['output']>;
+  sources: Array<IntakeFieldSource>;
+  /** Raw subjects found in the file and online, before matching to the library's tags */
+  subjects: Array<Scalars['String']['output']>;
+  title?: Maybe<Scalars['String']['output']>;
+  /** First publication year when known (Open Library), else the edition year */
+  year?: Maybe<Scalars['Int']['output']>;
+};
+
+/** What the server proposes after analysing an item */
+export type IntakeProposal = {
+  __typename?: 'IntakeProposal';
+  /** Author folders, best first (books) */
+  authorFolders: Array<IntakeFolderCandidate>;
+  /** Overall confidence, 0-1; under the threshold the item needs review */
+  confidence: Scalars['Float']['output'];
+  duplicates: Array<IntakeDuplicate>;
+  /** Tags from the library's vocabulary, best first */
+  genreSuggestions: Array<IntakeGenreSuggestion>;
+  /** Whether online lookups were used */
+  lookedUpOnline: Scalars['Boolean']['output'];
+  /** The merged metadata (file, file name, online lookups), with sources */
+  metadata: IntakeMetadata;
+  /** Series folders, best first (series and series volumes) */
+  seriesFolders: Array<IntakeFolderCandidate>;
+  /** Set when the item looks like manga or a light novel */
+  seriesKind?: Maybe<IntakeSeriesKind>;
+  similarBooks: Array<IntakeSimilarBook>;
+  /** Plain-language notes for the uploader (e.g. "No author found") */
+  warnings: Array<Scalars['String']['output']>;
+};
+
+/** What filing did */
+export type IntakeResult = {
+  __typename?: 'IntakeResult';
+  /** The intake CSV the rows were appended to */
+  csvPath?: Maybe<Scalars['String']['output']>;
+  /** Notes, e.g. a metadata field that could not be written into a PDF */
+  notes: Array<Scalars['String']['output']>;
+  /** Absolute paths of the filed files */
+  paths: Array<Scalars['String']['output']>;
+};
+
+/** The uploader's review of an item. Omitted fields keep their current value. */
+export type IntakeReviewInput = {
+  ageRating?: InputMaybe<Scalars['Int']['input']>;
+  authors?: InputMaybe<Array<Scalars['String']['input']>>;
+  clearSeriesKind?: Scalars['Boolean']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** One per file, same order as the item's files */
+  fileNames?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** The author or series folder (a single path component; may be new) */
+  folder?: InputMaybe<Scalars['String']['input']>;
+  genres?: InputMaybe<Array<Scalars['String']['input']>>;
+  language?: InputMaybe<Scalars['String']['input']>;
+  publisher?: InputMaybe<Scalars['String']['input']>;
+  series?: InputMaybe<Scalars['String']['input']>;
+  seriesIndex?: InputMaybe<Scalars['Float']['input']>;
+  /**
+   * File the item as a series under this root. Use `clearSeriesKind` to file a book
+   * under its author folder again
+   */
+  seriesKind?: InputMaybe<IntakeSeriesKind>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  /** One per file, same order as the item's files */
+  volumes?: InputMaybe<Array<InputMaybe<Scalars['Float']['input']>>>;
+  year?: InputMaybe<Scalars['Int']['input']>;
+};
+
+/** Which series root a series item (or a single volume) goes to */
+export enum IntakeSeriesKind {
+  LightNovel = 'LIGHT_NOVEL',
+  Manga = 'MANGA'
+}
+
+/** A book already in the library, shown to compare against */
+export type IntakeSimilarBook = {
+  __typename?: 'IntakeSimilarBook';
+  authors: Array<Scalars['String']['output']>;
+  genres: Array<Scalars['String']['output']>;
+  mediaId: Scalars['String']['output'];
+  /** Why it is similar (`same author`, `same series`, `similar description`) */
+  reason: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
+/** Where a metadata value came from, so the review screen can say so */
+export enum IntakeSource {
+  /** The book file's own metadata (OPF, PDF Info, ComicInfo) */
+  File = 'FILE',
+  /** Parsed from the file or folder name */
+  FileName = 'FILE_NAME',
+  GoogleBooks = 'GOOGLE_BOOKS',
+  /** Inferred from books already in the library (same author, series, similar text) */
+  Library = 'LIBRARY',
+  OpenLibrary = 'OPEN_LIBRARY',
+  /** Set by the uploader */
+  User = 'USER'
+}
+
+/** Where an inbox item is in its life */
+export enum IntakeState {
+  /** Uploaded; its metadata is being read, looked up and matched against the library */
+  Analysing = 'ANALYSING',
+  /** Thrown away by the uploader; its staged files are deleted */
+  Discarded = 'DISCARDED',
+  /** Analysis or filing failed, see `error` */
+  Failed = 'FAILED',
+  /** Written into the library */
+  Filed = 'FILED',
+  /** Something important is missing or uncertain (author folder, genres, title...) */
+  NeedsReview = 'NEEDS_REVIEW',
+  /** Everything needed to file it is known and confident; it can be accepted as is */
+  Ready = 'READY'
+}
+
+/** How an upload of several files is grouped into inbox items */
+export enum IntakeUploadMode {
+  /**
+   * Files in a folder (or books inside a .zip) make one series item; loose files are
+   * one book each
+   */
+  Auto = 'AUTO',
+  /** Every file is its own book */
+  Books = 'BOOKS',
+  /** All the files are the volumes of one series */
+  Series = 'SERIES'
+}
+
+/** A tag the library uses, for the tag picker */
+export type IntakeVocabularyEntry = {
+  __typename?: 'IntakeVocabularyEntry';
+  /** How many books carry it */
+  count: Scalars['Int']['output'];
+  /** `GENRE` or `FACET` */
+  kind: Scalars['String']['output'];
+  value: Scalars['String']['output'];
+};
+
 /**
  * The different types of layouts a client-side interface might present to a user
  * for a collection of items
@@ -1321,6 +1629,37 @@ export type LibraryFilterInput = {
   id?: InputMaybe<FieldFilterString>;
   name?: InputMaybe<FieldFilterString>;
   path?: InputMaybe<FieldFilterString>;
+};
+
+/**
+ * How the "Add books" intake files books into a library. A library without a row uses
+ * [`Model::defaults_for`].
+ */
+export type LibraryIntakeSettings = {
+  __typename?: 'LibraryIntakeSettings';
+  /**
+   * Where the intake CSV is appended to. `None` = next to `catalogo.csv` when the
+   * library's parent folder has one, else in the library root
+   */
+  csvPath?: Maybe<Scalars['String']['output']>;
+  libraryId: Scalars['String']['output'];
+  /** Folder (relative to the library root) holding one folder per light novel series */
+  lightNovelDir: Scalars['String']['output'];
+  /** Folder (relative to the library root) holding one folder per manga series */
+  mangaDir: Scalars['String']['output'];
+  /** Look titles up on Open Library and Google Books while analysing */
+  onlineLookup: Scalars['Boolean']['output'];
+};
+
+export type LibraryIntakeSettingsInput = {
+  /**
+   * Empty or omitted: next to `catalogo.csv` when the library's parent has one, else
+   * the library root
+   */
+  csvPath?: InputMaybe<Scalars['String']['input']>;
+  lightNovelDir: Scalars['String']['input'];
+  mangaDir: Scalars['String']['input'];
+  onlineLookup: Scalars['Boolean']['input'];
 };
 
 export type LibraryModelOrderBy = {
@@ -2310,6 +2649,22 @@ export type Mutation = {
   /** marks all books in the series as finished */
   finishSeriesProgress: Scalars['Int']['output'];
   generateLibraryThumbnails: Scalars['Boolean']['output'];
+  /**
+   * Files ready items into their library. Items that fail keep their state and get an
+   * `error`; the others become `FILED`.
+   */
+  intakeAccept: Array<IntakeItem>;
+  /** Throws items away with their staged files. Returns how many were discarded. */
+  intakeDiscard: Scalars['Int']['output'];
+  /** Analyses an item again (e.g. after a failure, or to look it up online) */
+  intakeReanalyse: IntakeItem;
+  /** Saves the uploader's review of an item (omitted fields keep their value) */
+  intakeReview: IntakeItem;
+  /**
+   * Uploads books into the user's inbox for a library. Each book (or each folder / .zip
+   * of volumes) becomes an item that is analysed right away; poll `intakeItems`.
+   */
+  intakeUpload: Array<IntakeItem>;
   /** Deletes the membership of the caller to the target book club */
   leaveBookClub: BookClubMember;
   /** Lock or unlock a discussion (Moderator+) */
@@ -2417,6 +2772,8 @@ export type Mutation = {
    * themselves.
    */
   updateLibraryExcludedUsers: Library;
+  /** Changes how the intake files books into a library */
+  updateLibraryIntakeSettings: LibraryIntakeSettings;
   /**
    * Update the thumbnail for a library. This will replace the existing thumbnail with the the one
    * associated with the provided input (book). If the book does not have a thumbnail, one
@@ -2897,6 +3254,36 @@ export type MutationGenerateLibraryThumbnailsArgs = {
 };
 
 
+export type MutationIntakeAcceptArgs = {
+  ids: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationIntakeDiscardArgs = {
+  ids: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationIntakeReanalyseArgs = {
+  id: Scalars['ID']['input'];
+  online?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type MutationIntakeReviewArgs = {
+  id: Scalars['ID']['input'];
+  input: IntakeReviewInput;
+};
+
+
+export type MutationIntakeUploadArgs = {
+  files: Array<Scalars['Upload']['input']>;
+  libraryId: Scalars['ID']['input'];
+  mode?: IntakeUploadMode;
+  relativePaths?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+
 export type MutationLeaveBookClubArgs = {
   bookClubId: Scalars['ID']['input'];
 };
@@ -3144,6 +3531,12 @@ export type MutationUpdateLibraryEmojiArgs = {
 export type MutationUpdateLibraryExcludedUsersArgs = {
   id: Scalars['ID']['input'];
   userIds: Array<Scalars['String']['input']>;
+};
+
+
+export type MutationUpdateLibraryIntakeSettingsArgs = {
+  input: LibraryIntakeSettingsInput;
+  libraryId: Scalars['ID']['input'];
 };
 
 
@@ -3716,6 +4109,18 @@ export type Query = {
   finishedReadingSessionCount: Scalars['Int']['output'];
   getNotifierById: Notifier;
   getNotifiers: Array<Notifier>;
+  /** Existing author folders (no `seriesKind`) or series folders, for the folder picker */
+  intakeFolders: Array<IntakeFolder>;
+  intakeItem?: Maybe<IntakeItem>;
+  /**
+   * The items of the user's "Add books" inbox, newest first. By default everything but
+   * discarded items.
+   */
+  intakeItems: Array<IntakeItem>;
+  /** The libraries the user can add books to */
+  intakeLibraries: Array<Library>;
+  /** The tags the library uses (most used first), for the tag picker */
+  intakeVocabulary: Array<IntakeVocabularyEntry>;
   jobById?: Maybe<Job>;
   jobs: PaginatedJobResponse;
   keepReading: PaginatedMediaResponse;
@@ -3725,6 +4130,8 @@ export type Query = {
   librariesAlphabet: Scalars['JSONObject']['output'];
   librariesStats: LibraryStats;
   libraryById?: Maybe<Library>;
+  /** How the intake files books into a library (its defaults when never changed) */
+  libraryIntakeSettings: LibraryIntakeSettings;
   libraryMissingEntities: PaginatedMissingEntityResponse;
   listDirectory: PaginatedDirectoryListingResponse;
   /**
@@ -3796,6 +4203,8 @@ export type Query = {
    */
   readingSessionById?: Maybe<ReadingSession>;
   readingSessionConflictView: ReadingSessionConflictResolutionView;
+  /** Books filed through the intake, newest first (who added what, when, where) */
+  recentlyAddedBooks: Array<RecentlyAddedBook>;
   recentlyAddedMedia: PaginatedMediaResponse;
   recentlyAddedSeries: PaginatedSeriesResponse;
   /**
@@ -3937,6 +4346,31 @@ export type QueryGetNotifierByIdArgs = {
 };
 
 
+export type QueryIntakeFoldersArgs = {
+  libraryId: Scalars['ID']['input'];
+  limit?: Scalars['Int']['input'];
+  search?: InputMaybe<Scalars['String']['input']>;
+  seriesKind?: InputMaybe<IntakeSeriesKind>;
+};
+
+
+export type QueryIntakeItemArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryIntakeItemsArgs = {
+  states?: InputMaybe<Array<IntakeState>>;
+};
+
+
+export type QueryIntakeVocabularyArgs = {
+  libraryId: Scalars['ID']['input'];
+  limit?: Scalars['Int']['input'];
+  search?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type QueryJobByIdArgs = {
   id: Scalars['ID']['input'];
 };
@@ -3961,6 +4395,11 @@ export type QueryLibrariesArgs = {
 
 export type QueryLibraryByIdArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryLibraryIntakeSettingsArgs = {
+  libraryId: Scalars['ID']['input'];
 };
 
 
@@ -4067,6 +4506,13 @@ export type QueryReadingSessionByIdArgs = {
 export type QueryReadingSessionConflictViewArgs = {
   branchedSessionId?: InputMaybe<Scalars['Int']['input']>;
   mediaId: Scalars['ID']['input'];
+};
+
+
+export type QueryRecentlyAddedBooksArgs = {
+  limit?: Scalars['Int']['input'];
+  offset?: Scalars['Int']['input'];
+  userId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -4414,6 +4860,24 @@ export type RecentlyAdded = {
   __typename?: 'RecentlyAdded';
   entity: FilterableArrangementEntity;
   name?: Maybe<Scalars['String']['output']>;
+};
+
+/** A book filed through the intake, for the admin "Recently added" page */
+export type RecentlyAddedBook = {
+  __typename?: 'RecentlyAddedBook';
+  authors: Array<Scalars['String']['output']>;
+  filedAt?: Maybe<Scalars['DateTime']['output']>;
+  itemId: Scalars['ID']['output'];
+  libraryId: Scalars['String']['output'];
+  libraryName: Scalars['String']['output'];
+  /** The library books created from it (empty until the scan has run) */
+  mediaIds: Array<Scalars['String']['output']>;
+  /** Relative to the library root */
+  paths: Array<Scalars['String']['output']>;
+  series?: Maybe<Scalars['String']['output']>;
+  title: Scalars['String']['output'];
+  userId: Scalars['String']['output'];
+  username?: Maybe<Scalars['String']['output']>;
 };
 
 export type RecentlyAddedInput = {
@@ -5345,6 +5809,11 @@ export enum UserPermission {
   AccessKoreaderSync = 'ACCESS_KOREADER_SYNC',
   /** Grant access to access the smart list feature. This includes the ability to create and edit smart lists */
   AccessSmartList = 'ACCESS_SMART_LIST',
+  /**
+   * Grant access to the "Add books" inbox: upload books, review the proposed metadata,
+   * author folder and tags, and file them into the libraries the user can access
+   */
+  AddBooks = 'ADD_BOOKS',
   /** Grant user access to change **their own** avatar */
   ChangeAvatar = 'CHANGE_AVATAR',
   /** Grant user access to change **their own** password */
@@ -7100,6 +7569,75 @@ export type UpdateHomeArrangementMutationVariables = Exact<{
 
 export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHomeArrangement: { __typename?: 'HomeArrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } };
 
+export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, csvPath?: string | null, notes: Array<string> } | null }> };
+
+export type IntakeLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeLibrariesQuery = { __typename?: 'Query', intakeLibraries: Array<{ __typename?: 'Library', id: string, name: string }> };
+
+export type IntakeVocabularyQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  search?: InputMaybe<Scalars['String']['input']>;
+  limit?: Scalars['Int']['input'];
+}>;
+
+
+export type IntakeVocabularyQuery = { __typename?: 'Query', intakeVocabulary: Array<{ __typename?: 'IntakeVocabularyEntry', value: string, count: number, kind: string }> };
+
+export type IntakeFoldersQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  seriesKind?: InputMaybe<IntakeSeriesKind>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  limit?: Scalars['Int']['input'];
+}>;
+
+
+export type IntakeFoldersQuery = { __typename?: 'Query', intakeFolders: Array<{ __typename?: 'IntakeFolder', name: string, books: number }> };
+
+export type IntakeUploadMutationVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  files: Array<Scalars['Upload']['input']> | Scalars['Upload']['input'];
+  relativePaths?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+  mode?: IntakeUploadMode;
+}>;
+
+
+export type IntakeUploadMutation = { __typename?: 'Mutation', intakeUpload: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
+
+export type IntakeReviewMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  input: IntakeReviewInput;
+}>;
+
+
+export type IntakeReviewMutation = { __typename?: 'Mutation', intakeReview: { __typename?: 'IntakeItem', id: string, state: IntakeState } };
+
+export type IntakeReanalyseMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  online?: InputMaybe<Scalars['Boolean']['input']>;
+}>;
+
+
+export type IntakeReanalyseMutation = { __typename?: 'Mutation', intakeReanalyse: { __typename?: 'IntakeItem', id: string, state: IntakeState } };
+
+export type IntakeAcceptMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeAcceptMutation = { __typename?: 'Mutation', intakeAccept: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState, error?: string | null }> };
+
+export type IntakeDiscardMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeDiscardMutation = { __typename?: 'Mutation', intakeDiscard: number };
+
 export type LibrariesSceneQueryVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -7249,6 +7787,21 @@ export type InitFetchJobMutationVariables = Exact<{
 
 
 export type InitFetchJobMutation = { __typename?: 'Mutation', fetchLibraryMetadata: boolean };
+
+export type LibraryAddBooksSettingsQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+}>;
+
+
+export type LibraryAddBooksSettingsQuery = { __typename?: 'Query', libraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string, mangaDir: string, lightNovelDir: string, csvPath?: string | null, onlineLookup: boolean } };
+
+export type UpdateLibraryAddBooksSettingsMutationVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+  input: LibraryIntakeSettingsInput;
+}>;
+
+
+export type UpdateLibraryAddBooksSettingsMutation = { __typename?: 'Mutation', updateLibraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string } };
 
 export type ScanHistorySectionClearHistoryMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -7698,6 +8251,14 @@ export type ProvidersSectionGetProvidersQuery = { __typename?: 'Query', metadata
     { __typename?: 'MetadataProviderConfigModel', id: number }
     & { ' $fragmentRefs'?: { 'ExistingProviderCardFragment': ExistingProviderCardFragment } }
   )> };
+
+export type AdminRecentlyAddedBooksQueryVariables = Exact<{
+  userId?: InputMaybe<Scalars['ID']['input']>;
+  limit?: Scalars['Int']['input'];
+}>;
+
+
+export type AdminRecentlyAddedBooksQuery = { __typename?: 'Query', recentlyAddedBooks: Array<{ __typename?: 'RecentlyAddedBook', itemId: string, userId: string, username?: string | null, title: string, authors: Array<string>, series?: string | null, paths: Array<string>, libraryId: string, libraryName: string, filedAt?: any | null, mediaIds: Array<string> }> };
 
 export type CreateTagModalMutationVariables = Exact<{
   tags: Array<Scalars['String']['input']> | Scalars['String']['input'];
@@ -14626,6 +15187,197 @@ export const UpdateHomeArrangementDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateHomeArrangementMutation, UpdateHomeArrangementMutationVariables>;
+export const IntakeItemsDocument = new TypedDocumentString(`
+    query IntakeItems {
+  intakeItems {
+    id
+    libraryId
+    libraryName
+    state
+    kind
+    name
+    error
+    createdAt
+    filedAt
+    problems
+    mediaIds
+    files {
+      originalName
+      size
+      format
+      volume
+      title
+    }
+    proposal {
+      metadata {
+        title
+        authors
+        series
+        seriesIndex
+        language
+        year
+        publisher
+        description
+        isbn
+        subjects
+        genres
+        sources {
+          field
+          source
+        }
+      }
+      seriesKind
+      authorFolders {
+        folder
+        books
+        confidence
+        reason
+        isNew
+      }
+      seriesFolders {
+        folder
+        books
+        confidence
+        reason
+        isNew
+      }
+      genreSuggestions {
+        value
+        confidence
+        reasons
+        libraryCount
+        selected
+        kind
+      }
+      similarBooks {
+        mediaId
+        title
+        authors
+        genres
+        reason
+      }
+      duplicates {
+        mediaId
+        path
+        title
+        reason
+        fileName
+      }
+      warnings
+      confidence
+      lookedUpOnline
+    }
+    decision {
+      metadata {
+        title
+        authors
+        series
+        seriesIndex
+        language
+        year
+        publisher
+        genres
+        ageRating
+        sources {
+          field
+          source
+        }
+      }
+      seriesKind
+      folder
+      fileNames
+      volumes
+    }
+    destination {
+      relativeDir
+      dirExists
+      files {
+        originalName
+        relativePath
+        exists
+      }
+    }
+    result {
+      paths
+      csvPath
+      notes
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeItemsQuery, IntakeItemsQueryVariables>;
+export const IntakeLibrariesDocument = new TypedDocumentString(`
+    query IntakeLibraries {
+  intakeLibraries {
+    id
+    name
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeLibrariesQuery, IntakeLibrariesQueryVariables>;
+export const IntakeVocabularyDocument = new TypedDocumentString(`
+    query IntakeVocabulary($libraryId: ID!, $search: String, $limit: Int! = 20) {
+  intakeVocabulary(libraryId: $libraryId, search: $search, limit: $limit) {
+    value
+    count
+    kind
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeVocabularyQuery, IntakeVocabularyQueryVariables>;
+export const IntakeFoldersDocument = new TypedDocumentString(`
+    query IntakeFolders($libraryId: ID!, $seriesKind: IntakeSeriesKind, $search: String, $limit: Int! = 20) {
+  intakeFolders(
+    libraryId: $libraryId
+    seriesKind: $seriesKind
+    search: $search
+    limit: $limit
+  ) {
+    name
+    books
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeFoldersQuery, IntakeFoldersQueryVariables>;
+export const IntakeUploadDocument = new TypedDocumentString(`
+    mutation IntakeUpload($libraryId: ID!, $files: [Upload!]!, $relativePaths: [String!], $mode: IntakeUploadMode! = AUTO) {
+  intakeUpload(
+    libraryId: $libraryId
+    files: $files
+    relativePaths: $relativePaths
+    mode: $mode
+  ) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeUploadMutation, IntakeUploadMutationVariables>;
+export const IntakeReviewDocument = new TypedDocumentString(`
+    mutation IntakeReview($id: ID!, $input: IntakeReviewInput!) {
+  intakeReview(id: $id, input: $input) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeReviewMutation, IntakeReviewMutationVariables>;
+export const IntakeReanalyseDocument = new TypedDocumentString(`
+    mutation IntakeReanalyse($id: ID!, $online: Boolean) {
+  intakeReanalyse(id: $id, online: $online) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeReanalyseMutation, IntakeReanalyseMutationVariables>;
+export const IntakeAcceptDocument = new TypedDocumentString(`
+    mutation IntakeAccept($ids: [ID!]!) {
+  intakeAccept(ids: $ids) {
+    id
+    state
+    error
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeAcceptMutation, IntakeAcceptMutationVariables>;
+export const IntakeDiscardDocument = new TypedDocumentString(`
+    mutation IntakeDiscard($ids: [ID!]!) {
+  intakeDiscard(ids: $ids)
+}
+    `) as unknown as TypedDocumentString<IntakeDiscardMutation, IntakeDiscardMutationVariables>;
 export const LibrariesSceneDocument = new TypedDocumentString(`
     query LibrariesScene {
   libraries(pagination: {none: {unpaginated: true}}) {
@@ -15017,6 +15769,24 @@ export const InitFetchJobDocument = new TypedDocumentString(`
   fetchLibraryMetadata(id: $id)
 }
     `) as unknown as TypedDocumentString<InitFetchJobMutation, InitFetchJobMutationVariables>;
+export const LibraryAddBooksSettingsDocument = new TypedDocumentString(`
+    query LibraryAddBooksSettings($libraryId: ID!) {
+  libraryIntakeSettings(libraryId: $libraryId) {
+    libraryId
+    mangaDir
+    lightNovelDir
+    csvPath
+    onlineLookup
+  }
+}
+    `) as unknown as TypedDocumentString<LibraryAddBooksSettingsQuery, LibraryAddBooksSettingsQueryVariables>;
+export const UpdateLibraryAddBooksSettingsDocument = new TypedDocumentString(`
+    mutation UpdateLibraryAddBooksSettings($libraryId: ID!, $input: LibraryIntakeSettingsInput!) {
+  updateLibraryIntakeSettings(libraryId: $libraryId, input: $input) {
+    libraryId
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateLibraryAddBooksSettingsMutation, UpdateLibraryAddBooksSettingsMutationVariables>;
 export const ScanHistorySectionClearHistoryDocument = new TypedDocumentString(`
     mutation ScanHistorySectionClearHistory($id: ID!) {
   clearScanHistory(id: $id)
@@ -15691,6 +16461,23 @@ fragment ExistingProviderCard on MetadataProviderConfigModel {
   updatedAt
   ...EditProviderDialog
 }`) as unknown as TypedDocumentString<ProvidersSectionGetProvidersQuery, ProvidersSectionGetProvidersQueryVariables>;
+export const AdminRecentlyAddedBooksDocument = new TypedDocumentString(`
+    query AdminRecentlyAddedBooks($userId: ID, $limit: Int! = 50) {
+  recentlyAddedBooks(userId: $userId, limit: $limit) {
+    itemId
+    userId
+    username
+    title
+    authors
+    series
+    paths
+    libraryId
+    libraryName
+    filedAt
+    mediaIds
+  }
+}
+    `) as unknown as TypedDocumentString<AdminRecentlyAddedBooksQuery, AdminRecentlyAddedBooksQueryVariables>;
 export const CreateTagModalDocument = new TypedDocumentString(`
     mutation CreateTagModal($tags: [String!]!) {
   createTags(tags: $tags) {

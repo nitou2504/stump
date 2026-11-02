@@ -1,6 +1,7 @@
 import { UserPermission } from '@stump/graphql'
 import {
 	BookOpenText,
+	BookPlus,
 	FlaskRound,
 	Image,
 	NotebookTabs,
@@ -55,6 +56,13 @@ export const createRouteGroups = (libraryId: string, basePath = ''): RouteGroup[
 				localeKey: 'options/post-processing',
 				permissions: [UserPermission.ManageLibrary],
 				to: `${basePath}/libraries/${libraryId}/settings/post-processing`,
+			},
+			{
+				icon: BookPlus,
+				label: 'Add books',
+				localeKey: 'options/add-books',
+				permissions: [UserPermission.ManageLibrary, UserPermission.AddBooks],
+				to: `${basePath}/libraries/${libraryId}/settings/add-books`,
 			},
 		],
 		label: 'Configuration',

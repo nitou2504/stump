@@ -42,6 +42,8 @@ type Props = {
 	stats?: Stat[]
 	settingsLink?: string
 	onInfoClick?: () => void
+	/** extra buttons shown first on the right, e.g. an upload button */
+	endActions?: React.ReactNode
 }
 
 export function EntityHeader({
@@ -52,6 +54,7 @@ export function EntityHeader({
 	stats,
 	settingsLink,
 	onInfoClick,
+	endActions,
 }: Props) {
 	const location = useLocation()
 	const isMobile = useMediaMatch('(max-width: 768px)')
@@ -126,6 +129,7 @@ export function EntityHeader({
 			</PageHeader.Start>
 
 			<PageHeader.End>
+				{endActions}
 				{onInfoClick && <HeaderIconButton label="Info" icon={Info} onClick={onInfoClick} />}
 
 				{!isMobile && tabs.length > 0 && (

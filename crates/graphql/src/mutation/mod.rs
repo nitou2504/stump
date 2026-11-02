@@ -9,6 +9,7 @@ mod custom_emoji;
 mod email_device;
 mod emailer;
 mod epub;
+mod intake;
 mod job;
 mod library;
 mod log;
@@ -29,7 +30,7 @@ mod server_config;
 mod smart_list_view;
 mod smart_lists;
 mod tag;
-mod upload;
+pub(crate) mod upload;
 mod user;
 
 use api_key::APIKeyMutation;
@@ -43,6 +44,7 @@ use custom_emoji::CustomEmojiMutation;
 use email_device::EmailDeviceMutation;
 use emailer::EmailerMutation;
 use epub::EpubMutation;
+use intake::IntakeMutation;
 use job::JobMutation;
 use library::LibraryMutation;
 use log::LogMutation;
@@ -105,6 +107,7 @@ struct SystemMutations(
 
 #[derive(async_graphql::MergedObject, Default)]
 struct ListMutations(
+	IntakeMutation,
 	SmartListMutation,
 	SmartListViewMutation,
 	ReadingListMutation,

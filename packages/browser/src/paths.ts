@@ -25,11 +25,13 @@ type SettingsPage =
 	| 'email'
 	| 'email/new'
 	| 'notifications'
+	| 'recently-added'
 type DocTopic = 'access-control' | 'features/book-clubs'
 type BookClubTab = 'overview' | 'members' | 'discussion' | 'settings'
 export type BrowseIndex = 'genres' | 'authors'
 
 const pathsInternal = {
+	addBooks: (libraryId?: string) => `/add-books${libraryId ? `?library=${libraryId}` : ''}`,
 	bookClub: (slug: string, tab?: BookClubTab) => `/clubs/${slug}${tab ? `/${tab}` : ''}`,
 	bookClubCreate: () => '/clubs/create',
 	bookClubDiscussion: (slug: string, discussionId?: string) => {
@@ -144,6 +146,7 @@ export function usePaths() {
 	}
 
 	return {
+		addBooks: (libraryId?: string) => `${basePath}${pathsInternal.addBooks(libraryId)}`,
 		bookClub: (id: string, tab?: BookClubTab) => `${basePath}${pathsInternal.bookClub(id, tab)}`,
 		bookClubCreate: () => `${basePath}${pathsInternal.bookClubCreate()}`,
 		bookClubDiscussion: (id: string, discussionId?: string) =>
