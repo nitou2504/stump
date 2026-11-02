@@ -4016,6 +4016,11 @@
         "pageInChapter": "Page {{page}} of {{total}} in chapter",
         "pageOf": "Page {{page}} of {{total}}",
         "leftInChapter": "{{count}} left in chapter"
+      },
+      "history": {
+        "back": "Back to {{place}}",
+        "forward": "Forward to {{place}}",
+        "location": "Location {{position}}"
       }
     }
   }

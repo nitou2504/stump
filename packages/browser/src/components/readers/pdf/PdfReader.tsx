@@ -42,6 +42,7 @@ import {
 	rowOfPage,
 	spreadRows,
 } from '../shared/layout'
+import { usePageNavHistory } from '../shared/navHistory'
 import { ZOOMED_EPSILON } from '../shared/panKeys'
 import { copyText, nextDayNightTheme } from '../shared/readerKeys'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
@@ -583,6 +584,28 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const flatOutline = useMemo(() => flattenOutline(layout.outline), [layout.outline])
 	const labelOf = useCallback((page: number) => pageLabel(layout, page), [layout])
 
+	// Back and forward after big moves: "Back to Page 23 · Chapter 2" in the contents
+	const chapterOf = useCallback(
+		(page: number) => chapterTitleForPage(flatOutline, page) || undefined,
+		[flatOutline],
+	)
+	const historyLabelOf = useCallback(
+		(page: number) =>
+			[translate('shared.readerAnnotations.page', { page: labelOf(page) }), chapterOf(page)]
+				.filter(Boolean)
+				.join(' · '),
+		[translate, labelOf, chapterOf],
+	)
+	const pageHistory = usePageNavHistory({
+		reader: 'pdf',
+		bookId: mediaId,
+		currentPage,
+		labelOf: historyLabelOf,
+		chapterOf,
+		goTo: goToPage,
+	})
+	const jumpToPage = pageHistory.jumpTo
+
 	const pageStringOf = useCallback(
 		(page: number) => {
 			const text = queryClient.getQueryData<{ runs: Parameters<typeof buildPageString>[0] }>(
@@ -852,10 +875,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const showSearchResult = useCallback(
 		(result: PdfSearchResult) => {
 			setSearchOpen(false)
-			goToPage(result.page, result.rects[0]?.y ?? 0)
+			jumpToPage(result.page, () => goToPage(result.page, result.rects[0]?.y ?? 0))
 			setFlash({ page: result.page, rects: result.rects, key: Date.now() })
 		},
-		[goToPage, setSearchOpen, setFlash],
+		[goToPage, jumpToPage, setSearchOpen, setFlash],
 	)
 
 	useEffect(() => {
@@ -985,10 +1008,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					break
 				}
 				case 'first':
-					goToPage(1)
+					jumpToPage(1)
 					break
 				case 'last':
-					goToPage(pageCount)
+					jumpToPage(pageCount)
 					break
 				case 'zoomIn':
 					setPreferences({ zoom: zoomIn(zoom) })
@@ -1027,6 +1050,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		clearSelection,
 		goRelative,
 		goToPage,
+		jumpToPage,
 		pageCount,
 		setPreferences,
 		zoom,
@@ -1607,7 +1631,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				onOpenChange={setGoToOpen}
 				pageCount={pageCount}
 				resolve={(input) => resolvePageInput(layout, input)}
-				onGo={(page) => goToPage(page)}
+				onGo={(page) => jumpToPage(page)}
+				history={pageHistory}
 			/>
 			<PdfLocationsDialog
 				open={locationsOpen}
@@ -1621,8 +1646,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				labelOf={labelOf}
 				pageCount={pageCount}
 				resolvePage={(input) => resolvePageInput(layout, input)}
-				onGoToPage={goToPage}
+				onGoToPage={(page, target) => jumpToPage(page, () => goToPage(page, target))}
 				onDeleteBookmark={deleteBookmark}
+				history={pageHistory}
 			/>
 		</div>
 	)

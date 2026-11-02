@@ -17,7 +17,7 @@ import { forwardFramePointerMoves } from '../../shared/useReaderChrome'
 import { clearFramesSelection, resyncFramesPage } from '../annotations/clearSelection'
 import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
 import { EPUB_FRAME_LAYOUT_EVENT, fitFrameMedia } from './fitFrameMedia'
-import { locatorToHref, resolvePublicationLinkLocator } from './locator'
+import { locatorToHref, navigableLocator, resolvePublicationLinkLocator } from './locator'
 import {
 	attachFrameReloadGuard,
 	patchDurableIframeSrc,
@@ -519,14 +519,17 @@ export function useReadiumNavigator({
 			},
 			go: (locator: Locator) => {
 				const navigator = navigatorRef.current
+				const place = navigableLocator(locator)
 				return navigator
-					? enqueueNavigation(navigator, (complete) => navigator.go(locator, false, complete))
+					? enqueueNavigation(navigator, (complete) => navigator.go(place, false, complete))
 					: Promise.resolve(false)
 			},
 			goLink: (link: Link) => {
 				const navigator = navigatorRef.current
+				// Readium's own goLink stays put on the page already open (see `navigableLocator`)
+				const place = navigableLocator(link.locator)
 				return navigator
-					? enqueueNavigation(navigator, (complete) => navigator.goLink(link, false, complete))
+					? enqueueNavigation(navigator, (complete) => navigator.go(place, false, complete))
 					: Promise.resolve(false)
 			},
 			canGoForward: navButtons.canGoForward,

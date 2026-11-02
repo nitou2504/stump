@@ -8,6 +8,8 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { AnnotationsList, type ReaderAnnotation } from '../annotations'
 import GoToField from '../shared/GoToField'
+import type { PageNavHistory } from '../shared/navHistory'
+import NavHistoryRow from '../shared/NavHistoryRow'
 import { flattenOutline } from './outline'
 import type { PdfBookmark } from './usePdfData'
 
@@ -29,6 +31,8 @@ type Props = {
 	resolvePage: (input: string) => number | null
 	onGoToPage: (page: number, progression?: number) => void
 	onDeleteBookmark: (id: string) => void
+	/** Back to the page left by the last jump (and forward again): the row at the top */
+	history?: Pick<PageNavHistory, 'back' | 'forward' | 'goBack' | 'goForward'>
 }
 
 /** The book's outline, the user's bookmarks and annotations; selecting one goes there */
@@ -46,6 +50,7 @@ export default function PdfLocationsDialog({
 	resolvePage,
 	onGoToPage,
 	onDeleteBookmark,
+	history,
 }: Props) {
 	const { translate } = useTranslate()
 	const flat = useMemo(() => flattenOutline(outline), [outline])
@@ -180,6 +185,21 @@ export default function PdfLocationsDialog({
 					</Tabs>
 					<Dialog.Close onClick={() => onOpenChange(false)} />
 				</Dialog.Header>
+				{history && (
+					<NavHistoryRow
+						back={history.back}
+						forward={history.forward}
+						onBack={() => {
+							history.goBack()
+							onOpenChange(false)
+						}}
+						onForward={() => {
+							history.goForward()
+							onOpenChange(false)
+						}}
+						className="px-0.5 -mb-1"
+					/>
+				)}
 				{/* go to a page by its number, before the outline, bookmarks and annotations */}
 				<GoToField
 					className="px-2"

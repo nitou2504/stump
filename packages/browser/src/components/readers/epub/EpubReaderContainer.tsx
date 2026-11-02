@@ -40,6 +40,7 @@ type Props = {
 		| 'searchBook'
 		| 'canGoForward'
 		| 'canGoBackward'
+		| 'navHistory'
 	>
 	/** The book sets its own page layout (a fixed-layout EPUB): the layout picker is off */
 	isFixedLayout?: boolean

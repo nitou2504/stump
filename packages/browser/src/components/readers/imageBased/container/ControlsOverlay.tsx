@@ -15,6 +15,8 @@ import { useReaderChromeTheme } from '../../epub/readium/useReaderChromeTheme'
 import { usePdfReaderStore } from '../../pdf/store'
 import GoToField, { resolvePlaceInput } from '../../shared/GoToField'
 import { canShowTwoPages, pageIndicatorText, type ReaderLayout } from '../../shared/layout'
+import { type PageNavHistory, usePageNavHistory } from '../../shared/navHistory'
+import NavHistoryRow from '../../shared/NavHistoryRow'
 import { nextDayNightTheme } from '../../shared/readerKeys'
 import ReaderPageIndicator from '../../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../../shared/ReaderSettingsDialog'
@@ -76,6 +78,19 @@ export default function ControlsOverlay() {
 		setSettingsSection(section)
 		setSettingsOpen(true)
 	}, [])
+
+	// Back and forward after big moves (going to a page): "Back to Page 12" in the pages
+	const pageLabelOf = useCallback(
+		(page: number) => translate('shared.readerAnnotations.page', { page }),
+		[translate],
+	)
+	const pageHistory = usePageNavHistory({
+		reader: 'comic',
+		bookId: book.id,
+		currentPage,
+		labelOf: pageLabelOf,
+		goTo: setCurrentPage,
+	})
 
 	// The shared reader keys: d day/night, ? the shortcuts; Ctrl/Cmd+F and / are taken so the
 	// browser's find bar or quick find don't open over the pages (a comic has no text to search)
@@ -266,8 +281,9 @@ export default function ControlsOverlay() {
 				currentPage={currentPage}
 				onGo={(page) => {
 					setPagesOpen(false)
-					setCurrentPage(page)
+					pageHistory.jumpTo(page)
 				}}
+				history={pageHistory}
 				rtl={readingDirection === ReadingDirection.Rtl}
 			/>
 		</>
@@ -404,6 +420,8 @@ type PagesDialogProps = {
 	currentPage: number
 	onGo: (page: number) => void
 	rtl: boolean
+	/** Back to the page left by the last jump (and forward again), above the field */
+	history?: Pick<PageNavHistory, 'back' | 'forward' | 'goBack' | 'goForward'>
 }
 
 /**
@@ -417,6 +435,7 @@ function PagesDialog({
 	currentPage,
 	onGo,
 	rtl,
+	history,
 }: PagesDialogProps) {
 	const { translate } = useTranslate()
 	const { book, getPageUrl } = useImageBaseReaderContext()
@@ -433,6 +452,21 @@ function PagesDialog({
 					<Heading size="md">{translate('shared.reader.pages')}</Heading>
 					<Dialog.Close />
 				</Dialog.Header>
+				{history && (
+					<NavHistoryRow
+						back={history.back}
+						forward={history.forward}
+						onBack={() => {
+							onOpenChange(false)
+							history.goBack()
+						}}
+						onForward={() => {
+							onOpenChange(false)
+							history.goForward()
+						}}
+						className="-mx-2 -mb-1"
+					/>
+				)}
 				<GoToField
 					label={translate('shared.reader.goToPage')}
 					placeholder={`1 – ${book.pages}`}

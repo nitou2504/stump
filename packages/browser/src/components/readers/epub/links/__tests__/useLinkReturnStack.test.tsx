@@ -2,7 +2,7 @@ import { Locator, LocatorLocations } from '@readium/shared'
 import { act, renderHook } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router'
 
-import { linkDepthOf, useLinkReturnStack } from '../useLinkReturnStack'
+import { linkDepthOf, type LinkHistory, useLinkReturnStack } from '../useLinkReturnStack'
 
 const place = (position: number) =>
 	new Locator({
@@ -11,7 +11,7 @@ const place = (position: number) =>
 		locations: new LocatorLocations({ position }),
 	})
 
-function setup() {
+function setup(history?: LinkHistory) {
 	let here: Locator = place(1)
 	const goTo = vi.fn(async (locator: Locator) => {
 		here = locator
@@ -19,7 +19,7 @@ function setup() {
 	})
 	const view = renderHook(
 		() => ({
-			stack: useLinkReturnStack({ goTo, current: () => here }),
+			stack: useLinkReturnStack({ goTo, current: () => here, history }),
 			location: useLocation(),
 			navigate: useNavigate(),
 		}),
@@ -72,6 +72,20 @@ describe('useLinkReturnStack', () => {
 		act(() => result.current.navigate(1))
 		expect(goTo.mock.calls.length).toBe(calls)
 		expect(result.current.stack.canReturn).toBe(false)
+	})
+
+	it("tells the reader's back and forward about a link and its return", async () => {
+		const history = { followed: vi.fn(), returned: vi.fn() }
+		const { result } = setup(history)
+
+		await act(() => result.current.stack.follow(place(5)))
+		expect(history.followed).toHaveBeenCalledWith(place(1))
+		expect(result.current.stack.returnSpot).toEqual(place(1))
+
+		act(() => result.current.stack.returnBack())
+		// back at the place the link was followed from, coming from the link's target
+		expect(history.returned).toHaveBeenCalledWith(place(1), place(5))
+		expect(result.current.stack.returnSpot).toBeNull()
 	})
 
 	it('reads the depth from history state', () => {
