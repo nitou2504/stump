@@ -4,7 +4,7 @@ import { UserPermission, UserPreferences } from '@stump/graphql'
 import { isAxiosError } from '@stump/sdk'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOverlayScrollbars } from 'overlayscrollbars-react'
-import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Confetti from 'react-confetti'
 import { useErrorBoundary } from 'react-error-boundary'
 import { Outlet, useLocation, useNavigate } from 'react-router'
@@ -26,7 +26,6 @@ export function AppLayout() {
 	const location = useLocation()
 	const navigate = useNavigate()
 
-	const mainRef = useRef<HTMLDivElement>(null)
 	const windowSize = useWindowSize()
 
 	const { showBoundary } = useErrorBoundary()
@@ -57,18 +56,22 @@ export function AppLayout() {
 	const jobOverlayEnabled = storeUser?.preferences?.enableJobOverlay ?? true
 	const showJobOverlay = jobOverlayEnabled && !location.pathname.match(/\/settings\/jobs/)
 
-	// eslint-disable-next-line react-hooks/refs
-	const isRefSet = !!mainRef.current
+	/**
+	 * The main scroll container, once mounted. State rather than reading the ref while
+	 * rendering: that only set the scrollbars up on the layout's second render (any route
+	 * change), and setting them up moves the page into the scrollbars' viewport element. On a
+	 * reader opened directly that reloaded the book's frames, so the reader lost its place
+	 */
+	const [mainElement, setMainElement] = useState<HTMLDivElement | null>(null)
 	/**
 	 * An effect to initialize the overlay scrollbars
 	 */
 	useEffect(() => {
 		// TODO: make this only on desktop? or a setting for 'pretty' scrollbars
-		const { current: scrollContainer } = mainRef
-		if (scrollContainer && !hideScrollBar) {
-			initialize(scrollContainer)
+		if (mainElement && !hideScrollBar) {
+			initialize(mainElement)
 		}
-	}, [initialize, isRefSet, hideScrollBar])
+	}, [initialize, mainElement, hideScrollBar])
 	/**
 	 * An effect to find the added viewport element and add the necessary flexbox classes
 	 * in order to not break the layout of children elements. This is because overlayscrollbars
@@ -86,7 +89,7 @@ export function AppLayout() {
 			viewport.classList.add(...missingClasses)
 		}
 		viewport.dataset.artificialScroll = 'true'
-	}, [instance, isRefSet])
+	}, [instance, mainElement])
 	/**
 	 * some ui components require knowing the height of the main content to position
 	 * itself correctly, like settings sidebars, and so this observer will
@@ -94,7 +97,7 @@ export function AppLayout() {
 	 */
 	const mainHeightObserver = useRef<ResizeObserver | null>(null)
 	const setMainRef = useCallback((node: HTMLDivElement | null) => {
-		mainRef.current = node
+		setMainElement(node)
 
 		mainHeightObserver.current?.disconnect()
 		mainHeightObserver.current = null
@@ -114,7 +117,7 @@ export function AppLayout() {
 		if (hideScrollBar && instantiatedInstance) {
 			instantiatedInstance.destroy()
 		}
-	}, [instance, isRefSet, hideScrollBar])
+	}, [instance, mainElement, hideScrollBar])
 
 	/**
 	 * If enabled, the client will refetch certain queries to hydrate the UI with
