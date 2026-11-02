@@ -81,6 +81,7 @@ import {
 import ReturnChip from '../links/ReturnChip'
 import { useLinkReturnStack } from '../links/useLinkReturnStack'
 import { createStumpFetch } from './createStumpHttpFetcher'
+import { EPUB_FRAME_LAYOUT_EVENT } from './fitFrameMedia'
 import {
 	hrefsMatch,
 	packagePathFromHref,
@@ -1053,12 +1054,15 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 					: null,
 			)
 		}
-		// after Readium has settled the page it reported
+		// after Readium has settled the page it reported, and again when a page's layout changes
+		// under it (its images were fitted to the page)
 		const frame = window.requestAnimationFrame(() => window.requestAnimationFrame(measure))
 		window.addEventListener('resize', measure)
+		window.addEventListener(EPUB_FRAME_LAYOUT_EVENT, measure)
 		return () => {
 			window.cancelAnimationFrame(frame)
 			window.removeEventListener('resize', measure)
+			window.removeEventListener(EPUB_FRAME_LAYOUT_EVENT, measure)
 		}
 	}, [currentLocator, isScrolled, opened])
 
