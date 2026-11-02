@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# The Stump PDF worker: OCR and size reduction of scanned PDFs for Stump's post-processing
+# (library settings -> Post-processing), as a second container next to Stump. It waits for Stump
+# to queue a PDF in <config>/workers/pdf/queue/ (a shell and inotifywait, a few MB) and only then
+# runs book-curator's recipe (OCRmyPDF + Tesseract, the auto200 size step and its checks).
+# See scripts/fork/workers/README.md and docker/compose.fork-postproc.example.yml.
+#
+#   docker build -f docker/Dockerfile.pdf-worker -t stump-pdf-worker:$(git rev-parse --short HEAD) \
+#     --build-arg GIT_REV=$(git rev-parse --short HEAD) .
+#
+# The recipe was measured with OCRmyPDF 17.13 and Tesseract's fast models in this exact image
+# (research/pdf-size.md); PyMuPDF 2.0 is what book-curator's checks ran with.
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
+
+FROM jbarlow83/ocrmypdf-ubuntu:v17.13.0
+ARG GIT_REV=dev
+LABEL org.opencontainers.image.title="Stump PDF worker (fork)" \
+    org.opencontainers.image.source="https://github.com/nitou2504/stump" \
+    org.opencontainers.image.revision="${GIT_REV}"
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends inotify-tools \
+    && rm -rf /var/lib/apt/lists/*
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    uv pip install --no-cache --python /app/.venv/bin/python3 "pymupdf==2.0"
+
+COPY scripts/fork/workers/pdf_runner.py scripts/fork/workers/pdf_worker.sh \
+    scripts/fork/workers/test_pdf_runner.py /opt/stump-pdf-worker/
+COPY scripts/fork/workers/pdfrecipe /opt/stump-pdf-worker/pdfrecipe
+RUN chmod 755 /opt/stump-pdf-worker/pdf_worker.sh \
+    && /app/.venv/bin/python3 -m compileall -q /opt/stump-pdf-worker \
+    && mkdir -p /work && chown app:app /work
+
+USER app
+ENV PDF_WORKER_VERSION=${GIT_REV} \
+    STUMP_PDF_QUEUE=/config/workers/pdf \
+    PDF_RUNNER_WORK=/work \
+    PDF_WORKER_HEARTBEAT=300 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /work
+ENTRYPOINT ["/opt/stump-pdf-worker/pdf_worker.sh"]

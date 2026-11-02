@@ -1574,8 +1574,10 @@ type LibraryPostProcessing {
 	config: PostProcessingConfig!
 	"Where replaced originals go (nothing is replaced while this is unset)"
 	quarantineDir: String
-	"The PDF queue shared with the host runner, as Stump sees it"
+	"The PDF queue shared with the PDF worker container, as Stump sees it"
 	pdfQueueDir: String!
+	"The PDF worker container, from its heartbeat in the queue folder"
+	pdfWorker: PdfWorker!
 	"Task counts by kind and status"
 	counts: [PostProcessingCount!]!
 	"Bytes saved by the replaced files"
@@ -2625,7 +2627,7 @@ type Mutation {
 	updateLibraryPostProcessing(libraryId: ID!, input: PostProcessingConfigInput!): LibraryPostProcessing!
 	"""
 	Run post-processing on the whole library now: the 16-grey step (or its dry-run
-	estimate) and/or the PDF steps (queued for the host runner)
+	estimate) and/or the PDF steps (queued for the PDF worker)
 	"""
 	runPostProcessing(libraryId: ID!, grey16: Boolean! = false, pdfOcr: Boolean! = false, pdfShrink: Boolean! = false, dryRun: Boolean! = false): Boolean!
 	"""
@@ -3050,6 +3052,20 @@ input PatchReadingSession {
 	status: ReadingStatus
 }
 
+"The PDF worker container (OCR and size reduction of scanned PDFs)"
+type PdfWorker {
+	"Its heartbeat is recent: the container is running"
+	alive: Boolean!
+	"`idle` or `busy`"
+	state: String
+	"The worker image's revision"
+	version: String
+	"When its heartbeat was last refreshed"
+	lastSeen: DateTime
+	"The task ids it is working on"
+	current: String
+}
+
 type PlaceholderGenerationOutput {
 	"The total number of entities that were visited"
 	visitedEntities: Int!
@@ -3063,7 +3079,7 @@ type PlaceholderGenerationOutput {
 enum PostProcessKind {
 	"CBZ pages reduced to 16 grey levels (in Stump)"
 	GREY_16
-	"A PDF sent to the host runner for OCR and/or shrinking (see `steps`)"
+	"A PDF sent to the PDF worker for OCR and/or shrinking (see `steps`)"
 	PDF
 }
 
@@ -3090,13 +3106,13 @@ type PostProcessOutput {
 	"Sizes before and after (or expected after, for a dry run) of the processed volumes"
 	bytesBefore: Int!
 	bytesAfter: Int!
-	"PDFs written to the host runner's queue"
+	"PDFs written to the PDF worker's queue"
 	pdfsQueued: Int!
 }
 
 "Where a post-processing task stands"
 enum PostProcessStatus {
-	"Waiting in the queue (PDFs: written for the host runner)"
+	"Waiting in the queue (PDFs: written for the PDF worker)"
 	PENDING
 	"Being processed"
 	RUNNING
@@ -3121,9 +3137,9 @@ type PostProcessingConfig {
 	of the 16-grey step
 	"""
 	grey16Exclude: [String!]!
-	"OCR scanned PDFs whose text layer is missing or poor (host runner)"
+	"OCR scanned PDFs whose text layer is missing or poor (PDF worker container)"
 	pdfOcr: PostProcessMode!
-	"Shrink scanned PDFs when it saves enough without visible loss (host runner)"
+	"Shrink scanned PDFs when it saves enough without visible loss (PDF worker container)"
 	pdfShrink: PostProcessMode!
 	"When the 16-grey step was set to new books: books added from then on are processed"
 	grey16Since: DateTime
@@ -3149,7 +3165,7 @@ type PostProcessingCount {
 
 """
 One post-processing step for one book: the 16-grey reduction of a CBZ, or a PDF sent to
-the host runner for OCR and/or shrinking. There is at most one row per book and kind; a
+the PDF worker for OCR and/or shrinking. There is at most one row per book and kind; a
 new run updates it in place
 """
 type PostProcessingTaskModel {

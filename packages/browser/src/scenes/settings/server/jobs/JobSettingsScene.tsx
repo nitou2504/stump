@@ -64,7 +64,8 @@ export default function JobSettingsScene() {
 					<Heading size="sm">Post-processing</Heading>
 					<Text size="sm" variant="muted" className="mt-1">
 						16 grey levels for manga and OCR / size reduction for scanned PDFs, per book. PDFs wait
-						in the queue until the host runner picks them up. Set it up per library in its settings.
+						in the queue until the PDF worker container picks them up. Set it up per library in its
+						settings.
 					</Text>
 				</div>
 

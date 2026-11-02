@@ -1,6 +1,6 @@
 //! Post-processing of library files: manga CBZ pages reduced to 16 grey levels (in Stump, see
-//! [`grey16`]) and scanned PDFs sent to an on-demand host runner for OCR and shrinking (see
-//! [`pdf_queue`] and `scripts/fork/workers/`). Originals are never deleted: they are copied to
+//! [`grey16`]) and scanned PDFs sent to the PDF worker container for OCR and shrinking (see
+//! [`pdf_queue`], `docker/Dockerfile.pdf-worker` and `scripts/fork/workers/`). Originals are never deleted: they are copied to
 //! the quarantine folder before a processed file replaces them (see [`swap`]).
 //!
 //! Post-processing jobs run on their own worker (one at a time), so a long 16-grey pass never
@@ -122,7 +122,7 @@ pub struct PostProcessOutput {
 	/// Sizes before and after (or expected after, for a dry run) of the processed volumes
 	pub bytes_before: u64,
 	pub bytes_after: u64,
-	/// PDFs written to the host runner's queue
+	/// PDFs written to the PDF worker's queue
 	pub pdfs_queued: u64,
 }
 
@@ -429,7 +429,7 @@ pub fn quarantine_root(config: &StumpConfig) -> Result<PathBuf, String> {
 }
 
 impl PostProcessJob {
-	/// Write the PDFs of this run to the host runner's queue
+	/// Write the PDFs of this run to the PDF worker's queue
 	async fn queue_pdfs(
 		&self,
 		ctx: &JobContext,
@@ -547,7 +547,7 @@ impl PostProcessJob {
 		if queued > 0 {
 			logs.push(JobExecuteLog::new(
 				format!(
-					"{queued} PDFs queued for the host runner in {}",
+					"{queued} PDFs queued for the PDF worker in {}",
 					root.display()
 				),
 				LogLevel::Info,

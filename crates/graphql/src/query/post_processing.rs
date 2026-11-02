@@ -1,4 +1,5 @@
 use async_graphql::{Context, Object, Result, SimpleObject, ID};
+use chrono::{DateTime, Utc};
 use models::{
 	entity::{library, library_config, post_processing_task as task},
 	shared::{
@@ -7,6 +8,7 @@ use models::{
 	},
 };
 use sea_orm::{prelude::*, QueryOrder, QuerySelect};
+use stump_core::postproc::pdf_queue::{worker_status, PdfWorkerStatus};
 
 use crate::{
 	data::{AuthContext, CoreContext},
@@ -19,12 +21,41 @@ pub struct LibraryPostProcessing {
 	pub config: PostProcessingConfig,
 	/// Where replaced originals go (nothing is replaced while this is unset)
 	pub quarantine_dir: Option<String>,
-	/// The PDF queue shared with the host runner, as Stump sees it
+	/// The PDF queue shared with the PDF worker container, as Stump sees it
 	pub pdf_queue_dir: String,
+	/// The PDF worker container, from its heartbeat in the queue folder
+	pub pdf_worker: PdfWorker,
 	/// Task counts by kind and status
 	pub counts: Vec<PostProcessingCount>,
 	/// Bytes saved by the replaced files
 	pub bytes_saved: i64,
+}
+
+/// The PDF worker container (OCR and size reduction of scanned PDFs)
+#[derive(Debug, Clone, SimpleObject)]
+pub struct PdfWorker {
+	/// Its heartbeat is recent: the container is running
+	pub alive: bool,
+	/// `idle` or `busy`
+	pub state: Option<String>,
+	/// The worker image's revision
+	pub version: Option<String>,
+	/// When its heartbeat was last refreshed
+	pub last_seen: Option<DateTime<Utc>>,
+	/// The task ids it is working on
+	pub current: Option<String>,
+}
+
+impl From<PdfWorkerStatus> for PdfWorker {
+	fn from(status: PdfWorkerStatus) -> Self {
+		Self {
+			alive: status.alive,
+			state: status.state,
+			version: status.version,
+			last_seen: status.last_seen,
+			current: status.current,
+		}
+	}
 }
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -83,17 +114,15 @@ pub(crate) async fn summary(
 			}
 		}
 	}
+	let pdf_queue = core.config.pdf_worker_directory();
 	Ok(LibraryPostProcessing {
 		config,
 		quarantine_dir: core
 			.config
 			.quarantine_directory()
 			.map(|p| p.to_string_lossy().to_string()),
-		pdf_queue_dir: core
-			.config
-			.pdf_worker_directory()
-			.to_string_lossy()
-			.to_string(),
+		pdf_worker: worker_status(&pdf_queue, Utc::now()).into(),
+		pdf_queue_dir: pdf_queue.to_string_lossy().to_string(),
 		counts,
 		bytes_saved,
 	})

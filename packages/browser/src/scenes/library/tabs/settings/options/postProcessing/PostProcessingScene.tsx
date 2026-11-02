@@ -13,6 +13,7 @@ import {
 } from '@stump/components'
 import { graphql, PostProcessKind, PostProcessMode, PostProcessStatus } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
+import { formatDistanceToNow } from 'date-fns'
 import { AlertTriangle, ChevronDown, FileScan, Gauge, Shrink } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -35,6 +36,12 @@ const query = graphql(`
 			}
 			quarantineDir
 			pdfQueueDir
+			pdfWorker {
+				alive
+				state
+				version
+				lastSeen
+			}
 			counts {
 				kind
 				status
@@ -86,7 +93,13 @@ export default function PostProcessingScene() {
 		library: { id: libraryId },
 	} = useLibraryManagement()
 	const client = useQueryClient()
-	const { data } = useGraphQL(query, ['libraryPostProcessing', libraryId], { libraryId })
+	// refreshed every 30 s so the PDF worker's state (its heartbeat) stays current
+	const { data } = useGraphQL(
+		query,
+		['libraryPostProcessing', libraryId],
+		{ libraryId },
+		{ refetchInterval: 30_000 },
+	)
 	const settings = data?.libraryPostProcessing
 	const config = settings?.config
 
@@ -152,6 +165,10 @@ export default function PostProcessingScene() {
 	const count = (kind: PostProcessKind, status: PostProcessStatus) =>
 		settings.counts.find((c) => c.kind === kind && c.status === status)?.count ?? 0
 	const noQuarantine = !settings.quarantineDir
+	const worker = settings.pdfWorker
+	const lastSeen = worker.lastSeen
+		? formatDistanceToNow(new Date(worker.lastSeen), { addSuffix: true })
+		: null
 
 	return (
 		<div className="gap-10 flex flex-col">
@@ -225,59 +242,82 @@ export default function PostProcessingScene() {
 				</NewCard.Row>
 			</NewCard>
 
-			<NewCard
-				label="Scanned PDFs"
-				description="OCR for scans whose text layer is missing or poor, and size reduction when it saves at least 15 % and 2 MB without visible loss. Born-digital PDFs are left alone. These run on the host (book-curator's tools), not in Stump: see scripts/fork/workers/README.md."
-			>
-				<NewCard.Row label="OCR" description={since(config.pdfOcrSince) ?? 'Off'}>
-					<NativeSelect
-						className="w-40"
-						options={MODE_OPTIONS}
-						value={config.pdfOcr}
-						onChange={(e) => save({ pdfOcr: e.target.value as PostProcessMode })}
-					/>
-				</NewCard.Row>
-				<NewCard.Row label="Shrink" description={since(config.pdfShrinkSince) ?? 'Off'}>
-					<NativeSelect
-						className="w-40"
-						options={MODE_OPTIONS}
-						value={config.pdfShrink}
-						onChange={(e) => save({ pdfShrink: e.target.value as PostProcessMode })}
-					/>
-				</NewCard.Row>
-				<NewCard.Row
-					label="Queue this library now"
-					description={
-						<>
-							Requests go to <code className="break-all">{settings.pdfQueueDir}</code>; the host
-							runner picks them up and Stump swaps the results in.
-						</>
-					}
+			<div className="gap-3 flex flex-col">
+				{!worker.alive && (
+					<Alert variant="warning">
+						<AlertTriangle />
+						<AlertTitle>PDF worker container not running</AlertTitle>
+						<AlertDescription>
+							{lastSeen ? `Its last heartbeat was ${lastSeen}. ` : 'It has never checked in. '}
+							Start the <code>stump-pdf-worker</code> service of the docker compose file (see{' '}
+							<code>docker/compose.fork-postproc.example.yml</code>). Until it runs, PDFs are not
+							queued from here, and PDFs that new books queue wait for it.
+						</AlertDescription>
+					</Alert>
+				)}
+				<NewCard
+					label="Scanned PDFs"
+					description="OCR for scans whose text layer is missing or poor, and size reduction when it saves at least 15 % and 2 MB without visible loss. Born-digital PDFs are left alone. These run in the PDF worker container next to Stump (OCRmyPDF and book-curator's recipe), which uses almost no memory while nothing is queued."
 				>
-					<DropdownMenu
-						trigger={
-							<Button variant="outline" disabled={isRunning || noQuarantine}>
-								<FileScan className="mr-2 h-4 w-4" />
-								Queue PDFs
-								<ChevronDown className="ml-2 h-4 w-4" />
-							</Button>
+					<NewCard.Row
+						label="Worker"
+						description={
+							worker.alive
+								? `The stump-pdf-worker container${worker.version ? ` (${worker.version})` : ''}, last heartbeat ${lastSeen}`
+								: 'The stump-pdf-worker container is not running'
 						}
-						groups={[
-							{
-								items: [
-									{
-										label: 'OCR and shrink',
-										onClick: () => start({ pdfOcr: true, pdfShrink: true }),
-									},
-									{ label: 'OCR only', onClick: () => start({ pdfOcr: true }) },
-									{ label: 'Shrink only', onClick: () => start({ pdfShrink: true }) },
-								],
-							},
-						]}
-						align="end"
+						value={worker.alive ? (worker.state === 'busy' ? 'Working' : 'Idle') : 'Offline'}
 					/>
-				</NewCard.Row>
-			</NewCard>
+					<NewCard.Row label="OCR" description={since(config.pdfOcrSince) ?? 'Off'}>
+						<NativeSelect
+							className="w-40"
+							options={MODE_OPTIONS}
+							value={config.pdfOcr}
+							onChange={(e) => save({ pdfOcr: e.target.value as PostProcessMode })}
+						/>
+					</NewCard.Row>
+					<NewCard.Row label="Shrink" description={since(config.pdfShrinkSince) ?? 'Off'}>
+						<NativeSelect
+							className="w-40"
+							options={MODE_OPTIONS}
+							value={config.pdfShrink}
+							onChange={(e) => save({ pdfShrink: e.target.value as PostProcessMode })}
+						/>
+					</NewCard.Row>
+					<NewCard.Row
+						label="Queue this library now"
+						description={
+							<>
+								Requests go to <code className="break-all">{settings.pdfQueueDir}</code>; the PDF
+								worker picks them up and Stump swaps the results in.
+							</>
+						}
+					>
+						<DropdownMenu
+							trigger={
+								<Button variant="outline" disabled={isRunning || noQuarantine || !worker.alive}>
+									<FileScan className="mr-2 h-4 w-4" />
+									Queue PDFs
+									<ChevronDown className="ml-2 h-4 w-4" />
+								</Button>
+							}
+							groups={[
+								{
+									items: [
+										{
+											label: 'OCR and shrink',
+											onClick: () => start({ pdfOcr: true, pdfShrink: true }),
+										},
+										{ label: 'OCR only', onClick: () => start({ pdfOcr: true }) },
+										{ label: 'Shrink only', onClick: () => start({ pdfShrink: true }) },
+									],
+								},
+							]}
+							align="end"
+						/>
+					</NewCard.Row>
+				</NewCard>
+			</div>
 
 			<div className="gap-2 flex flex-col">
 				<Text className="font-medium">Recent tasks</Text>

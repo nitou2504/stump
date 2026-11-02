@@ -1,0 +1,70 @@
+# Stump (fork) with post-processing, all in docker compose: the quarantine folder for replaced
+# originals, and the PDF worker container that OCRs and shrinks scanned PDFs. Nothing runs on the
+# host. While no PDF is queued the worker holds a shell and inotifywait (a few MB); OCRmyPDF and
+# the size step start only when Stump queues a PDF and stop when the queue is empty.
+# See scripts/fork/workers/README.md.
+#
+# Once, before the first `docker compose up`: create the queue folder Stump and the worker share,
+# so that it belongs to Stump's user (docker would create a missing bind-mount folder as root):
+#   mkdir -p ./config/workers/pdf
+# Then: STUMP_PDF_WORKER_REV=$(git -C /mnt/data2/Code/stump rev-parse --short HEAD) \
+#         docker compose up -d --build
+services:
+  stump-fork:
+    image: ${STUMP_FORK_IMAGE:-stump:fork}
+    container_name: stump-fork
+    volumes:
+      - ./config/:/config
+      - /mnt/data2/Books/Library/Manga/:/data
+      - /mnt/data2/Books/Library/:/library
+      - /mnt/data2/Books/Biblioteca-Ebooks:/biblioteca
+      - /mnt/data2/Books/Guides:/guides
+      # originals of processed files land here (dated batches + restore_log.csv), never deleted
+      - /mnt/data2/Books/Biblioteca-quarantine:/quarantine
+    ports:
+      - 10801:10801
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - STUMP_CONFIG_DIR=/config
+      - STUMP_QUARANTINE_DIR=/quarantine
+    restart: unless-stopped
+    mem_limit: 2g
+    memswap_limit: 2560m
+
+  stump-pdf-worker:
+    build:
+      context: /mnt/data2/Code/stump
+      dockerfile: docker/Dockerfile.pdf-worker
+      args:
+        GIT_REV: ${STUMP_PDF_WORKER_REV:-dev}
+    image: stump-pdf-worker:${STUMP_PDF_WORKER_REV:-dev}
+    container_name: stump-pdf-worker
+    init: true
+    user: "1000:1000"
+    volumes:
+      # the queue folder only: the worker never sees Stump's database
+      - ./config/workers/pdf:/config/workers/pdf
+      # the libraries at the same paths as in Stump (requests carry Stump's paths), read-only
+      - /mnt/data2/Books/Library/Manga/:/data:ro
+      - /mnt/data2/Books/Library/:/library:ro
+      - /mnt/data2/Books/Biblioteca-Ebooks:/biblioteca:ro
+      - /mnt/data2/Books/Guides:/guides:ro
+      # work files (a copy of the PDF, OCR output, chunks) on disk, not in memory
+      - stump-pdf-work:/work
+      # optional: share book-curator's g3 heavy-job pool (only if /tmp/g3-heavy-slots exists)
+      # - /tmp/g3-heavy-slots:/g3-heavy-slots
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      - PDF_WORKER_HEARTBEAT=300
+      # - PDF_WORKER_POLL=30       # poll instead of inotify
+      # - PDF_WORKER_JOBS=1        # PDFs at a time
+    # one PDF at a time: OCRmyPDF/Tesseract and the size step are single-threaded
+    cpus: 1.5
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    restart: unless-stopped
+
+volumes:
+  stump-pdf-work:

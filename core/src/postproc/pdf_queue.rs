@@ -1,14 +1,15 @@
-//! The queue between Stump and the host runner that OCRs and shrinks scanned PDFs
-//! (`scripts/fork/workers/pdf_runner.py`). Those tools (OCRmyPDF, Tesseract, Ghostscript, JBIG2,
-//! PyMuPDF) do not belong in Stump's image, and nothing has to stay resident: Stump writes a
-//! request, the host runner starts when the queue is not empty (systemd path unit or cron),
-//! works through it and exits.
+//! The queue between Stump and the PDF worker container that OCRs and shrinks scanned PDFs
+//! (`docker/Dockerfile.pdf-worker`, `scripts/fork/workers/pdf_runner.py`). Those tools (OCRmyPDF,
+//! Tesseract, Ghostscript, JBIG2, PyMuPDF) do not belong in Stump's image, and nothing has to stay
+//! resident: Stump writes a request, the worker (a second container that only watches the queue
+//! folder while it is empty) works through it, and Stump applies the results.
 //!
 //! Layout under `<config>/workers/pdf/`:
 //! - `queue/<id>.json`: a [`PdfRequest`] written by Stump;
-//! - `running/<id>.json`: the runner moved it there while it works on it;
-//! - `done/<id>.json` (+ `done/<id>.pdf` when there is a new file): the runner's [`PdfResult`];
-//! - `archive/<id>.json`: results Stump has applied.
+//! - `running/<id>.json`: the worker moved it there while it works on it;
+//! - `done/<id>.json` (+ `done/<id>.pdf` when there is a new file): the worker's [`PdfResult`];
+//! - `archive/<id>.json`: results Stump has applied;
+//! - `worker.json`: the worker's heartbeat (see [`worker_status`]).
 //!
 //! Stump checks `done/` every minute: it swaps a new file in (the original goes to quarantine,
 //! never deleted) only if the library file is still the one it queued (same size and mtime).
@@ -34,11 +35,14 @@ use crate::{config::StumpConfig, CoreResult, Ctx};
 
 pub const QUEUE_VERSION: u32 = 1;
 
-/// How often Stump looks at the runner's results
+/// How often Stump looks at the worker's results
 pub const COLLECT_INTERVAL: Duration = Duration::from_secs(60);
 
-/// A PDF for the host runner (paths as Stump sees them: the runner maps them to host paths
-/// through the container's mounts)
+/// The worker's heartbeat in the queue folder, refreshed every few minutes (its `interval`)
+pub const HEARTBEAT_FILE: &str = "worker.json";
+
+/// A PDF for the worker (paths as Stump sees them: the worker container mounts the same
+/// folders at the same paths)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PdfRequest {
 	pub version: u32,
@@ -56,7 +60,7 @@ pub struct PdfRequest {
 	pub created_at: DateTime<Utc>,
 }
 
-/// What the runner did with a request
+/// What the worker did with a request
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PdfResult {
 	pub id: String,
@@ -66,7 +70,7 @@ pub struct PdfResult {
 	pub reason: String,
 	pub bytes_in: Option<u64>,
 	pub bytes_out: Option<u64>,
-	/// The library file the runner read (size and mtime), to check it did not change since
+	/// The library file the worker read (size and mtime), to check it did not change since
 	pub source_bytes: Option<u64>,
 	pub source_mtime: Option<i64>,
 	#[serde(default)]
@@ -80,6 +84,54 @@ pub fn ensure_dirs(root: &Path) -> io::Result<()> {
 	Ok(())
 }
 
+/// The heartbeat the worker writes (`scripts/fork/workers/pdf_worker.sh` and `pdf_runner.py`)
+#[derive(Debug, Deserialize)]
+struct Heartbeat {
+	#[serde(default)]
+	worker: Option<String>,
+	#[serde(default)]
+	state: Option<String>,
+	#[serde(default)]
+	current: Option<String>,
+	updated_unix: i64,
+	#[serde(default)]
+	interval: Option<i64>,
+}
+
+/// What Stump knows about the PDF worker from its heartbeat
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PdfWorkerStatus {
+	/// The heartbeat is recent: at most three of its intervals (plus a minute) old
+	pub alive: bool,
+	/// `idle` or `busy`
+	pub state: Option<String>,
+	/// The worker image's revision
+	pub version: Option<String>,
+	pub last_seen: Option<DateTime<Utc>>,
+	/// The task ids it is working on (comma-separated)
+	pub current: Option<String>,
+}
+
+/// The worker's state from `<root>/worker.json`; not alive when the file is missing,
+/// unreadable or stale
+pub fn worker_status(root: &Path, now: DateTime<Utc>) -> PdfWorkerStatus {
+	let Some(beat) = fs::read(root.join(HEARTBEAT_FILE))
+		.ok()
+		.and_then(|data| serde_json::from_slice::<Heartbeat>(&data).ok())
+	else {
+		return PdfWorkerStatus::default();
+	};
+	let interval = beat.interval.unwrap_or(300).clamp(10, 3600);
+	let age = now.timestamp() - beat.updated_unix;
+	PdfWorkerStatus {
+		alive: (-300..=3 * interval + 60).contains(&age),
+		state: beat.state,
+		version: beat.worker,
+		last_seen: DateTime::from_timestamp(beat.updated_unix, 0),
+		current: beat.current.filter(|c| !c.is_empty()),
+	}
+}
+
 fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
 	let tmp = path.with_extension("json.tmp");
 	{
@@ -90,7 +142,7 @@ fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
 	fs::rename(tmp, path)
 }
 
-/// Queue a request (written whole, then renamed, so the runner never reads half a file)
+/// Queue a request (written whole, then renamed, so the worker never reads half a file)
 pub fn write_request(root: &Path, request: &PdfRequest) -> io::Result<()> {
 	ensure_dirs(root)?;
 	let data = serde_json::to_vec_pretty(request).map_err(io::Error::other)?;
@@ -114,7 +166,7 @@ fn ids_in(dir: &Path) -> HashSet<String> {
 		.unwrap_or_default()
 }
 
-/// The results the runner finished, oldest first
+/// The results the worker finished, oldest first
 pub fn read_results(root: &Path) -> Vec<PdfResult> {
 	let mut results: Vec<(std::time::SystemTime, PdfResult)> =
 		fs::read_dir(root.join("done"))
@@ -128,7 +180,7 @@ pub fn read_results(root: &Path) -> Vec<PdfResult> {
 						match serde_json::from_slice::<PdfResult>(&data) {
 							Ok(result) => Some((modified, result)),
 							Err(error) => {
-								tracing::warn!(?error, path = ?e.path(), "Unreadable PDF runner result");
+								tracing::warn!(?error, path = ?e.path(), "Unreadable PDF worker result");
 								None
 							},
 						}
@@ -166,7 +218,7 @@ fn file_stamp(path: &Path) -> io::Result<(u64, i64)> {
 	Ok((meta.len(), mtime))
 }
 
-/// Mark queued tasks the runner picked up as running
+/// Mark queued tasks the worker picked up as running
 async fn sync_running(conn: &DatabaseConnection, root: &Path) -> Result<(), DbErr> {
 	let running = ids_in(&root.join("running"));
 	if running.is_empty() {
@@ -241,10 +293,10 @@ async fn apply_result(
 	let new_file = result_file(root, &row.id);
 	let new_bytes = match fs::metadata(&new_file) {
 		Ok(meta) => meta.len(),
-		Err(_) => return Ok(fail("the runner's file is missing".to_string())),
+		Err(_) => return Ok(fail("the worker's file is missing".to_string())),
 	};
 	if result.bytes_out.is_some_and(|b| b != new_bytes) {
-		return Ok(fail("the runner's file has the wrong size".to_string()));
+		return Ok(fail("the worker's file has the wrong size".to_string()));
 	}
 	let requested = row.details.as_ref().and_then(|d| {
 		Some((
@@ -295,7 +347,7 @@ async fn apply_result(
 				path = %book.path,
 				before = out.bytes_before,
 				after = out.bytes_after,
-				"Replaced a PDF with the runner's version"
+				"Replaced a PDF with the worker's version"
 			);
 			Ok(Applied {
 				status: PostProcessStatus::Done,
@@ -307,7 +359,7 @@ async fn apply_result(
 	}
 }
 
-/// Apply every finished result of the host runner. Returns how many were handled
+/// Apply every finished result of the worker. Returns how many were handled
 pub async fn collect_results(ctx: &Ctx) -> CoreResult<usize> {
 	let root = ctx.config.pdf_worker_directory();
 	if !root.exists() {
@@ -322,7 +374,7 @@ pub async fn collect_results(ctx: &Ctx) -> CoreResult<usize> {
 			.one(conn)
 			.await?
 		else {
-			tracing::warn!(id = %result.id, "PDF runner result without a task, archived");
+			tracing::warn!(id = %result.id, "PDF worker result without a task, archived");
 			let _ = archive_result(&root, &result.id);
 			continue;
 		};
@@ -352,14 +404,14 @@ pub async fn collect_results(ctx: &Ctx) -> CoreResult<usize> {
 		)
 		.await?;
 		if let Err(error) = archive_result(&root, &row.id) {
-			tracing::warn!(?error, id = %row.id, "Could not archive a PDF runner result");
+			tracing::warn!(?error, id = %row.id, "Could not archive a PDF worker result");
 		}
 		handled += 1;
 	}
 	Ok(handled)
 }
 
-/// Check the runner's results now and every [`COLLECT_INTERVAL`]: one directory listing a
+/// Check the worker's results now and every [`COLLECT_INTERVAL`]: one directory listing a
 /// minute while nothing is queued
 pub fn spawn_collector(ctx: std::sync::Arc<Ctx>) -> tokio::task::JoinHandle<()> {
 	tokio::spawn(async move {
@@ -369,9 +421,9 @@ pub fn spawn_collector(ctx: std::sync::Arc<Ctx>) -> tokio::task::JoinHandle<()> 
 			interval.tick().await;
 			match collect_results(&ctx).await {
 				Ok(0) => {},
-				Ok(handled) => tracing::info!(handled, "Applied PDF runner results"),
+				Ok(handled) => tracing::info!(handled, "Applied PDF worker results"),
 				Err(error) => {
-					tracing::error!(?error, "Failed to apply PDF runner results")
+					tracing::error!(?error, "Failed to apply PDF worker results")
 				},
 			}
 		}
@@ -418,5 +470,44 @@ mod tests {
 		assert!(root.join("archive/abc.json").exists());
 		assert!(!result_file(&root, "abc").exists());
 		assert!(read_results(&root).is_empty());
+	}
+
+	#[test]
+	fn worker_status_from_the_heartbeat() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path();
+		let now = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+		assert_eq!(worker_status(root, now), PdfWorkerStatus::default());
+
+		let beat = |updated: i64, state: &str, current: &str| {
+			fs::write(
+				root.join(HEARTBEAT_FILE),
+				format!(
+					r#"{{"version":1,"worker":"abc1234","state":"{state}","current":{current},"pid":7,"started_at":"2027-01-15T08:00:00Z","updated_at":"x","updated_unix":{updated},"interval":300}}"#
+				),
+			)
+			.unwrap();
+		};
+		beat(1_800_000_000 - 120, "idle", "null");
+		let status = worker_status(root, now);
+		assert!(status.alive);
+		assert_eq!(status.state.as_deref(), Some("idle"));
+		assert_eq!(status.version.as_deref(), Some("abc1234"));
+		assert_eq!(status.current, None);
+		assert_eq!(
+			status.last_seen,
+			DateTime::from_timestamp(1_800_000_000 - 120, 0)
+		);
+
+		beat(1_800_000_000 - 900, "busy", r#""t1""#);
+		let status = worker_status(root, now);
+		assert!(status.alive, "three intervals is still alive");
+		assert_eq!(status.current.as_deref(), Some("t1"));
+
+		beat(1_800_000_000 - 3 * 300 - 61, "idle", "null");
+		assert!(!worker_status(root, now).alive, "a stale heartbeat");
+
+		fs::write(root.join(HEARTBEAT_FILE), b"{not json").unwrap();
+		assert_eq!(worker_status(root, now), PdfWorkerStatus::default());
 	}
 }
