@@ -261,7 +261,7 @@ impl StumpConfig {
 		self.cache_directory().join("post_processing")
 	}
 
-	/// The PDF queue shared with the host runner (`scripts/fork/workers/pdf_runner.py`):
+	/// The PDF queue shared with the PDF worker container (`docker/Dockerfile.pdf-worker`):
 	/// `queue/`, `running/`, `done/` and `archive/`
 	pub fn pdf_worker_directory(&self) -> PathBuf {
 		self.config_directory().join("workers").join("pdf")

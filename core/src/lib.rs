@@ -304,7 +304,7 @@ impl StumpCore {
 		self.ctx.library_watcher.init().await
 	}
 
-	/// Start applying the PDF host runner's results (a directory listing a minute). Keep the
+	/// Start applying the PDF worker's results (a directory listing a minute). Keep the
 	/// handle alive for as long as the server runs
 	pub fn init_post_processing(&self) -> tokio::task::JoinHandle<()> {
 		postproc::pdf_queue::spawn_collector(self.ctx.arced())

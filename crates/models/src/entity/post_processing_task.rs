@@ -7,7 +7,7 @@ use crate::shared::post_processing::{PostProcessKind, PostProcessStatus};
 use super::{library, media};
 
 /// One post-processing step for one book: the 16-grey reduction of a CBZ, or a PDF sent to
-/// the host runner for OCR and/or shrinking. There is at most one row per book and kind; a
+/// the PDF worker for OCR and/or shrinking. There is at most one row per book and kind; a
 /// new run updates it in place
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, SimpleObject)]

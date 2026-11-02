@@ -49,9 +49,9 @@ pub struct PostProcessingConfig {
 	/// Parts of a book's path (relative to the library, e.g. `/Berserk/`) that keep a CBZ out
 	/// of the 16-grey step
 	pub grey16_exclude: Vec<String>,
-	/// OCR scanned PDFs whose text layer is missing or poor (host runner)
+	/// OCR scanned PDFs whose text layer is missing or poor (PDF worker container)
 	pub pdf_ocr: PostProcessMode,
-	/// Shrink scanned PDFs when it saves enough without visible loss (host runner)
+	/// Shrink scanned PDFs when it saves enough without visible loss (PDF worker container)
 	pub pdf_shrink: PostProcessMode,
 	/// When the 16-grey step was set to new books: books added from then on are processed
 	pub grey16_since: Option<DateTime<Utc>>,
@@ -155,7 +155,7 @@ pub struct PostProcessingConfigInput {
 pub enum PostProcessKind {
 	/// CBZ pages reduced to 16 grey levels (in Stump)
 	Grey16,
-	/// A PDF sent to the host runner for OCR and/or shrinking (see `steps`)
+	/// A PDF sent to the PDF worker for OCR and/or shrinking (see `steps`)
 	Pdf,
 }
 
@@ -183,7 +183,7 @@ pub enum PostProcessKind {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PostProcessStatus {
-	/// Waiting in the queue (PDFs: written for the host runner)
+	/// Waiting in the queue (PDFs: written for the PDF worker)
 	Pending,
 	/// Being processed
 	Running,
