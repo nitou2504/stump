@@ -1,5 +1,15 @@
 import { cn, SheetPrimitive as Sheet, Text, useBoolean } from '@stump/components'
-import { lazy, memo, Suspense, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+	lazy,
+	memo,
+	Suspense,
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -25,8 +35,30 @@ type Props = {
 	sheetTitle?: string
 }
 
-/** The collapsed preview: about ten lines of body text */
+/** The collapsed preview: about ten lines of body text on wider screens */
 const COLLAPSED_HEIGHT = 240
+/**
+ * On phones the same text wraps to about twice as many lines, so the preview is taller there
+ * (about twenty lines) to show a similar amount of the description
+ */
+const COLLAPSED_HEIGHT_NARROW = 480
+const NARROW_QUERY = '(max-width: 639px)'
+
+/** Whether the screen is phone-narrow, following window resizes and rotations */
+function useIsNarrow() {
+	const [isNarrow, setIsNarrow] = useState(
+		() => typeof window !== 'undefined' && !!window.matchMedia?.(NARROW_QUERY).matches,
+	)
+	useEffect(() => {
+		const query = window.matchMedia?.(NARROW_QUERY)
+		if (!query) return
+		const update = () => setIsNarrow(query.matches)
+		update()
+		query.addEventListener('change', update)
+		return () => query.removeEventListener('change', update)
+	}, [])
+	return isNarrow
+}
 /**
  * Text taller than the preview by less than this (about two lines) is shown whole: a
  * "Read more" that would only reveal a line or two isn't worth the click
@@ -74,6 +106,7 @@ export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }
 	const { translate } = useTranslate()
 	const [showingAll, { toggle, on: open, off: close }] = useBoolean(false)
 	const contentId = useId()
+	const collapsedHeight = useIsNarrow() ? COLLAPSED_HEIGHT_NARROW : COLLAPSED_HEIGHT
 
 	const resolvedText = text ? text : DEBUG_ENV ? DEBUG_FAKE_TEXT : ''
 	const markdownClassName = useMemo(() => cn({ 'opacity-80': muted }), [muted])
@@ -91,13 +124,13 @@ export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }
 	useLayoutEffect(() => {
 		const element = measureRef.current
 		if (!element) return
-		const measure = () => setIsOverflowing(element.offsetHeight > COLLAPSED_HEIGHT + OVERFLOW_GRACE)
+		const measure = () => setIsOverflowing(element.offsetHeight > collapsedHeight + OVERFLOW_GRACE)
 		measure()
 		if (typeof ResizeObserver === 'undefined') return
 		const observer = new ResizeObserver(measure)
 		observer.observe(element)
 		return () => observer.disconnect()
-	}, [content])
+	}, [content, collapsedHeight])
 
 	if (!resolvedText && !DEBUG_ENV) {
 		return null
@@ -113,7 +146,7 @@ export default function ReadMore({ text, muted, variant = 'inline', sheetTitle }
 				className={cn(isClamped && 'overflow-hidden')}
 				style={
 					isClamped
-						? { maxHeight: COLLAPSED_HEIGHT, overflowAnchor: 'none' }
+						? { maxHeight: collapsedHeight, overflowAnchor: 'none' }
 						: { overflowAnchor: 'none' }
 				}
 			>
