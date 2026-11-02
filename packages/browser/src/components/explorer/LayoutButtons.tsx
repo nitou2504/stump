@@ -1,46 +1,15 @@
-import { cn, IconButton, ToolTip } from '@stump/components'
-import { Grid2X2, Table } from 'lucide-react'
+import { cn } from '@stump/components'
 
+import { LayoutToggle } from '../TableOrGridLayout'
 import { useFileExplorerContext } from './context'
 
-export default function LayoutButtons() {
+export default function LayoutButtons({ className }: { className?: string }) {
 	const { layout, setLayout } = useFileExplorerContext()
+	const isGrid = layout === 'grid'
 
 	return (
-		<div className="gap-0.5 flex shrink-0 items-center">
-			<ToolTip content="Grid view" align="end">
-				<IconButton
-					variant="ghost"
-					size="sm"
-					className={cn(
-						'transition-colors',
-						layout === 'grid'
-							? 'bg-muted text-foreground hover:bg-muted'
-							: 'text-muted-foreground hover:bg-muted hover:text-foreground',
-					)}
-					onClick={() => setLayout('grid')}
-					aria-label="Grid view"
-				>
-					<Grid2X2 className="h-3.5 w-3.5" />
-				</IconButton>
-			</ToolTip>
-
-			<ToolTip content="Table view" align="end">
-				<IconButton
-					variant="ghost"
-					size="sm"
-					className={cn(
-						'transition-colors',
-						layout === 'table'
-							? 'bg-muted text-foreground hover:bg-muted'
-							: 'text-muted-foreground hover:bg-muted hover:text-foreground',
-					)}
-					onClick={() => setLayout('table')}
-					aria-label="Table view"
-				>
-					<Table className="h-3.5 w-3.5" />
-				</IconButton>
-			</ToolTip>
+		<div className={cn('flex shrink-0 items-center', className)}>
+			<LayoutToggle isGrid={isGrid} onToggle={() => setLayout(isGrid ? 'table' : 'grid')} />
 		</div>
 	)
 }

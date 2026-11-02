@@ -16,8 +16,23 @@ import { useSafeWorkingView, useSmartListContext } from '../../context'
 import { getColumnOptionMap as getGroupColumnOptionMap } from './groupColumns'
 import { columnOptionMap as mediaColumnOptionMap } from './mediaColumns'
 
-export default function TableColumnsBottomDrawer() {
-	const [isOpen, setIsOpen] = useState(false)
+type Props = {
+	/**
+	 * Opens the drawer from elsewhere, e.g. a phone's overflow menu: with it, the drawer is
+	 * controlled and renders no button of its own
+	 */
+	open?: boolean
+	onOpenChange?: (isOpen: boolean) => void
+}
+
+export default function TableColumnsBottomDrawer({ open, onOpenChange }: Props = {}) {
+	const isControlled = open !== undefined
+	const [ownIsOpen, setOwnIsOpen] = useState(false)
+	const isOpen = isControlled ? open : ownIsOpen
+	const setIsOpen = (nowOpen: boolean) => {
+		if (!isControlled) setOwnIsOpen(nowOpen)
+		onOpenChange?.(nowOpen)
+	}
 	const { grouping: defaultGrouping } = useSmartListContext()
 	const {
 		workingView: {
@@ -179,13 +194,15 @@ export default function TableColumnsBottomDrawer() {
 
 	return (
 		<Drawer open={isOpen} onOpenChange={handleOpenChanged}>
-			<ToolTip content="Adjust columns">
-				<Drawer.Trigger asChild onClick={() => setIsOpen(true)}>
-					<IconButton variant="ghost" aria-label="Adjust columns">
-						<TableProperties className="h-4 w-4 text-muted-foreground" />
-					</IconButton>
-				</Drawer.Trigger>
-			</ToolTip>
+			{!isControlled && (
+				<ToolTip content="Adjust columns">
+					<Drawer.Trigger asChild onClick={() => setIsOpen(true)}>
+						<IconButton variant="ghost" aria-label="Adjust columns">
+							<TableProperties className="h-4 w-4 text-muted-foreground" />
+						</IconButton>
+					</Drawer.Trigger>
+				</ToolTip>
+			)}
 			<Drawer.Content
 				className="max-h-[90dvh]"
 				// Don't refocus the trigger on close: its tooltip would pop up and stay

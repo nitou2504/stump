@@ -1,5 +1,5 @@
-import { Button, ConfirmationModal, Dropdown } from '@stump/components'
-import { ChevronDown } from 'lucide-react'
+import { Button, ConfirmationModal, Dropdown, IconButton } from '@stump/components'
+import { ChevronDown, Save } from 'lucide-react'
 import { useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -11,7 +11,12 @@ import CreateOrUpdateTableView from './CreateOrUpdateTableView'
 const LOCALE_BASE_KEY = 'userSmartListScene.itemsScene.actionHeader.viewManager'
 const withLocaleKey = (key: string) => `${LOCALE_BASE_KEY}.${key}`
 
-export default function ViewManagerDropdown() {
+type Props = {
+	/** An icon instead of the labelled button, for a phone's one-row toolbar */
+	compact?: boolean
+}
+
+export default function ViewManagerDropdown({ compact }: Props) {
 	const [managerState, setManagerState] = useState<'create' | 'update' | 'delete' | 'none'>('none')
 
 	const { t, translate } = useTranslate()
@@ -28,20 +33,32 @@ export default function ViewManagerDropdown() {
 		<>
 			<Dropdown>
 				<Dropdown.Trigger asChild>
-					<Button
-						variant="secondary"
-						disabled={!workingView}
-						className="h-10 divide-opacity-30 px-0 py-0 shrink-0 bg-muted/50 hover:bg-muted/80 data-[state=open]:bg-muted"
-					>
-						<div className="inline-flex h-full items-center divide-x divide-border">
-							<span className="px-3 py-2 flex h-full items-center">
-								{translate('shared.common.save')}
-							</span>
-							<span className="px-1 py-2 flex h-full items-center">
-								<ChevronDown className="h-4 w-4" />
-							</span>
-						</div>
-					</Button>
+					{compact ? (
+						<IconButton
+							variant="ghost"
+							size="sm"
+							disabled={!workingView}
+							className="shrink-0 hover:bg-accent data-[state=open]:bg-accent"
+							aria-label={translate('shared.common.save')}
+						>
+							<Save className="h-4 w-4" />
+						</IconButton>
+					) : (
+						<Button
+							variant="secondary"
+							disabled={!workingView}
+							className="h-10 divide-opacity-30 px-0 py-0 shrink-0 bg-muted/50 hover:bg-muted/80 data-[state=open]:bg-muted"
+						>
+							<div className="inline-flex h-full items-center divide-x divide-border">
+								<span className="px-3 py-2 flex h-full items-center">
+									{translate('shared.common.save')}
+								</span>
+								<span className="px-1 py-2 flex h-full items-center">
+									<ChevronDown className="h-4 w-4" />
+								</span>
+							</div>
+						</Button>
+					)}
 				</Dropdown.Trigger>
 				<Dropdown.Content align="end">
 					<Dropdown.Item disabled={!selectedView} onClick={() => setManagerState('update')}>

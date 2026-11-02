@@ -10,7 +10,11 @@ import { viewsAreEqual } from '../../utils'
 const LOCALE_BASE_KEY = 'userSmartListScene.itemsScene.actionHeader.viewSelector'
 const withLocaleKey = (key: string) => `${LOCALE_BASE_KEY}.${key}`
 
-export default function SavedViewSelector() {
+/**
+ * The saved views of a smart list as options, the current one ("Custom view" once the view was
+ * changed) and a way to pick one: shared by the toolbar's select and the phone's overflow menu
+ */
+export function useSavedViews() {
 	const { t } = useTranslate()
 	const {
 		list: { views },
@@ -90,11 +94,10 @@ export default function SavedViewSelector() {
 	}, [hasWorkingViewDiverged, customViewLabel, options])
 
 	/**
-	 * A change handler to update the selected view in the context
+	 * Selects the view with this option value in the context
 	 */
-	const handleChange = useCallback(
-		(e: React.ChangeEvent<HTMLSelectElement>) => {
-			const name = e.target.value
+	const selectView = useCallback(
+		(name: string) => {
 			if (!name || name === '__custom__') {
 				selectStoredView(undefined)
 			} else {
@@ -109,15 +112,29 @@ export default function SavedViewSelector() {
 
 	const isDisabled = !views || !views.length
 
+	return {
+		currentValue,
+		emptyOption,
+		isDisabled,
+		options: finalOptions,
+		selectView,
+		translateKey,
+	}
+}
+
+export default function SavedViewSelector() {
+	const { currentValue, emptyOption, isDisabled, options, selectView, translateKey } =
+		useSavedViews()
+
 	return (
 		<NativeSelect
 			title={isDisabled ? translateKey('noViewsSaved') : translateKey('selectView')}
 			className="h-8 py-0 w-[185px]"
-			options={finalOptions}
+			options={options}
 			emptyOption={emptyOption}
 			disabled={isDisabled}
 			value={currentValue}
-			onChange={handleChange}
+			onChange={(e) => selectView(e.target.value)}
 		/>
 	)
 }

@@ -126,7 +126,7 @@ export default function GroupByDialog({ isOpen, onClose }: Props) {
 					<Dialog.Close onClick={onClose} />
 				</Dialog.Header>
 
-				<div className="-mx-4 gap-4 px-4 py-0.5 md:grid-cols-[1fr_1fr] grid min-h-0 flex-1 grid-cols-1 overflow-y-auto">
+				<div className="-mx-4 gap-4 px-4 py-0.5 md:grid-cols-[1fr_1fr] min-h-0 grid flex-1 grid-cols-1 overflow-y-auto">
 					<div className="gap-4 flex flex-col">
 						<OptionSection title="Collections">
 							{SERVER_OPTIONS.map(({ label, value }) => {
@@ -268,16 +268,25 @@ export default function GroupByDialog({ isOpen, onClose }: Props) {
 /** Toolbar button showing the current grouping; opens the dialog */
 export function GroupByButton({ onClick }: { onClick: () => void }) {
 	const label = useGroupingButtonLabel()
+	const isGrouped = label !== 'None'
 	return (
 		<Button
 			variant="outline"
 			size="sm"
-			className="h-8 gap-1.5 max-w-[200px] shrink-0"
+			// on a phone just the icon (a dot while grouped), to keep the toolbar on one row
+			className="h-8 gap-1.5 max-sm:w-8 max-sm:px-0 max-sm:pointer-coarse:w-10 relative max-w-[200px] shrink-0"
 			onClick={onClick}
 			title="Group books by…"
+			aria-label={`Group: ${label}`}
 		>
 			<Layers className="h-4 w-4 shrink-0" />
-			<span className="truncate">Group: {label}</span>
+			<span className="max-sm:hidden truncate">Group: {label}</span>
+			{isGrouped && (
+				<span
+					aria-hidden
+					className="right-1 top-1 size-2 sm:hidden absolute rounded-full bg-primary ring-2 ring-background"
+				/>
+			)}
 		</Button>
 	)
 }

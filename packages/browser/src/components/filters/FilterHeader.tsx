@@ -3,6 +3,7 @@ import { useCallback } from 'react'
 import { useMediaMatch } from 'rooks'
 
 import { useFilterContext } from './context'
+import { ListToolbar, ListToolbarControls } from './ListToolbar'
 import Search from './Search'
 
 type Props = {
@@ -76,9 +77,12 @@ export default function FilterHeader({
 		[setSearch, removeSearch, search],
 	)
 
+	const hasControls = !!(orderControls || filterControls || layoutControls || sizeControls)
+
 	return (
-		<header
+		<ListToolbar
 			ref={ref}
+			hasControls={hasControls}
 			className={cn(
 				'gap-2 h-12 px-4 md:top-0 sticky z-50 flex w-full shrink-0 items-center justify-between border-b border-border',
 				{ 'bg-background': isSticky || !isMobile },
@@ -95,17 +99,19 @@ export default function FilterHeader({
 				/>
 			)}
 
-			<div className="gap-x-4 flex shrink-0 items-center">
-				{/* No room on a phone, where grids already fit the screen (as in smart lists) */}
-				{sizeControls && <div className="md:flex hidden items-center">{sizeControls}</div>}
+			{hasControls && (
+				<ListToolbarControls className="gap-x-1 sm:gap-x-3 flex shrink-0 items-center">
+					{/* No room on a phone, where grids already fit the screen (as in smart lists) */}
+					{sizeControls && <div className="md:flex hidden items-center">{sizeControls}</div>}
 
-				<div className="gap-x-1 flex items-center">
-					{orderControls}
-					{filterControls}
-				</div>
+					<div className="gap-x-1 flex items-center">
+						{orderControls}
+						{filterControls}
+					</div>
 
-				{layoutControls}
-			</div>
-		</header>
+					{layoutControls}
+				</ListToolbarControls>
+			)}
+		</ListToolbar>
 	)
 }
