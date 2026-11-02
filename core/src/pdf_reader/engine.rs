@@ -84,7 +84,7 @@ pub fn read_layout(
 	max_tier: u32,
 ) -> Result<PdfLayout, MediaProcessorError> {
 	let pages = document.pages();
-	let page_count = pages.len() as i32;
+	let page_count: i32 = pages.len();
 	let mut sizes = Vec::with_capacity(page_count.max(0) as usize);
 	for index in 0..page_count {
 		let size = pages.page_size(index as PdfPageIndex)?;
@@ -130,7 +130,7 @@ fn read_outline_level(
 		let page = bookmark
 			.destination()
 			.and_then(|destination| destination.page_index().ok())
-			.map(|index| index as i32 + 1);
+			.map(|index| index + 1);
 		let mut children = Vec::new();
 		if depth + 1 < MAX_OUTLINE_DEPTH {
 			read_outline_level(bookmark.first_child(), depth + 1, budget, &mut children);
@@ -170,7 +170,7 @@ fn get_page<'a>(
 	document: &PdfDocument<'a>,
 	page: i32,
 ) -> Result<PdfPage<'a>, MediaProcessorError> {
-	let count = document.pages().len() as i32;
+	let count: i32 = document.pages().len();
 	if page < 1 || page > count {
 		return Err(MediaProcessorError::PageNotFound);
 	}
