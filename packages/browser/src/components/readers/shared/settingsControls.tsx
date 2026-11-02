@@ -41,7 +41,7 @@ export function SettingRow({ label, children, hint, caption, className }: RowPro
 			<span className="w-16 gap-0.5 flex shrink-0 flex-col">
 				<span className="text-xs text-muted-foreground">{label}</span>
 				{caption && (
-					<span className="text-[11px] leading-tight truncate text-foreground" title={caption}>
+					<span className="leading-tight truncate text-[11px] text-foreground" title={caption}>
 						{caption}
 					</span>
 				)}
@@ -57,8 +57,7 @@ export function SettingRow({ label, children, hint, caption, className }: RowPro
  * glyphs in full-contrast text (never faded), the pressed one lifted onto the panel's ground
  * with an accent outline
  */
-export const GLYPH_BUTTON_IDLE =
-	'text-foreground/85 hover:bg-background/70 hover:text-foreground'
+export const GLYPH_BUTTON_IDLE = 'text-foreground/85 hover:bg-background/70 hover:text-foreground'
 export const GLYPH_BUTTON_PRESSED =
 	'shadow-sm bg-background text-foreground ring-1 ring-inset ring-primary/70'
 /** The track the glyph buttons sit in */

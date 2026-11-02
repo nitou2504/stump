@@ -42,7 +42,12 @@ describe('EpubNavigationControls page taps', () => {
 		canGoBackward: true,
 	}
 
-	function setup({ phone = true, rtl = false, scroll = false, coarse = phone } = {}) {
+	function setup({
+		phone = true,
+		rtl = false,
+		scroll = false,
+		coarse,
+	}: { phone?: boolean; rtl?: boolean; scroll?: boolean; coarse?: boolean } = {}) {
 		vi.mocked(useEpubReaderContext).mockReturnValue({
 			readerMeta: { bookEntity: { id: 'book' } },
 		} as never)
@@ -55,7 +60,7 @@ describe('EpubNavigationControls page taps', () => {
 			},
 		} as never)
 		window.matchMedia = vi.fn((query: string) => ({
-			matches: query.includes('coarse') ? coarse : phone,
+			matches: query.includes('coarse') ? (coarse ?? phone) : phone,
 		})) as never
 
 		const { getByTestId } = render(

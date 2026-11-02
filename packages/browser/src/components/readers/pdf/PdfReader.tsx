@@ -68,6 +68,7 @@ import {
 	zoomIn,
 	zoomOut,
 } from './geometry'
+import { isZoomedIn, scrollerTouchStyle, swipeTurn } from './gestures'
 import { chapterTitleForPage, flattenOutline, pageLabel, resolvePageInput } from './outline'
 import PdfGoToPageDialog from './PdfGoToPageDialog'
 import PdfLocationsDialog, { type PdfLocationTab } from './PdfLocationsDialog'
@@ -75,7 +76,6 @@ import PdfPageView from './PdfPageView'
 import { PDF_READER_CSS } from './pdfReaderCss'
 import PdfSearchDialog from './PdfSearchDialog'
 import { PdfOpenAs, PdfPageSettings } from './PdfSettings'
-import { isZoomedIn, scrollerTouchStyle, swipeTurn } from './gestures'
 import { resolvePdfShortcut } from './pdfShortcuts'
 import { pdfThemeLook, resolvePdfTheme } from './pdfThemes'
 import {

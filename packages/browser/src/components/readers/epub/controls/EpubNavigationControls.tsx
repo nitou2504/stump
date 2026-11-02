@@ -7,9 +7,9 @@ import { useSwipeable } from 'react-swipeable'
 import { useTranslate } from '@/hooks/useTranslate'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
+import { navigationTapZone } from '../../shared/tapZones'
 import { useEpubReaderContext, useEpubReaderControls } from '../context'
 import ControlButton from './ControlButton'
-import { navigationTapZone } from '../../shared/tapZones'
 import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from './pageTap'
 
 /** Phones and small tablets: below Tailwind's `md` breakpoint, where the chevrons are hidden */
@@ -88,7 +88,8 @@ export default function EpubNavigationControls({ children }: Props) {
 			// Desktop keeps its chevrons and arrow keys; a click on the page does nothing. A touch
 			// screen taps at any width: a phone in landscape is wider than the phone layout
 			const touchLayout =
-				!!window.matchMedia?.(PHONE_LAYOUT_QUERY).matches || !!window.matchMedia?.(TOUCH_QUERY).matches
+				!!window.matchMedia?.(PHONE_LAYOUT_QUERY).matches ||
+				!!window.matchMedia?.(TOUCH_QUERY).matches
 			if (!touchLayout) return
 
 			// In the scroll layout the sides have no page to turn ('forward' there is the next

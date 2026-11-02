@@ -11,4 +11,4 @@ export type ReaderPageTapDetail = {
 }
 
 // The zones themselves are shared by every reader (see `shared/tapZones`)
-export { pageTapZone, type PageTapZone, SIDE_TAP_ZONE } from '../../shared/tapZones'
+export { type PageTapZone, pageTapZone, SIDE_TAP_ZONE } from '../../shared/tapZones'
