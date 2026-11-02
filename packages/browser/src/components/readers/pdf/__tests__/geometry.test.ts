@@ -4,6 +4,7 @@ import {
 	firstPageHint,
 	fractionRectStyle,
 	mergeLineRects,
+	MIN_ZOOM,
 	pageCssSize,
 	pickTier,
 	rectContains,
@@ -57,8 +58,15 @@ describe('zoom', () => {
 		expect(zoomIn(1)).toBe(1.2)
 		expect(zoomOut(1.2)).toBe(1)
 		expect(zoomIn(5)).toBe(5)
-		expect(zoomOut(0.5)).toBe(0.5)
 		expect(clampZoom(Number.NaN)).toBe(1)
+	})
+
+	it('never zooms out past the fit: the page keeps filling the width (or the page)', () => {
+		expect(MIN_ZOOM).toBe(1)
+		expect(zoomOut(1)).toBe(1)
+		expect(zoomOut(1.1)).toBe(1)
+		// a zoom stored below the fit by an older build reads as the fit
+		expect(clampZoom(0.5)).toBe(1)
 	})
 })
 

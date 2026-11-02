@@ -26,7 +26,14 @@ import {
 	type ToolbarAnchor,
 } from '../annotations'
 import { useReaderChromeTheme } from '../epub/readium/useReaderChromeTheme'
-import { navigationTapZone, swipeOf, swipeTurn, zoneTurn } from '../shared/gestures'
+import {
+	edgeSwipeTurn,
+	navigationTapZone,
+	type ScrollEdges,
+	scrollEdges,
+	swipeOf,
+	zoneTurn,
+} from '../shared/gestures'
 import {
 	canShowTwoPages,
 	effectiveLayout,
@@ -1032,6 +1039,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		if (!element) return undefined
 		let ratio = 1
 		let origin: Point | null = null
+		let bounds: { content: DOMRect; view: DOMRect } | undefined
 		let point: Point = { x: 0, y: 0 }
 		let timeout: number | undefined
 		const onWheel = (event: WheelEvent) => {
@@ -1046,10 +1054,11 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					x: element.scrollLeft + event.clientX - box.left,
 					y: element.scrollTop + event.clientY - box.top,
 				}
+				bounds = content ? { content: content.getBoundingClientRect(), view: box } : undefined
 			}
 			ratio = clampRatio(current, ratio * Math.exp(-event.deltaY / 400), MIN_ZOOM, MAX_ZOOM)
 			if (content) {
-				const look = pinchTransform(origin, point, point, ratio)
+				const look = pinchTransform(origin, point, point, ratio, bounds)
 				content.style.transformOrigin = look.transformOrigin
 				content.style.transform = look.transform
 			}
@@ -1058,6 +1067,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				zoomAroundRef.current(current * ratio, point)
 				ratio = 1
 				origin = null
+				bounds = undefined
 			}, 140)
 		}
 		element.addEventListener('wheel', onWheel, { passive: false })
@@ -1074,7 +1084,13 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	useEffect(() => {
 		const element = scrollRef.current
 		if (!element) return undefined
-		let start: { distance: number; mid: Point; origin: Point; zoom: number } | null = null
+		let start: {
+			distance: number
+			mid: Point
+			origin: Point
+			zoom: number
+			bounds: { content: DOMRect; view: DOMRect } | undefined
+		} | null = null
 		let ratio = 1
 		let mid: Point = { x: 0, y: 0 }
 		const touchPoint = (touch: Touch): Point => ({ x: touch.clientX, y: touch.clientY })
@@ -1092,6 +1108,11 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					y: element.scrollTop + mid.y - box.top,
 				},
 				zoom: clampZoom(usePdfReaderStore.getState().books[mediaId]?.zoom ?? 1),
+				// held to what the committed zoom can show: the pages cover the screen or stay
+				// centred, so at the fit they hold still instead of wandering and springing back
+				bounds: contentRef.current
+					? { content: contentRef.current.getBoundingClientRect(), view: box }
+					: undefined,
 			}
 			ratio = 1
 			// the text selection a long press may have started is not what a pinch wants
@@ -1107,7 +1128,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			ratio = clampRatio(start.zoom, distance(a, b) / start.distance, MIN_ZOOM, MAX_ZOOM)
 			const content = contentRef.current
 			if (content) {
-				const look = pinchTransform(start.origin, start.mid, mid, ratio)
+				const look = pinchTransform(start.origin, start.mid, mid, ratio, start.bounds)
 				content.style.transformOrigin = look.transformOrigin
 				content.style.transform = look.transform
 			}
@@ -1153,22 +1174,29 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 
 	// A deliberate sideways swipe turns the page in the paged layout. The page isn't dragged
 	// along with the finger (at the fit it can't move sideways at all): it simply turns once the
-	// finger lifts. Zoomed in, a sideways drag pans the page instead, and a swipe that ends a
-	// text selection (a long press, then a drag) selects rather than turns.
-	const swipeStateRef = useRef({ paged: !continuous, zoomedIn, goRelative })
+	// finger lifts. Zoomed in, a finger pans the page, and a swipe turns it only when the page
+	// was already at its edge that way when the finger came down (a swipe that reaches the edge
+	// stops there, the next one turns). A swipe that ends a text selection (a long press, then
+	// a drag) selects rather than turns.
+	const swipeStateRef = useRef({ paged: !continuous, goRelative })
 	useEffect(() => {
-		swipeStateRef.current = { paged: !continuous, zoomedIn, goRelative }
-	}, [continuous, zoomedIn, goRelative])
+		swipeStateRef.current = { paged: !continuous, goRelative }
+	}, [continuous, goRelative])
 	useEffect(() => {
 		const element = scrollRef.current
 		if (!element) return undefined
-		let start: { x: number; y: number; time: number } | null = null
+		let start: { x: number; y: number; time: number; edges: ScrollEdges } | null = null
 		const onTouchStart = (event: TouchEvent) => {
 			const touch = event.touches[0]
 			// a second finger makes it a pinch, not a swipe
 			start =
 				event.touches.length === 1 && touch
-					? { x: touch.clientX, y: touch.clientY, time: performance.now() }
+					? {
+							x: touch.clientX,
+							y: touch.clientY,
+							time: performance.now(),
+							edges: scrollEdges(element),
+						}
 					: null
 		}
 		const onTouchEnd = (event: TouchEvent) => {
@@ -1176,17 +1204,19 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const from = start
 			start = null
 			if (!from || !touch || event.touches.length > 0) return
-			const { paged, zoomedIn: zoomed, goRelative: turn } = swipeStateRef.current
-			if (!paged || zoomed) return
+			const { paged, goRelative: turn } = swipeStateRef.current
+			if (!paged) return
 			const selection = window.getSelection()
 			if (selection && !selection.isCollapsed) return
-			const direction = swipeTurn(
+			const direction = edgeSwipeTurn(
 				swipeOf(
 					touch.clientX - from.x,
 					touch.clientY - from.y,
 					performance.now() - from.time,
 					element.clientWidth,
 				),
+				from.edges,
+				scrollEdges(element),
 			)
 			if (!direction) return
 			lastGestureRef.current = performance.now()
