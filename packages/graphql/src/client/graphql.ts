@@ -1696,8 +1696,10 @@ export type LibraryPostProcessing = {
   config: PostProcessingConfig;
   /** Task counts by kind and status */
   counts: Array<PostProcessingCount>;
-  /** The PDF queue shared with the host runner, as Stump sees it */
+  /** The PDF queue shared with the PDF worker container, as Stump sees it */
   pdfQueueDir: Scalars['String']['output'];
+  /** The PDF worker container, from its heartbeat in the queue folder */
+  pdfWorker: PdfWorker;
   /** Where replaced originals go (nothing is replaced while this is unset) */
   quarantineDir?: Maybe<Scalars['String']['output']>;
 };
@@ -2720,7 +2722,7 @@ export type Mutation = {
   restoreMedia: Scalars['Boolean']['output'];
   /**
    * Run post-processing on the whole library now: the 16-grey step (or its dry-run
-   * estimate) and/or the PDF steps (queued for the host runner)
+   * estimate) and/or the PDF steps (queued for the PDF worker)
    */
   runPostProcessing: Scalars['Boolean']['output'];
   /** Enqueue a scan job for every library which the authenticated user has access to */
@@ -4077,6 +4079,21 @@ export type PatchReadingSession = {
   status?: InputMaybe<ReadingStatus>;
 };
 
+/** The PDF worker container (OCR and size reduction of scanned PDFs) */
+export type PdfWorker = {
+  __typename?: 'PdfWorker';
+  /** Its heartbeat is recent: the container is running */
+  alive: Scalars['Boolean']['output'];
+  /** The task ids it is working on */
+  current?: Maybe<Scalars['String']['output']>;
+  /** When its heartbeat was last refreshed */
+  lastSeen?: Maybe<Scalars['DateTime']['output']>;
+  /** `idle` or `busy` */
+  state?: Maybe<Scalars['String']['output']>;
+  /** The worker image's revision */
+  version?: Maybe<Scalars['String']['output']>;
+};
+
 export type PlaceholderGenerationOutput = {
   __typename?: 'PlaceholderGenerationOutput';
   /** The number of placeholder metadata entries that were generated */
@@ -4091,7 +4108,7 @@ export type PlaceholderGenerationOutput = {
 export enum PostProcessKind {
   /** CBZ pages reduced to 16 grey levels (in Stump) */
   Grey_16 = 'GREY_16',
-  /** A PDF sent to the host runner for OCR and/or shrinking (see `steps`) */
+  /** A PDF sent to the PDF worker for OCR and/or shrinking (see `steps`) */
   Pdf = 'PDF'
 }
 
@@ -4113,7 +4130,7 @@ export type PostProcessOutput = {
   /** Volumes estimated by a dry run */
   estimated: Scalars['Int']['output'];
   failed: Scalars['Int']['output'];
-  /** PDFs written to the host runner's queue */
+  /** PDFs written to the PDF worker's queue */
   pdfsQueued: Scalars['Int']['output'];
   /** Volumes processed but kept (the saving was too small) */
   rejected: Scalars['Int']['output'];
@@ -4131,7 +4148,7 @@ export enum PostProcessStatus {
   Estimated = 'ESTIMATED',
   /** Something went wrong; the original is untouched */
   Failed = 'FAILED',
-  /** Waiting in the queue (PDFs: written for the host runner) */
+  /** Waiting in the queue (PDFs: written for the PDF worker) */
   Pending = 'PENDING',
   /** Processed, but the result was not used (saves too little, or a quality check failed) */
   Rejected = 'REJECTED',
@@ -4153,11 +4170,11 @@ export type PostProcessingConfig = {
   grey16Exclude: Array<Scalars['String']['output']>;
   /** When the 16-grey step was set to new books: books added from then on are processed */
   grey16Since?: Maybe<Scalars['DateTime']['output']>;
-  /** OCR scanned PDFs whose text layer is missing or poor (host runner) */
+  /** OCR scanned PDFs whose text layer is missing or poor (PDF worker container) */
   pdfOcr: PostProcessMode;
   /** When PDF OCR was set to new books */
   pdfOcrSince?: Maybe<Scalars['DateTime']['output']>;
-  /** Shrink scanned PDFs when it saves enough without visible loss (host runner) */
+  /** Shrink scanned PDFs when it saves enough without visible loss (PDF worker container) */
   pdfShrink: PostProcessMode;
   /** When PDF shrinking was set to new books */
   pdfShrinkSince?: Maybe<Scalars['DateTime']['output']>;
@@ -4180,7 +4197,7 @@ export type PostProcessingCount = {
 
 /**
  * One post-processing step for one book: the 16-grey reduction of a CBZ, or a PDF sent to
- * the host runner for OCR and/or shrinking. There is at most one row per book and kind; a
+ * the PDF worker for OCR and/or shrinking. There is at most one row per book and kind; a
  * new run updates it in place
  */
 export type PostProcessingTaskModel = {
@@ -8035,7 +8052,7 @@ export type LibraryPostProcessingQueryVariables = Exact<{
 }>;
 
 
-export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', quarantineDir?: string | null, pdfQueueDir: string, bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
+export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', quarantineDir?: string | null, pdfQueueDir: string, bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, pdfWorker: { __typename?: 'PdfWorker', alive: boolean, state?: string | null, version?: string | null, lastSeen?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
 
 export type UpdateLibraryPostProcessingMutationVariables = Exact<{
   libraryId: Scalars['ID']['input'];
@@ -16149,6 +16166,12 @@ export const LibraryPostProcessingDocument = new TypedDocumentString(`
     }
     quarantineDir
     pdfQueueDir
+    pdfWorker {
+      alive
+      state
+      version
+      lastSeen
+    }
     counts {
       kind
       status
