@@ -1,10 +1,11 @@
 import { cn } from '@stump/components'
-import { ALargeSmall, ArrowLeft, Bookmark, List, Search } from 'lucide-react'
+import { ArrowLeft, Bookmark, List, Search } from 'lucide-react'
 import { Link } from 'react-router'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
 import ControlButton from '../epub/controls/ControlButton'
+import ReaderStyleGlyph from './ReaderStyleGlyph'
 import { type ReaderChrome, useDocumentFullscreen, useFullscreenKey } from './useReaderChrome'
 
 type Props = {
@@ -118,7 +119,7 @@ export default function ReaderTopBar({
 				onClick={onSettings}
 				data-testid="reader-settings-button"
 			>
-				<ALargeSmall className="h-[18px] w-[18px]" />
+				<ReaderStyleGlyph className="h-5 w-5" />
 			</ControlButton>
 		</header>
 	)

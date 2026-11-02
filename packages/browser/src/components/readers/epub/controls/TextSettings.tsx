@@ -2,14 +2,21 @@ import { DEFAULT_EPUB_FONT_SIZE, type EpubTextAlign } from '@stump/client'
 import { cn } from '@stump/components'
 import { isSupportedFont } from '@stump/sdk'
 import { AlignJustify, AlignLeft, BookOpen } from 'lucide-react'
-import { useEffect, useRef } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 import { SUPPORTED_FONT_OPTIONS } from '@/scenes/settings/app/preferences/FontSelect'
 import { useReaderStore } from '@/stores'
 
-import { DirectionRow, Segmented, SettingRow, Stepper } from '../../shared/settingsControls'
+import {
+	DirectionRow,
+	GLYPH_BUTTON_IDLE,
+	GLYPH_BUTTON_PRESSED,
+	GLYPH_TRACK,
+	Segmented,
+	SettingRow,
+	Stepper,
+} from '../../shared/settingsControls'
 import { useEpubReaderContext } from '../context'
 
 /** The font size's bounds, in CSS pixels */
@@ -174,56 +181,55 @@ type FontChipsProps = {
 	bookLabel: string
 }
 
-/** The typefaces as a row of `Aa` samples, each in its own face; the book's own font first */
+/**
+ * The typefaces as a grid of `Aa` samples, each in its own face, the book's own font first.
+ * They all fit (two rows of five), so nothing hides behind a scroll; the picked face's name
+ * shows under the row's label and every sample names itself in its tooltip.
+ */
 function FontChips({ value, onChange, label, bookLabel }: FontChipsProps) {
-	const rowRef = useRef<HTMLDivElement>(null)
 	const selected = value && isSupportedFont(value.toUpperCase()) ? value.toUpperCase() : ''
-
-	// the picked face is in view when the panel opens
-	useEffect(() => {
-		const chip = rowRef.current?.querySelector<HTMLElement>('[aria-checked="true"]')
-		chip?.scrollIntoView({ block: 'nearest', inline: 'center' })
-	}, [])
-
 	const chips = [{ value: '', label: bookLabel, fontClassName: '' }, ...SUPPORTED_FONT_OPTIONS]
+	const current = chips.find((font) => font.value === selected)
+
 	return (
-		<div
-			ref={rowRef}
-			role="radiogroup"
-			aria-label={label}
-			data-testid="reader-font-family"
-			className="gap-1.5 py-0.5 -mx-3 px-3 flex snap-x overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-			style={{
-				// fades out at the right edge: more faces that way
-				maskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent 100%)',
-			}}
+		<SettingRow
+			label={label}
+			caption={current && (current.value ? shortFontName(current.label) : current.label)}
 		>
-			{chips.map((font) => {
-				const checked = font.value === selected
-				return (
-					<button
-						key={font.value || 'book'}
-						type="button"
-						role="radio"
-						aria-checked={checked}
-						aria-label={font.label}
-						title={font.label}
-						onClick={() => onChange(font.value || undefined)}
-						className={cn(
-							'h-12 w-14 gap-0.5 flex shrink-0 snap-start flex-col items-center justify-center rounded-lg border transition-colors',
-							checked
-								? 'border-primary bg-primary/10 text-foreground'
-								: 'border-transparent bg-foreground/6 text-foreground/75 hover:text-foreground',
-						)}
-					>
-						<span className={cn('text-[17px] leading-none', font.fontClassName)}>Aa</span>
-						<span className="px-1 max-w-full truncate text-[9.5px] leading-none">
-							{font.value ? shortFontName(font.label) : font.label}
-						</span>
-					</button>
-				)
-			})}
-		</div>
+			<div
+				role="radiogroup"
+				aria-label={label}
+				data-testid="reader-font-family"
+				className={cn('gap-0.5 p-0.5 grid w-full grid-cols-5', GLYPH_TRACK)}
+			>
+				{chips.map((font) => {
+					const checked = font.value === selected
+					return (
+						<button
+							key={font.value || 'book'}
+							type="button"
+							role="radio"
+							aria-checked={checked}
+							aria-label={font.label}
+							title={font.label}
+							data-font={font.value || 'book'}
+							onClick={() => onChange(font.value || undefined)}
+							className={cn(
+								'h-8 pointer-coarse:h-10 flex items-center justify-center rounded-md transition-colors',
+								checked ? GLYPH_BUTTON_PRESSED : GLYPH_BUTTON_IDLE,
+							)}
+						>
+							{font.value ? (
+								<span className={cn('text-base leading-none', font.fontClassName)}>Aa</span>
+							) : (
+								// the book's own font: an open book, since its face isn't known here
+								<BookOpen aria-hidden className="h-4 w-4" />
+							)}
+						</button>
+					)
+				})}
+			</div>
+		</SettingRow>
 	)
 }
 
