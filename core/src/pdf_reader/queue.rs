@@ -3,8 +3,9 @@
 
 use std::{
 	cmp::Reverse,
-	collections::{BinaryHeap, HashMap, HashSet},
+	collections::{BinaryHeap, HashMap, HashSet, VecDeque},
 	hash::Hash,
+	time::{Duration, Instant},
 };
 
 /// Higher runs first
@@ -25,8 +26,14 @@ pub struct ClientKey {
 	pub media_id: String,
 }
 
-/// How far (in pages) from the reader's last foreground page a prefetch may be and still run
+/// How far (in pages) from the reader's recent foreground pages a prefetch may be and still run
 pub const PREFETCH_WINDOW: i32 = 3;
+/// The foreground pages remembered per reader: a continuous reader asks for every page in view
+/// (up to 7) in the foreground, so a prefetch is compared with all of the recent ones
+const RECENT_FOREGROUND: usize = 8;
+/// Foreground pages younger than this count, plus always the [`ALWAYS_RECENT`] latest
+const RECENT_FOR: Duration = Duration::from_secs(2);
+const ALWAYS_RECENT: usize = 3;
 
 struct Pending<W> {
 	priority: Priority,
@@ -47,7 +54,7 @@ pub struct Scheduler<K, W> {
 	heap: BinaryHeap<(Priority, Reverse<u64>, K)>,
 	pending: HashMap<K, Pending<W>>,
 	running: HashSet<K>,
-	last_foreground: HashMap<ClientKey, i32>,
+	last_foreground: HashMap<ClientKey, VecDeque<(i32, Instant)>>,
 	sequence: u64,
 }
 
@@ -105,15 +112,34 @@ impl<K: Clone + Eq + Hash + Ord, W> Scheduler<K, W> {
 		}
 	}
 
-	/// Records the page a reader is looking at (also on cache hits, which queue nothing), so
-	/// its prefetches far from it are dropped
+	/// Records a page a reader is looking at (also on cache hits, which queue nothing), so
+	/// its prefetches far from every page it looks at are dropped
 	pub fn note_foreground(&mut self, client: Option<ClientKey>, page: i32) {
 		if let Some(client) = client {
 			if self.last_foreground.len() > 4096 {
 				self.last_foreground.clear();
 			}
-			self.last_foreground.insert(client, page);
+			let recent = self.last_foreground.entry(client).or_default();
+			recent.retain(|(seen, _)| *seen != page);
+			recent.push_front((page, Instant::now()));
+			recent.truncate(RECENT_FOREGROUND);
 		}
+	}
+
+	/// A prefetch is stale when it is more than [`PREFETCH_WINDOW`] pages from all of its
+	/// reader's recent foreground pages (the latest few, and any from the last seconds)
+	fn is_stale_prefetch(&self, client: &ClientKey, page: i32) -> bool {
+		let Some(recent) = self.last_foreground.get(client) else {
+			return false;
+		};
+		let now = Instant::now();
+		!recent
+			.iter()
+			.enumerate()
+			.filter(|(position, (_, seen))| {
+				*position < ALWAYS_RECENT || now.duration_since(*seen) < RECENT_FOR
+			})
+			.any(|(_, (seen, _))| (page - seen).abs() <= PREFETCH_WINDOW)
 	}
 
 	/// The next job to run (highest priority, oldest first), skipping merged duplicates
@@ -126,11 +152,10 @@ impl<K: Clone + Eq + Hash + Ord, W> Scheduler<K, W> {
 				continue;
 			};
 			let stale = pending.priority == Priority::Prefetch
-				&& pending.client.as_ref().is_some_and(|client| {
-					self.last_foreground
-						.get(client)
-						.is_some_and(|last| (pending.page - last).abs() > PREFETCH_WINDOW)
-				});
+				&& pending
+					.client
+					.as_ref()
+					.is_some_and(|client| self.is_stale_prefetch(client, pending.page));
 			if stale {
 				let pending = self.pending.remove(&key).expect("checked above");
 				return Some(Next::Drop(key, pending.waiters));
@@ -228,6 +253,32 @@ mod tests {
 		}
 		assert_eq!(ran, vec!["near"]);
 		assert_eq!(dropped, vec![("far", vec![2])]);
+	}
+
+	#[test]
+	fn keeps_prefetches_near_any_page_a_continuous_reader_shows() {
+		let mut scheduler: Scheduler<&str, u32> = Scheduler::default();
+		// a continuous reader shows pages 10-14: all foreground
+		for page in 10..=14 {
+			scheduler.note_foreground(client(), page);
+		}
+		scheduler.submit("p9", Priority::Prefetch, client(), 9, 1);
+		scheduler.submit("p16", Priority::Prefetch, client(), 16, 2);
+		scheduler.submit("p40", Priority::Prefetch, client(), 40, 3);
+		let mut ran = vec![];
+		let mut dropped = vec![];
+		while let Some(next) = scheduler.next() {
+			match next {
+				Next::Run(key) => {
+					scheduler.complete(&key);
+					ran.push(key)
+				},
+				Next::Drop(key, _) => dropped.push(key),
+			}
+		}
+		ran.sort();
+		assert_eq!(ran, vec!["p16", "p9"]);
+		assert_eq!(dropped, vec!["p40"]);
 	}
 
 	#[test]
