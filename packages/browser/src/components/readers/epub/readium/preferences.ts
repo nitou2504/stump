@@ -55,33 +55,25 @@ export function resolveReaderTheme(
 
 const DEFAULT_PX = 16
 
-/** Below this stage width, `'auto'` resolves to a single column. */
-const AUTO_TWO_COLUMN_MIN_WIDTH = 900
+/** Below this stage width two columns are too narrow, so one is shown */
+const TWO_COLUMN_MIN_WIDTH = 900
 
 /**
- * Resolve an effective Readium `columnCount` from a Stump column preference.
+ * Resolve an effective Readium `columnCount` from a Stump column preference: two columns (a
+ * two-page spread) only when picked and the stage is wide enough, otherwise one. `'auto'`
+ * (the old default, which picked two on wide screens) reads as one, like the other readers'
+ * single-page default.
  *
- * - Continuous scroll (`stageWidth` irrelevant) is represented elsewhere by `scroll: true`;
- *   callers of this function should not call it for continuous mode — see
- *   {@link bookPreferencesToEpubPreferences}, which returns `null` directly for that case.
- * - Explicit `1` / `2` are always honored.
- * - `'auto'` picks 2 columns once the stage is wide enough for a comfortable two-page spread,
- *   otherwise 1. When `stageWidth` is not yet known (e.g. first render before layout), `'auto'`
- *   conservatively resolves to 1 column.
+ * Continuous scroll is represented elsewhere by `scroll: true` (Readium scrolls one column);
+ * see {@link bookPreferencesToEpubPreferences}, which clears the column count for it.
  */
 export function resolveEffectiveColumnCount(
 	columnCount: ColumnCountPreference | undefined,
 	stageWidth: number | undefined,
 ): number | null {
-	if (columnCount === 1 || columnCount === 2) {
-		return columnCount
-	}
-
-	// 'auto' (or unset, which defaults to 'auto')
-	if (stageWidth == null) {
-		return 1
-	}
-	return stageWidth < AUTO_TWO_COLUMN_MIN_WIDTH ? 1 : 2
+	if (columnCount !== 2) return 1
+	if (stageWidth == null) return 1
+	return stageWidth < TWO_COLUMN_MIN_WIDTH ? 1 : 2
 }
 
 /**

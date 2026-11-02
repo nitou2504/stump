@@ -8,7 +8,6 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { useEpubReaderContext } from '../context'
 import { searchResultToReaderLocator } from '../readium/locator'
-import ControlButton from './ControlButton'
 
 type ResultGroup = {
 	heading: string
@@ -44,14 +43,22 @@ export function groupByChapter(
 	return order.map((heading) => ({ heading, items: groups.get(heading) ?? [] }))
 }
 
-export default function SearchCommand() {
+type Props = {
+	open: boolean
+	onOpenChange: (open: boolean) => void
+}
+
+/**
+ * Searches the whole book (the server's index, the EPUB isn't downloaded). Opened from the
+ * top bar, or with Ctrl/Cmd+F or `/` (see `EpubReaderShortcuts`).
+ */
+export default function SearchCommand({ open, onOpenChange: setOpen }: Props) {
 	const { translate } = useTranslate()
 	const {
 		controls: { searchBook, onGoToLocator },
 	} = useEpubReaderContext()
 
 	const [query, setQuery] = useState('')
-	const [open, setOpen] = useState(false)
 
 	const [isSearching, setIsSearching] = useState(false)
 	const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -138,7 +145,7 @@ export default function SearchCommand() {
 				setOpen(false)
 			}
 		},
-		[onGoToLocator],
+		[onGoToLocator, setOpen],
 	)
 
 	// Abort any in-flight request and drop stale results once the query is cleared.
@@ -162,19 +169,17 @@ export default function SearchCommand() {
 	}, [abortInFlightRequest])
 
 	/**
-	 * An effect to handle keyboard shortcuts for opening and closing the search dialog.
-	 * A few workarounds are added to stop the propagation of the arrow keys.
+	 * While the search is open: Escape closes it, Enter searches, and the arrow keys stay in
+	 * the results instead of turning the page behind
 	 */
 	useEffect(() => {
+		if (!open) return undefined
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-				e.preventDefault()
-				setOpen((open) => !open)
-			} else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 				e.stopPropagation()
 			} else if (e.key === 'Escape') {
 				setOpen(false)
-			} else if (e.key === 'Enter' && open) {
+			} else if (e.key === 'Enter') {
 				// The search input handles Enter itself; skip to avoid double submits.
 				if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return
 				doSearch()
@@ -183,7 +188,7 @@ export default function SearchCommand() {
 
 		document.addEventListener('keydown', onKeyDown)
 		return () => document.removeEventListener('keydown', onKeyDown)
-	}, [open, doSearch])
+	}, [open, doSearch, setOpen])
 
 	const serverGroups = useMemo(
 		() =>
@@ -255,9 +260,6 @@ export default function SearchCommand() {
 
 	return (
 		<>
-			<ControlButton onClick={() => setOpen(true)}>
-				<Search className="h-4 w-4" />
-			</ControlButton>
 			<Command.Dialog open={open} onOpenChange={setOpen}>
 				<div className="px-4 flex items-center border-b border-b-border">
 					<Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground opacity-50" />

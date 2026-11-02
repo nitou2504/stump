@@ -3,10 +3,24 @@ import '@/__mocks__/pointerCapture'
 
 import type { EpubSearchResponse, EpubSearchResult } from '@stump/sdk'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 
 import { EpubReaderControls, useEpubReaderContext } from '../../context'
 import { searchResultToReaderLocator } from '../../readium/locator'
 import SearchCommand from '../SearchCommand'
+
+/** The reader opens the search from its top bar (or Ctrl/Cmd+F, '/') */
+function Harness() {
+	const [open, setOpen] = useState(false)
+	return (
+		<>
+			<button type="button" onClick={() => setOpen(true)}>
+				open search
+			</button>
+			<SearchCommand open={open} onOpenChange={setOpen} />
+		</>
+	)
+}
 
 vi.mock('@stump/i18n', () => ({
 	...vi.importActual('@stump/i18n'),
@@ -93,8 +107,9 @@ function mockControls(overrides: Partial<EpubReaderControls> = {}) {
 			visible: false,
 			setFullscreen: vi.fn(),
 			setVisible: vi.fn(),
-			shortcutsHelpOpen: false,
-			setShortcutsHelpOpen: vi.fn(),
+			openSettings: vi.fn(),
+			openSearch: vi.fn(),
+			toggleVisible: vi.fn(),
 			onMouseEnterControls: vi.fn(),
 			onMouseLeaveControls: vi.fn(),
 			onLinkClick: vi.fn(),
@@ -129,7 +144,9 @@ describe('SearchCommand', () => {
 
 	it('renders nothing when searchBook is unavailable', () => {
 		mockControls()
-		expect(render(<SearchCommand />).container).toBeEmptyDOMElement()
+		expect(
+			render(<SearchCommand open onOpenChange={vi.fn()} />).container,
+		).toBeEmptyDOMElement()
 	})
 
 	it('navigates via onGoToLocator when a result is clicked', async () => {
@@ -138,7 +155,7 @@ describe('SearchCommand', () => {
 		const onGoToLocator = vi.fn().mockResolvedValue(true)
 		mockControls({ searchBook, onGoToLocator })
 
-		render(<SearchCommand />)
+		render(<Harness />)
 		search('quick')
 
 		const match = await screen.findByText('quick')
@@ -162,7 +179,7 @@ describe('SearchCommand', () => {
 			.mockResolvedValueOnce(buildResponse([secondResult], { nextCursor: null }))
 		mockControls({ searchBook })
 
-		render(<SearchCommand />)
+		render(<Harness />)
 		search('a')
 
 		await screen.findByText('alpha')
@@ -191,7 +208,7 @@ describe('SearchCommand', () => {
 			.mockReturnValueOnce(freshResponse.promise)
 		mockControls({ searchBook })
 
-		render(<SearchCommand />)
+		render(<Harness />)
 
 		fireEvent.click(screen.getByRole('button'))
 		const input = screen.getByPlaceholderText(/enter a query/i)
@@ -225,7 +242,7 @@ describe('SearchCommand', () => {
 		const searchBook = vi.fn().mockResolvedValue(buildResponse([result]))
 		mockControls({ searchBook })
 
-		render(<SearchCommand />)
+		render(<Harness />)
 		search('$100.00')
 
 		await screen.findByText('$100.00')
@@ -245,7 +262,7 @@ describe('SearchCommand', () => {
 			.mockResolvedValue(buildResponse([chapterOneResult, chapterTwoResult]))
 		mockControls({ searchBook })
 
-		render(<SearchCommand />)
+		render(<Harness />)
 		search('chapter')
 
 		await screen.findByText('one')

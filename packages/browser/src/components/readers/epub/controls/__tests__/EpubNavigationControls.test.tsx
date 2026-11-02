@@ -35,6 +35,7 @@ describe('EpubNavigationControls page taps', () => {
 	const controls = {
 		visible: false,
 		setVisible: vi.fn(),
+		toggleVisible: vi.fn(),
 		onPaginateForward: vi.fn(),
 		onPaginateBackward: vi.fn(),
 		canGoForward: true,
@@ -77,7 +78,7 @@ describe('EpubNavigationControls page taps', () => {
 		tap(0.02)
 		expect(controls.onPaginateBackward).toHaveBeenCalledTimes(1)
 		tap(0.5)
-		expect(controls.setVisible).toHaveBeenCalledWith(true)
+		expect(controls.toggleVisible).toHaveBeenCalled()
 	})
 
 	it('mirrors the side strips for right-to-left books', () => {
@@ -94,7 +95,7 @@ describe('EpubNavigationControls page taps', () => {
 		tap(0.95)
 		tap(0.5)
 		expect(controls.onPaginateForward).not.toHaveBeenCalled()
-		expect(controls.setVisible).not.toHaveBeenCalled()
+		expect(controls.toggleVisible).not.toHaveBeenCalled()
 	})
 
 	it('leaves the page uncovered: no tap zone sits over the text', () => {

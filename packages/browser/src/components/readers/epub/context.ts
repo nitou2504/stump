@@ -42,13 +42,17 @@ export type EpubReaderMeta = {
 }
 
 export type EpubReaderControls = {
+	/** Whether the top bar is shown */
 	visible: boolean
 	fullscreen: boolean
 	setFullscreen: (fullscreen: boolean) => void
-	/** Whether the keyboard shortcuts help is open (`?`) */
-	shortcutsHelpOpen: boolean
-	setShortcutsHelpOpen: (open: boolean) => void
+	/** Opens the reader settings, at the keyboard shortcuts with `'shortcuts'` (`?`) */
+	openSettings: (section?: 'shortcuts' | null) => void
+	/** Opens the search (Ctrl/Cmd+F, `/`) */
+	openSearch: () => void
 	setVisible: (visible: boolean) => void
+	/** A tap in the middle of the page: show or hide the top bar */
+	toggleVisible: () => void
 	onMouseEnterControls: () => void
 	onMouseLeaveControls: () => void
 	onLinkClick: (href: string) => void
@@ -82,9 +86,10 @@ export const EpubReaderContext = createContext<EpubReaderContextProps>({
 		onPaginateForward: noop,
 		jumpToSection: noop,
 		setFullscreen: noop,
-		setShortcutsHelpOpen: noop,
+		openSettings: noop,
+		openSearch: noop,
 		setVisible: noop,
-		shortcutsHelpOpen: false,
+		toggleVisible: noop,
 		visible: false,
 	},
 	readerMeta: {

@@ -1,6 +1,6 @@
 import type { OnDecorationActivatedEvent } from '@readium/navigator'
 import type { BasicTextSelection } from '@readium/navigator-html-injectables'
-import { Link, Locator } from '@readium/shared'
+import { Layout, Link, Locator } from '@readium/shared'
 import {
 	parseGraphQLDecimal,
 	queryClient,
@@ -14,6 +14,7 @@ import {
 	EpubProgressInput,
 	graphql,
 	ReadingDirection,
+	ReadingMode,
 	type ReadiumLocator,
 } from '@stump/graphql'
 import type { EpubSearchResponse } from '@stump/sdk'
@@ -36,9 +37,15 @@ import {
 	graphqlAnnotationToReaderAnnotation,
 	isEditableTarget,
 	isOptimisticAnnotationId,
-	type ReaderShortcutAction,
 } from '../../annotations'
+import { copyText } from '../../shared/readerKeys'
 import { annotationsToDecorations, type DecorationTheme } from '../annotations/decorations'
+import {
+	type ExtendStart,
+	findFrameSelection,
+	spanLocators,
+	spanRanges,
+} from '../annotations/extendSelection'
 import {
 	decorationEventViewportRect,
 	enrichSelectionLocator,
@@ -49,7 +56,7 @@ import type { EpubAnnotation } from '../annotations/types'
 import { ANNOTATION_DECORATION_GROUP } from '../annotations/types'
 import { useEpubAnnotations } from '../annotations/useEpubAnnotations'
 import { EpubContent, type ReaderLocator } from '../context'
-import EpubReaderShortcuts from '../controls/EpubReaderShortcuts'
+import EpubReaderShortcuts, { type AnnotationShortcutAction } from '../controls/EpubReaderShortcuts'
 import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from '../controls/pageTap'
 import EpubReaderContainer from '../EpubReaderContainer'
 import {
@@ -512,7 +519,11 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		| null
 	>(null)
 
-	const onTextSelected = useCallback(
+	/** A selection carried over a page turn, waiting for where the passage ends */
+	const extendRef = useRef<ExtendStart | null>(null)
+	const [extending, setExtending] = useState(false)
+
+	const showSelection = useCallback(
 		(sel: BasicTextSelection) => {
 			if (!sel.text || !containerRef.current) return
 
@@ -554,9 +565,56 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				width: sel.width,
 				height: sel.height,
 			}
+			const extend = extendRef.current
+			if (extend) {
+				extendRef.current = null
+				setExtending(false)
+				const end = findFrameSelection(containerRef.current, sel.text)
+				if (end && end.document === extend.document) {
+					// One passage from the first selection's start to this one's end
+					const passageRange = spanRanges(end.document, extend.range, end.range)
+					const startIsFirst =
+						extend.range.compareBoundaryPoints(Range.START_TO_START, end.range) <= 0
+					const passage = passageRange.toString()
+					const selection = end.document.getSelection()
+					selection?.removeAllRanges()
+					selection?.addRange(passageRange)
+					setTarget({
+						kind: 'selection',
+						selection: {
+							rect,
+							locator: spanLocators(extend.locator, locator, passage, { startIsFirst }),
+							text: passage,
+						},
+					})
+					return
+				}
+				toast.info(translate('shared.reader.extend.acrossChapters'))
+			}
+
 			setTarget({ kind: 'selection', selection: { rect, locator, text: sel.text } })
 		},
-		[opened, toc],
+		[opened, toc, translate],
+	)
+
+	// On touch screens the toolbar waits until the selection settles: its handles are still
+	// being dragged while it keeps changing
+	const isCoarsePointer = useMemo(
+		() => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches,
+		[],
+	)
+	const settleTimerRef = useRef<number | undefined>(undefined)
+	useEffect(() => () => window.clearTimeout(settleTimerRef.current), [])
+	const onTextSelected = useCallback(
+		(sel: BasicTextSelection) => {
+			window.clearTimeout(settleTimerRef.current)
+			if (!isCoarsePointer) {
+				showSelection(sel)
+				return
+			}
+			settleTimerRef.current = window.setTimeout(() => showSelection(sel), 280)
+		},
+		[isCoarsePointer, showSelection],
 	)
 
 	const onDecorationActivated = useCallback((event: OnDecorationActivatedEvent): boolean => {
@@ -571,6 +629,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 
 	// The selection was cleared: drop its toolbar (a tapped annotation's stays)
 	const onTextCleared = useCallback(() => {
+		window.clearTimeout(settleTimerRef.current)
 		setTarget((current) => (current?.kind === 'selection' ? null : current))
 	}, [])
 
@@ -811,6 +870,41 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		}
 	}, [target, targetAnnotation])
 
+	const copyTarget = useCallback(async () => {
+		const text =
+			target?.kind === 'selection'
+				? target.selection.text
+				: (targetAnnotation?.locator.text?.highlight ?? '')
+		if (!text) return
+		if (await copyText(text)) {
+			toast.success(translate('shared.readerAnnotations.copied'))
+			clearSelectionState()
+		} else {
+			toast.error(translate('shared.readerAnnotations.copyFailed'))
+		}
+	}, [target, targetAnnotation, translate, clearSelectionState])
+
+	/**
+	 * Paginated books: keep the selection's start, turn the page; the next selection marks
+	 * where the passage ends (see `showSelection`)
+	 */
+	const extendToNextPage = useCallback(() => {
+		if (target?.kind !== 'selection') return
+		const start = findFrameSelection(containerRef.current, target.selection.text)
+		if (!start) return
+		extendRef.current = { ...start, locator: target.selection.locator }
+		setExtending(true)
+		setTarget(null)
+		// the copy of the range stays valid; the visible selection would only be in the way
+		api.clearSelection()
+		void api.goForward()
+	}, [target, api])
+
+	const cancelExtend = useCallback(() => {
+		extendRef.current = null
+		setExtending(false)
+	}, [])
+
 	const deleteTargetAnnotation = useCallback(() => {
 		if (targetAnnotation && !isOptimisticAnnotationId(targetAnnotation.id)) {
 			void deleteAnnotation(targetAnnotation.id)
@@ -819,8 +913,11 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	}, [targetAnnotation, deleteAnnotation])
 
 	const handleAnnotationShortcut = useCallback(
-		(action: Exclude<ReaderShortcutAction, { type: 'bookmark' | 'help' }>) => {
+		(action: AnnotationShortcutAction) => {
 			switch (action.type) {
+				case 'copy':
+					void copyTarget()
+					break
 				case 'style':
 					applyStyle(action.style)
 					break
@@ -839,7 +936,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 					break
 			}
 		},
-		[applyStyle, openNote, deleteTargetAnnotation, target, clearSelectionState],
+		[applyStyle, openNote, deleteTargetAnnotation, target, clearSelectionState, copyTarget],
 	)
 
 	const noteAnnotation = useMemo(
@@ -1054,6 +1151,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 
 	return (
 		<EpubReaderContainer
+			isFixedLayout={opened?.publication.metadata.effectiveLayout === Layout.fixed}
 			readerMeta={{
 				bookEntity: ebook.media,
 				bookMeta: {
@@ -1134,9 +1232,28 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 						hasNote={!!targetAnnotation?.annotationText}
 						onStyle={applyStyle}
 						onNote={openNote}
+						onCopy={() => void copyTarget()}
+						onExtend={
+							target.kind === 'selection' && readingMode !== ReadingMode.ContinuousVertical
+								? extendToNextPage
+								: undefined
+						}
 						onDelete={target.kind === 'annotation' ? deleteTargetAnnotation : undefined}
 					/>
 				)}
+
+			{extending && (
+				<div
+					className="left-1/2 gap-2 px-3 py-1.5 text-sm shadow-lg fixed z-50 flex -translate-x-1/2 items-center rounded-full border border-border bg-background text-foreground"
+					style={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+					data-testid="extend-hint"
+				>
+					<span>{translate('shared.reader.extend.hint')}</span>
+					<button type="button" className="font-medium underline" onClick={cancelExtend}>
+						{translate('shared.reader.extend.cancel')}
+					</button>
+				</div>
+			)}
 
 			{shownNote && (
 				<NotePopup
