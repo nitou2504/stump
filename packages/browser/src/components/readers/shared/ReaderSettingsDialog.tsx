@@ -86,6 +86,15 @@ export default function ReaderSettingsDialog({
 		if (!open) setShortcutsRequested(false)
 	}, [open])
 
+	// Closed with Escape: the keyboard goes back to the `Aa` button it came from
+	const escapedRef = useRef(false)
+	useEffect(() => {
+		if (open || !escapedRef.current) return
+		escapedRef.current = false
+		const button = document.querySelector<HTMLButtonElement>('[data-testid=reader-settings-button]')
+		window.requestAnimationFrame(() => button?.focus())
+	}, [open])
+
 	const contentRef = useRef<HTMLDivElement>(null)
 	// the phone sheet follows a finger on its handle
 	const moveSheet = useCallback((offset: number, animate: boolean) => {
@@ -119,6 +128,9 @@ export default function ReaderSettingsDialog({
 						'motion-reduce:duration-75 motion-reduce:data-[state=closed]:zoom-out-100 motion-reduce:data-[state=open]:slide-in-from-bottom-0 motion-reduce:data-[state=open]:slide-in-from-top-0 motion-reduce:data-[state=open]:zoom-in-100',
 					)}
 					data-testid="reader-settings"
+					onEscapeKeyDown={() => {
+						escapedRef.current = true
+					}}
 				>
 					<Dialog.Title className="sr-only">
 						{translate('shared.reader.settings.title')}
