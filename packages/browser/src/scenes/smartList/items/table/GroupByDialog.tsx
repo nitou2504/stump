@@ -273,8 +273,9 @@ export function GroupByButton({ onClick }: { onClick: () => void }) {
 		<Button
 			variant="outline"
 			size="sm"
-			// on a phone just the icon (a dot while grouped), to keep the toolbar on one row
-			className="h-8 gap-1.5 max-sm:w-8 max-sm:px-0 max-sm:pointer-coarse:w-10 relative max-w-[200px] shrink-0"
+			// on a phone just the icon (a dot while grouped), like the toolbar's other icons, to keep
+			// the toolbar on one row
+			className="h-8 gap-1.5 max-sm:w-8 max-sm:px-0 max-sm:pointer-coarse:w-10 max-sm:border-transparent max-sm:bg-transparent max-sm:hover:bg-accent relative max-w-[200px] shrink-0"
 			onClick={onClick}
 			title="Group books by…"
 			aria-label={`Group: ${label}`}
