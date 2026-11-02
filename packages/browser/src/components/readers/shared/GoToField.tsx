@@ -73,6 +73,7 @@ export default function GoToField({
 			<div className="min-w-0 flex-1">
 				<Input
 					ref={inputRef}
+					fullWidth
 					inputMode="text"
 					enterKeyHint="go"
 					aria-label={label}
