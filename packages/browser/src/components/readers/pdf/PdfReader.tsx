@@ -58,6 +58,7 @@ import {
 	prefetchIndexes,
 	progressionWithin,
 	scrollTopFor,
+	visibleRange,
 } from './scrollLayout'
 import { readPdfSelection, selectionToLocator, totalProgression } from './selection'
 import { type PdfBookPreferences, usePdfBookPreferences, usePdfReaderStore } from './store'
@@ -197,7 +198,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		() => Math.max(viewport.width, ...sizes.map((size) => size.width + sidePadding * 2)),
 		[sizes, viewport.width, sidePadding],
 	)
-	const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+	// Pictures sharper than 2x don't read better on a phone, they only load slower
+	const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
 
 	// Position ------------------------------------------------------------------------------
 	const startIndex = useMemo(() => {
@@ -334,9 +336,32 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		[tierFor, prefetched, sdk, mediaId, layout.v],
 	)
 
+	/**
+	 * The pages in view load first: the other mounted pages and the prefetches wait until
+	 * these pictures are up, so on a slow link they don't share its bandwidth
+	 */
+	const visible: [number, number] | null = continuous
+		? viewport.height > 0
+			? visibleRange(scrollLayout, scrollTop, viewport.height)
+			: null
+		: [pagedIndex, pagedIndex]
+	const [loadedPictures, setLoadedPictures] = useState<ReadonlySet<string>>(() => new Set())
+	const handlePictureLoaded = useCallback((src: string) => {
+		setLoadedPictures((previous) => (previous.has(src) ? previous : new Set(previous).add(src)))
+	}, [])
+	let visibleLoaded = !!visible
+	if (visible) {
+		for (let index = visible[0]; index <= visible[1]; index++) {
+			if (!loadedPictures.has(srcFor(index))) {
+				visibleLoaded = false
+				break
+			}
+		}
+	}
+
 	const prefetchText = usePrefetchPdfText(mediaId, layout.v)
 	useEffect(() => {
-		if (viewport.width <= 0) return undefined
+		if (viewport.width <= 0 || !visibleLoaded) return undefined
 		const indexes = prefetchIndexes(currentIndex, pageCount)
 		const run = () => {
 			for (const index of indexes) {
@@ -372,6 +397,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		layout.hasText,
 		prefetchText,
 		viewport.width,
+		visibleLoaded,
 	])
 
 	// Annotations and bookmarks ----------------------------------------------------------------
@@ -877,6 +903,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				size={size}
 				aspect={pageSize[0] / pageSize[1]}
 				src={srcFor(index)}
+				canLoad={visibleLoaded || (!!visible && index >= visible[0] && index <= visible[1])}
+				onPictureLoaded={handlePictureLoaded}
 				hasText={layout.hasText}
 				annotations={annotationsByPage.get(page) ?? NO_ANNOTATIONS}
 				look={look}

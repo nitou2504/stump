@@ -162,6 +162,16 @@ function BookReaderScene({ book }: Props) {
 	const pdfReaderKind = usePdfReaderStore((state) => state.books[book.id]?.reader ?? 'pdf')
 	const opensInPdfReader = isPdf && isStreaming && pdfReaderKind === 'pdf'
 
+	// Fetch the PDF's layout while the reader's code loads, instead of after it
+	useEffect(() => {
+		if (!opensInPdfReader) return
+		void client.prefetchQuery({
+			queryKey: ['pdfLayout', book.id],
+			queryFn: ({ signal }) => sdk.pdf.layout(book.id, signal),
+			staleTime: 60_000,
+		})
+	}, [opensInPdfReader, client, sdk, book.id])
+
 	useEffect(() => {
 		if (book.extension.match(EBOOK_EXTENSION)) {
 			navigate(
@@ -196,12 +206,14 @@ function BookReaderScene({ book }: Props) {
 
 	if (opensInPdfReader) {
 		return (
-			<PdfReader
-				media={book}
-				isIncognito={isIncognito}
-				initialPage={initialPage}
-				onProgress={updateProgress}
-			/>
+			<Suspense>
+				<PdfReader
+					media={book}
+					isIncognito={isIncognito}
+					initialPage={initialPage}
+					onProgress={updateProgress}
+				/>
+			</Suspense>
 		)
 	}
 

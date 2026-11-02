@@ -22,6 +22,12 @@ type Props = {
 	aspect: number
 	/** The picture URL to show (already sized for the screen) */
 	src: string
+	/**
+	 * Whether the picture and text may load now: pages around the view wait until the
+	 * pages in view are up
+	 */
+	canLoad: boolean
+	onPictureLoaded: (src: string) => void
 	/** Whether the PDF has a text layer to fetch */
 	hasText: boolean
 	annotations: ReaderAnnotation[]
@@ -47,6 +53,8 @@ function PdfPageView({
 	size,
 	aspect,
 	src,
+	canLoad,
+	onPictureLoaded,
 	hasText,
 	annotations,
 	look,
@@ -90,11 +98,15 @@ function PdfPageView({
 		setLoaded(true)
 		setFailed(false)
 		setShownSrc((current) => current ?? displayedSrc)
-	}, [displayedSrc])
+		onPictureLoaded(src)
+	}, [displayedSrc, onPictureLoaded, src])
+
+	// once a picture has been shown, later ones (other zoom tiers) load regardless
+	const mayLoad = canLoad || !!shownSrc
 
 	// Build the text layer after the picture is up, when the browser is idle, so it never
 	// delays a page turn
-	const { data: text } = usePdfPageText(mediaId, v, page, hasText)
+	const { data: text } = usePdfPageText(mediaId, v, page, hasText && mayLoad)
 	useEffect(() => {
 		if (!loaded || !text || textReady) return undefined
 		const idle = window.requestIdleCallback
@@ -120,7 +132,7 @@ function PdfPageView({
 			// Build the text layer right away when the user starts selecting
 			onPointerDown={() => !textReady && text && setTextReady(true)}
 		>
-			{!failed && (
+			{!failed && mayLoad && (
 				<img
 					src={displayedSrc}
 					alt=""
@@ -129,7 +141,11 @@ function PdfPageView({
 					className="pdf-page-image"
 					style={{ filter: look.imageFilter }}
 					onLoad={handleLoad}
-					onError={() => setFailed(true)}
+					onError={() => {
+						setFailed(true)
+						// don't hold the other pages back
+						onPictureLoaded(src)
+					}}
 				/>
 			)}
 			{look.tint && <div className="pdf-page-tint" style={{ backgroundColor: look.tint }} />}
