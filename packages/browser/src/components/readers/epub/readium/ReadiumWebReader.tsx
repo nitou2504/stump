@@ -38,6 +38,7 @@ import {
 	isEditableTarget,
 	isOptimisticAnnotationId,
 } from '../../annotations'
+import { type NavEntry, navHistoryKey, useNavHistory } from '../../shared/navHistory'
 import { copyText } from '../../shared/readerKeys'
 import { READING_BAR_ZONE } from '../../shared/ReadingBar'
 import {
@@ -65,6 +66,15 @@ import EpubReaderShortcuts, { type AnnotationShortcutAction } from '../controls/
 import { READER_PAGE_TAP_EVENT, type ReaderPageTapDetail } from '../controls/pageTap'
 import EpubReaderContainer from '../EpubReaderContainer'
 import {
+	type EpubPlace,
+	epubPlaceLabel,
+	isEpubPlace,
+	isFarEpubJump,
+	locatorOfPlace,
+	placeOfLocator,
+	sameEpubPlace,
+} from '../links/epubNavPlaces'
+import {
 	extractDocumentBody,
 	extractNote,
 	findTargetElement,
@@ -81,7 +91,7 @@ import {
 	targetLocator,
 } from '../links/resolveLink'
 import ReturnChip from '../links/ReturnChip'
-import { useLinkReturnStack } from '../links/useLinkReturnStack'
+import { type LinkHistory, useLinkReturnStack } from '../links/useLinkReturnStack'
 import { createStumpFetch } from './createStumpHttpFetcher'
 import { EPUB_FRAME_LAYOUT_EVENT } from './fitFrameMedia'
 import {
@@ -647,11 +657,59 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		[],
 	)
 	const getCurrentPlace = useCallback(() => apiRef.current?.currentLocator ?? null, [])
+
+	// The reader's own back and forward for big moves: "Back to …" in the contents, and the
+	// Return chip after a link is the same step (see shared/navHistory)
+	const currentNavPlace = useMemo(
+		() => (currentLocator ? placeOfLocator(currentLocator) : null),
+		[currentLocator],
+	)
+	const {
+		back: historyBack,
+		forward: historyForward,
+		record: recordPlace,
+		goBack: takeHistoryBack,
+		goForward: takeHistoryForward,
+		wentBack,
+	} = useNavHistory<EpubPlace>({
+		storageKey: navHistoryKey('epub', id),
+		same: sameEpubPlace,
+		isPlace: isEpubPlace,
+		current: currentNavPlace,
+	})
+	/** How the place being read is named in "Back to …" (its chapter), kept up to date below */
+	const placeLabelRef = useRef<(locator: Locator) => string>(() => '')
+	const entryOf = useCallback(
+		(locator: Locator): NavEntry<EpubPlace> => ({
+			place: placeOfLocator(locator),
+			label: placeLabelRef.current(locator),
+		}),
+		[],
+	)
+	const linkHistory = useMemo<LinkHistory>(
+		() => ({
+			followed: (from) => recordPlace(entryOf(from)),
+			returned: (spot, from) => wentBack(placeOfLocator(spot), from ? entryOf(from) : null),
+		}),
+		[recordPlace, wentBack, entryOf],
+	)
+	/** A jump (go to, the contents, a bookmark or a search hit) is about to move the reader */
+	const rememberJump = useCallback(
+		(to: { href: string; position?: number | null }) => {
+			const here = apiRef.current?.currentLocator
+			if (here && isFarEpubJump({ href: here.href, position: here.locations.position }, to)) {
+				recordPlace(entryOf(here))
+			}
+		},
+		[recordPlace, entryOf],
+	)
+
 	const {
 		canReturn,
+		returnSpot,
 		follow: followWithReturn,
 		returnBack,
-	} = useLinkReturnStack({ goTo: goToPlace, current: getCurrentPlace })
+	} = useLinkReturnStack({ goTo: goToPlace, current: getCurrentPlace, history: linkHistory })
 	const [returnHidden, setReturnHidden] = useState(false)
 
 	/** Go to a place a link (or a note's "Go to note") leads to, remembering the way back */
@@ -1129,6 +1187,33 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 		}
 	}, [currentLocator, toc, opened, chapterPageCount, tocStarts])
 
+	// "Back to …" names the place the reader leaves after its chapter, e.g. "Chapter 3 · 12%"
+	useEffect(() => {
+		const chapter = chapterMeta.path?.[chapterMeta.path.length - 1] ?? chapterMeta.name
+		placeLabelRef.current = (locator) =>
+			epubPlaceLabel(chapter, locator.locations.totalProgression) ||
+			translate('shared.reader.history.location', {
+				position: locator.locations.position ?? 1,
+			})
+	}, [chapterMeta, translate])
+
+	const goBackInHistory = useCallback(() => {
+		if (historyBack && returnSpot && sameEpubPlace(historyBack.place, placeOfLocator(returnSpot))) {
+			// the place a link was followed from: the same step as Return (and the browser's Back)
+			returnBack()
+			return
+		}
+		const here = apiRef.current?.currentLocator
+		const entry = takeHistoryBack(here ? entryOf(here) : null)
+		if (entry) void api.go(locatorOfPlace(entry.place))
+	}, [historyBack, returnSpot, returnBack, takeHistoryBack, entryOf, api])
+
+	const goForwardInHistory = useCallback(() => {
+		const here = apiRef.current?.currentLocator
+		const entry = takeHistoryForward(here ? entryOf(here) : null)
+		if (entry) void api.go(locatorOfPlace(entry.place))
+	}, [takeHistoryForward, entryOf, api])
+
 	const onPaginateForward = useCallback(() => {
 		void api.goForward()
 	}, [api])
@@ -1161,6 +1246,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 					},
 				})
 				if (toolkit) {
+					rememberJump({ href: toolkit.href, position: toolkit.locations.position })
 					const navigated = await api.go(toolkit)
 					if (navigated) return true
 				}
@@ -1171,7 +1257,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			toast.error(translate('shared.epubReader.errors.navigateFailed'))
 			return false
 		},
-		[api, opened, translate],
+		[api, opened, translate, rememberJump],
 	)
 
 	const onLinkClick = useCallback(
@@ -1185,7 +1271,12 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				readingOrder.find((l) => hrefsMatch(l.href, href) || l.href.endsWith(href)) ??
 				resources.find((l) => hrefsMatch(l.href, href) || l.href.endsWith(href))
 
+			// where the entry's page starts (its #id may lie further in: near enough to tell a jump)
+			const firstPosition = (target: string) =>
+				opened.positions.find((p) => hrefsMatch(p.href, target))?.locations.position
+
 			if (match) {
+				rememberJump({ href: match.href, position: firstPosition(match.href) })
 				void api.goLink(match)
 				return
 			}
@@ -1193,31 +1284,39 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			// Fall back to first position with matching package path
 			const position = opened.positions.find((p) => hrefsMatch(p.href, href))
 			if (position) {
+				rememberJump({ href: position.href, position: position.locations.position })
 				void api.go(position)
 				return
 			}
 
 			toast.error('Could not find that location in the publication')
 		},
-		[api, opened],
+		[api, opened, rememberJump],
 	)
 
 	const goToPosition = useCallback(
 		(position: number) => {
 			const target = opened?.positions[Math.round(position) - 1]
-			if (target) void api.go(target)
+			if (!target) return
+			rememberJump({ href: target.href, position: target.locations.position })
+			void api.go(target)
 		},
-		[api, opened],
+		[api, opened, rememberJump],
 	)
 
 	const jumpToSection = useCallback(
 		(section: number) => {
 			const item = opened?.publication.manifest.readingOrder?.items?.[section]
 			if (item) {
+				rememberJump({
+					href: item.href,
+					position: opened?.positions.find((p) => hrefsMatch(p.href, item.href))?.locations
+						.position,
+				})
 				void api.goLink(item)
 			}
 		},
-		[api, opened],
+		[api, opened, rememberJump],
 	)
 
 	const getLocatorPreviewText = useCallback((locator: ReaderLocator) => {
@@ -1337,6 +1436,12 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 				searchBook,
 				canGoForward: api.canGoForward,
 				canGoBackward: api.canGoBackward,
+				navHistory: {
+					back: historyBack,
+					forward: historyForward,
+					goBack: goBackInHistory,
+					goForward: goForwardInHistory,
+				},
 			}}
 		>
 			{/*

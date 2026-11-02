@@ -6,6 +6,7 @@ import { ImageReaderBookRef } from '@/components/readers/imageBased/context'
 
 import { noop } from '../../../utils/misc'
 import type { ReaderLocator } from '../annotations/types'
+import type { NavEntry } from '../shared/navHistory'
 import type { EpubAnnotation } from './annotations/types'
 
 export type { ReaderLocator } from '../annotations/types'
@@ -76,6 +77,16 @@ export type EpubReaderControls = {
 	canGoBackward?: boolean
 	onGoToLocator: (locator: ReaderLocator) => Promise<boolean>
 	getLocatorPreviewText: (locator: ReaderLocator) => string | null
+	/**
+	 * The reader's own back and forward after big moves (going to a location, the contents, a
+	 * bookmark, a search hit, a link): "Back to …" at the top of the contents
+	 */
+	navHistory?: {
+		back: NavEntry<unknown> | null
+		forward: NavEntry<unknown> | null
+		goBack: () => void
+		goForward: () => void
+	}
 	searchBook?: (
 		query: string,
 		opts?: { cursor?: string; signal?: AbortSignal },

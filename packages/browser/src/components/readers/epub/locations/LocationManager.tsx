@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import GoToField, { resolvePlaceInput } from '../../shared/GoToField'
+import NavHistoryRow from '../../shared/NavHistoryRow'
 import { useEpubReaderContext } from '../context'
 import Annotations from './Annotations'
 import Bookmarks from './Bookmarks'
@@ -31,7 +32,7 @@ export default function LocationManager({
 	const [activeTab, setActiveTab] = useState<LocationTab>('contents')
 	const {
 		readerMeta: { bookMeta },
-		controls: { goToPosition },
+		controls: { goToPosition, navHistory },
 	} = useEpubReaderContext()
 	const totalPositions = bookMeta?.chapter.totalPositions ?? 0
 
@@ -100,6 +101,21 @@ export default function LocationManager({
 
 					<Dialog.Close onClick={handleClose} />
 				</Dialog.Header>
+				{navHistory && (
+					<NavHistoryRow
+						back={navHistory.back}
+						forward={navHistory.forward}
+						onBack={() => {
+							navHistory.goBack()
+							handleClose()
+						}}
+						onForward={() => {
+							navHistory.goForward()
+							handleClose()
+						}}
+						className="-mx-2 -mb-1"
+					/>
+				)}
 				{goToPosition && totalPositions > 0 && (
 					<GoToField
 						label={translate('shared.reader.goToLocation')}
