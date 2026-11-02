@@ -3,9 +3,65 @@ import { Fragment } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
+import { COPY_SHORTCUT, DAY_NIGHT_SHORTCUT, SEARCH_SHORTCUT_KEYS } from '../shared/readerKeys'
 import { ANNOTATION_STYLES, BOOKMARK_SHORTCUT, HELP_SHORTCUT, NOTE_SHORTCUT } from './styles'
 
 export type ShortcutRow = { keys: string[]; label: string }
+
+type Translate = (key: string) => string
+
+/**
+ * Every reader's keyboard shortcuts: the reader's own (`extra`, e.g. page turns and zoom)
+ * and the shared ones, then those that act on selected text or an annotation
+ */
+export function readerShortcutRows(
+	translate: Translate,
+	extra: ShortcutRow[] = [],
+): { general: ShortcutRow[]; withSelection: ShortcutRow[] } {
+	return {
+		general: [
+			...extra,
+			{
+				keys: SEARCH_SHORTCUT_KEYS,
+				label: translate('shared.readerAnnotations.shortcuts.search'),
+			},
+			{
+				keys: [BOOKMARK_SHORTCUT.toUpperCase()],
+				label: translate('shared.readerAnnotations.shortcuts.bookmark'),
+			},
+			{
+				keys: [DAY_NIGHT_SHORTCUT.toUpperCase()],
+				label: translate('shared.reader.shortcuts.dayNight'),
+			},
+			{ keys: [HELP_SHORTCUT], label: translate('shared.readerAnnotations.shortcuts.help') },
+		],
+		withSelection: [
+			...ANNOTATION_STYLES.map((meta) => ({
+				keys: [meta.shortcut.toUpperCase()],
+				label: translate(meta.labelKey),
+			})),
+			{ keys: [NOTE_SHORTCUT.toUpperCase()], label: translate('shared.readerAnnotations.addNote') },
+			{ keys: [COPY_SHORTCUT.toUpperCase()], label: translate('shared.readerAnnotations.copy') },
+			{ keys: ['Del'], label: translate('shared.readerAnnotations.shortcuts.deleteSelected') },
+			{ keys: ['Esc'], label: translate('shared.readerAnnotations.shortcuts.dismiss') },
+		],
+	}
+}
+
+/** The shortcuts as a list (the reader settings show it in their last section) */
+export function ReaderShortcutsList({ extra = [] }: { extra?: ShortcutRow[] }) {
+	const { translate } = useTranslate()
+	const { general, withSelection } = readerShortcutRows(translate, extra)
+	return (
+		<div className="gap-2 flex flex-col">
+			<ShortcutTable rows={general} />
+			<Text size="xs" variant="muted" className="pt-1">
+				{translate('shared.readerAnnotations.shortcuts.withSelection')}
+			</Text>
+			<ShortcutTable rows={withSelection} />
+		</div>
+	)
+}
 
 type Props = {
 	open: boolean
@@ -14,27 +70,9 @@ type Props = {
 	extra?: ShortcutRow[]
 }
 
-/** The reader's keyboard shortcuts, opened with `?` */
+/** The reader's keyboard shortcuts in a dialog of their own */
 export default function ReaderShortcutsHelp({ open, onOpenChange, extra = [] }: Props) {
 	const { translate } = useTranslate()
-
-	const annotationRows: ShortcutRow[] = [
-		...ANNOTATION_STYLES.map((meta) => ({
-			keys: [meta.shortcut.toUpperCase()],
-			label: translate(meta.labelKey),
-		})),
-		{ keys: [NOTE_SHORTCUT.toUpperCase()], label: translate('shared.readerAnnotations.addNote') },
-		{ keys: ['Del'], label: translate('shared.readerAnnotations.shortcuts.deleteSelected') },
-		{ keys: ['Esc'], label: translate('shared.readerAnnotations.shortcuts.dismiss') },
-	]
-	const generalRows: ShortcutRow[] = [
-		...extra,
-		{
-			keys: [BOOKMARK_SHORTCUT.toUpperCase()],
-			label: translate('shared.readerAnnotations.shortcuts.bookmark'),
-		},
-		{ keys: [HELP_SHORTCUT], label: translate('shared.readerAnnotations.shortcuts.help') },
-	]
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -43,18 +81,13 @@ export default function ReaderShortcutsHelp({ open, onOpenChange, extra = [] }: 
 					<Dialog.Title>{translate('shared.readerAnnotations.shortcuts.title')}</Dialog.Title>
 					<Dialog.Close onClick={() => onOpenChange(false)} />
 				</Dialog.Header>
-
-				<ShortcutTable rows={generalRows} />
-				<Text size="xs" variant="muted" className="pt-1">
-					{translate('shared.readerAnnotations.shortcuts.withSelection')}
-				</Text>
-				<ShortcutTable rows={annotationRows} />
+				<ReaderShortcutsList extra={extra} />
 			</Dialog.Content>
 		</Dialog>
 	)
 }
 
-function ShortcutTable({ rows }: { rows: ShortcutRow[] }) {
+export function ShortcutTable({ rows }: { rows: ShortcutRow[] }) {
 	return (
 		<dl className="gap-x-4 gap-y-1.5 text-sm grid grid-cols-[6rem_1fr] items-center">
 			{rows.map((row) => (

@@ -1,10 +1,11 @@
 import { cn } from '@stump/components'
 import type { AnnotationStyle } from '@stump/graphql'
-import { NotebookPen, PenLine, Trash2 } from 'lucide-react'
+import { ArrowRightToLine, Copy, NotebookPen, Trash2 } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
+import { COPY_SHORTCUT } from '../shared/readerKeys'
 import { ANNOTATION_STYLES, type AnnotationStyleMeta, NOTE_SHORTCUT } from './styles'
 import type { ToolbarAnchor } from './types'
 
@@ -52,13 +53,24 @@ function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value))
 }
 
+/**
+ * On touch screens the toolbar doesn't float next to the selection, where it would cover the
+ * selection's handles and the system's own copy/share menu: it docks to the bottom edge, or
+ * to the top (below the reader's top bar) when the selection is in the lower half
+ */
+export function dockedEdge(anchor: ToolbarAnchor, viewportHeight: number): 'top' | 'bottom' {
+	return anchor.y + anchor.height / 2 > viewportHeight / 2 ? 'top' : 'bottom'
+}
+
+const isCoarsePointer = () =>
+	typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
 type Props = {
 	/** The selected text or annotation, in viewport coordinates */
 	anchor: ToolbarAnchor
 	/**
-	 * - `selection`: new text. Highlight is one tap; Annotate reveals the other styles and Note
-	 * - `annotation`: an existing annotation. Every style (the current one pressed), its note
-	 *   and Delete
+	 * - `selection`: new text. Every style is one tap, then Note and Copy
+	 * - `annotation`: an existing annotation. The same, with its style pressed, and Delete
 	 */
 	mode: 'selection' | 'annotation'
 	/** The existing annotation's style */
@@ -67,14 +79,22 @@ type Props = {
 	hasNote?: boolean
 	onStyle: (style: AnnotationStyle) => void
 	onNote: () => void
+	/** Copies the selected (or annotated) text; no Copy button without it */
+	onCopy?: () => void
+	/**
+	 * Carries the selection over to the next page (paginated EPUBs), where the next selection
+	 * marks the end of the passage; no button without it
+	 */
+	onExtend?: () => void
 	onDelete?: () => void
 	className?: string
 }
 
 /**
- * The compact floating toolbar for annotating text, shared by the readers. Glyph buttons
- * with tooltips that name their keyboard shortcut. Pressing a button doesn't take the
- * focus, so the reader's text selection survives.
+ * The compact floating toolbar for annotating text, shared by the readers:
+ * `[highlight][underline][strikethrough][invert] | [note] | [copy]` (and delete for an
+ * existing annotation). Glyph buttons with tooltips that name their keyboard shortcut.
+ * Pressing a button doesn't take the focus, so the reader's text selection survives.
  */
 export default function AnnotationToolbar({
 	anchor,
@@ -83,12 +103,13 @@ export default function AnnotationToolbar({
 	hasNote,
 	onStyle,
 	onNote,
+	onCopy,
+	onExtend,
 	onDelete,
 	className,
 }: Props) {
 	const { translate } = useTranslate()
 	const ref = useRef<HTMLDivElement>(null)
-	const [expanded, setExpanded] = useState(false)
 	const [size, setSize] = useState<Size | null>(null)
 
 	// Measure before paint so the toolbar never flashes off-screen
@@ -99,23 +120,30 @@ export default function AnnotationToolbar({
 		setSize((previous) =>
 			previous?.width === width && previous?.height === height ? previous : { width, height },
 		)
-	}, [expanded, mode, anchor.width, anchor.height])
+	}, [mode, anchor.width, anchor.height])
 
-	const preferBelow =
-		typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+	const docked = isCoarsePointer()
 	const position = computeToolbarPosition(
 		anchor,
 		size ?? { width: 0, height: 0 },
 		{ width: window.innerWidth, height: window.innerHeight },
-		{ preferBelow },
 	)
+	const edge = dockedEdge(anchor, window.innerHeight)
+	const placementStyle: React.CSSProperties = docked
+		? {
+				left: '50%',
+				transform: 'translateX(-50%)',
+				...(edge === 'bottom'
+					? { bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }
+					: { top: 'calc(env(safe-area-inset-top) + 56px)' }),
+			}
+		: { left: position.left, top: position.top }
 
-	const [primary, ...others] = ANNOTATION_STYLES as [AnnotationStyleMeta, ...AnnotationStyleMeta[]]
 	const noteLabel = translate(
 		hasNote ? 'shared.readerAnnotations.editNote' : 'shared.readerAnnotations.addNote',
 	)
 
-	const renderStyleButton = (meta: AnnotationStyleMeta, { withLabel = false } = {}) => {
+	const renderStyleButton = (meta: AnnotationStyleMeta) => {
 		const label = translate(meta.labelKey)
 		const isActive = mode === 'annotation' && meta.style === activeStyle
 		return (
@@ -125,7 +153,6 @@ export default function AnnotationToolbar({
 				shortcut={meta.shortcut}
 				pressed={mode === 'annotation' ? isActive : undefined}
 				onClick={() => onStyle(meta.style)}
-				withLabel={withLabel}
 				data-style={meta.style}
 			>
 				<meta.icon className="h-4 w-4 shrink-0" />
@@ -139,55 +166,51 @@ export default function AnnotationToolbar({
 			role="toolbar"
 			aria-label={translate('shared.readerAnnotations.toolbar')}
 			data-testid="annotation-toolbar"
+			data-docked={docked ? edge : undefined}
 			className={cn(
 				'gap-0.5 p-1 shadow-lg fixed z-50 flex items-center rounded-lg border border-border bg-background text-foreground',
-				{ invisible: !size },
+				{ invisible: !size && !docked },
 				className,
 			)}
-			style={{ left: position.left, top: position.top }}
+			style={placementStyle}
 			// Keep the focus (and so the text selection) where it is
 			onMouseDown={(event) => event.preventDefault()}
 		>
-			{mode === 'selection' ? (
+			{ANNOTATION_STYLES.map((meta) => renderStyleButton(meta))}
+			<Divider />
+			<ToolbarButton label={noteLabel} shortcut={NOTE_SHORTCUT} onClick={onNote}>
+				<NotebookPen className="h-4 w-4 shrink-0" />
+			</ToolbarButton>
+			{onCopy && (
 				<>
-					{renderStyleButton(primary, { withLabel: true })}
 					<Divider />
-					{expanded ? (
-						<>
-							{others.map((meta) => renderStyleButton(meta))}
-							<ToolbarButton label={noteLabel} shortcut={NOTE_SHORTCUT} onClick={onNote}>
-								<NotebookPen className="h-4 w-4 shrink-0" />
-							</ToolbarButton>
-						</>
-					) : (
-						<ToolbarButton
-							label={translate('shared.readerAnnotations.annotate')}
-							onClick={() => setExpanded(true)}
-							aria-expanded={false}
-							withLabel
-						>
-							<PenLine className="h-4 w-4 shrink-0" />
-						</ToolbarButton>
-					)}
-				</>
-			) : (
-				<>
-					{ANNOTATION_STYLES.map((meta) => renderStyleButton(meta))}
-					<Divider />
-					<ToolbarButton label={noteLabel} shortcut={NOTE_SHORTCUT} onClick={onNote}>
-						<NotebookPen className="h-4 w-4 shrink-0" />
+					<ToolbarButton
+						label={translate('shared.readerAnnotations.copy')}
+						shortcut={COPY_SHORTCUT}
+						onClick={onCopy}
+					>
+						<Copy className="h-4 w-4 shrink-0" />
 					</ToolbarButton>
-					{onDelete && (
-						<ToolbarButton
-							label={translate('shared.readerAnnotations.delete')}
-							shortcut="Del"
-							onClick={onDelete}
-							className="text-red-600 dark:text-red-400"
-						>
-							<Trash2 className="h-4 w-4 shrink-0" />
-						</ToolbarButton>
-					)}
 				</>
+			)}
+			{mode === 'selection' && onExtend && (
+				<ToolbarButton
+					label={translate('shared.reader.extend.button')}
+					onClick={onExtend}
+					data-testid="annotation-extend"
+				>
+					<ArrowRightToLine className="h-4 w-4 shrink-0" />
+				</ToolbarButton>
+			)}
+			{mode === 'annotation' && onDelete && (
+				<ToolbarButton
+					label={translate('shared.readerAnnotations.delete')}
+					shortcut="Del"
+					onClick={onDelete}
+					className="text-red-600 dark:text-red-400"
+				>
+					<Trash2 className="h-4 w-4 shrink-0" />
+				</ToolbarButton>
 			)}
 		</div>
 	)
@@ -201,7 +224,6 @@ type ToolbarButtonProps = {
 	label: string
 	shortcut?: string
 	pressed?: boolean
-	withLabel?: boolean
 	onClick: () => void
 	children: React.ReactNode
 	className?: string
@@ -211,7 +233,6 @@ function ToolbarButton({
 	label,
 	shortcut,
 	pressed,
-	withLabel,
 	onClick,
 	children,
 	className,
@@ -229,8 +250,7 @@ function ToolbarButton({
 			aria-keyshortcuts={shortcut}
 			onClick={onClick}
 			className={cn(
-				'gap-1.5 text-sm h-9 min-w-9 md:h-8 md:min-w-8 flex items-center justify-center rounded-md',
-				withLabel ? 'px-2.5' : 'px-0',
+				'h-10 w-10 md:h-8 md:w-8 flex shrink-0 items-center justify-center rounded-md',
 				'hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
 				{ 'bg-muted ring-1 ring-border': pressed },
 				className,
@@ -238,7 +258,6 @@ function ToolbarButton({
 			{...rest}
 		>
 			{children}
-			{withLabel && <span className="whitespace-nowrap">{label}</span>}
 		</button>
 	)
 }
