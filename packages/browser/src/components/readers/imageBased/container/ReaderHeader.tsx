@@ -1,6 +1,7 @@
+import { PDF_EXTENSION } from '@stump/client'
 import { cn, Link, Text } from '@stump/components'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Fullscreen, Shrink } from 'lucide-react'
+import { ArrowLeft, FileText, Fullscreen, Shrink } from 'lucide-react'
 import { useFullscreen } from 'rooks'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -8,6 +9,7 @@ import { usePaths } from '@/paths'
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 import { useAppStore } from '@/stores'
 
+import { usePdfReaderStore } from '../../pdf/store'
 import { useImageBaseReaderContext } from '../context'
 import ControlButton from './ControlButton'
 import SettingsDialog from './SettingsDialog'
@@ -24,6 +26,9 @@ export default function ReaderHeader() {
 	const platform = useAppStore((store) => store.platform)
 
 	const { id, resolvedName } = book
+	// optional: tests and older callers may pass a book without its extension
+	const isPdf = !!book.extension?.match(PDF_EXTENSION)
+	const setPdfPreferences = usePdfReaderStore((state) => state.setBookPreferences)
 
 	const { isFullscreenAvailable, isFullscreenEnabled, toggleFullscreen } = useFullscreen()
 
@@ -54,6 +59,16 @@ export default function ReaderHeader() {
 				<Text className="text-foreground">{resolvedName}</Text>
 
 				<div className="space-x-1.5 flex items-center">
+					{isPdf && (
+						<ControlButton
+							title={translate('shared.pdfReader.openAsText')}
+							aria-label={translate('shared.pdfReader.openAsText')}
+							onClick={() => setPdfPreferences(id, { reader: 'pdf' })}
+						>
+							<FileText className="h-4 w-4" />
+						</ControlButton>
+					)}
+
 					{isFullscreenAvailable && (
 						<ControlButton onClick={toggleFullscreen}>
 							<FullScreenIcon className="h-4 w-4" />

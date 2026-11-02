@@ -20,6 +20,7 @@ pub mod kobo;
 pub mod media;
 pub mod metadata;
 pub mod opds;
+pub mod pdf_reader;
 pub mod postproc;
 pub mod readium;
 pub mod scan;

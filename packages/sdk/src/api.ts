@@ -11,6 +11,7 @@ import {
 	MediaAPI,
 	OPDSLegacyAPI,
 	OPDSV2API,
+	PdfAPI,
 	SeriesAPI,
 	ServerAPI,
 } from './controllers'
@@ -542,6 +543,13 @@ export class Api {
 	 */
 	get media(): MediaAPI {
 		return new MediaAPI(this)
+	}
+
+	/**
+	 * Get an instance for the PdfAPI
+	 */
+	get pdf(): PdfAPI {
+		return new PdfAPI(this)
 	}
 
 	get opds(): OPDSV2API {

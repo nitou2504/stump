@@ -4,6 +4,7 @@ mod graphql;
 mod kobo;
 mod koreader;
 mod opds;
+mod pdf;
 mod reading_progress;
 
 use common::TestApp;

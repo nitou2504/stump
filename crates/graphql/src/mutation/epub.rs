@@ -1,11 +1,14 @@
 use crate::{
 	data::{AuthContext, CoreContext},
-	input::media::{BookmarkInput, CreateAnnotationInput, UpdateAnnotationInput},
+	input::media::{
+		BookmarkInput, CreateAnnotationInput, UpdateAnnotationInput, PDF_LOCATOR_TYPE,
+	},
 	object::{bookmark::Bookmark, media_annotation::MediaAnnotation},
 };
 use async_graphql::{Context, Object, Result};
-use models::entity::{
-	bookmark, media, media_annotation, reading_session, user::AuthUser,
+use models::{
+	entity::{bookmark, media, media_annotation, reading_session, user::AuthUser},
+	shared::readium::ReadiumLocator,
 };
 use sea_orm::{prelude::*, QuerySelect, Set};
 
@@ -21,6 +24,58 @@ async fn ensure_media_access(
 		.one(conn)
 		.await?
 		.ok_or("Media not found")?;
+	Ok(())
+}
+
+/// The most boxes one PDF annotation may have (a selection over a few pages of lines)
+const MAX_PDF_RECTS: usize = 500;
+
+/// PDF locators address a page (`locations.position`, 1-based) and boxes on it as fractions of
+/// the page; reject the ones the reader could not draw. Other locators are not checked.
+async fn validate_pdf_locator(
+	conn: &DatabaseConnection,
+	media_id: &str,
+	locator: &ReadiumLocator,
+) -> Result<()> {
+	if locator.r#type != PDF_LOCATOR_TYPE {
+		return Ok(());
+	}
+	let page = locator
+		.page()
+		.ok_or("Invalid locator: a PDF locator needs locations.position (the page)")?;
+	let pages = media::Entity::find_by_id(media_id.to_string())
+		.select_only()
+		.column(media::Column::Pages)
+		.into_tuple::<i32>()
+		.one(conn)
+		.await?
+		.unwrap_or(0);
+	if page < 1 || (pages > 0 && page > pages) {
+		return Err(format!("Invalid locator: page {page} is out of range").into());
+	}
+	let rects = locator
+		.locations
+		.as_ref()
+		.and_then(|locations| locations.rects.as_ref());
+	if let Some(rects) = rects {
+		if rects.len() > MAX_PDF_RECTS {
+			return Err("Invalid locator: too many rects".into());
+		}
+		let one = Decimal::ONE;
+		let slack = Decimal::new(1001, 3);
+		let valid = rects.iter().all(|rect| {
+			[rect.x, rect.y, rect.width, rect.height]
+				.iter()
+				.all(|value| *value >= Decimal::ZERO && *value <= one)
+				&& rect.x + rect.width <= slack
+				&& rect.y + rect.height <= slack
+		});
+		if !valid {
+			return Err(
+				"Invalid locator: rects must be fractions (0-1) of the page".into()
+			);
+		}
+	}
 	Ok(())
 }
 
@@ -41,6 +96,7 @@ impl EpubMutation {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		ensure_media_access(conn, user, &input.media_id).await?;
+		validate_pdf_locator(conn, &input.media_id, &input.locator).await?;
 
 		// TODO: technically this _should_ always find a valid session, when landing in a
 		// reader it should fire and handle the session extension vs creation, but i am
@@ -90,6 +146,7 @@ impl EpubMutation {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		ensure_media_access(conn, user, &input.media_id).await?;
+		validate_pdf_locator(conn, &input.media_id, &input.locator).await?;
 
 		// TODO: technically this should always find a valid session, when landing in a
 		// reader it should fire and handle the session extension vs creation, but i am
