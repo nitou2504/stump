@@ -1,4 +1,5 @@
 import Panzoom from '@panzoom/panzoom'
+import { ReadingDirection } from '@stump/graphql'
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -7,6 +8,7 @@ import { useMediaMatch, useWindowSize } from 'rooks'
 
 import { useBookPreferences } from '@/scenes/book/reader/useBookPreferences'
 
+import { type PanDirection, panOrTurnTransformed, ZOOMED_EPSILON } from '../../shared/panKeys'
 import { useImageBaseReaderContext } from '../context'
 import PageSet from './PageSet'
 
@@ -33,6 +35,7 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 			secondPageSeparate,
 			doublePageBehavior,
 			panzoomWithoutCtrl,
+			readingDirection,
 		},
 		settings: { showToolBar },
 		setSettings,
@@ -253,19 +256,60 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 		}
 	}, [doChangePage, currentSetIdx, pageSets])
 
+	/** The next and previous pages in reading order (right to left for manga) */
+	const goForward =
+		readingDirection === ReadingDirection.Rtl ? handleLeftwardPageChange : handleRightwardPageChange
+	const goBackward =
+		readingDirection === ReadingDirection.Rtl ? handleRightwardPageChange : handleLeftwardPageChange
+
+	/**
+	 * An arrow key on a zoomed page: moves around it (`pan`), or says it's at its edge in that
+	 * direction (`turn`); `none` when the page isn't zoomed
+	 */
+	const zoomedStep = useCallback((direction: PanDirection): 'pan' | 'turn' | 'none' => {
+		const panzoom = panzoomRef.current
+		const page = pageSetRef.current
+		if (!panzoom || !page) return 'none'
+		const scale = panzoom.getScale()
+		if (scale <= 1 + ZOOMED_EPSILON) return 'none'
+		const box = page.getBoundingClientRect()
+		const result = panOrTurnTransformed(
+			{ left: box.left, top: box.top, right: box.right, bottom: box.bottom },
+			{ left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight },
+			direction,
+		)
+		if (result.type === 'turn') return 'turn'
+		// the page is drawn as scale(s) translate(x, y): a move of x on screen is x / s
+		panzoom.pan(result.x / scale, result.y / scale, { relative: true, animate: true })
+		return 'pan'
+	}, [])
+
 	/**
 	 * A callback handler for changing the page or toggling the toolbar visibility via
-	 * keyboard shortcuts.
+	 * keyboard shortcuts. On a zoomed page the arrows move around it and turn the page at its
+	 * edge; Page Up / Page Down always turn pages.
 	 */
 	const hotKeyHandler = useCallback(
 		(hotkey: Hotkey) => {
 			const targetKey = hotkey.keys?.at(0)
 			switch (targetKey) {
 				case 'right':
-					handleRightwardPageChange()
+					if (zoomedStep({ dx: 1, dy: 0 }) !== 'pan') handleRightwardPageChange()
 					break
 				case 'left':
-					handleLeftwardPageChange()
+					if (zoomedStep({ dx: -1, dy: 0 }) !== 'pan') handleLeftwardPageChange()
+					break
+				case 'up':
+					if (zoomedStep({ dx: 0, dy: -1 }) === 'turn') goBackward()
+					break
+				case 'down':
+					if (zoomedStep({ dx: 0, dy: 1 }) === 'turn') goForward()
+					break
+				case 'pageup':
+					goBackward()
+					break
+				case 'pagedown':
+					goForward()
 					break
 				case 'space':
 					setSettings({
@@ -281,13 +325,23 @@ function PagedReader({ currentPage, onPageChange }: PagedReaderProps) {
 					break
 			}
 		},
-		[setSettings, showToolBar, handleRightwardPageChange, handleLeftwardPageChange],
+		[
+			setSettings,
+			showToolBar,
+			handleRightwardPageChange,
+			handleLeftwardPageChange,
+			zoomedStep,
+			goForward,
+			goBackward,
+		],
 	)
 	/**
 	 * Register the hotkeys for the reader component
 	 */
 	// (`d` is the readers' day/night switch, so a/d don't turn pages any more)
-	useHotkeys('right, left, space, escape', (_, handler) => hotKeyHandler(handler))
+	useHotkeys('right, left, up, down, pageup, pagedown, space, escape', (_, handler) =>
+		hotKeyHandler(handler),
+	)
 
 	return (
 		<div className="relative m-auto flex w-screen justify-center">

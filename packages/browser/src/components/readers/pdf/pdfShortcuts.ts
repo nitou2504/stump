@@ -1,4 +1,5 @@
 import { type ReaderShortcutAction, resolveReaderShortcut } from '../annotations'
+import { type PanDirection, panDirectionOf } from '../shared/panKeys'
 
 /** What a key press asks the PDF reader to do (besides the shared annotation shortcuts) */
 export type PdfKeyAction =
@@ -13,6 +14,8 @@ export type PdfKeyAction =
 	| { type: 'zoomReset' }
 	| { type: 'toggleFit' }
 	| { type: 'goToPage' }
+	/** A zoomed page moves (or turns at its edge); `screen`: by most of a screen (Space) */
+	| { type: 'pan'; direction: PanDirection; screen?: boolean }
 
 export type PdfShortcut = ReaderShortcutAction | PdfKeyAction
 
@@ -24,6 +27,11 @@ type Context = {
 	targetIsAnnotation: boolean
 	/** Continuous scroll: Space and Shift+Space scroll a screen instead of turning a page */
 	continuous: boolean
+	/**
+	 * A zoomed page in page-by-page mode: the arrows (and Space) move around it, turning the
+	 * page at its edge; Page Up / Page Down still turn pages
+	 */
+	zoomedPage?: boolean
 }
 
 /**
@@ -33,6 +41,8 @@ type Context = {
  *
  * - `←` / `PageUp` previous page, `→` / `PageDown` next page
  * - `Space` / `Shift+Space` next / previous screen (continuous) or page (paged)
+ * - a zoomed page (paged): `← → ↑ ↓` and `Space` move around it and turn the page at its
+ *   edge; `PageUp` / `PageDown` still turn pages
  * - `Home` / `End` first / last page
  * - `+` / `-` / `0` zoom in, out, reset; `f` fit width ↔ fit page; `g` go to page
  *
@@ -43,6 +53,14 @@ export function resolvePdfShortcut(event: KeyLike, context: Context): PdfShortcu
 	if (shared) return shared
 
 	if (event.ctrlKey || event.metaKey || event.altKey) return null
+
+	if (context.zoomedPage && !context.continuous) {
+		const direction = panDirectionOf(event.key)
+		if (direction) return { type: 'pan', direction }
+		if (event.key === ' ' || event.key === 'Spacebar') {
+			return { type: 'pan', direction: { dx: 0, dy: event.shiftKey ? -1 : 1 }, screen: true }
+		}
+	}
 
 	switch (event.key) {
 		case 'ArrowLeft':

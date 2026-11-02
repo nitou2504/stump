@@ -92,15 +92,19 @@ export default function ControlsOverlay() {
 	const isPdf = !!book.extension?.match(PDF_EXTENSION)
 	const setPdfPreferences = usePdfReaderStore((state) => state.setBookPreferences)
 
+	// Two pages show when picked ('always'), or for manga by default ('auto') on a wide
+	// screen in landscape: the picker shows what's on screen
+	const landscape = window.innerWidth > window.innerHeight
 	const layout = useMemo<ReaderLayout>(
 		() => ({
 			flow: readingMode === ReadingMode.Paged ? 'paged' : 'continuous',
 			spread:
-				readingMode === ReadingMode.Paged && doublePageBehavior && doublePageBehavior !== 'off'
+				readingMode === ReadingMode.Paged &&
+				(doublePageBehavior === 'always' || (doublePageBehavior === 'auto' && landscape))
 					? 'double'
 					: 'single',
 		}),
-		[readingMode, doublePageBehavior],
+		[readingMode, doublePageBehavior, landscape],
 	)
 
 	const currentSet = pageSets.find((set) => set.includes(currentPage - 1)) ?? [currentPage - 1]
@@ -125,6 +129,8 @@ export default function ControlsOverlay() {
 	const shortcuts = useMemo<ShortcutRow[]>(
 		() => [
 			{ keys: ['←', '→'], label: translate('shared.readerAnnotations.shortcuts.turnPage') },
+			{ keys: ['PgUp', 'PgDn'], label: translate('shared.reader.shortcuts.turnPageAlways') },
+			{ keys: ['←', '↑', '↓', '→'], label: translate('shared.reader.shortcuts.panZoomed') },
 			{ keys: ['Space'], label: translate('shared.reader.shortcuts.toggleBar') },
 		],
 		[translate],
@@ -140,7 +146,12 @@ export default function ControlsOverlay() {
 				onSettings={() => openSettings()}
 				className="fixed"
 			/>
-			<ReaderPageIndicator text={indicator} className="fixed" />
+			<ReaderPageIndicator
+				text={indicator}
+				className="fixed"
+				onClick={() => setPagesOpen(true)}
+				title={translate('shared.reader.pages')}
+			/>
 			<NextInSeries />
 
 			<ReaderSettingsDialog
