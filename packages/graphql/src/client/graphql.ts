@@ -6743,6 +6743,34 @@ export type UpdateReadiumEpubProgressMutationVariables = Exact<{
 
 export type UpdateReadiumEpubProgressMutation = { __typename?: 'Mutation', updateMediaProgress: { __typename: 'ReadingSession' } };
 
+export type PdfReaderAnnotationsQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PdfReaderAnnotationsQuery = { __typename?: 'Query', annotationsByMediaId: Array<{ __typename?: 'MediaAnnotation', id: string, mediaId: string, userId: string, annotationText?: string | null, style: AnnotationStyle, createdAt: any, updatedAt: any, locator: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null, cssSelector?: string | null, rects?: Array<{ __typename?: 'ReadiumRect', x: any, y: any, width: any, height: any }> | null } | null, text?: { __typename?: 'ReadiumText', after?: string | null, before?: string | null, highlight?: string | null } | null } }> };
+
+export type PdfReaderBookmarksQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PdfReaderBookmarksQuery = { __typename?: 'Query', bookmarksByMediaId: Array<{ __typename?: 'Bookmark', id: string, page?: number | null, previewContent?: string | null, createdAt: any, locator?: { __typename?: 'ReadiumLocator', chapterTitle: string, href: string, title?: string | null, type: string, locations?: { __typename?: 'ReadiumLocation', fragments?: Array<string> | null, progression?: any | null, position?: number | null, totalProgression?: any | null } | null } | null }> };
+
+export type CreatePdfBookmarkMutationVariables = Exact<{
+  input: BookmarkInput;
+}>;
+
+
+export type CreatePdfBookmarkMutation = { __typename?: 'Mutation', createBookmark: { __typename?: 'Bookmark', id: string } };
+
+export type DeletePdfBookmarkMutationVariables = Exact<{
+  id: Scalars['String']['input'];
+}>;
+
+
+export type DeletePdfBookmarkMutation = { __typename?: 'Mutation', deleteBookmark: { __typename?: 'Bookmark', id: string } };
+
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
   pagination?: InputMaybe<Pagination>;
@@ -13470,6 +13498,79 @@ export const UpdateReadiumEpubProgressDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateReadiumEpubProgressMutation, UpdateReadiumEpubProgressMutationVariables>;
+export const PdfReaderAnnotationsDocument = new TypedDocumentString(`
+    query PdfReaderAnnotations($id: ID!) {
+  annotationsByMediaId(id: $id) {
+    id
+    mediaId
+    userId
+    annotationText
+    style
+    createdAt
+    updatedAt
+    locator {
+      chapterTitle
+      href
+      title
+      type
+      locations {
+        fragments
+        progression
+        position
+        totalProgression
+        cssSelector
+        rects {
+          x
+          y
+          width
+          height
+        }
+      }
+      text {
+        after
+        before
+        highlight
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PdfReaderAnnotationsQuery, PdfReaderAnnotationsQueryVariables>;
+export const PdfReaderBookmarksDocument = new TypedDocumentString(`
+    query PdfReaderBookmarks($id: ID!) {
+  bookmarksByMediaId(id: $id) {
+    id
+    page
+    previewContent
+    createdAt
+    locator {
+      chapterTitle
+      href
+      title
+      type
+      locations {
+        fragments
+        progression
+        position
+        totalProgression
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PdfReaderBookmarksQuery, PdfReaderBookmarksQueryVariables>;
+export const CreatePdfBookmarkDocument = new TypedDocumentString(`
+    mutation CreatePdfBookmark($input: BookmarkInput!) {
+  createBookmark(input: $input) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<CreatePdfBookmarkMutation, CreatePdfBookmarkMutationVariables>;
+export const DeletePdfBookmarkDocument = new TypedDocumentString(`
+    mutation DeletePdfBookmark($id: String!) {
+  deleteBookmark(id: $id) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<DeletePdfBookmarkMutation, DeletePdfBookmarkMutationVariables>;
 export const SeriesBookGridDocument = new TypedDocumentString(`
     query SeriesBookGrid($id: String!, $pagination: Pagination) {
   media(filter: {seriesId: {eq: $id}}, pagination: $pagination) {
