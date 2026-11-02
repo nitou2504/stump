@@ -134,14 +134,13 @@ export default function EpubNavigationControls({ children }: Props) {
 
 	return (
 		<div ref={rootRef} className="min-h-0 relative h-full w-full flex-1">
-			{/* Desktop chevrons in the side gutters, shown while the mouse is over the gutter */}
+			{/* Desktop chevrons in the side gutters (the one that can't turn is dimmed) */}
 			<div
 				className={cx('group inset-y-0 left-0 w-12 absolute z-20 hidden items-center', {
 					'md:flex': true,
 				})}
 			>
 				<ControlButton
-					className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
 					onClick={onBackwardNavigation}
 					disabled={!canNavigateLeft}
 					aria-label={translate('shared.epubReader.controls.previousPage')}
@@ -158,7 +157,6 @@ export default function EpubNavigationControls({ children }: Props) {
 				)}
 			>
 				<ControlButton
-					className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
 					onClick={onForwardNavigation}
 					disabled={!canNavigateRight}
 					aria-label={translate('shared.epubReader.controls.nextPage')}
