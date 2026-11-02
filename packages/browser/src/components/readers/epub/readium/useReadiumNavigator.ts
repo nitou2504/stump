@@ -246,6 +246,8 @@ export function useReadiumNavigator({
 				// No double tap to zoom on the text: on Android a double tap is also how a word
 				// gets selected. Pinching still zooms
 				disableDoubleTapZoom(doc)
+				// and no scrollbar in the frame: a faint bar at the page's edge (scrolling still works)
+				hideFrameScrollbars(doc)
 				forwardFrameKeyEvents(doc, document)
 				// and its mouse moves, so the top bar shows when the mouse nears the top
 				forwardFramePointerMoves(doc)
@@ -625,5 +627,17 @@ export function disableDoubleTapZoom(doc: Document) {
 	const style = doc.createElement('style')
 	style.id = NO_DOUBLE_TAP_ZOOM_STYLE_ID
 	style.textContent = 'html, body { touch-action: manipulation; }'
+	;(doc.head ?? doc.documentElement).appendChild(style)
+}
+
+const HIDDEN_SCROLLBARS_STYLE_ID = 'stump-hidden-scrollbars'
+
+/** No scrollbar in a book's frame (the scrolled layout still scrolls; the page number says where) */
+export function hideFrameScrollbars(doc: Document) {
+	if (doc.getElementById(HIDDEN_SCROLLBARS_STYLE_ID)) return
+	const style = doc.createElement('style')
+	style.id = HIDDEN_SCROLLBARS_STYLE_ID
+	style.textContent =
+		'html, body { scrollbar-width: none; } html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }'
 	;(doc.head ?? doc.documentElement).appendChild(style)
 }

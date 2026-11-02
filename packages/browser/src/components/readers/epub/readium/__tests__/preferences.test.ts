@@ -77,6 +77,21 @@ describe('bookPreferencesToEpubPreferences', () => {
 		expect(continuous.pageGutter).toBeUndefined()
 	})
 
+	it('keeps scrolled text off the screen edges with the same margin as the page gutter', () => {
+		const paginated = bookPreferencesToEpubPreferences({
+			readingMode: ReadingMode.Paged,
+			pageMargins: 1,
+		})
+		const continuous = bookPreferencesToEpubPreferences({
+			readingMode: ReadingMode.ContinuousVertical,
+			pageMargins: 1,
+		})
+
+		expect(continuous.scrollPaddingLeft).toBe(paginated.pageGutter)
+		expect(continuous.scrollPaddingRight).toBe(paginated.pageGutter)
+		expect(paginated.scrollPaddingLeft).toBeUndefined()
+	})
+
 	it('maps fontSize (px) to a Readium scale factor', () => {
 		const preferences = bookPreferencesToEpubPreferences({ fontSize: 16 })
 		expect(preferences.fontSize).toBeCloseTo(1, 5)

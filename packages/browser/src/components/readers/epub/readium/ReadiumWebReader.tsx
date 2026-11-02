@@ -1204,7 +1204,16 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			*/}
 				<div
 					className="relative mx-auto h-full w-full overflow-hidden"
-					style={{ backgroundColor: themeColors.background }}
+					style={{
+						backgroundColor: themeColors.background,
+						// the text stays clear of a camera cutout or rounded corners (portrait and
+						// landscape, paged and scrolled); Readium lays the pages out inside the
+						// padding, which keeps the page colour
+						paddingTop: 'env(safe-area-inset-top)',
+						paddingBottom: 'env(safe-area-inset-bottom)',
+						paddingLeft: 'env(safe-area-inset-left)',
+						paddingRight: 'env(safe-area-inset-right)',
+					}}
 				>
 					<div ref={containerRef} className="relative mx-auto h-full w-full overflow-hidden" />
 				</div>

@@ -114,8 +114,15 @@ export function bookPreferencesToEpubPreferences({
 
 	preferences.fontFamily = fontFamily ? toFamilyName(fontFamily as SupportedFont) : null
 
-	if (!isContinuous && pageMargins != null && pageMargins > 0) {
-		preferences.pageGutter = clamp(pageMargins * DEFAULT_PX, 0, DEFAULT_PX * 4)
+	if (pageMargins != null && pageMargins > 0) {
+		const margin = clamp(pageMargins * DEFAULT_PX, 0, DEFAULT_PX * 4)
+		if (isContinuous) {
+			// Scrolled text has no page gutter: without these it runs into the screen's edges
+			preferences.scrollPaddingLeft = margin
+			preferences.scrollPaddingRight = margin
+		} else {
+			preferences.pageGutter = margin
+		}
 	}
 
 	const colors = resolveReaderTheme(theme, isDarkVariant)
