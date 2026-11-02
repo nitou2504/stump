@@ -1,11 +1,13 @@
-import { Locator, LocatorLocations } from '@readium/shared'
+import { Link, Locator, LocatorLocations, LocatorText } from '@readium/shared'
 
 import {
 	hrefsMatch,
 	locatorsRoughlyMatch,
 	locatorToHref,
+	navigableLocator,
 	nearestPositionByTotalProgression,
 	packagePathFromHref,
+	PAGE_START_PROGRESSION,
 	resolveInitialLocator,
 	resolvePublicationLinkLocator,
 	unmangleHref,
@@ -212,5 +214,46 @@ describe('locatorsRoughlyMatch', () => {
 		expect(
 			locatorsRoughlyMatch({ href: 'OEBPS/chapter.xhtml' }, { href: 'OEBPS/chapter.xhtml' }),
 		).toBe(false)
+	})
+})
+
+describe('navigableLocator', () => {
+	const at = (locations: ConstructorParameters<typeof LocatorLocations>[0], text?: LocatorText) =>
+		new Locator({
+			href: 'OEBPS/Text/chapter1.xhtml',
+			type: 'application/xhtml+xml',
+			locations: new LocatorLocations(locations),
+			text,
+		})
+
+	it("goes to a whole page's start (the chapter being read, a page's first position)", () => {
+		// a contents entry for the chapter: nothing but its page, which Readium ignores when that
+		// page is already open
+		const entry = navigableLocator(new Link({ href: 'OEBPS/Text/chapter1.xhtml' }).locator)
+		expect(entry.locations.progression).toBe(PAGE_START_PROGRESSION)
+
+		const first = navigableLocator(at({ progression: 0, position: 12 }))
+		expect(first.locations.progression).toBe(PAGE_START_PROGRESSION)
+		expect(first.locations.position).toBe(12)
+	})
+
+	it('keeps a place Readium finds by itself', () => {
+		const inPage = at({ progression: 0.4 })
+		expect(navigableLocator(inPage)).toBe(inPage)
+
+		const anchored = navigableLocator(new Link({ href: 'OEBPS/Text/chapter1.xhtml#part2' }).locator)
+		expect(anchored.locations.fragments).toEqual(['part2'])
+		expect(anchored.locations.progression).toBeUndefined()
+
+		const quoted = at({}, new LocatorText({ highlight: 'a passage' }))
+		expect(navigableLocator(quoted)).toBe(quoted)
+
+		const selected = at({ otherLocations: new Map([['cssSelector', '#p12']]) })
+		expect(navigableLocator(selected)).toBe(selected)
+	})
+
+	it('treats media fragments (t=, page=) as no element', () => {
+		const timed = navigableLocator(at({ fragments: ['t=12'] }))
+		expect(timed.locations.progression).toBe(PAGE_START_PROGRESSION)
 	})
 })

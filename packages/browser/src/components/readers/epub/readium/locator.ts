@@ -84,6 +84,26 @@ export function locatorToHref(locator: Locator, currentHref?: string): string {
 	return fragment ? `${href}#${fragment}` : href
 }
 
+/** A progression just past a page's start: Readium scrolls to it (see `navigableLocator`) */
+export const PAGE_START_PROGRESSION = 1e-9
+
+/**
+ * A place made explicit for Readium's `go`. Readium moves inside the page that is already
+ * open only to a text, an element (an `#id` in the locator's fragments) or a progression past
+ * 0, so a contents entry for a whole page, or the first position of a page, left an open page
+ * where it was: choosing the chapter being read did nothing. A place with nothing else to go
+ * to gets a progression just past 0, which Readium does scroll to: the page's start.
+ */
+export function navigableLocator(locator: Locator): Locator {
+	const locations = locator.locations
+	const hasElement = locations.fragments.some((item) => item.length > 0 && !item.includes('='))
+	const hasSelector = !!locations.otherLocations?.get('cssSelector')
+	if (locator.text?.highlight || hasElement || hasSelector || (locations.progression ?? 0) > 0) {
+		return locator
+	}
+	return locator.copyWithLocations({ progression: PAGE_START_PROGRESSION })
+}
+
 function safeNumber(value: unknown): number | undefined {
 	if (value == null) return undefined
 	const num = Number(value)
