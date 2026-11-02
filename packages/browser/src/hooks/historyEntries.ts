@@ -30,6 +30,8 @@ export const currentHistoryIndex = (): number | undefined => {
 }
 
 let records: Records | null = null
+/** The entry (and page) on screen, as the main scroll restoration last handled it */
+let shown: { index: number; path: string } | undefined
 let persistTimer: ReturnType<typeof setTimeout> | undefined
 
 const load = (): Records => {
@@ -100,9 +102,23 @@ export function dropHistoryEntriesAfter(index: number) {
 	schedulePersist()
 }
 
+/** Sets the entry (and page) on screen, once a navigation to it is rendered */
+export function setShownHistoryEntry(entry: { index: number; path: string } | undefined) {
+	shown = entry
+}
+
+/**
+ * The entry (and page) on screen. Unlike the URL, it doesn't change until the page a
+ * navigation goes to is rendered, so it's what records about the page on screen belong to
+ */
+export function shownHistoryEntry() {
+	return shown
+}
+
 /** Test helper: forget the in-memory copy so the next read comes from session storage */
 export function resetHistoryEntriesForTests() {
 	if (persistTimer !== undefined) clearTimeout(persistTimer)
 	persistTimer = undefined
 	records = null
+	shown = undefined
 }

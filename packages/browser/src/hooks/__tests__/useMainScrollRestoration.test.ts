@@ -6,14 +6,16 @@ import {
 	flushHistoryEntries,
 	readHistoryEntry,
 	resetHistoryEntriesForTests,
+	setShownHistoryEntry,
 	updateHistoryEntry,
 } from '../historyEntries'
 import { useHistoryEntryState } from '../useHistoryEntryState'
 import {
 	planMainScroll,
-	restoreScrollTop,
+	restoreScroll,
 	useMainScrollRestoration,
 } from '../useMainScrollRestoration'
+import { useRestoredScrollLeft } from '../useRestoredScrollLeft'
 
 vi.mock('react-router', () => ({
 	useLocation: vi.fn(),
@@ -41,7 +43,7 @@ const makeScrollable = (scrollHeight: number, clientHeight = 800) => {
 const setScrollHeight = (element: HTMLElement, scrollHeight: number) =>
 	Object.defineProperty(element, 'scrollHeight', { configurable: true, value: scrollHeight })
 
-/** Runs frames by hand: `restoreScrollTop` with a fake clock and frame queue */
+/** Runs frames by hand: `restoreScroll` with a fake clock and frame queue */
 const frames = () => {
 	let time = 0
 	const queue = new Map<number, () => void>()
@@ -177,12 +179,12 @@ describe('planMainScroll', () => {
 	})
 })
 
-describe('restoreScrollTop', () => {
+describe('restoreScroll', () => {
 	it('scrolls there at once when the page is already tall enough', () => {
 		const clock = frames()
 		const element = makeScrollable(5000)
 		const onDone = vi.fn()
-		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 0 })
+		restoreScroll(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 0 })
 		expect(element.scrollTop).toBe(2400)
 
 		for (let i = 0; i < 3; i++) clock.tick()
@@ -194,7 +196,7 @@ describe('restoreScrollTop', () => {
 		const clock = frames()
 		const element = makeScrollable(1200)
 		const onDone = vi.fn()
-		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 0 })
+		restoreScroll(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 0 })
 		// as far as it goes for now
 		expect(element.scrollTop).toBe(400)
 
@@ -220,7 +222,7 @@ describe('restoreScrollTop', () => {
 		const clock = frames()
 		const element = makeScrollable(5000)
 		const onDone = vi.fn()
-		restoreScrollTop(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 200 })
+		restoreScroll(() => element, 2400, { ...clock, onDone, stableFrames: 3, minDuration: 200 })
 		for (let i = 0; i < 5; i++) clock.tick()
 		expect(onDone).not.toHaveBeenCalled()
 
@@ -237,7 +239,7 @@ describe('restoreScrollTop', () => {
 		const clock = frames()
 		let element: HTMLElement | null = null
 		const onDone = vi.fn()
-		restoreScrollTop(() => element, 3000, { ...clock, onDone, timeout: 100 })
+		restoreScroll(() => element, 3000, { ...clock, onDone, timeout: 100 })
 		clock.tick()
 		element = makeScrollable(1000)
 		// never tall enough: stays as far as it can go until the timeout
@@ -251,7 +253,7 @@ describe('restoreScrollTop', () => {
 	it('stops when told to', () => {
 		const clock = frames()
 		const element = makeScrollable(1000)
-		const stop = restoreScrollTop(() => element, 3000, { ...clock })
+		const stop = restoreScroll(() => element, 3000, { ...clock })
 		stop()
 		expect(clock.pending()).toBe(0)
 		setScrollHeight(element, 5000)
@@ -360,5 +362,80 @@ describe('useHistoryEntryState', () => {
 		at(3, '/smart-lists/s1', 'PUSH')
 		const again = renderHook(() => useHistoryEntryState<Record<string, boolean>>('groups', {}))
 		expect(again.result.current[0]).toEqual({})
+	})
+})
+
+describe('useRestoredScrollLeft', () => {
+	beforeEach(() => {
+		vi.stubGlobal(
+			'requestAnimationFrame',
+			vi.fn(() => 1),
+		)
+		vi.stubGlobal('cancelAnimationFrame', vi.fn())
+	})
+	afterEach(() => vi.unstubAllGlobals())
+
+	/** A horizontal row with layout */
+	const makeRow = () => {
+		const element = document.createElement('div')
+		let scrollLeft = 0
+		Object.defineProperty(element, 'scrollLeft', {
+			configurable: true,
+			get: () => scrollLeft,
+			set: (value: number) => {
+				scrollLeft = Math.max(0, Math.min(value, 4000 - 1000))
+			},
+		})
+		Object.defineProperty(element, 'scrollWidth', { configurable: true, value: 4000 })
+		Object.defineProperty(element, 'clientWidth', { configurable: true, value: 1000 })
+		return element
+	}
+
+	const at = (index: number, type: 'POP' | 'PUSH') => {
+		window.history.replaceState({ idx: index }, '')
+		vi.mocked(useLocation).mockReturnValue({
+			hash: '',
+			key: `${index}${type}`,
+			pathname: '/',
+			search: '',
+			state: null,
+		})
+		vi.mocked(useNavigationType).mockReturnValue(type as never)
+		setShownHistoryEntry({ index, path: '/' })
+	}
+
+	it("records a row's position and returns to it on back", () => {
+		at(0, 'PUSH')
+		const first = renderHook(() => useRestoredScrollLeft('home-on-deck'))
+		const row = makeRow()
+		first.result.current(row)
+		row.scrollLeft = 1700
+		row.dispatchEvent(new Event('scroll'))
+		expect(readHistoryEntry(0, '/')?.state).toEqual({ 'scrollLeft:home-on-deck': 1700 })
+		first.unmount()
+
+		at(0, 'POP')
+		const back = renderHook(() => useRestoredScrollLeft('home-on-deck'))
+		const again = makeRow()
+		back.result.current(again)
+		expect(again.scrollLeft).toBe(1700)
+	})
+
+	it('starts a new visit at the start, and does nothing without a key', () => {
+		updateHistoryEntry(0, '/', { state: { 'scrollLeft:home-on-deck': 900 } })
+		at(0, 'PUSH')
+		const fresh = renderHook(() => useRestoredScrollLeft('home-on-deck'))
+		const row = makeRow()
+		fresh.result.current(row)
+		expect(row.scrollLeft).toBe(0)
+
+		at(0, 'POP')
+		const keyless = renderHook(() => useRestoredScrollLeft(undefined))
+		const other = makeRow()
+		keyless.result.current(other)
+		expect(other.scrollLeft).toBe(0)
+		other.scrollLeft = 300
+		other.dispatchEvent(new Event('scroll'))
+		expect(readHistoryEntry(0, '/')?.state).toEqual({ 'scrollLeft:home-on-deck': 900 })
 	})
 })

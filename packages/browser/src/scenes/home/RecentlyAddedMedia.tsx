@@ -123,6 +123,7 @@ function RecentlyAddedMedia() {
 	return (
 		<MultiRowHorizontalCardList
 			title={translate('shared.homeSections.recentlyAddedBooks.label')}
+			restoreKey="home-recently-added-books"
 			items={nodes}
 			keyExtractor={(node) => node.id}
 			renderItem={(node) => <RecentlyAddedBookCard fragment={node} cardWidth={cardWidth} />}

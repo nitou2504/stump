@@ -132,6 +132,7 @@ function OnDeck() {
 	return (
 		<HorizontalCardList
 			title={translate('shared.homeSections.onDeck.label')}
+			restoreKey="home-on-deck"
 			items={cards}
 			height={listHeight}
 			onFetchMore={handleFetchMore}

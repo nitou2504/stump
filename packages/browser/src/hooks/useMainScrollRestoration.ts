@@ -7,6 +7,7 @@ import {
 	flushHistoryEntries,
 	HistoryEntryRecord,
 	readHistoryEntry,
+	setShownHistoryEntry,
 	updateHistoryEntry,
 } from './historyEntries'
 
@@ -52,9 +53,14 @@ export function planMainScroll({
 		: { kind: 'top' }
 }
 
-type Scrollable = Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>
+type Scrollable = Pick<
+	HTMLElement,
+	'scrollTop' | 'scrollHeight' | 'clientHeight' | 'scrollLeft' | 'scrollWidth' | 'clientWidth'
+>
 
 type RestoreOptions = {
+	/** Vertical (`scrollTop`, the default) or horizontal (`scrollLeft`) */
+	axis?: 'top' | 'left'
 	/** How long to keep trying once the scroll element exists, in ms */
 	timeout?: number
 	/** For how many frames the position must hold (with an unchanged height) to be done */
@@ -79,10 +85,11 @@ const MAX_WAIT_FOR_ELEMENT = 10_000
  * as it can and tries again every frame, until the target holds for a few frames (and at
  * least `minDuration`) or the timeout passes. Returns a function that stops it.
  */
-export function restoreScrollTop(
+export function restoreScroll(
 	getElement: () => Scrollable | null,
 	target: number,
 	{
+		axis = 'top',
 		timeout = 4000,
 		stableFrames = 8,
 		minDuration = 1200,
@@ -92,10 +99,13 @@ export function restoreScrollTop(
 		cancelFrame = (id) => cancelAnimationFrame(id),
 	}: RestoreOptions = {},
 ): () => void {
+	const horizontal = axis === 'left'
+	const position = (element: Scrollable) => (horizontal ? element.scrollLeft : element.scrollTop)
+	const extent = (element: Scrollable) => (horizontal ? element.scrollWidth : element.scrollHeight)
 	const startedAt = now()
 	let elementSince: number | undefined
 	let stable = 0
-	let lastHeight = -1
+	let lastExtent = -1
 	let frame: number | undefined
 	let stopped = false
 
@@ -116,15 +126,17 @@ export function restoreScrollTop(
 		}
 		elementSince ??= time
 
-		const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+		const size = horizontal ? element.clientWidth : element.clientHeight
+		const maxScroll = Math.max(0, extent(element) - size)
 		const desired = Math.min(target, maxScroll)
-		if (Math.abs(element.scrollTop - desired) >= 1) {
-			element.scrollTop = desired
+		if (Math.abs(position(element) - desired) >= 1) {
+			if (horizontal) element.scrollLeft = desired
+			else element.scrollTop = desired
 		}
 
-		const reached = maxScroll >= target - 1 && Math.abs(element.scrollTop - target) < 1
-		stable = reached && element.scrollHeight === lastHeight ? stable + 1 : reached ? 1 : 0
-		lastHeight = element.scrollHeight
+		const reached = maxScroll >= target - 1 && Math.abs(position(element) - target) < 1
+		stable = reached && extent(element) === lastExtent ? stable + 1 : reached ? 1 : 0
+		lastExtent = extent(element)
 
 		const settled = stable >= stableFrames && time - elementSince >= minDuration
 		if (settled || time - elementSince > timeout) return finish(element)
@@ -218,6 +230,7 @@ export function useMainScrollRestoration(
 		const previous = shownRef.current
 		const index = currentHistoryIndex()
 		shownRef.current = { index, path, pathname }
+		setShownHistoryEntry(index === undefined ? undefined : { index, path })
 		if (index === undefined) return
 
 		const sameEntry = navigationType === 'REPLACE' && previous?.index === index
@@ -287,7 +300,7 @@ export function useMainScrollRestoration(
 		for (const type of USER_INPUT_EVENTS) {
 			window.addEventListener(type, onInput, { capture: true, passive: true })
 		}
-		loop.stop = restoreScrollTop(scrollElement, plan.top, {
+		loop.stop = restoreScroll(scrollElement, plan.top, {
 			onDone: () => controller.stop(true),
 		})
 	}, [key, pathname, hash, path, navigationType, skip, scrollElement, record])

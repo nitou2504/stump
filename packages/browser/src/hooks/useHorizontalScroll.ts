@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useRestoredScrollLeft } from './useRestoredScrollLeft'
+
 type UseHorizontalScrollOptions = {
 	/**
 	 * As a percentage of the container width
 	 **/
 	scrollAmount?: number
+	/**
+	 * Keeps the row's position with the history entry under this key (unique on the page),
+	 * so going back to the page returns the row to where it was
+	 */
+	restoreKey?: string
 }
 
 type Return = {
@@ -16,7 +23,8 @@ type Return = {
 }
 
 export function useHorizontalScroll(options: UseHorizontalScrollOptions = {}): Return {
-	const { scrollAmount = 0.6 } = options
+	const { scrollAmount = 0.6, restoreKey } = options
+	const attachRestore = useRestoredScrollLeft(restoreKey)
 
 	const elementRef = useRef<HTMLDivElement | null>(null)
 	const resizeObserverRef = useRef<ResizeObserver | null>(null)
@@ -79,11 +87,13 @@ export function useHorizontalScroll(options: UseHorizontalScrollOptions = {}): R
 				mutationObserverRef.current = mutationObserver
 
 				updateScrollState()
+				attachRestore(ref)
 			} else {
 				elementRef.current = null
+				attachRestore(null)
 			}
 		},
-		[updateScrollState],
+		[updateScrollState, attachRestore],
 	)
 
 	useEffect(() => {
