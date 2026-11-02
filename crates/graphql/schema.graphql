@@ -1036,6 +1036,299 @@ enum InheritPermissionValue {
 	INHERIT
 }
 
+"The values that will be filed: the proposal's defaults, then the uploader's edits"
+type IntakeDecision {
+	metadata: IntakeMetadata!
+	"""
+	`None` files a book under its author folder; `Some` files it (or every volume)
+	under the manga or light novel root
+	"""
+	seriesKind: IntakeSeriesKind
+	"The author folder (books) or the series folder (series), a single path component"
+	folder: String!
+	"The file name per uploaded file (same order as the item's files), without folder"
+	fileNames: [String!]!
+	"Per-file volume numbers for series (same order as the item's files)"
+	volumes: [Float]!
+}
+
+type IntakeDestination {
+	"The folder, relative to the library root"
+	relativeDir: String!
+	"Whether that folder already exists"
+	dirExists: Boolean!
+	files: [IntakeDestinationFile!]!
+}
+
+"Where each file of an item will go (or went)"
+type IntakeDestinationFile {
+	originalName: String!
+	"Relative to the library root, e.g. `Umberto_Eco/El_nombre_de_la_rosa.epub`"
+	relativePath: String!
+	"Something already exists at that path (filing will fail for this file)"
+	exists: Boolean!
+}
+
+"A book in the library that looks like the same book"
+type IntakeDuplicate {
+	mediaId: String!
+	path: String!
+	title: String!
+	"`SAME_FILE` (identical hash) or `SAME_TITLE` (same author and title)"
+	reason: String!
+	"The uploaded file it matches"
+	fileName: String!
+}
+
+type IntakeFieldSource {
+	"""
+	The camelCase name of the field (`title`, `authors`, `series`, `seriesIndex`,
+	`language`, `year`, `publisher`, `description`, `isbn`, `subjects`)
+	"""
+	field: String!
+	source: IntakeSource!
+}
+
+"One uploaded file of an item (a book, or a volume of a series)"
+type IntakeFile {
+	"The name it was uploaded with (for a folder upload, its path inside the folder)"
+	originalName: String!
+	size: Int!
+	"`epub`, `pdf`, `cbz`, `cbr`"
+	format: String!
+	"Stump's own file hash, used to find duplicates"
+	hash: String
+	"The volume number, for a series"
+	volume: Float
+	"The title read from this file (volumes may carry their own)"
+	title: String
+}
+
+"An existing author or series folder, for the folder picker"
+type IntakeFolder {
+	name: String!
+	books: Int!
+}
+
+"An existing (or proposed new) folder the item can go to"
+type IntakeFolderCandidate {
+	"""
+	The folder name, relative to the library root (author folders) or to the series
+	root (series folders)
+	"""
+	folder: String!
+	"How many books the library already has in it"
+	books: Int!
+	"0-1"
+	confidence: Float!
+	"Why it is suggested, e.g. \"same author written 'Eco, Umberto'\""
+	reason: String!
+	"The folder does not exist yet and would be created"
+	isNew: Boolean!
+}
+
+"A tag proposed for the item, taken from the tags the library already uses"
+type IntakeGenreSuggestion {
+	value: String!
+	"0-1"
+	confidence: Float!
+	"Short explanations, e.g. \"3 other books by this author have it\""
+	reasons: [String!]!
+	"How many books of the library carry it"
+	libraryCount: Int!
+	"Whether it is part of the default choice"
+	selected: Boolean!
+	"`GENRE` (a `Big` or `Big: Small` tag) or `FACET` (`Origin:`, `Era:`, `Level:`...)"
+	kind: String!
+}
+
+"An item of the uploader's \"Add books\" inbox"
+type IntakeItem {
+	id: ID!
+	libraryId: String!
+	state: IntakeState!
+	kind: IntakeKind!
+	"The uploaded file or folder name"
+	name: String!
+	files: [IntakeFile!]!
+	"What the server proposes (empty while analysing)"
+	proposal: IntakeProposal
+	"What will be filed: the proposal's defaults plus the uploader's edits"
+	decision: IntakeDecision
+	"Where each file goes, relative to the library root"
+	destination: IntakeDestination
+	"What filing did"
+	result: IntakeResult
+	error: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	filedAt: DateTime
+	"What still keeps the decision from being filed (empty when it can be accepted)"
+	problems: [String!]!
+	libraryName: String!
+	"The books created by the scan after filing (empty until the scan has run)"
+	mediaIds: [String!]!
+}
+
+"A single book, or a series (a folder or zip of volumes: manga, light novels)"
+enum IntakeKind {
+	BOOK
+	SERIES
+}
+
+"The descriptive metadata of an item, with where each value came from"
+type IntakeMetadata {
+	title: String
+	authors: [String!]!
+	series: String
+	seriesIndex: Float
+	"Two-letter code (`en`, `es`, ...)"
+	language: String
+	"First publication year when known (Open Library), else the edition year"
+	year: Int
+	publisher: String
+	description: String
+	isbn: String
+	"Raw subjects found in the file and online, before matching to the library's tags"
+	subjects: [String!]!
+	"""
+	The tags that will be written: library genres (`Big`, `Big: Small`) and facets
+	(`Origin: X`, `Era: X`, ...)
+	"""
+	genres: [String!]!
+	"0 (all ages) or 18 (adults only), when known"
+	ageRating: Int
+	"0-5"
+	rating: Float
+	sources: [IntakeFieldSource!]!
+}
+
+"What the server proposes after analysing an item"
+type IntakeProposal {
+	"The merged metadata (file, file name, online lookups), with sources"
+	metadata: IntakeMetadata!
+	"Set when the item looks like manga or a light novel"
+	seriesKind: IntakeSeriesKind
+	"Author folders, best first (books)"
+	authorFolders: [IntakeFolderCandidate!]!
+	"Series folders, best first (series and series volumes)"
+	seriesFolders: [IntakeFolderCandidate!]!
+	"Tags from the library's vocabulary, best first"
+	genreSuggestions: [IntakeGenreSuggestion!]!
+	similarBooks: [IntakeSimilarBook!]!
+	duplicates: [IntakeDuplicate!]!
+	"Plain-language notes for the uploader (e.g. \"No author found\")"
+	warnings: [String!]!
+	"Overall confidence, 0-1; under the threshold the item needs review"
+	confidence: Float!
+	"Whether online lookups were used"
+	lookedUpOnline: Boolean!
+}
+
+"What filing did"
+type IntakeResult {
+	"Absolute paths of the filed files"
+	paths: [String!]!
+	"The intake CSV the rows were appended to"
+	csvPath: String
+	"Notes, e.g. a metadata field that could not be written into a PDF"
+	notes: [String!]!
+}
+
+"The uploader's review of an item. Omitted fields keep their current value."
+input IntakeReviewInput {
+	title: String
+	authors: [String!]
+	series: String
+	seriesIndex: Float
+	language: String
+	year: Int
+	publisher: String
+	description: String
+	genres: [String!]
+	ageRating: Int
+	"""
+	File the item as a series under this root. Use `clearSeriesKind` to file a book
+	under its author folder again
+	"""
+	seriesKind: IntakeSeriesKind
+	clearSeriesKind: Boolean! = false
+	"The author or series folder (a single path component; may be new)"
+	folder: String
+	"One per file, same order as the item's files"
+	fileNames: [String!]
+	"One per file, same order as the item's files"
+	volumes: [Float]
+}
+
+"Which series root a series item (or a single volume) goes to"
+enum IntakeSeriesKind {
+	MANGA
+	LIGHT_NOVEL
+}
+
+"A book already in the library, shown to compare against"
+type IntakeSimilarBook {
+	mediaId: String!
+	title: String!
+	authors: [String!]!
+	genres: [String!]!
+	"Why it is similar (`same author`, `same series`, `similar description`)"
+	reason: String!
+}
+
+"Where a metadata value came from, so the review screen can say so"
+enum IntakeSource {
+	"The book file's own metadata (OPF, PDF Info, ComicInfo)"
+	FILE
+	"Parsed from the file or folder name"
+	FILE_NAME
+	OPEN_LIBRARY
+	GOOGLE_BOOKS
+	"Inferred from books already in the library (same author, series, similar text)"
+	LIBRARY
+	"Set by the uploader"
+	USER
+}
+
+"Where an inbox item is in its life"
+enum IntakeState {
+	"Uploaded; its metadata is being read, looked up and matched against the library"
+	ANALYSING
+	"Something important is missing or uncertain (author folder, genres, title...)"
+	NEEDS_REVIEW
+	"Everything needed to file it is known and confident; it can be accepted as is"
+	READY
+	"Written into the library"
+	FILED
+	"Analysis or filing failed, see `error`"
+	FAILED
+	"Thrown away by the uploader; its staged files are deleted"
+	DISCARDED
+}
+
+"How an upload of several files is grouped into inbox items"
+enum IntakeUploadMode {
+	"""
+	Files in a folder (or books inside a .zip) make one series item; loose files are
+	one book each
+	"""
+	AUTO
+	"Every file is its own book"
+	BOOKS
+	"All the files are the volumes of one series"
+	SERIES
+}
+
+"A tag the library uses, for the tag picker"
+type IntakeVocabularyEntry {
+	value: String!
+	"How many books carry it"
+	count: Int!
+	"`GENRE` or `FACET`"
+	kind: String!
+}
+
 """
 The different types of layouts a client-side interface might present to a user
 for a collection of items
@@ -1218,6 +1511,36 @@ input LibraryFilterInput {
 	_and: [LibraryFilterInput!] = null
 	_not: [LibraryFilterInput!] = null
 	_or: [LibraryFilterInput!] = null
+}
+
+"""
+How the "Add books" intake files books into a library. A library without a row uses
+[`Model::defaults_for`].
+"""
+type LibraryIntakeSettings {
+	libraryId: String!
+	"Folder (relative to the library root) holding one folder per manga series"
+	mangaDir: String!
+	"Folder (relative to the library root) holding one folder per light novel series"
+	lightNovelDir: String!
+	"""
+	Where the intake CSV is appended to. `None` = next to `catalogo.csv` when the
+	library's parent folder has one, else in the library root
+	"""
+	csvPath: String
+	"Look titles up on Open Library and Google Books while analysing"
+	onlineLookup: Boolean!
+}
+
+input LibraryIntakeSettingsInput {
+	mangaDir: String!
+	lightNovelDir: String!
+	"""
+	Empty or omitted: next to `catalogo.csv` when the library's parent has one, else
+	the library root
+	"""
+	csvPath: String
+	onlineLookup: Boolean!
 }
 
 input LibraryModelOrderBy {
@@ -2305,6 +2628,30 @@ type Mutation {
 	estimate) and/or the PDF steps (queued for the host runner)
 	"""
 	runPostProcessing(libraryId: ID!, grey16: Boolean! = false, pdfOcr: Boolean! = false, pdfShrink: Boolean! = false, dryRun: Boolean! = false): Boolean!
+	"""
+	Uploads books into the user's inbox for a library. Each book (or each folder / .zip
+	of volumes) becomes an item that is analysed right away; poll `intakeItems`.
+	"""
+	intakeUpload(		libraryId: ID!,		files: [Upload!]!,
+		"The path of each file inside an uploaded folder (same order)"
+		relativePaths: [String!],		mode: IntakeUploadMode! = AUTO
+	): [IntakeItem!]!
+	"Saves the uploader's review of an item (omitted fields keep their value)"
+	intakeReview(id: ID!, input: IntakeReviewInput!): IntakeItem!
+	"Analyses an item again (e.g. after a failure, or to look it up online)"
+	intakeReanalyse(		id: ID!,
+		"Override the library's online lookup setting"
+		online: Boolean
+	): IntakeItem!
+	"""
+	Files ready items into their library. Items that fail keep their state and get an
+	`error`; the others become `FILED`.
+	"""
+	intakeAccept(ids: [ID!]!): [IntakeItem!]!
+	"Throws items away with their staged files. Returns how many were discarded."
+	intakeDiscard(ids: [ID!]!): Int!
+	"Changes how the intake files books into a library"
+	updateLibraryIntakeSettings(libraryId: ID!, input: LibraryIntakeSettingsInput!): LibraryIntakeSettings!
 	createSmartList(input: SaveSmartListInput!): SmartList!
 	updateSmartList(id: ID!, input: SaveSmartListInput!): SmartList!
 	deleteSmartList(id: ID!): SmartList!
@@ -2985,6 +3332,22 @@ type Query {
 	libraryPostProcessing(libraryId: ID!): LibraryPostProcessing!
 	"Post-processing tasks, most recently updated first"
 	postProcessingTasks(libraryId: ID, kind: PostProcessKind, statuses: [PostProcessStatus!], limit: Int! = 100): [PostProcessingTaskModel!]!
+	"""
+	The items of the user's "Add books" inbox, newest first. By default everything but
+	discarded items.
+	"""
+	intakeItems(states: [IntakeState!]): [IntakeItem!]!
+	intakeItem(id: ID!): IntakeItem
+	"The libraries the user can add books to"
+	intakeLibraries: [Library!]!
+	"How the intake files books into a library (its defaults when never changed)"
+	libraryIntakeSettings(libraryId: ID!): LibraryIntakeSettings!
+	"The tags the library uses (most used first), for the tag picker"
+	intakeVocabulary(libraryId: ID!, search: String, limit: Int! = 30): [IntakeVocabularyEntry!]!
+	"Existing author folders (no `seriesKind`) or series folders, for the folder picker"
+	intakeFolders(libraryId: ID!, seriesKind: IntakeSeriesKind, search: String, limit: Int! = 30): [IntakeFolder!]!
+	"Books filed through the intake, newest first (who added what, when, where)"
+	recentlyAddedBooks(userId: ID, limit: Int! = 50, offset: Int! = 0): [RecentlyAddedBook!]!
 	smartLists(input: SmartListsInput! = {all: null, mine: true, search: null}): [SmartList!]!
 	smartListById(id: ID!): SmartList
 	smartListMeta(id: ID!): SmartListMeta
@@ -3275,6 +3638,23 @@ type ReadthroughTimeline {
 type RecentlyAdded {
 	entity: FilterableArrangementEntity!
 	name: String
+}
+
+"A book filed through the intake, for the admin \"Recently added\" page"
+type RecentlyAddedBook {
+	itemId: ID!
+	userId: String!
+	username: String
+	title: String!
+	authors: [String!]!
+	series: String
+	"Relative to the library root"
+	paths: [String!]!
+	libraryId: String!
+	libraryName: String!
+	filedAt: DateTime
+	"The library books created from it (empty until the scan has run)"
+	mediaIds: [String!]!
 }
 
 input RecentlyAddedInput {
@@ -4199,6 +4579,11 @@ enum UserPermission {
 	but their files stay on disk, and a library manager can restore them
 	"""
 	REMOVE_BOOK
+	"""
+	Grant access to the "Add books" inbox: upload books, review the proposed metadata,
+	author folder and tags, and file them into the libraries the user can access
+	"""
+	ADD_BOOKS
 	"""
 	Grant access to read users.
 	
