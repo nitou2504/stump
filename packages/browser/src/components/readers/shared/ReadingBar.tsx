@@ -8,7 +8,7 @@ type Props = {
 	chapters: number[]
 	/** Where the reader is in the book, from 0 to 1 */
 	position: number
-	/** The chapter's name, first (it's cut short before the numbers are) */
+	/** The chapter's name, first (cut short when the line is too long; the numbers never are) */
 	left?: string
 	/** The numbers after it, in their order (all joined by middle dots) */
 	right: string[]
@@ -38,7 +38,7 @@ type Props = {
  * The reading bar at the foot of the page, like KOReader's footer: a hairline rule across
  * the text column with a tick at each chapter start, the current chapter drawn thicker and
  * the position as an ink notch; under it one centred line, the chapter and the numbers
- * joined by middle dots (on a narrow screen the chapter is cut short first). A tap on it
+ * joined by middle dots (on a narrow screen only the chapter is cut short). A tap on it
  * opens "go to" and never turns the page under it.
  */
 export default function ReadingBar({
@@ -67,6 +67,18 @@ export default function ReadingBar({
 		observer.observe(element)
 		return () => observer.disconnect()
 	}, [])
+
+	// the chapter shows only where a few letters of it fit beside the numbers: a phone with
+	// every item on keeps the numbers rather than show a stray "T…" or a lone dot
+	const numbersRef = useRef<HTMLSpanElement>(null)
+	const [chapterFits, setChapterFits] = useState(true)
+	const numbersText = right.join('|')
+	useLayoutEffect(() => {
+		const numbers = numbersRef.current?.offsetWidth ?? 0
+		const fits = width <= 0 || width - numbers - DOT_WIDTH >= MIN_CHAPTER_WIDTH
+		setChapterFits((previous) => (previous === fits ? previous : fits))
+	}, [width, numbersText])
+	const chapter = chapterFits ? left : undefined
 
 	const at = Math.min(1, Math.max(0, Number.isFinite(position) ? position : 0))
 	const ticks = thinTicks(chapters, width)
@@ -161,21 +173,21 @@ export default function ReadingBar({
 				</div>
 				<div
 					className={cn(
-						'leading-4 font-medium min-w-0 mt-[7px] flex justify-center text-[11.5px] tracking-[0.005em] whitespace-nowrap tabular-nums transition-colors',
+						'leading-4 font-medium min-w-0 mt-[7px] flex justify-center overflow-hidden text-[11.5px] tracking-[0.005em] whitespace-nowrap tabular-nums transition-colors',
 						emphasized ? 'text-foreground' : 'text-muted-foreground',
 						'group-hover:text-foreground',
 					)}
 					data-testid="reading-bar-text"
 				>
-					{left && (
-						// cut short well before the numbers are
-						<span className="min-w-0 [flex-shrink:50] truncate" data-testid="reading-bar-left">
-							{left}
+					{chapter && (
+						// only the chapter is cut short: the numbers always show whole
+						<span className="min-w-0 truncate" data-testid="reading-bar-left">
+							{chapter}
 						</span>
 					)}
-					{left && right.length > 0 && <Dot />}
+					{chapter && right.length > 0 && <Dot />}
 					{right.length > 0 && (
-						<span className="min-w-0 truncate" data-testid="reading-bar-right">
+						<span ref={numbersRef} className="shrink-0" data-testid="reading-bar-right">
 							{right.map((item, index) => (
 								<span key={item + index}>
 									{index > 0 && <Dot />}
@@ -189,6 +201,10 @@ export default function ReadingBar({
 		</>
 	)
 }
+
+/** The room (CSS px) the chapter needs to be worth showing, and a middle dot's width */
+const MIN_CHAPTER_WIDTH = 40
+const DOT_WIDTH = 11
 
 /** The middle dot between the bar's items */
 function Dot() {
