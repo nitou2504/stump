@@ -40,6 +40,7 @@ import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
 import { SwitchRow } from '../shared/settingsControls'
+import { navigationTapZone } from '../shared/tapZones'
 import { useReaderChrome } from '../shared/useReaderChrome'
 import {
 	anchorOnPage,
@@ -74,6 +75,7 @@ import PdfPageView from './PdfPageView'
 import { PDF_READER_CSS } from './pdfReaderCss'
 import PdfSearchDialog from './PdfSearchDialog'
 import { PdfOpenAs, PdfPageSettings } from './PdfSettings'
+import { isZoomedIn, scrollerTouchStyle, swipeTurn } from './gestures'
 import { resolvePdfShortcut } from './pdfShortcuts'
 import { pdfThemeLook, resolvePdfTheme } from './pdfThemes'
 import {
@@ -173,8 +175,6 @@ type NoteDialogState =
 
 type Flash = { page: number; rects: FractionRect[]; key: number }
 
-/** The share of the width at each side that turns the page in paged layouts */
-const SIDE_TAP_ZONE = 0.15
 const PAGE_GAP_DESKTOP = 16
 const PAGE_GAP_PHONE = 8
 const PHONE_MAX_WIDTH = 768
@@ -223,6 +223,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	)
 	const fit: FitMode = preferences.fit ?? (isPhone ? 'width' : 'page')
 	const zoom = clampZoom(preferences.zoom ?? 1)
+	/** Zoomed in past the fit: a finger pans the page; at the fit it only scrolls vertically */
+	const zoomedIn = isZoomedIn(zoom)
+	const touchStyle = scrollerTouchStyle(zoomedIn)
 	const storedLayout = useMemo<ReaderLayout>(
 		() => ({
 			spread: preferences.spread ?? 'single',
@@ -1156,6 +1159,57 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		}
 	}, [mediaId, setPreferences])
 
+	// A deliberate sideways swipe turns the page in the paged layout. The page isn't dragged
+	// along with the finger (at the fit it can't move sideways at all): it simply turns once the
+	// finger lifts. Zoomed in, a sideways drag pans the page instead, and a swipe that ends a
+	// text selection (a long press, then a drag) selects rather than turns.
+	const swipeStateRef = useRef({ paged: !continuous, zoomedIn, goRelative })
+	useEffect(() => {
+		swipeStateRef.current = { paged: !continuous, zoomedIn, goRelative }
+	}, [continuous, zoomedIn, goRelative])
+	useEffect(() => {
+		const element = scrollRef.current
+		if (!element) return undefined
+		let start: { x: number; y: number; time: number } | null = null
+		const onTouchStart = (event: TouchEvent) => {
+			const touch = event.touches[0]
+			// a second finger makes it a pinch, not a swipe
+			start =
+				event.touches.length === 1 && touch
+					? { x: touch.clientX, y: touch.clientY, time: performance.now() }
+					: null
+		}
+		const onTouchEnd = (event: TouchEvent) => {
+			const touch = event.changedTouches[0]
+			const from = start
+			start = null
+			if (!from || !touch || event.touches.length > 0) return
+			const { paged, zoomedIn: zoomed, goRelative: turn } = swipeStateRef.current
+			if (!paged || zoomed) return
+			const selection = window.getSelection()
+			if (selection && !selection.isCollapsed) return
+			const direction = swipeTurn({
+				dx: touch.clientX - from.x,
+				dy: touch.clientY - from.y,
+				durationMs: performance.now() - from.time,
+			})
+			if (!direction) return
+			lastGestureRef.current = performance.now()
+			turn(direction)
+		}
+		const onTouchCancel = () => {
+			start = null
+		}
+		element.addEventListener('touchstart', onTouchStart, { passive: true })
+		element.addEventListener('touchend', onTouchEnd)
+		element.addEventListener('touchcancel', onTouchCancel)
+		return () => {
+			element.removeEventListener('touchstart', onTouchStart)
+			element.removeEventListener('touchend', onTouchEnd)
+			element.removeEventListener('touchcancel', onTouchCancel)
+		}
+	}, [])
+
 	// Taps and clicks on the pages ------------------------------------------------------------------
 	const handlePointerDown = useCallback((event: React.PointerEvent) => {
 		pointerDownRef.current = true
@@ -1211,12 +1265,14 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const box = container.getBoundingClientRect()
 			const relative = (event.clientX - box.left) / box.width
 			const point = { x: event.clientX, y: event.clientY }
-			// the same side zones as the other readers (15% of the width at each side)
-			if (!continuous && relative < SIDE_TAP_ZONE) {
+			// the same side zones as the other readers (15% of the width at each side); in the
+			// scrolled layout the sides don't turn anything, a tap only shows the controls
+			const zone = navigationTapZone(relative, { flow: continuous ? 'continuous' : 'paged' })
+			if (zone === 'left') {
 				goRelative(-1)
 				return
 			}
-			if (!continuous && relative > 1 - SIDE_TAP_ZONE) {
+			if (zone === 'right') {
 				goRelative(1)
 				return
 			}
@@ -1334,8 +1390,22 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 
 			<div
 				ref={scrollRef}
-				className="inset-0 absolute overflow-auto"
-				style={{ overflowAnchor: 'none', touchAction: 'pan-x pan-y' }}
+				// no scrollbar beside the pages (scrolling still works): a reader shows the page
+				// number instead of a bar at the edge
+				className="absolute overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				style={{
+					// clear of a camera cutout or rounded corners: the pages never lie under them
+					// (the strips around keep the reader's ground colour)
+					top: 'env(safe-area-inset-top)',
+					bottom: 'env(safe-area-inset-bottom)',
+					left: 'env(safe-area-inset-left)',
+					right: 'env(safe-area-inset-right)',
+					overflowAnchor: 'none',
+					// at the fit, only vertical scrolling: no sideways wobble, no stretch at the ends
+					touchAction: touchStyle.touchAction,
+					overflowX: touchStyle.overflowX,
+					overscrollBehavior: 'none',
+				}}
 				onScroll={handleScroll}
 				onPointerDown={handlePointerDown}
 				onPointerUp={handlePointerUp}
