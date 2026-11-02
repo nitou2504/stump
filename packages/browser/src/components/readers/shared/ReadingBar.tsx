@@ -8,9 +8,9 @@ type Props = {
 	chapters: number[]
 	/** Where the reader is in the book, from 0 to 1 */
 	position: number
-	/** The chapter's name, on the left (it's cut short when long) */
+	/** The chapter's name, first (it's cut short before the numbers are) */
 	left?: string
-	/** The numbers on the right, in their order (joined by middle dots; never cut short) */
+	/** The numbers after it, in their order (all joined by middle dots) */
 	right: string[]
 	/** A right-to-left book: the rule fills from the right */
 	rtl?: boolean
@@ -37,8 +37,9 @@ type Props = {
 /**
  * The reading bar at the foot of the page, like KOReader's footer: a hairline rule across
  * the text column with a tick at each chapter start, the current chapter drawn thicker and
- * the position as an ink notch; under it the chapter on the left and the numbers on the
- * right. A tap on it opens "go to" and never turns the page under it.
+ * the position as an ink notch; under it one centred line, the chapter and the numbers
+ * joined by middle dots (on a narrow screen the chapter is cut short first). A tap on it
+ * opens "go to" and never turns the page under it.
  */
 export default function ReadingBar({
 	chapters,
@@ -102,7 +103,7 @@ export default function ReadingBar({
 				aria-hidden={!visible}
 				data-testid="reading-bar"
 				className={cn(
-					'pt-3 pb-1 group z-30 block text-left select-none',
+					'pt-3 pb-1 group z-30 block text-center select-none',
 					fixed ? 'fixed' : 'absolute',
 					'ease-out transition-[opacity,transform] duration-200 motion-reduce:transition-none',
 					'focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
@@ -160,29 +161,41 @@ export default function ReadingBar({
 				</div>
 				<div
 					className={cn(
-						'gap-4 leading-4 font-medium mt-[7px] flex justify-between text-[11.5px] tracking-[0.005em] tabular-nums transition-colors',
+						'leading-4 font-medium min-w-0 mt-[7px] flex justify-center text-[11.5px] tracking-[0.005em] whitespace-nowrap tabular-nums transition-colors',
 						emphasized ? 'text-foreground' : 'text-muted-foreground',
 						'group-hover:text-foreground',
 					)}
+					data-testid="reading-bar-text"
 				>
-					<span className="min-w-0 truncate" data-testid="reading-bar-left">
-						{left}
-					</span>
-					<span className="shrink-0 whitespace-nowrap" data-testid="reading-bar-right">
-						{right.map((item, index) => (
-							<span key={item + index}>
-								{index > 0 && (
-									<span aria-hidden className="px-[5px] opacity-55">
-										·
-									</span>
-								)}
-								{item}
-							</span>
-						))}
-					</span>
+					{left && (
+						// cut short well before the numbers are
+						<span className="min-w-0 [flex-shrink:50] truncate" data-testid="reading-bar-left">
+							{left}
+						</span>
+					)}
+					{left && right.length > 0 && <Dot />}
+					{right.length > 0 && (
+						<span className="min-w-0 truncate" data-testid="reading-bar-right">
+							{right.map((item, index) => (
+								<span key={item + index}>
+									{index > 0 && <Dot />}
+									{item}
+								</span>
+							))}
+						</span>
+					)}
 				</div>
 			</button>
 		</>
+	)
+}
+
+/** The middle dot between the bar's items */
+function Dot() {
+	return (
+		<span aria-hidden className="shrink-0 px-[5px] opacity-55">
+			·
+		</span>
 	)
 }
 
