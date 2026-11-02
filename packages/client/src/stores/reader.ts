@@ -111,6 +111,10 @@ export type ReaderSettings = {
 	 */
 	showToolBar: boolean
 	/**
+	 * Whether the readers show the small page number in a corner (unset: shown)
+	 */
+	showPageIndicator?: boolean
+	/**
 	 * The preferences for preloading pages
 	 */
 	preload: {

@@ -35,12 +35,12 @@ describe('pageCssSize', () => {
 		})
 	})
 
-	it('scales by the zoom, clamped to 50-400%', () => {
+	it('scales by the zoom, clamped to 50-500%', () => {
 		expect(pageCssSize(letter, { width: 400, height: 0 }, 'width', 2)).toEqual({
 			width: 800,
 			height: 1035,
 		})
-		expect(pageCssSize(letter, { width: 400, height: 0 }, 'width', 10).width).toBe(1600)
+		expect(pageCssSize(letter, { width: 400, height: 0 }, 'width', 10).width).toBe(2000)
 	})
 
 	it('is empty for unusable sizes', () => {
@@ -56,7 +56,7 @@ describe('zoom', () => {
 	it('steps by 20% and stays within the limits', () => {
 		expect(zoomIn(1)).toBe(1.2)
 		expect(zoomOut(1.2)).toBe(1)
-		expect(zoomIn(4)).toBe(4)
+		expect(zoomIn(5)).toBe(5)
 		expect(zoomOut(0.5)).toBe(0.5)
 		expect(clampZoom(Number.NaN)).toBe(1)
 	})

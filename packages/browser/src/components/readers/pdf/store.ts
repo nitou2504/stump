@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import type { PageSpread } from '../shared/layout'
 import type { FitMode } from './geometry'
 
 export type PdfScrollMode = 'continuous' | 'paged'
@@ -16,6 +17,10 @@ export type PdfBookPreferences = {
 	fit?: FitMode
 	zoom?: number
 	scrollMode?: PdfScrollMode
+	/** One page or two side by side; unset: one */
+	spread?: PageSpread
+	/** In two-page layouts the first page stays alone (like an open book); unset: on */
+	coverAlone?: boolean
 	/** Dark themes invert the page picture; off keeps illustrations as they are */
 	invertPagesInDark?: boolean
 	reader?: PdfReaderKind
