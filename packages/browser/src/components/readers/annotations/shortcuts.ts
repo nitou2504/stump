@@ -40,7 +40,8 @@ export function resolveReaderShortcut(
 	{ hasTarget, targetIsAnnotation }: ShortcutContext,
 ): ReaderShortcutAction | null {
 	if (typeof event.key !== 'string') return null
-	if (isReaderSearchShortcut({ shiftKey: false, ...event })) return { type: 'search' }
+	// (the event itself: a KeyboardEvent's fields are getters a spread would drop)
+	if (isReaderSearchShortcut(event)) return { type: 'search' }
 	if (event.ctrlKey || event.metaKey || event.altKey) return null
 
 	const key = event.key.length === 1 ? event.key.toLowerCase() : event.key

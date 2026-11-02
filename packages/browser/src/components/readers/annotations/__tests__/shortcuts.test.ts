@@ -60,6 +60,14 @@ describe('resolveReaderShortcut', () => {
 		expect(resolveReaderShortcut(key('d'), NOTHING)).toEqual({ type: 'dayNight' })
 	})
 
+	it('reads real keyboard events (their fields are getters)', () => {
+		const event = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true })
+		expect(resolveReaderShortcut(event, NOTHING)).toEqual({ type: 'search' })
+		expect(resolveReaderShortcut(new KeyboardEvent('keydown', { key: '/' }), NOTHING)).toEqual({
+			type: 'search',
+		})
+	})
+
 	it('copies the selected text or annotation with c', () => {
 		expect(resolveReaderShortcut(key('c'), SELECTION)).toEqual({ type: 'copy' })
 		expect(resolveReaderShortcut(key('c'), ANNOTATION)).toEqual({ type: 'copy' })

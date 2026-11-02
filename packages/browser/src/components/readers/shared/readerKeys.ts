@@ -1,6 +1,6 @@
 import type { EpubReaderTheme } from '@stump/client'
 
-type KeyLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>
+type KeyLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey'>
 
 /**
  * Whether a key press opens the reader's own search: Ctrl/Cmd+F (instead of the browser's
