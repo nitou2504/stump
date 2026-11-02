@@ -3,6 +3,7 @@ import { useLocation, useNavigationType } from 'react-router'
 
 import {
 	currentHistoryIndex,
+	isCurrentHistoryEntry,
 	readHistoryEntry,
 	shownHistoryEntry,
 	updateHistoryEntry,
@@ -62,7 +63,7 @@ export function useRestoredScrollLeft(key?: string) {
 			const onScroll = () => {
 				if (stopRestore) return
 				const shown = shownHistoryEntry()
-				if (!shown || shown.path !== pathRef.current) return
+				if (!shown || shown.path !== pathRef.current || !isCurrentHistoryEntry(shown)) return
 				updateHistoryEntry(shown.index, shown.path, {
 					state: { [stateKey]: Math.round(element.scrollLeft) },
 				})

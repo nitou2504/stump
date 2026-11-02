@@ -6,6 +6,7 @@ import {
 	dropHistoryEntriesAfter,
 	flushHistoryEntries,
 	HistoryEntryRecord,
+	isCurrentHistoryEntry,
 	readHistoryEntry,
 	setShownHistoryEntry,
 	updateHistoryEntry,
@@ -194,6 +195,8 @@ export function useMainScrollRestoration(
 		const shown = shownRef.current
 		const element = scrollElement()
 		if (!shown || shown.index === undefined || !element || restoreRef.current) return
+		// leaving it: the position read now isn't where the user left it
+		if (!isCurrentHistoryEntry(shown)) return
 		updateHistoryEntry(shown.index, shown.path, { top: element.scrollTop })
 	}, [scrollElement])
 

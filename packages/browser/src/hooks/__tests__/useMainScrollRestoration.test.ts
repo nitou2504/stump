@@ -274,7 +274,7 @@ describe('useMainScrollRestoration', () => {
 	afterEach(() => vi.unstubAllGlobals())
 
 	const at = (index: number, pathname: string, type: 'POP' | 'PUSH' | 'REPLACE', search = '') => {
-		window.history.replaceState({ idx: index }, '')
+		window.history.replaceState({ idx: index }, '', pathname + search)
 		vi.mocked(useLocation).mockReturnValue({
 			hash: '',
 			key: `${index}${pathname}${search}${type}`,
@@ -309,6 +309,21 @@ describe('useMainScrollRestoration', () => {
 		expect(element.scrollTop).toBe(3100)
 	})
 
+	it("doesn't record the page's scrolling while the next page is loading", () => {
+		const element = makeScrollable(6000)
+		at(1, '/books/b1', 'PUSH')
+		renderHook(() => useMainScrollRestoration(() => element, element))
+		element.scrollTop = 400
+		element.dispatchEvent(new Event('scroll'))
+		expect(readHistoryEntry(1, '/books/b1')?.top).toBe(400)
+
+		// the reader's URL is current, the book page still on screen: its content is hidden
+		window.history.pushState({ idx: 2 }, '', '/books/b1/epub-reader')
+		element.scrollTop = 0
+		element.dispatchEvent(new Event('scroll'))
+		expect(readHistoryEntry(1, '/books/b1')?.top).toBe(400)
+	})
+
 	it('keeps the position when a search replaces the entry, and records it for the new URL', () => {
 		const element = makeScrollable(6000)
 		const getElement = () => element
@@ -335,7 +350,7 @@ describe('useMainScrollRestoration', () => {
 
 describe('useHistoryEntryState', () => {
 	const at = (index: number, pathname: string, type: 'POP' | 'PUSH') => {
-		window.history.replaceState({ idx: index }, '')
+		window.history.replaceState({ idx: index }, '', pathname)
 		vi.mocked(useLocation).mockReturnValue({
 			hash: '',
 			key: `${index}${type}`,
@@ -392,7 +407,7 @@ describe('useRestoredScrollLeft', () => {
 	}
 
 	const at = (index: number, type: 'POP' | 'PUSH') => {
-		window.history.replaceState({ idx: index }, '')
+		window.history.replaceState({ idx: index }, '', '/')
 		vi.mocked(useLocation).mockReturnValue({
 			hash: '',
 			key: `${index}${type}`,

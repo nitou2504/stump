@@ -115,6 +115,20 @@ export function shownHistoryEntry() {
 	return shown
 }
 
+/**
+ * Whether `entry` is still the browser's current entry and page. Between a navigation and
+ * the next page being rendered (e.g. while it loads) it isn't: the page on screen then
+ * scrolls for reasons of its own (its content is hidden, the next page's is shown), which
+ * isn't where the user left it
+ */
+export function isCurrentHistoryEntry(entry: { index?: number; path: string }) {
+	return (
+		entry.index !== undefined &&
+		entry.index === currentHistoryIndex() &&
+		entry.path === window.location.pathname + window.location.search
+	)
+}
+
 /** Test helper: forget the in-memory copy so the next read comes from session storage */
 export function resetHistoryEntriesForTests() {
 	if (persistTimer !== undefined) clearTimeout(persistTimer)
