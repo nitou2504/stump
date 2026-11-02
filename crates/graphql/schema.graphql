@@ -3753,6 +3753,16 @@ type StumpConfig {
 	pdfPrerenderRange: Int!
 	"Whether to enable high-quality rendering with smoothing (slower but better quality)"
 	pdfHighQuality: Boolean!
+	"""
+	The size cap of the rendered PDF page cache in MB (0 = no cap). The oldest pages are
+	removed when it is reached
+	"""
+	pdfCacheMaxMb: Int!
+	"""
+	The widest page picture (px) the PDF reader may request: 720, 1000, 1400, 2000 or 2800.
+	Wider pictures are sharper on big HiDPI screens but take more memory to render
+	"""
+	pdfMaxTier: Int!
 	"Whether to trust proxy headers for determining client IP and scheme (e.g., X-Forwarded-For)"
 	trustProxyHeaders: Boolean!
 }

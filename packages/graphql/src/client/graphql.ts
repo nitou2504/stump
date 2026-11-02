@@ -5060,12 +5060,22 @@ export type StumpConfig = {
   parallelismMultiplier: Scalars['Int']['output'];
   /** Password hash cost */
   passwordHashCost: Scalars['Int']['output'];
+  /**
+   * The size cap of the rendered PDF page cache in MB (0 = no cap). The oldest pages are
+   * removed when it is reached
+   */
+  pdfCacheMaxMb: Scalars['Int']['output'];
   /** Whether to enable disk caching for rendered PDF pages */
   pdfCachePages: Scalars['Boolean']['output'];
   /** Whether to enable high-quality rendering with smoothing (slower but better quality) */
   pdfHighQuality: Scalars['Boolean']['output'];
   /** The maximum width or height dimension for rendered PDF pages */
   pdfMaxDimension: Scalars['Int']['output'];
+  /**
+   * The widest page picture (px) the PDF reader may request: 720, 1000, 1400, 2000 or 2800.
+   * Wider pictures are sharper on big HiDPI screens but take more memory to render
+   */
+  pdfMaxTier: Scalars['Int']['output'];
   /** Number of pages to pre-render before and after the current page */
   pdfPrerenderRange: Scalars['Int']['output'];
   /** The DPI (dots per inch) to use when rendering PDF pages as images */
