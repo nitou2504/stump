@@ -152,7 +152,9 @@ export default function ControlsOverlay() {
 				layoutExtra={
 					<div className="gap-3 flex flex-col">
 						<div>
-							<Label htmlFor="reading-direction">{translate('shared.reader.direction.label')}</Label>
+							<Label htmlFor="reading-direction">
+								{translate('shared.reader.direction.label')}
+							</Label>
 							<div className="mt-1.5">
 								<ReadingDirectionSelect
 									direction={readingDirection}
@@ -177,7 +179,11 @@ export default function ControlsOverlay() {
 				shortcuts={shortcuts}
 				footer={
 					isPdf ? (
-						<Button size="sm" variant="outline" onClick={() => setPdfPreferences(book.id, { reader: 'pdf' })}>
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() => setPdfPreferences(book.id, { reader: 'pdf' })}
+						>
 							{translate('shared.pdfReader.openAsText')}
 						</Button>
 					) : null
@@ -237,7 +243,11 @@ function PagesDialog({ open, onOpenChange, currentPage, onGo, rtl }: PagesDialog
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<Dialog.Content size="lg" className="z-101 flex max-h-[calc(100dvh-2rem)] flex-col" data-testid="reader-pages">
+			<Dialog.Content
+				size="lg"
+				className="z-101 flex max-h-[calc(100dvh-2rem)] flex-col"
+				data-testid="reader-pages"
+			>
 				<Dialog.Header>
 					<Heading size="md">{translate('shared.reader.pages')}</Heading>
 					<Dialog.Close />
@@ -264,7 +274,7 @@ function PagesDialog({ open, onOpenChange, currentPage, onGo, rtl }: PagesDialog
 								decoding="async"
 								className="aspect-[2/3] w-full rounded-sm bg-muted object-cover"
 							/>
-							<span className="text-xs tabular-nums text-muted-foreground">{page}</span>
+							<span className="text-xs text-muted-foreground tabular-nums">{page}</span>
 						</button>
 					))}
 				</div>

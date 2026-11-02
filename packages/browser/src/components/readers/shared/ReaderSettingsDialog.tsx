@@ -113,10 +113,8 @@ type SectionProps = {
 
 export function Section({ title, children, className, ref }: SectionProps) {
 	return (
-		<section ref={ref} className={cn('gap-2.5 flex scroll-mt-4 flex-col', className)}>
-			<h3 className="text-xs font-medium tracking-wide uppercase text-muted-foreground">
-				{title}
-			</h3>
+		<section ref={ref} className={cn('gap-2.5 scroll-mt-4 flex flex-col', className)}>
+			<h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
 			{children}
 		</section>
 	)
@@ -165,7 +163,7 @@ export function ThemePicker() {
 							style={{ backgroundColor: colors.background, color: colors.text }}
 						>
 							<span className="font-serif text-base leading-none">Aa</span>
-							<span className="gap-0.5 text-[11px] flex items-center leading-none">
+							<span className="gap-0.5 flex items-center text-[11px] leading-none">
 								{isActive && <Check className="h-3 w-3" />}
 								{label}
 							</span>
@@ -173,7 +171,7 @@ export function ThemePicker() {
 					)
 				})}
 			</div>
-			<p className="mt-1.5 text-xs pointer-coarse:hidden text-muted-foreground">
+			<p className="mt-1.5 text-xs text-muted-foreground pointer-coarse:hidden">
 				{translate('shared.reader.themes.dayNightHint')}
 			</p>
 		</div>

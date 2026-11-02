@@ -36,7 +36,14 @@ describe('buildScrollLayout', () => {
 		const sizes = pages(5, 1000, 700)
 		const layout = buildScrollLayout(sizes, 16, spreadRows(5, 'double'))
 		expect(layout.rows.map((row) => row.pages)).toEqual([[0], [1, 2], [3, 4]])
-		expect(layout.slots[2]).toEqual({ index: 2, top: 1032, height: 1000, width: 700, left: 716, row: 1 })
+		expect(layout.slots[2]).toEqual({
+			index: 2,
+			top: 1032,
+			height: 1000,
+			width: 700,
+			left: 716,
+			row: 1,
+		})
 		expect(layout.rows[1]).toMatchObject({ top: 1032, width: 1416, height: 1000 })
 		expect(layout.maxRowWidth).toBe(1416)
 		expect(layout.totalHeight).toBe(16 + 3 * 1016)

@@ -127,7 +127,11 @@ export function visibleRange(
 }
 
 /** The row that fills most of the viewport. On ties the upper row wins */
-export function dominantRow(layout: ScrollLayout, scrollTop: number, viewportHeight: number): number {
+export function dominantRow(
+	layout: ScrollLayout,
+	scrollTop: number,
+	viewportHeight: number,
+): number {
 	const range = visibleRows(layout, scrollTop, viewportHeight)
 	if (!range) return 0
 	let best = range[0]

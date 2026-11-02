@@ -3,7 +3,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useSlashOpensListSearch } from '../listSearchShortcut'
 import Search from '../Search'
 
-function Page({ disabled = false, withInput = false }: { disabled?: boolean; withInput?: boolean }) {
+function Page({
+	disabled = false,
+	withInput = false,
+}: {
+	disabled?: boolean
+	withInput?: boolean
+}) {
 	useSlashOpensListSearch()
 	return (
 		<>

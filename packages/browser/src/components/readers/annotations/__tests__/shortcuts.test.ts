@@ -55,7 +55,9 @@ describe('resolveReaderShortcut', () => {
 
 	it('searches with Ctrl/Cmd+F or / instead of the browser, and switches day/night with d', () => {
 		expect(resolveReaderShortcut(key('f', { ctrlKey: true }), NOTHING)).toEqual({ type: 'search' })
-		expect(resolveReaderShortcut(key('f', { metaKey: true }), SELECTION)).toEqual({ type: 'search' })
+		expect(resolveReaderShortcut(key('f', { metaKey: true }), SELECTION)).toEqual({
+			type: 'search',
+		})
 		expect(resolveReaderShortcut(key('/'), NOTHING)).toEqual({ type: 'search' })
 		expect(resolveReaderShortcut(key('d'), NOTHING)).toEqual({ type: 'dayNight' })
 	})
@@ -77,7 +79,12 @@ describe('resolveReaderShortcut', () => {
 	})
 
 	it('ignores key events without a key (autofill)', () => {
-		expect(resolveReaderShortcut({ key: undefined as unknown as string, ctrlKey: false, metaKey: false, altKey: false }, NOTHING)).toBeNull()
+		expect(
+			resolveReaderShortcut(
+				{ key: undefined as unknown as string, ctrlKey: false, metaKey: false, altKey: false },
+				NOTHING,
+			),
+		).toBeNull()
 	})
 
 	it("leaves combinations with Ctrl, Cmd or Alt alone (they're someone else's)", () => {

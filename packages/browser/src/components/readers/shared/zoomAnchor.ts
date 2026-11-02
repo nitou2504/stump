@@ -52,7 +52,12 @@ export function pinchTransform(origin: Point, startMid: Point, mid: Point, ratio
 }
 
 /** The anchor for a point in the viewport over a page's box (both in viewport px) */
-export function anchorOnPage(page: number, pageBox: Box, point: Point, container: Point): ZoomAnchor {
+export function anchorOnPage(
+	page: number,
+	pageBox: Box,
+	point: Point,
+	container: Point,
+): ZoomAnchor {
 	const fx = pageBox.width > 0 ? (point.x - pageBox.left) / pageBox.width : 0
 	const fy = pageBox.height > 0 ? (point.y - pageBox.top) / pageBox.height : 0
 	return {
@@ -85,6 +90,8 @@ export function isDoubleTap(
 	point: Point,
 ): boolean {
 	return (
-		!!previous && time - previous.time <= DOUBLE_TAP_MS && distance(previous.point, point) <= DOUBLE_TAP_PX
+		!!previous &&
+		time - previous.time <= DOUBLE_TAP_MS &&
+		distance(previous.point, point) <= DOUBLE_TAP_PX
 	)
 }

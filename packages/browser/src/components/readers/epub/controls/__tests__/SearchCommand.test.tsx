@@ -144,9 +144,7 @@ describe('SearchCommand', () => {
 
 	it('renders nothing when searchBook is unavailable', () => {
 		mockControls()
-		expect(
-			render(<SearchCommand open onOpenChange={vi.fn()} />).container,
-		).toBeEmptyDOMElement()
+		expect(render(<SearchCommand open onOpenChange={vi.fn()} />).container).toBeEmptyDOMElement()
 	})
 
 	it('navigates via onGoToLocator when a result is clicked', async () => {

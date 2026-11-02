@@ -129,8 +129,13 @@ function EpubTopBar({
 	const {
 		readerMeta: { bookEntity },
 	} = useEpubReaderContext()
-	const { createBookmark, deleteBookmark, isUnknownCfiRange, canBookmarkCurrent, currentIsBookmarked } =
-		useEpubBookmark()
+	const {
+		createBookmark,
+		deleteBookmark,
+		isUnknownCfiRange,
+		canBookmarkCurrent,
+		currentIsBookmarked,
+	} = useEpubBookmark()
 
 	return (
 		<ReaderTopBar
@@ -215,7 +220,8 @@ function EpubSettings({
 			layout={layout}
 			onLayoutChange={(next) =>
 				setBookPreferences({
-					readingMode: next.flow === 'continuous' ? ReadingMode.ContinuousVertical : ReadingMode.Paged,
+					readingMode:
+						next.flow === 'continuous' ? ReadingMode.ContinuousVertical : ReadingMode.Paged,
 					columnCount: next.spread === 'double' ? 2 : 1,
 				})
 			}

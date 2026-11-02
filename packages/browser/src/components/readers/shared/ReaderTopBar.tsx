@@ -51,8 +51,8 @@ export default function ReaderTopBar({
 			data-visible={visible}
 			className={cn(
 				'inset-x-0 top-0 gap-1 absolute z-40 flex items-center',
-				'border-b border-border/60 bg-background/95 text-foreground shadow-sm backdrop-blur-sm',
-				'transition-transform duration-200 ease-out motion-reduce:transition-none',
+				'shadow-sm backdrop-blur-sm border-b border-border/60 bg-background/95 text-foreground',
+				'ease-out transition-transform duration-200 motion-reduce:transition-none',
 				visible ? 'translate-y-0' : '-translate-y-full',
 				className,
 			)}

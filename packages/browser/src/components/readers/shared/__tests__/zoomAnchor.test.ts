@@ -34,10 +34,15 @@ describe('zoom anchor maths', () => {
 
 	it('puts the same spot of a page back under the fingers after the zoom is laid out', () => {
 		// a page at (20, 50) of 300x400 on screen; the container's corner at (0, 40)
-		const anchor = anchorOnPage(7, { left: 20, top: 50, width: 300, height: 400 }, { x: 170, y: 250 }, {
-			x: 0,
-			y: 40,
-		})
+		const anchor = anchorOnPage(
+			7,
+			{ left: 20, top: 50, width: 300, height: 400 },
+			{ x: 170, y: 250 },
+			{
+				x: 0,
+				y: 40,
+			},
+		)
 		expect(anchor).toEqual({ page: 7, fx: 0.5, fy: 0.5, x: 170, y: 210 })
 		// zoomed to twice the size, the page is now at content (40, 3000), 600x800
 		const scroll = scrollForAnchor(anchor, { left: 40, top: 3000, width: 600, height: 800 })

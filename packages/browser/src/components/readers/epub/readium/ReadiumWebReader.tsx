@@ -1244,7 +1244,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 
 			{extending && (
 				<div
-					className="left-1/2 gap-2 px-3 py-1.5 text-sm shadow-lg fixed z-50 flex -translate-x-1/2 items-center rounded-full border border-border bg-background text-foreground"
+					className="gap-2 px-3 py-1.5 text-sm shadow-lg fixed left-1/2 z-50 flex -translate-x-1/2 items-center rounded-full border border-border bg-background text-foreground"
 					style={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
 					data-testid="extend-hint"
 				>

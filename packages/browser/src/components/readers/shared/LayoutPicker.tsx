@@ -75,7 +75,10 @@ export default function LayoutPicker({ value, onChange, disabledReason }: Props)
  * running off the bottom for scrolling
  */
 function LayoutGlyph({ layout, active }: { layout: ReaderLayout; active: boolean }) {
-	const pageClass = cn('rounded-[2px] border', active ? 'border-primary bg-primary/15' : 'border-muted-foreground/60 bg-muted')
+	const pageClass = cn(
+		'rounded-[2px] border',
+		active ? 'border-primary bg-primary/15' : 'border-muted-foreground/60 bg-muted',
+	)
 	const columns = layout.spread === 'double' ? 2 : 1
 	const page = (key: string) => <span key={key} className={cn(pageClass, 'h-6 w-4 shrink-0')} />
 
@@ -85,7 +88,9 @@ function LayoutGlyph({ layout, active }: { layout: ReaderLayout; active: boolean
 			className="h-9 w-12 p-1 relative flex shrink-0 justify-center overflow-hidden rounded-md bg-foreground/5"
 		>
 			{layout.flow === 'paged' ? (
-				<span className="gap-0.5 flex items-center">{Array.from({ length: columns }, (_, i) => page(`p${i}`))}</span>
+				<span className="gap-0.5 flex items-center">
+					{Array.from({ length: columns }, (_, i) => page(`p${i}`))}
+				</span>
 			) : (
 				<span className="gap-0.5 flex flex-col">
 					{[0, 1].map((row) => (

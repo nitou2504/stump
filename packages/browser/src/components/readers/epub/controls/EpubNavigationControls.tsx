@@ -32,13 +32,8 @@ export default function EpubNavigationControls({ children }: Props) {
 	const {
 		readerMeta: { bookEntity: book },
 	} = useEpubReaderContext()
-	const {
-		toggleVisible,
-		onPaginateBackward,
-		onPaginateForward,
-		canGoBackward,
-		canGoForward,
-	} = useEpubReaderControls()
+	const { toggleVisible, onPaginateBackward, onPaginateForward, canGoBackward, canGoForward } =
+		useEpubReaderControls()
 	const {
 		bookPreferences: { readingDirection, readingMode, tapSidesToNavigate },
 	} = useBookPreferences({ book })
@@ -150,9 +145,12 @@ export default function EpubNavigationControls({ children }: Props) {
 				</ControlButton>
 			</div>
 			<div
-				className={cx('group inset-y-0 right-0 w-12 absolute z-20 hidden items-center justify-end', {
-					'md:flex': true,
-				})}
+				className={cx(
+					'group inset-y-0 right-0 w-12 absolute z-20 hidden items-center justify-end',
+					{
+						'md:flex': true,
+					},
+				)}
 			>
 				<ControlButton
 					className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"

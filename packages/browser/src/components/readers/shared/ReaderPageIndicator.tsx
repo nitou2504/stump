@@ -20,7 +20,7 @@ export default function ReaderPageIndicator({ text, onClick, title, className }:
 	if (!shown || !text) return null
 
 	const classes = cn(
-		'px-1.5 py-0.5 text-[11px] absolute z-30 rounded tabular-nums leading-none',
+		'px-1.5 py-0.5 rounded absolute z-30 text-[11px] leading-none tabular-nums',
 		'text-foreground/55 select-none',
 		className,
 	)
@@ -36,7 +36,10 @@ export default function ReaderPageIndicator({ text, onClick, title, className }:
 				type="button"
 				onClick={onClick}
 				title={title}
-				className={cn(classes, 'hover:bg-foreground/10 hover:text-foreground pointer-coarse:pointer-events-none')}
+				className={cn(
+					classes,
+					'hover:bg-foreground/10 hover:text-foreground pointer-coarse:pointer-events-none',
+				)}
 				style={style}
 				data-testid="reader-page-indicator"
 			>

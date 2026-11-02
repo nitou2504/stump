@@ -238,7 +238,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const available = useMemo(
 		() => ({
 			// two pages share the width, with a gap between them
-			width: Math.max(0, (viewport.width - sidePadding * 2 - (double ? gap : 0)) / (double ? 2 : 1)),
+			width: Math.max(
+				0,
+				(viewport.width - sidePadding * 2 - (double ? gap : 0)) / (double ? 2 : 1),
+			),
 			height: Math.max(0, viewport.height - gap * 2),
 		}),
 		[viewport.width, viewport.height, sidePadding, gap, double],
@@ -258,7 +261,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 
 	/** Where a row starts horizontally in the content (rows are centred) */
 	const rowLeft = useCallback(
-		(row: number) => Math.max(sidePadding, (contentWidth - (scrollLayout.rows[row]?.width ?? 0)) / 2),
+		(row: number) =>
+			Math.max(sidePadding, (contentWidth - (scrollLayout.rows[row]?.width ?? 0)) / 2),
 		[sidePadding, contentWidth, scrollLayout.rows],
 	)
 
@@ -287,11 +291,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		: (rows[pagedRow]?.[0] ?? pagedIndex)
 	const currentPage = currentIndex + 1
 	const currentRow = Math.max(0, rowOfPage(rows, currentIndex))
-	const pagesInView = useMemo(() => (rows[currentRow] ?? [currentIndex]).map((index) => index + 1), [
-		rows,
-		currentRow,
-		currentIndex,
-	])
+	const pagesInView = useMemo(
+		() => (rows[currentRow] ?? [currentIndex]).map((index) => index + 1),
+		[rows, currentRow, currentIndex],
+	)
 
 	/** The top of a page in the content, vertically centred in its row */
 	const pageTop = useCallback(
@@ -343,7 +346,9 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					: index
 				anchorRef.current = {
 					index: dominant,
-					progression: continuous ? progressionWithin(scrollLayout, dominant, element.scrollTop) : 0,
+					progression: continuous
+						? progressionWithin(scrollLayout, dominant, element.scrollTop)
+						: 0,
 				}
 				return
 			}
@@ -400,7 +405,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const element = scrollRef.current
 			let within = 0
 			if (target != null && target > 0 && slot && row && element) {
-				const targetY = (pageTop(index) - (continuous ? row.top : 0) + target * slot.height) / row.height
+				const targetY =
+					(pageTop(index) - (continuous ? row.top : 0) + target * slot.height) / row.height
 				within = Math.max(0, targetY - (element.clientHeight * 0.3) / Math.max(1, row.height))
 			}
 			anchorRef.current = { index, progression: within }
@@ -808,10 +814,13 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		pinned: settingsOpen || searchOpen || goToOpen || locationsOpen,
 	})
 
-	const openSettings = useCallback((section: 'shortcuts' | null = null) => {
-		setSettingsSection(section)
-		setSettingsOpen(true)
-	}, [setSettingsSection, setSettingsOpen])
+	const openSettings = useCallback(
+		(section: 'shortcuts' | null = null) => {
+			setSettingsSection(section)
+			setSettingsOpen(true)
+		},
+		[setSettingsSection, setSettingsOpen],
+	)
 
 	const showSearchResult = useCallback(
 		(result: PdfSearchResult) => {
@@ -838,8 +847,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		let best: { page: number; box: DOMRect; distance: number } | null = null
 		for (const element of pagesShown) {
 			const box = element.getBoundingClientRect()
-			const dx = point.x < box.left ? box.left - point.x : point.x > box.right ? point.x - box.right : 0
-			const dy = point.y < box.top ? box.top - point.y : point.y > box.bottom ? point.y - box.bottom : 0
+			const dx =
+				point.x < box.left ? box.left - point.x : point.x > box.right ? point.x - box.right : 0
+			const dy =
+				point.y < box.top ? box.top - point.y : point.y > box.bottom ? point.y - box.bottom : 0
 			const distance = Math.hypot(dx, dy)
 			if (!best || distance < best.distance) {
 				best = { page: Number(element.getAttribute(PAGE_ATTRIBUTE)), box, distance }
@@ -1038,7 +1049,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			start = {
 				distance: Math.max(1, distance(a, b)),
 				mid,
-				origin: { x: element.scrollLeft + mid.x - box.left, y: element.scrollTop + mid.y - box.top },
+				origin: {
+					x: element.scrollLeft + mid.x - box.left,
+					y: element.scrollTop + mid.y - box.top,
+				},
 				zoom: clampZoom(usePdfReaderStore.getState().books[mediaId]?.zoom ?? 1),
 			}
 			ratio = 1

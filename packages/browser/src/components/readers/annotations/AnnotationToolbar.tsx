@@ -123,18 +123,17 @@ export default function AnnotationToolbar({
 	}, [mode, anchor.width, anchor.height])
 
 	const docked = isCoarsePointer()
-	const position = computeToolbarPosition(
-		anchor,
-		size ?? { width: 0, height: 0 },
-		{ width: window.innerWidth, height: window.innerHeight },
-	)
+	const position = computeToolbarPosition(anchor, size ?? { width: 0, height: 0 }, {
+		width: window.innerWidth,
+		height: window.innerHeight,
+	})
 	const edge = dockedEdge(anchor, window.innerHeight)
 	const placementStyle: React.CSSProperties = docked
 		? {
 				left: '50%',
 				transform: 'translateX(-50%)',
 				...(edge === 'bottom'
-					? { bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }
+					? { bottom: 'calc(env(safe-area-inset-bottom) + 30px)' }
 					: { top: 'calc(env(safe-area-inset-top) + 56px)' }),
 			}
 		: { left: position.left, top: position.top }
