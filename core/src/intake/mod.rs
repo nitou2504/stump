@@ -5,6 +5,7 @@
 //! folders. Nothing runs between requests: analysis is a short task per upload, and the
 //! library index it uses is dropped minutes later.
 
+pub mod edit;
 pub mod extract;
 pub mod library_index;
 pub mod lookup;
@@ -77,7 +78,7 @@ pub async fn settings_for(
 		.unwrap_or_else(|| library_intake_settings::Model::defaults_for(library_id)))
 }
 
-async fn load_library(
+pub(crate) async fn load_library(
 	conn: &DatabaseConnection,
 	library_id: &str,
 ) -> CoreResult<(library::Model, Option<library_config::Model>)> {
@@ -631,13 +632,22 @@ fn csv_row(
 
 /// Appends rows to an intake CSV in one write (header first when the file is new)
 pub async fn append_csv(path: &Path, rows: Vec<Vec<String>>) -> CoreResult<()> {
+	append_csv_with_header(path, CSV_HEADER, rows).await
+}
+
+/// Appends rows to a CSV in one write, with `header` first when the file is new
+pub async fn append_csv_with_header(
+	path: &Path,
+	header: &'static [&'static str],
+	rows: Vec<Vec<String>>,
+) -> CoreResult<()> {
 	let _guard = CSV_LOCK.lock().await;
 	let path = path.to_path_buf();
 	tokio::task::spawn_blocking(move || -> std::io::Result<()> {
 		let is_new = std::fs::metadata(&path).map(|m| m.len() == 0).unwrap_or(true);
 		let mut writer = csv::WriterBuilder::new().from_writer(vec![]);
 		if is_new {
-			writer.write_record(CSV_HEADER)?;
+			writer.write_record(header)?;
 		}
 		for row in rows {
 			writer.write_record(row)?;

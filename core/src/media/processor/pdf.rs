@@ -249,6 +249,46 @@ fn split_curator_keywords(keywords: &str) -> (Vec<String>, Vec<(String, String)>
 	(tags, fields)
 }
 
+/// The raw values of a PDF's Info dictionary that a metadata edit rewrites or keeps
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PdfInfoValues {
+	pub title: Option<String>,
+	pub author: Option<String>,
+	pub subject: Option<String>,
+	pub keywords: Option<String>,
+	pub creator: Option<String>,
+	pub producer: Option<String>,
+	pub creation_date: Option<String>,
+}
+
+/// Reads a PDF's Info dictionary (the latest one, after incremental updates)
+pub fn read_info_values(
+	path: &Path,
+	pdfium_path: &Option<String>,
+) -> Result<PdfInfoValues, MediaProcessorError> {
+	let pdfium = renderer(pdfium_path)?;
+	let document = pdfium.load_pdf_from_file(path.to_str().unwrap_or_default(), None)?;
+	let mut info = PdfInfoValues::default();
+	for tag in document.metadata().iter() {
+		let value = tag.value().to_string();
+		if value.is_empty() {
+			continue;
+		}
+		let slot = match tag.tag_type() {
+			PdfDocumentMetadataTagType::Title => &mut info.title,
+			PdfDocumentMetadataTagType::Author => &mut info.author,
+			PdfDocumentMetadataTagType::Subject => &mut info.subject,
+			PdfDocumentMetadataTagType::Keywords => &mut info.keywords,
+			PdfDocumentMetadataTagType::Creator => &mut info.creator,
+			PdfDocumentMetadataTagType::Producer => &mut info.producer,
+			PdfDocumentMetadataTagType::CreationDate => &mut info.creation_date,
+			_ => continue,
+		};
+		*slot = Some(value);
+	}
+	Ok(info)
+}
+
 /// Process the metadata of a PDF file using the specified config/env pdfium path.
 pub fn process_metadata_internal(
 	path: &Path,

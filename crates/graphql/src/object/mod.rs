@@ -25,6 +25,7 @@ pub mod media;
 pub mod media_annotation;
 pub mod media_metadata;
 pub mod media_metadata_overview;
+pub mod metadata_edit;
 pub mod metadata_fetch_record;
 pub mod missing_entity;
 pub mod notifier;

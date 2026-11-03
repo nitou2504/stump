@@ -169,7 +169,7 @@ pub fn parse_google_volume(item: &Value) -> OnlineRecord {
 	}
 }
 
-fn strip_html(text: &str) -> String {
+pub(crate) fn strip_html(text: &str) -> String {
 	let mut out = String::with_capacity(text.len());
 	let mut in_tag = false;
 	for c in text.chars() {

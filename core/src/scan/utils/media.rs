@@ -247,6 +247,7 @@ async fn execute_book_visit(
 		(BookVisitOperation::Custom(custom), Some(book)) => {
 			let mut result = CustomVisitResult {
 				id: book.media.id.clone(),
+				existing_meta: book.metadata.clone().map(Box::new),
 				..Default::default()
 			};
 			if custom.regen_hashes {
@@ -494,10 +495,14 @@ pub(crate) async fn handle_book_visit_operation(
 			if let Some(mut meta) = custom.meta {
 				let tags = meta.tags.take().unwrap_or_default();
 
-				let active_model = media_metadata::ActiveModel {
+				let mut active_model = media_metadata::ActiveModel {
 					media_id: Set(Some(custom.id.clone())),
 					..meta.into_active_model()
 				};
+				// values set by hand (locked fields) outlive a metadata rebuild
+				if let Some(existing) = custom.existing_meta.as_deref() {
+					crate::metadata::locked::keep_locked_fields(&mut active_model, existing);
+				}
 				let upserted_meta = media_metadata::Entity::insert(active_model)
 					.on_conflict(
 						OnConflict::new()
@@ -1033,6 +1038,7 @@ mod tests {
 				..Default::default()
 			})),
 			hashes: None,
+			existing_meta: None,
 		});
 
 		let txn = db.begin().await.unwrap();
@@ -1057,6 +1063,7 @@ mod tests {
 				..Default::default()
 			})),
 			hashes: None,
+			existing_meta: None,
 		});
 
 		let txn = db.begin().await.unwrap();
@@ -1083,6 +1090,58 @@ mod tests {
 			"there should only be one metadata record for the media"
 		);
 		// ^ i.e., it should have entered the on_conflict upsert path
+	}
+
+	#[tokio::test]
+	async fn test_metadata_rebuild_keeps_locked_fields() {
+		let db = test_database().await;
+		let library = fake_data::Library::default().insert(&db).await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let media = fake_data::Media {
+			series_id: series.id.clone(),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let existing = media_metadata::ActiveModel {
+			media_id: Set(Some(media.id.clone())),
+			title: Set(Some("old title".to_string())),
+			genres: Set(Some("Philosophy".to_string())),
+			locked_fields: Set(Some(serde_json::json!(["GENRES"]))),
+			..Default::default()
+		}
+		.insert(&db)
+		.await
+		.unwrap();
+
+		let visit = BookVisitResult::Custom(CustomVisitResult {
+			id: media.id.clone(),
+			meta: Some(Box::new(ProcessedMediaMetadata {
+				title: Some("title from the file".to_string()),
+				genres: Some(vec!["Physics & Astronomy".to_string()]),
+				..Default::default()
+			})),
+			hashes: None,
+			existing_meta: Some(Box::new(existing)),
+		});
+		let txn = db.begin().await.unwrap();
+		handle_book_visit_operation(&txn, visit).await.unwrap();
+		txn.commit().await.unwrap();
+
+		let row = media_metadata::Entity::find()
+			.filter(media_metadata::Column::MediaId.eq(media.id.clone()))
+			.one(&db)
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(row.title, Some("title from the file".to_string()));
+		assert_eq!(row.genres, Some("Philosophy".to_string()));
+		assert_eq!(row.locked_fields, Some(serde_json::json!(["GENRES"])));
 	}
 
 	#[tokio::test]

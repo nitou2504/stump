@@ -91,7 +91,7 @@ pub fn order_tags(tags: &[String]) -> Vec<String> {
 	big.chain(small).chain(facets).map(|t| t.to_string()).collect()
 }
 
-fn num(v: f64) -> String {
+pub(crate) fn num(v: f64) -> String {
 	if v.fract() == 0.0 {
 		format!("{}", v as i64)
 	} else {
@@ -121,7 +121,7 @@ pub fn file_as(name: &str) -> String {
 	format!("{}, {}", words[start..].join(" "), words[..start].join(" "))
 }
 
-fn temp_path(path: &Path) -> PathBuf {
+pub(crate) fn temp_path(path: &Path) -> PathBuf {
 	let name = path
 		.file_name()
 		.map(|n| n.to_string_lossy().into_owned())
@@ -131,7 +131,7 @@ fn temp_path(path: &Path) -> PathBuf {
 
 /// Copies every entry of `source` except `skip` into a new archive at `target`, then lets
 /// `extra` add entries. `mimetype` goes first and stored when present.
-fn rewrite_zip(
+pub(crate) fn rewrite_zip(
 	source: &Path,
 	target: &Path,
 	skip: &dyn Fn(&str) -> bool,
@@ -169,7 +169,7 @@ fn replace_with(tmp: &Path, path: &Path) -> WriteResult<()> {
 
 // ------------------------------------------------------------------ EPUB
 
-fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
+pub(crate) fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
 	let mut container = String::new();
 	archive
 		.by_name("META-INF/container.xml")?
@@ -228,7 +228,7 @@ pub fn write_epub(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 	result
 }
 
-fn check_xml(text: &str) -> WriteResult<()> {
+pub(crate) fn check_xml(text: &str) -> WriteResult<()> {
 	let mut reader = quick_xml::Reader::from_str(text);
 	loop {
 		match reader.read_event() {
@@ -446,7 +446,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	))
 }
 
-fn html_unescape(s: &str) -> String {
+pub(crate) fn html_unescape(s: &str) -> String {
 	s.replace("&lt;", "<")
 		.replace("&gt;", ">")
 		.replace("&quot;", "\"")
@@ -573,7 +573,7 @@ pub fn pdf_keywords(meta: &FileMetadata) -> String {
 }
 
 /// A PDF text string: literal when ASCII, else UTF-16BE hex with a BOM
-fn pdf_string(text: &str) -> String {
+pub(crate) fn pdf_string(text: &str) -> String {
 	if text.is_ascii() {
 		let escaped = text
 			.replace('\\', "\\\\")
@@ -668,14 +668,9 @@ pub struct KeptPdfInfo {
 	pub creation_date: Option<String>,
 }
 
-/// Appends a new Info dictionary to a PDF as an incremental update (in place)
-pub fn write_pdf(path: &Path, meta: &FileMetadata, kept: &KeptPdfInfo) -> WriteResult<()> {
-	let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
-	let trailer = read_trailer(&mut file)?;
-	if trailer.encrypted {
-		return Err(WriteError::Invalid("encrypted PDFs are left untouched".into()));
-	}
-
+/// The Info dictionary entries book-curator writes for a book (values already encoded as PDF
+/// strings)
+pub fn pdf_info_entries(meta: &FileMetadata, kept: &KeptPdfInfo) -> Vec<(String, String)> {
 	let mut info: Vec<(String, String)> = vec![];
 	if let Some(title) = &meta.title {
 		info.push(("Title".into(), pdf_string(title)));
@@ -691,19 +686,42 @@ pub fn write_pdf(path: &Path, meta: &FileMetadata, kept: &KeptPdfInfo) -> WriteR
 	if !keywords.is_empty() {
 		info.push(("Keywords".into(), pdf_string(&keywords)));
 	}
-	if let Some(v) = &kept.creator {
-		info.push(("Creator".into(), pdf_string(v)));
+	kept.push_entries(&mut info);
+	info
+}
+
+impl KeptPdfInfo {
+	/// Adds the kept values (and a fresh ModDate) to Info entries
+	pub fn push_entries(&self, info: &mut Vec<(String, String)>) {
+		if let Some(v) = &self.creator {
+			info.push(("Creator".into(), pdf_string(v)));
+		}
+		if let Some(v) = &self.producer {
+			info.push(("Producer".into(), pdf_string(v)));
+		}
+		if let Some(v) = &self.creation_date {
+			info.push(("CreationDate".into(), pdf_string(v)));
+		}
+		info.push((
+			"ModDate".into(),
+			pdf_string(&chrono::Utc::now().format("D:%Y%m%d%H%M%SZ").to_string()),
+		));
 	}
-	if let Some(v) = &kept.producer {
-		info.push(("Producer".into(), pdf_string(v)));
+}
+
+/// Appends a new Info dictionary to a PDF as an incremental update (in place)
+pub fn write_pdf(path: &Path, meta: &FileMetadata, kept: &KeptPdfInfo) -> WriteResult<()> {
+	append_pdf_info(path, &pdf_info_entries(meta, kept))
+}
+
+/// Appends `info` (keys and PDF-encoded values) as the PDF's new Info dictionary, in an
+/// incremental update: the rest of the file is untouched
+pub fn append_pdf_info(path: &Path, info: &[(String, String)]) -> WriteResult<()> {
+	let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+	let trailer = read_trailer(&mut file)?;
+	if trailer.encrypted {
+		return Err(WriteError::Invalid("encrypted PDFs are left untouched".into()));
 	}
-	if let Some(v) = &kept.creation_date {
-		info.push(("CreationDate".into(), pdf_string(v)));
-	}
-	info.push((
-		"ModDate".into(),
-		pdf_string(&chrono::Utc::now().format("D:%Y%m%d%H%M%SZ").to_string()),
-	));
 
 	let len = file.metadata()?.len();
 	// a new line first in case the file does not end with one
@@ -711,7 +729,7 @@ pub fn write_pdf(path: &Path, meta: &FileMetadata, kept: &KeptPdfInfo) -> WriteR
 	let info_number = trailer.size;
 	let info_offset = len + update.len() as u64;
 	update.extend_from_slice(format!("{info_number} 0 obj\n<<").as_bytes());
-	for (key, value) in &info {
+	for (key, value) in info {
 		update.extend_from_slice(format!(" /{key} {value}").as_bytes());
 	}
 	update.extend_from_slice(b" >>\nendobj\n");

@@ -17,6 +17,7 @@ mod library;
 mod log;
 pub(crate) mod media;
 mod media_metadata_overview;
+mod metadata_edit;
 pub mod metadata_facets;
 mod metadata_provider;
 mod notifier;
@@ -52,6 +53,7 @@ use library::LibraryQuery;
 use log::LogQuery;
 use media::MediaQuery;
 use media_metadata_overview::MediaMetadataOverviewQuery;
+use metadata_edit::MetadataEditQuery;
 use metadata_facets::MetadataFacetQuery;
 use metadata_provider::MetadataProviderQuery;
 use notifier::NotifierQuery;
@@ -89,6 +91,7 @@ struct ContentQueries(
 	EpubQuery,
 	TagQuery,
 	MediaMetadataOverviewQuery,
+	MetadataEditQuery,
 	MetadataFacetQuery,
 	ReadingSessionQuery,
 	ReadingTimelineQuery,

@@ -2,22 +2,40 @@ use crate::{
 	data::{AuthContext, CoreContext},
 	guard::PermissionGuard,
 	input::media::{MediaMetadataInput, MediaMetadataSearchInput},
-	object::{media::Media, metadata_fetch_record::MetadataFetchRecord},
+	object::{
+		media::Media,
+		metadata_edit::{MetadataEditFile, MetadataEditResult},
+		metadata_fetch_record::MetadataFetchRecord,
+	},
 };
-use async_graphql::{Context, Object, Result, ID};
+use async_graphql::{Context, MaybeUndefined, Object, Result, ID};
 use metadata_integrations::{
 	MatchCandidate, MergeStrategy, MetadataField, MetadataFieldOverride, SearchQuery,
 };
 use models::{
-	entity::{media, media_metadata, metadata_fetch_record},
+	entity::{library, library_config, media, media_metadata, metadata_fetch_record},
 	shared::enums::{MetadataFetchStatus, UserPermission},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel, TransactionTrait};
 use std::collections::HashMap;
-use stump_core::metadata::{
-	membership::{remove_series_thumbnails, sync_media_membership},
-	provider::ProviderClientCache,
+use stump_core::{
+	intake::edit::{clean_genres, clean_writers, write_edit},
+	metadata::{
+		locked::locked_fields_of,
+		membership::{remove_series_thumbnails, sync_media_membership},
+		provider::ProviderClientCache,
+	},
 };
+
+fn clean_list(
+	value: MaybeUndefined<Vec<String>>,
+	clean: fn(&[String]) -> Vec<String>,
+) -> MaybeUndefined<Vec<String>> {
+	match value {
+		MaybeUndefined::Value(values) => MaybeUndefined::Value(clean(&values)),
+		other => other,
+	}
+}
 
 #[derive(Default)]
 pub struct MediaMetadataMutation;
@@ -64,6 +82,90 @@ impl MediaMetadataMutation {
 		};
 
 		Ok(model.into())
+	}
+
+	/// Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
+	/// files carry title, authors, series, genres, summary and more), so they survive
+	/// rescans and the library's curator sees them. The original file is kept in the
+	/// quarantine folder when one is set. Changes a file cannot carry stay in Stump and are
+	/// locked so rescans keep them. Every change is logged in `stump_edits.csv`.
+	#[graphql(guard = "PermissionGuard::one(UserPermission::EditMetadata)")]
+	async fn edit_media_metadata(
+		&self,
+		ctx: &Context<'_>,
+		id: ID,
+		mut input: MediaMetadataInput,
+	) -> Result<MetadataEditResult> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let core = ctx.data::<CoreContext>()?;
+		let conn = core.conn.as_ref();
+
+		input.genres = clean_list(input.genres, clean_genres);
+		input.writers = clean_list(input.writers, clean_writers);
+
+		let model = media::ModelWithMetadata::find_for_user(user)
+			.filter(media::Column::Id.eq(id.to_string()))
+			.into_model::<media::ModelWithMetadata>()
+			.one(conn)
+			.await?
+			.ok_or("Media not found")?;
+		let (library, library_config) = library::Entity::find_by_id(model.media.library_id.clone())
+			.find_also_related(library_config::Entity)
+			.one(conn)
+			.await?
+			.ok_or("Library not found")?;
+		let library_config = library_config.ok_or("Library configuration not found")?;
+		let old = model.metadata.clone().unwrap_or_default();
+
+		let txn = conn.begin().await?;
+		let updated = if let Some(existing) = &model.metadata {
+			let mut active_model = input.into_active_model();
+			active_model.id = Set(existing.id);
+			active_model.media_id = Set(Some(model.media.id.clone()));
+			active_model.update(&txn).await?
+		} else {
+			let mut active_model = input.into_active_model();
+			active_model.media_id = Set(Some(model.media.id.clone()));
+			active_model.insert(&txn).await?
+		};
+		let (book, thumbnails) =
+			sync_media_membership(&txn, model.media, updated.series.clone()).await?;
+		txn.commit().await?;
+		remove_series_thumbnails(thumbnails).await;
+
+		let outcome = write_edit(
+			core,
+			&book,
+			&library,
+			&library_config,
+			&old,
+			&updated,
+			&user.username,
+		)
+		.await;
+
+		if !outcome.locks.is_empty() {
+			let mut locked = locked_fields_of(&updated.locked_fields);
+			for field in &outcome.locks {
+				if !locked.contains(field) {
+					locked.push(*field);
+				}
+			}
+			let mut active = updated.clone().into_active_model();
+			active.locked_fields = Set(Some(serde_json::to_value(&locked)?));
+			active.update(conn).await?;
+		}
+
+		let media = media::ModelWithMetadata::find_for_user(user)
+			.filter(media::Column::Id.eq(id.to_string()))
+			.into_model::<media::ModelWithMetadata>()
+			.one(conn)
+			.await?
+			.ok_or("Media not found")?;
+		Ok(MetadataEditResult {
+			media: media.into(),
+			file: MetadataEditFile::from(outcome),
+		})
 	}
 
 	/// Search external metadata providers for a media item and return the resulting fetch

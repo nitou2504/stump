@@ -34,6 +34,8 @@ pub struct CustomVisitResult {
 	pub meta: Option<Box<ProcessedMediaMetadata>>,
 	/// The hashes that were generated during the visit, if any
 	pub hashes: Option<GeneratedFileHashes>,
+	/// The book's stored metadata, whose locked fields the new metadata keeps
+	pub existing_meta: Option<Box<models::entity::media_metadata::Model>>,
 }
 
 #[derive(Clone)]
@@ -175,6 +177,7 @@ mod tests {
 			id: "book".to_string(),
 			meta: None,
 			hashes: None,
+			existing_meta: None,
 		});
 		assert_eq!(result.error_ctx(), "book".to_string());
 
@@ -182,6 +185,7 @@ mod tests {
 			id: "book".to_string(),
 			meta: None,
 			hashes: None,
+			existing_meta: None,
 		});
 		assert_eq!(result.error_ctx(), "book".to_string());
 	}

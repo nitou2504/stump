@@ -77,8 +77,7 @@ pub async fn prepare_draft(
 		.unwrap_or_else(|| Uuid::new_v4().to_string());
 
 	let pages = processed.pages;
-	// TODO(metadata): we should consider locked metadata fields and only overwrite unlocked fields
-	let (resolved_metadata, resolved_tags) = processed
+	let (mut resolved_metadata, resolved_tags) = processed
 		.metadata
 		.or_else(|| {
 			(library_config.organization_mode == OrganizationMode::Metadata)
@@ -104,6 +103,13 @@ pub async fn prepare_draft(
 			(Some(active), tags)
 		})
 		.unwrap_or_default();
+	// values set by hand (locked fields) outlive a rebuild from the file
+	if let (Some(active), Some(existing)) = (
+		resolved_metadata.as_mut(),
+		existing.and_then(|e| e.metadata.as_ref()),
+	) {
+		crate::metadata::locked::keep_locked_fields(active, existing);
+	}
 
 	let active_model = media::ActiveModel {
 		id: Set(id),

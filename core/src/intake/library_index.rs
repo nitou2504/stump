@@ -537,6 +537,14 @@ impl LibraryIndex {
 		out
 	}
 
+	/// The position of a library book in [`LibraryIndex::books`]
+	pub fn book_position(&self, media_id: &str) -> Option<u32> {
+		self.books
+			.iter()
+			.position(|b| b.media_id == media_id)
+			.map(|i| i as u32)
+	}
+
 	pub fn vocab_index(&self, norm_value: &str) -> Option<u32> {
 		self.vocab_by_norm.get(norm_value).copied()
 	}

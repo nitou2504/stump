@@ -1,4 +1,5 @@
 pub mod error;
+pub mod locked;
 pub mod media;
 pub mod membership;
 pub mod provider;

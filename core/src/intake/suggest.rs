@@ -237,10 +237,11 @@ pub fn merge_online(meta: &mut IntakeMetadata, online: &[OnlineRecord]) {
 	}
 }
 
-#[derive(Default)]
-struct Score {
-	value: f64,
-	reasons: Vec<String>,
+/// The evidence for one tag: its summed weight and why
+#[derive(Default, Debug, Clone)]
+pub struct Score {
+	pub value: f64,
+	pub reasons: Vec<String>,
 }
 
 fn add(scores: &mut HashMap<u32, Score>, tag: u32, value: f64, reason: String) {
@@ -273,12 +274,14 @@ fn tag_votes(
 	books: &[u32],
 	weight: f64,
 	what: &str,
+	exclude: Option<u32>,
 ) {
+	let books: Vec<u32> = books.iter().copied().filter(|b| Some(*b) != exclude).collect();
 	if books.is_empty() {
 		return;
 	}
 	let mut counts: HashMap<u32, u32> = HashMap::new();
-	for book in books {
+	for book in &books {
 		for tag in &index.books[*book as usize].genres {
 			*counts.entry(*tag).or_default() += 1;
 		}
@@ -313,6 +316,22 @@ pub fn suggest_genres(
 	similar: &[(u32, f32)],
 	series_kind: Option<IntakeSeriesKind>,
 ) -> Vec<IntakeGenreSuggestion> {
+	let scores = score_tags(index, meta, author_folder, similar, series_kind, None);
+	rank_suggestions(index, scores, series_kind)
+}
+
+/// The evidence for each of the library's tags: the subjects (file and online), the same
+/// author's and series' books, books with a similar description, the era and the shelf of
+/// manga / light novels. `exclude` leaves one library book (the book being edited) out of
+/// the votes.
+pub fn score_tags(
+	index: &LibraryIndex,
+	meta: &IntakeMetadata,
+	author_folder: Option<&str>,
+	similar: &[(u32, f32)],
+	series_kind: Option<IntakeSeriesKind>,
+	exclude: Option<u32>,
+) -> HashMap<u32, Score> {
 	let mut scores: HashMap<u32, Score> = HashMap::new();
 	let file_subjects = meta.source_of("subjects") == Some(IntakeSource::File);
 
@@ -355,17 +374,22 @@ pub fn suggest_genres(
 			}
 		}
 	}
-	tag_votes(&mut scores, index, &author_books, 0.8, "books by this author");
+	tag_votes(&mut scores, index, &author_books, 0.8, "books by this author", exclude);
 	if let Some(series) = &meta.series {
 		let series_books = index.books_in_series(series);
-		tag_votes(&mut scores, index, series_books, 0.9, "books of this series");
+		tag_votes(&mut scores, index, series_books, 0.9, "books of this series", exclude);
 	}
 
 	// 3. books with similar descriptions
+	let similar: Vec<(u32, f32)> = similar
+		.iter()
+		.copied()
+		.filter(|(b, _)| Some(*b) != exclude)
+		.collect();
 	let total: f32 = similar.iter().map(|(_, s)| s).sum();
 	if total > 0.0 {
 		let mut weights: HashMap<u32, (f32, u32)> = HashMap::new();
-		for (book, sim) in similar {
+		for (book, sim) in &similar {
 			for tag in &index.books[*book as usize].genres {
 				let e = weights.entry(*tag).or_default();
 				e.0 += sim;
@@ -403,6 +427,16 @@ pub fn suggest_genres(
 		add(&mut scores, tag, 1.0, "manga / light novel".to_string());
 	}
 
+	scores
+}
+
+/// The suggestions from scored tags, best first, with the default choice marked: at most
+/// three big and three small tags, one facet per prefix, never a curator-only facet
+pub fn rank_suggestions(
+	index: &LibraryIndex,
+	scores: HashMap<u32, Score>,
+	series_kind: Option<IntakeSeriesKind>,
+) -> Vec<IntakeGenreSuggestion> {
 	let mut ranked: Vec<(u32, Score)> = scores.into_iter().collect();
 	ranked.sort_by(|a, b| {
 		b.1.value
