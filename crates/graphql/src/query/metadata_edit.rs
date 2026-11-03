@@ -34,7 +34,7 @@ impl MetadataEditQuery {
 			.await?
 			.ok_or("Media not found")?;
 		let meta = book.metadata.clone().unwrap_or_default();
-		Ok(suggest_for_book(core, &book.media, &meta, online)
+		Ok(Box::pin(suggest_for_book(core, &book.media, &meta, online))
 			.await?
 			.into())
 	}

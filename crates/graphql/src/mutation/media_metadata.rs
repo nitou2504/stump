@@ -105,7 +105,8 @@ impl MediaMetadataMutation {
 		input.writers = clean_list(input.writers, clean_writers);
 
 		let model = find_book(core, user, &id).await?;
-		let saved = save_edit(
+		// boxed: a save's future is big (file write, read-back, hashes)
+		let saved = Box::pin(save_edit(
 			core,
 			model.media,
 			model.metadata,
@@ -115,7 +116,7 @@ impl MediaMetadataMutation {
 				username: &user.username,
 			},
 			None,
-		)
+		))
 		.await?;
 		edit_result(core, user, saved).await
 	}
@@ -134,7 +135,7 @@ impl MediaMetadataMutation {
 		let core = ctx.data::<CoreContext>()?;
 
 		let model = find_book(core, user, &media_id).await?;
-		let saved = revert_save(
+		let saved = Box::pin(revert_save(
 			core,
 			model.media,
 			model.metadata,
@@ -143,7 +144,7 @@ impl MediaMetadataMutation {
 				id: &user.id,
 				username: &user.username,
 			},
-		)
+		))
 		.await?;
 		edit_result(core, user, saved).await
 	}

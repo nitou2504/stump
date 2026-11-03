@@ -1254,9 +1254,6 @@ async fn prepare_edited_copy(
 	let (src, dst, changes_owned) = (path.to_path_buf(), work.clone(), changes.clone());
 	let written = tokio::task::spawn_blocking(move || -> WriteResult<()> {
 		std::fs::copy(&src, &dst)?;
-		if let Ok(meta) = std::fs::metadata(&src) {
-			let _ = std::fs::set_permissions(&dst, meta.permissions());
-		}
 		match format {
 			EditableFormat::Epub => write_epub_changes(&dst, &changes_owned),
 			EditableFormat::Cbz => write_cbz_changes(&dst, &changes_owned),
@@ -1264,7 +1261,10 @@ async fn prepare_edited_copy(
 				&dst,
 				&pdf_info_after(&existing_pdf.unwrap_or_default(), &changes_owned),
 			),
-		}
+		}?;
+		// the archive writers make a new file: give it the book's permissions back
+		std::fs::set_permissions(&dst, std::fs::metadata(&src)?.permissions())?;
+		Ok(())
 	})
 	.await
 	.map_err(|e| e.to_string())?;
@@ -1333,7 +1333,9 @@ pub async fn write_edit(
 			tokio::task::spawn_blocking(move || file_stamp(&p)).await
 		};
 		let prepared = match stamp {
-			Ok(Ok(stamp)) => prepare_edited_copy(ctx, &path, format, &changes)
+			// boxed, like the other steps of a save: their futures are big, and nested
+			// they overflowed a worker thread's stack (debug builds)
+			Ok(Ok(stamp)) => Box::pin(prepare_edited_copy(ctx, &path, format, &changes))
 				.await
 				.map(|work| (work, stamp)),
 			Ok(Err(error)) => Err(format!("the book file could not be read: {error}")),
@@ -1351,12 +1353,12 @@ pub async fn write_edit(
 						written = fields_written(changed, &changes);
 						// the new size and hashes, and a modification time after the file's,
 						// so the next scan doesn't rebuild the book
-						if let Err(error) = refresh_media_after_swap(
+						if let Err(error) = Box::pin(refresh_media_after_swap(
 							ctx.conn.as_ref(),
 							&ctx.config,
 							library_config,
 							book,
-						)
+						))
 						.await
 						{
 							tracing::warn!(?error, path = %book.path, "Could not refresh an edited book");
@@ -1533,7 +1535,7 @@ pub async fn save_edit(
 	txn.commit().await?;
 	remove_series_thumbnails(thumbnails).await;
 
-	let mut outcome = write_edit(
+	let mut outcome = Box::pin(write_edit(
 		ctx,
 		&book,
 		&library,
@@ -1541,7 +1543,7 @@ pub async fn save_edit(
 		&changed,
 		&updated,
 		editor.username,
-	)
+	))
 	.await;
 	outcome.locks = locks;
 
@@ -1638,7 +1640,15 @@ pub async fn revert_save(
 				.to_string(),
 		));
 	}
-	let mut saved = save_edit(ctx, book, existing, active, editor, Some(save_id)).await?;
+	let mut saved = Box::pin(save_edit(
+		ctx,
+		book,
+		existing,
+		active,
+		editor,
+		Some(save_id),
+	))
+	.await?;
 	saved.skipped = skipped;
 	Ok(saved)
 }
@@ -2563,6 +2573,11 @@ mod tests {
 		std::fs::create_dir_all(root.join("Robert_Pantano")).unwrap();
 		let book_path = root.join("Robert_Pantano/Notes.epub");
 		readable_epub(&book_path);
+		{
+			use std::os::unix::fs::PermissionsExt;
+			std::fs::set_permissions(&book_path, std::fs::Permissions::from_mode(0o640))
+				.unwrap();
+		}
 
 		let library = fake_data::Library {
 			path: Some(root.to_string_lossy().into_owned()),
@@ -2631,6 +2646,11 @@ mod tests {
 			.collect();
 		names.sort();
 		assert_eq!(names, vec!["Notes.epub"]);
+		{
+			use std::os::unix::fs::PermissionsExt;
+			let mode = std::fs::metadata(&book_path).unwrap().permissions().mode();
+			assert_eq!(mode & 0o777, 0o640, "the book keeps its permissions");
+		}
 		assert!(dir.path().join("biblioteca/stump_edits.csv").exists());
 
 		let conn = ctx.conn.as_ref();
