@@ -492,7 +492,7 @@ export type ConfidenceFactor = {
 /** An event that is emitted by the core and consumed by a client */
 export type CoreEvent = CreatedManySeries | CreatedMedia | CreatedOrUpdatedManyMedia | DiscoveredMissingLibrary | JobOutput | JobStarted | JobUpdate;
 
-export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | PostProcessOutput | SeriesScanOutput | ThumbnailGenerationOutput | TrashPurgeOutput;
+export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | PostProcessOutput | RescanBooksOutput | SeriesScanOutput | ThumbnailGenerationOutput | TrashPurgeOutput;
 
 export type CreateAnnotationInput = {
   annotationText?: InputMaybe<Scalars['String']['input']>;
@@ -726,14 +726,14 @@ export type DeletedBooksPurgeError = {
 /** What deleting books permanently did */
 export type DeletedBooksPurgeResult = {
   __typename?: 'DeletedBooksPurgeResult';
+  /** The size of the book files deleted */
+  freedBytes: Scalars['Int']['output'];
   /** Books kept in Deleted books, with why */
   kept: Array<DeletedBooksPurgeError>;
   /** Books whose file was already gone: only their data was deleted */
   missingFiles: Scalars['Int']['output'];
-  /** Books whose file went to the quarantine folder and whose data was deleted */
+  /** Books deleted permanently: their file and their data */
   purged: Scalars['Int']['output'];
-  /** The size of the files moved to the quarantine folder */
-  quarantinedBytes: Scalars['Int']['output'];
 };
 
 /** What an automatic purge of expired deleted books did */
@@ -741,7 +741,7 @@ export type DeletedBooksPurgeSummary = {
   __typename?: 'DeletedBooksPurgeSummary';
   /** Why books were kept (the first few) */
   errors: Array<DeletedBooksPurgeError>;
-  /** Books kept in Deleted books because their file couldn't be moved */
+  /** Books kept in Deleted books because their file couldn't be deleted */
   failed: Scalars['Int']['output'];
   /** When it finished */
   finishedAt: Scalars['DateTime']['output'];
@@ -749,28 +749,34 @@ export type DeletedBooksPurgeSummary = {
   jobId?: Maybe<Scalars['String']['output']>;
   /** Books whose file was already gone: only their data was deleted */
   missingFiles: Scalars['Int']['output'];
-  /** Books whose file went to the quarantine folder and whose data was deleted */
+  /** Held originals (and put-back versions) whose time was over, deleted */
+  originals: Scalars['Int']['output'];
+  /** Books deleted permanently (their file and their data) */
   purged: Scalars['Int']['output'];
 };
 
 /** How *Deleted books* works on this server */
 export type DeletedBooksSettings = {
   __typename?: 'DeletedBooksSettings';
+  heldBytes: Scalars['Int']['output'];
+  /** How many files are held there, and their size */
+  heldFiles: Scalars['Int']['output'];
   /** What it did (library managers only) */
   lastPurge?: Maybe<DeletedBooksPurgeSummary>;
   /** When the automatic purge last ran (library managers only) */
   lastPurgeAt?: Maybe<Scalars['DateTime']['output']>;
   /** When the automatic purge runs next (null when it is off) */
   nextPurgeAt?: Maybe<Scalars['DateTime']['output']>;
-  /** The folder book files go to when they are deleted permanently (library managers only) */
-  quarantineDir?: Maybe<Scalars['String']['output']>;
   /**
-   * Whether books with a file can be deleted permanently: the quarantine folder is set and
-   * exists
+   * How many days removed books and held files stay in Deleted books (0: until deleted by
+   * hand)
    */
-  quarantineReady: Scalars['Boolean']['output'];
-  /** How many days removed books stay in Deleted books (0: until deleted by hand) */
   retentionDays: Scalars['Int']['output'];
+  /**
+   * Stump's trash folder, where the files taken out of a library (originals replaced by
+   * post-processing) are held (library managers only)
+   */
+  trashDir?: Maybe<Scalars['String']['output']>;
 };
 
 export enum Dimension {
@@ -1108,6 +1114,72 @@ export type GlobalReadingTimelineNode = {
   session: SessionWithEvents;
 };
 
+/**
+ * A file Stump took out of a library and holds in its trash folder for the retention: the
+ * original of a book post-processing replaced, or the version a put-back replaced
+ */
+export type HeldFile = {
+  __typename?: 'HeldFile';
+  /** The book, when it is still in Stump (removed books included) */
+  book?: Maybe<Media>;
+  bytes: Scalars['Int']['output'];
+  /** Whether it can be put back: its file is in the trash folder and its book is in Stump */
+  canPutBack: Scalars['Boolean']['output'];
+  /** When its time in Deleted books is over (null: kept until deleted by hand) */
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  heldAt: Scalars['DateTime']['output'];
+  /** Who made Stump take it out (null: post-processing) */
+  heldBy?: Maybe<Scalars['String']['output']>;
+  id: Scalars['Int']['output'];
+  libraryId?: Maybe<Scalars['String']['output']>;
+  libraryName?: Maybe<Scalars['String']['output']>;
+  /** When the automatic purge will delete it */
+  purgeAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Why it was taken out */
+  reason: HeldFileReason;
+  /** Where it was, inside its library */
+  relativePath: Scalars['String']['output'];
+  /** For a PDF: the post-processing steps asked for (`OCR`, `SHRINK`, `OCR+SHRINK`) */
+  steps?: Maybe<Scalars['String']['output']>;
+  /** The book's title when the file was held */
+  title: Scalars['String']['output'];
+};
+
+export type HeldFileKept = {
+  __typename?: 'HeldFileKept';
+  error: Scalars['String']['output'];
+  id: Scalars['Int']['output'];
+  title: Scalars['String']['output'];
+};
+
+/** What putting a held file back did */
+export type HeldFilePutBack = {
+  __typename?: 'HeldFilePutBack';
+  /** The book, with its file back */
+  book: Media;
+  /** The version that was in the library, now held in turn (null: there was none) */
+  replaced?: Maybe<Scalars['Int']['output']>;
+};
+
+/** Why Stump holds a file in its trash folder */
+export enum HeldFileReason {
+  /** The original of a manga volume reduced to 16 grey levels */
+  Grey_16 = 'GREY_16',
+  /** The original of a PDF the PDF worker OCRed and/or shrank */
+  Pdf = 'PDF',
+  /** The version of a book that was in the library when its held original was put back */
+  PutBack = 'PUT_BACK'
+}
+
+/** What deleting held files did */
+export type HeldFilesDeleteResult = {
+  __typename?: 'HeldFilesDeleteResult';
+  deleted: Scalars['Int']['output'];
+  freedBytes: Scalars['Int']['output'];
+  /** The ones kept, with why */
+  kept: Array<HeldFileKept>;
+};
+
 /** The sections displayed on a user's home page. */
 export type HomeArrangement = {
   __typename?: 'HomeArrangement';
@@ -1396,10 +1468,12 @@ export type IntakeProposal = {
   duplicates: Array<IntakeDuplicate>;
   /** Tags from the library's vocabulary, best first */
   genreSuggestions: Array<IntakeGenreSuggestion>;
-  /** Whether online lookups were used */
+  /** Whether an online source found the book (a failed or empty lookup isn't one) */
   lookedUpOnline: Scalars['Boolean']['output'];
   /** The merged metadata (file, file name, online lookups), with sources */
   metadata: IntakeMetadata;
+  /** How each online source answered, when they were asked */
+  onlineLookups: Array<OnlineLookup>;
   /** Series folders, best first (series and series volumes) */
   seriesFolders: Array<IntakeFolderCandidate>;
   /** Set when the item looks like manga or a light novel */
@@ -1412,8 +1486,6 @@ export type IntakeProposal = {
 /** What filing did */
 export type IntakeResult = {
   __typename?: 'IntakeResult';
-  /** The intake CSV the rows were appended to */
-  csvPath?: Maybe<Scalars['String']['output']>;
   /** Notes, e.g. a metadata field that could not be written into a PDF */
   notes: Array<Scalars['String']['output']>;
   /** Absolute paths of the filed files */
@@ -1733,11 +1805,6 @@ export type LibraryFilterInput = {
  */
 export type LibraryIntakeSettings = {
   __typename?: 'LibraryIntakeSettings';
-  /**
-   * Where the intake CSV is appended to. `None` = next to `catalogo.csv` when the
-   * library's parent folder has one, else in the library root
-   */
-  csvPath?: Maybe<Scalars['String']['output']>;
   libraryId: Scalars['String']['output'];
   /** Folder (relative to the library root) holding one folder per light novel series */
   lightNovelDir: Scalars['String']['output'];
@@ -1748,11 +1815,6 @@ export type LibraryIntakeSettings = {
 };
 
 export type LibraryIntakeSettingsInput = {
-  /**
-   * Empty or omitted: next to `catalogo.csv` when the library's parent has one, else
-   * the library root
-   */
-  csvPath?: InputMaybe<Scalars['String']['input']>;
   lightNovelDir: Scalars['String']['input'];
   mangaDir: Scalars['String']['input'];
   onlineLookup: Scalars['Boolean']['input'];
@@ -1796,8 +1858,11 @@ export type LibraryPostProcessing = {
   pdfQueueDir: Scalars['String']['output'];
   /** The PDF worker container, from its heartbeat in the queue folder */
   pdfWorker: PdfWorker;
-  /** Where replaced originals go (nothing is replaced while this is unset) */
-  quarantineDir?: Maybe<Scalars['String']['output']>;
+  /**
+   * Where replaced originals are kept for the *Deleted books* retention (Stump's trash
+   * folder), as Stump sees it
+   */
+  trashDir: Scalars['String']['output'];
 };
 
 export type LibraryScanConfigInput = {
@@ -2117,7 +2182,13 @@ export type MediaGenreSuggestions = {
   __typename?: 'MediaGenreSuggestions';
   /** The book's current tags, judged against the same evidence */
   current: Array<CurrentGenreFit>;
+  /** Whether an online source found the book (a failed lookup isn't one) */
   lookedUpOnline: Scalars['Boolean']['output'];
+  /**
+   * How each online source answered (empty when they weren't asked): found with N
+   * subjects, no subjects, no match, rate-limited (Google Books without an API key), error
+   */
+  onlineLookups: Array<OnlineLookup>;
   /** Books of the library it was compared with */
   similarBooks: Array<IntakeSimilarBook>;
   /** Subjects found online */
@@ -2180,6 +2251,64 @@ export type MediaMetadata = {
   year?: Maybe<Scalars['Int']['output']>;
 };
 
+/**
+ * One book of `editMediaMetadataBatch`: named by `id` or by `path` (as Stump stores it; both
+ * may be given, then they must agree), with the values to set
+ */
+export type MediaMetadataBatchInput = {
+  id?: InputMaybe<Scalars['ID']['input']>;
+  input: MediaMetadataInput;
+  path?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** One book of `editMediaMetadataBatch`, in the order sent */
+export type MediaMetadataBatchItemResult = {
+  __typename?: 'MediaMetadataBatchItemResult';
+  /** The fields changed (or, for a dry run, that would change), with old and new values */
+  changes: Array<MetadataEditChange>;
+  /** Why it wasn't saved, or why the file kept its old values */
+  errors: Array<Scalars['String']['output']>;
+  /** Where the changes went (or, for a dry run, would go) */
+  file?: Maybe<MetadataEditFile>;
+  /** Its position in `inputs` */
+  index: Scalars['Int']['output'];
+  /** The book found, if any */
+  mediaId?: Maybe<Scalars['String']['output']>;
+  path?: Maybe<Scalars['String']['output']>;
+  /** The id and path the item was sent with */
+  requestedId?: Maybe<Scalars['String']['output']>;
+  requestedPath?: Maybe<Scalars['String']['output']>;
+  /** The save in the book's edit history (revert it with `revertMediaMetadataEdit`) */
+  saveId?: Maybe<Scalars['String']['output']>;
+  status: MetadataBatchItemStatus;
+};
+
+/** How `editMediaMetadataBatch` saves */
+export type MediaMetadataBatchOptions = {
+  /** Only report what would change: nothing is saved or written */
+  dryRun?: Scalars['Boolean']['input'];
+  /** Write the changes into the book files (else they stay in Stump only, locked) */
+  writeToFile?: Scalars['Boolean']['input'];
+};
+
+/** The result of `editMediaMetadataBatch` */
+export type MediaMetadataBatchResult = {
+  __typename?: 'MediaMetadataBatchResult';
+  dryRun: Scalars['Boolean']['output'];
+  failed: Scalars['Int']['output'];
+  items: Array<MediaMetadataBatchItemResult>;
+  notFound: Scalars['Int']['output'];
+  /**
+   * How many books the targeted rescan job queued at the end reads again (the ones whose
+   * files were rewritten; 0: no rescan was needed)
+   */
+  rescanBooks: Scalars['Int']['output'];
+  saved: Scalars['Int']['output'];
+  unchanged: Scalars['Int']['output'];
+  /** Items that would be saved (dry run) */
+  wouldSave: Scalars['Int']['output'];
+};
+
 export type MediaMetadataFilterInput = {
   _and?: InputMaybe<Array<MediaMetadataFilterInput>>;
   _not?: InputMaybe<Array<MediaMetadataFilterInput>>;
@@ -2238,6 +2367,12 @@ export type MediaMetadataInput = {
   pageCount?: InputMaybe<Scalars['Int']['input']>;
   pencillers?: InputMaybe<Array<Scalars['String']['input']>>;
   publisher?: InputMaybe<Scalars['String']['input']>;
+  /**
+   * The book's rating, 0 to 5 (decimals allowed). EPUBs get calibre's half stars and a
+   * precise `bcurator:rating` meta, PDFs a `bcurator:rating=` keyword field, CBZs ComicInfo's
+   * `CommunityRating`
+   */
+  rating?: InputMaybe<Scalars['Decimal']['input']>;
   series?: InputMaybe<Scalars['String']['input']>;
   seriesGroup?: InputMaybe<Scalars['String']['input']>;
   storyArc?: InputMaybe<Scalars['String']['input']>;
@@ -2375,6 +2510,13 @@ export type MediaOrderByField = {
   field: MediaModelOrdering;
 };
 
+/** A path asked for by `mediaByPaths`, and the book there */
+export type MediaPathMatch = {
+  __typename?: 'MediaPathMatch';
+  media?: Maybe<Media>;
+  path: Scalars['String']['output'];
+};
+
 export type MediaProgressInput =
   { epub: EpubProgressInput; paged?: never; }
   |  { epub?: never; paged: PagedProgressInput; };
@@ -2389,6 +2531,20 @@ export enum MergeStrategy {
   PreferExternal = 'PREFER_EXTERNAL',
   /** PreferExternal for scalars, merge/dedupe for array fields */
   PreferExternalAndMergeLists = 'PREFER_EXTERNAL_AND_MERGE_LISTS'
+}
+
+/** What happened to one book of a batch edit */
+export enum MetadataBatchItemStatus {
+  /** Not saved: see `errors` */
+  Failed = 'FAILED',
+  /** No book with that id or path that the caller can see (removed books included) */
+  NotFound = 'NOT_FOUND',
+  /** Saved (see `file` for whether the book file has it) */
+  Saved = 'SAVED',
+  /** Nothing to change: the book already had these values */
+  Unchanged = 'UNCHANGED',
+  /** Dry run: these changes would be saved */
+  WouldSave = 'WOULD_SAVE'
 }
 
 /** One field changed by a save */
@@ -2406,8 +2562,6 @@ export type MetadataEditChange = {
 /** Where the changes of a metadata edit went */
 export type MetadataEditFile = {
   __typename?: 'MetadataEditFile';
-  /** The edits log the change was appended to */
-  csvPath?: Maybe<Scalars['String']['output']>;
   /** The changed fields (camelCase) now in the book file */
   fileFields: Array<Scalars['String']['output']>;
   /** The locks that keep the edited fields through rescans */
@@ -2548,6 +2702,8 @@ export enum MetadataField {
   Pencillers = 'PENCILLERS',
   PublicationRun = 'PUBLICATION_RUN',
   Publisher = 'PUBLISHER',
+  /** The 0-5 rating (a book's own, from its file or set by hand) */
+  Rating = 'RATING',
   ReleaseDate = 'RELEASE_DATE',
   Series = 'SERIES',
   SeriesGroup = 'SERIES_GROUP',
@@ -2578,6 +2734,8 @@ export enum MetadataFileWriteStatus {
   Failed = 'FAILED',
   /** None of the changes is something the file carries */
   NotNeeded = 'NOT_NEEDED',
+  /** The save asked to keep the changes in Stump only (`writeToFile: false`) */
+  Skipped = 'SKIPPED',
   /** The book file now carries the changed values */
   Written = 'WRITTEN'
 }
@@ -2757,6 +2915,8 @@ export type Mutation = {
   deleteCustomEmoji: Scalars['Boolean']['output'];
   deleteEmailDevice: RegisteredEmailDevice;
   deleteEmailer: Emailer;
+  /** Deletes held files for good (their copies in Stump's trash folder and their rows) */
+  deleteHeldFiles: HeldFilesDeleteResult;
   deleteJob: Scalars['Boolean']['output'];
   deleteJobHistory: DeleteJobHistory;
   deleteJobLogs: DeleteJobAssociatedLogs;
@@ -2819,13 +2979,24 @@ export type Mutation = {
   deleteUserSessions: Scalars['Int']['output'];
   /**
    * Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
-   * files carry title, authors, series, genres, summary and more): the edited copy is
-   * read back before it replaces the book, so a failed write leaves the file untouched
+   * files carry title, authors, series, genres, summary, rating and more): the edited copy
+   * is read back before it replaces the book, so a failed write leaves the file untouched
    * and the changes in Stump only. Every edited field is locked so rescans keep it, and
-   * the save is recorded in the book's edit history (see `revertMediaMetadataEdit`) and
-   * in `stump_edits.csv`.
+   * the save is recorded in the book's edit history (see `revertMediaMetadataEdit`).
    */
   editMediaMetadata: MetadataEditResult;
+  /**
+   * Edit many books' metadata in one call (for scripts: an API key with *Edit metadata*
+   * works as a Bearer token). Each item names a book by `id` or by `path` (as Stump stores
+   * it) and carries a `MediaMetadataInput` (omitted fields stay as they are, `null` clears
+   * one). Every item goes through the same save as `editMediaMetadata` (book file written
+   * and read back, database, locks, edit history), in order, one book at a time; an item
+   * that fails doesn't stop the others. `dryRun` reports what would change without saving
+   * anything; `writeToFile: false` keeps the changes in Stump only. Stump's own writes
+   * don't set off a library scan: the books whose files were rewritten are read again by
+   * one targeted rescan job at the end. At most 500 items per call.
+   */
+  editMediaMetadataBatch: MediaMetadataBatchResult;
   /** Edit your own message */
   editMessage: BookClubDiscussionMessage;
   /**
@@ -2889,12 +3060,17 @@ export type Mutation = {
   pinMessage: Scalars['Boolean']['output'];
   processLibraryThumbnails: Scalars['Boolean']['output'];
   /**
-   * Deletes books in *Deleted books* permanently: each file is moved to the quarantine
-   * folder (`deleted/<date>/`, with a `restore_log.csv` row), then the book's data is
-   * deleted. A book whose file can't be moved stays in Deleted books; one whose file is
-   * already gone only has its data deleted
+   * Deletes books in *Deleted books* permanently: the book's data and its file (and the
+   * originals Stump holds for it) are deleted, for good. A book whose file or data can't be
+   * deleted stays in Deleted books; one whose file is already gone only has its data deleted
    */
   purgeDeletedBooks: DeletedBooksPurgeResult;
+  /**
+   * Puts a held file back in its book's place (the original of a book post-processing
+   * replaced): the book's current file is held in turn, so this can be undone the same way
+   * until the retention is over
+   */
+  putBackHeldFile: HeldFilePutBack;
   /** Reject all pending metadata matches, setting their status to NoMatch */
   rejectAllPendingMatches: Scalars['Int']['output'];
   /** Reject the current match candidates for a media item */
@@ -2925,12 +3101,6 @@ export type Mutation = {
   restoreDeletedBooks: Scalars['Int']['output'];
   /** Brings back a book removed with `deleteMedia` */
   restoreMedia: Scalars['Boolean']['output'];
-  /**
-   * Moves the file of a book deleted permanently back from the quarantine folder to where
-   * it was, and scans its folder: it comes back as a new book (its reading progress and
-   * annotations were deleted with it)
-   */
-  restorePurgedBook: PurgedBook;
   /**
    * Revert a save of the book's edit history: the fields it changed get their old values
    * back (in the book file and in Stump), except the ones changed again since, which
@@ -3040,6 +3210,12 @@ export type Mutation = {
   updateNavigationArrangement: Arrangement;
   updateNavigationArrangementLock: Arrangement;
   updateNotifier: Notifier;
+  /**
+   * Sets (or, with null or an empty string, removes) the Google Books API key the online
+   * lookups of *Add books* and *Suggest genres* use. It is stored encrypted and never sent
+   * back (`onlineLookupSettings` only says whether one is set)
+   */
+  updateOnlineLookupSettings: OnlineLookupSettings;
   updatePublicUrl: ServerConfigModel;
   /**
    * Updates an existing reading list.
@@ -3332,6 +3508,11 @@ export type MutationDeleteEmailerArgs = {
 };
 
 
+export type MutationDeleteHeldFilesArgs = {
+  ids: Array<Scalars['Int']['input']>;
+};
+
+
 export type MutationDeleteJobArgs = {
   force?: Scalars['Boolean']['input'];
   id: Scalars['ID']['input'];
@@ -3448,6 +3629,12 @@ export type MutationDeleteUserSessionsArgs = {
 export type MutationEditMediaMetadataArgs = {
   id: Scalars['ID']['input'];
   input: MediaMetadataInput;
+};
+
+
+export type MutationEditMediaMetadataBatchArgs = {
+  inputs: Array<MediaMetadataBatchInput>;
+  options?: InputMaybe<MediaMetadataBatchOptions>;
 };
 
 
@@ -3595,6 +3782,11 @@ export type MutationPurgeDeletedBooksArgs = {
 };
 
 
+export type MutationPutBackHeldFileArgs = {
+  id: Scalars['Int']['input'];
+};
+
+
 export type MutationRejectMediaMatchArgs = {
   candidateIndex: Scalars['Int']['input'];
   mediaId: Scalars['ID']['input'];
@@ -3660,11 +3852,6 @@ export type MutationRestoreDeletedBooksArgs = {
 
 export type MutationRestoreMediaArgs = {
   id: Scalars['ID']['input'];
-};
-
-
-export type MutationRestorePurgedBookArgs = {
-  id: Scalars['Int']['input'];
 };
 
 
@@ -3883,6 +4070,11 @@ export type MutationUpdateNavigationArrangementLockArgs = {
 export type MutationUpdateNotifierArgs = {
   id: Scalars['Int']['input'];
   input: NotifierInput;
+};
+
+
+export type MutationUpdateOnlineLookupSettingsArgs = {
+  googleBooksApiKey?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -4156,6 +4348,48 @@ export type OnDeckBooksInput = {
   name?: InputMaybe<Scalars['String']['input']>;
 };
 
+/** One online source's answer to a lookup, for the review screens */
+export type OnlineLookup = {
+  __typename?: 'OnlineLookup';
+  /**
+   * What happened, in a few words (e.g. "daily limit reached: add an API key in
+   * Settings")
+   */
+  message: Scalars['String']['output'];
+  /** `OPEN_LIBRARY` or `GOOGLE_BOOKS` */
+  source: IntakeSource;
+  status: OnlineLookupStatus;
+  /** How many subjects it gave */
+  subjects: Scalars['Int']['output'];
+};
+
+/** The online lookups of *Add books* and *Suggest genres* (Open Library and Google Books) */
+export type OnlineLookupSettings = {
+  __typename?: 'OnlineLookupSettings';
+  /**
+   * Whether a Google Books API key is set (the key itself is never sent back). Without one,
+   * Google Books lookups share Google's anonymous daily quota, which is often used up
+   */
+  googleBooksApiKeySet: Scalars['Boolean']['output'];
+};
+
+/** How an online source answered a lookup */
+export enum OnlineLookupStatus {
+  /** The source failed (network, timeout, an unexpected answer, a refused API key) */
+  Error = 'ERROR',
+  /** The source answered, but has no matching book */
+  NoMatch = 'NO_MATCH',
+  /** The book was found, but the source has no subjects for it */
+  NoSubjects = 'NO_SUBJECTS',
+  /** The book was found, with subjects */
+  Ok = 'OK',
+  /**
+   * The source refused for now: its request quota (Google Books' shared daily quota
+   * without an API key) is used up
+   */
+  RateLimited = 'RATE_LIMITED'
+}
+
 export enum OrderDirection {
   Asc = 'ASC',
   Desc = 'DESC'
@@ -4401,7 +4635,10 @@ export type PostProcessOutput = {
 
 /** Where a post-processing task stands */
 export enum PostProcessStatus {
-  /** The smaller (or OCRed) file replaced the original, which went to quarantine */
+  /**
+   * The smaller (or OCRed) file replaced the original, which is held in *Deleted books*
+   * for the retention (it can be put back from there)
+   */
   Done = 'DONE',
   /** A dry run's estimate (nothing was changed) */
   Estimated = 'ESTIMATED',
@@ -4411,6 +4648,8 @@ export enum PostProcessStatus {
   Pending = 'PENDING',
   /** Processed, but the result was not used (saves too little, or a quality check failed) */
   Rejected = 'REJECTED',
+  /** The original was put back from *Deleted books*: the book is left as it is */
+  Reverted = 'REVERTED',
   /** Being processed */
   Running = 'RUNNING',
   /** Nothing to do (already 16 greys, born-digital PDF, ...) */
@@ -4498,20 +4737,16 @@ export enum PublicationStatus {
 }
 
 /**
- * A book deleted permanently: its file is in the quarantine folder (unless it was already
- * gone) and can be moved back
+ * A book deleted permanently: its file and its data were deleted; the row records what it
+ * was, where and who deleted it
  */
 export type PurgedBook = {
   __typename?: 'PurgedBook';
   authors: Array<Scalars['String']['output']>;
   /** Deleted by the automatic purge */
   automatic: Scalars['Boolean']['output'];
+  /** The size of its file (null: it was already gone) */
   bytes?: Maybe<Scalars['Int']['output']>;
-  /**
-   * Whether its file can be moved back: it is still in the quarantine folder and nothing
-   * took its place in the library
-   */
-  canRestore: Scalars['Boolean']['output'];
   deletedAt?: Maybe<Scalars['DateTime']['output']>;
   deletedBy?: Maybe<Scalars['String']['output']>;
   id: Scalars['Int']['output'];
@@ -4522,11 +4757,6 @@ export type PurgedBook = {
   purgedAt: Scalars['DateTime']['output'];
   /** Who deleted it permanently, when known */
   purgedBy?: Maybe<Scalars['String']['output']>;
-  /** Where its file is (null: it was already gone) */
-  quarantinePath?: Maybe<Scalars['String']['output']>;
-  /** When its file was moved back into the library */
-  restoredAt?: Maybe<Scalars['DateTime']['output']>;
-  restoredBy?: Maybe<Scalars['String']['output']>;
   title: Scalars['String']['output'];
 };
 
@@ -4573,7 +4803,7 @@ export type Query = {
   deletedBooks: Array<DeletedBook>;
   /**
    * How long removed books are kept and when they are deleted permanently. Users who may
-   * remove books see the retention; library managers also see the quarantine folder and the
+   * remove books see the retention; library managers also see the trash folder and the
    * last automatic purge
    */
   deletedBooksSettings: DeletedBooksSettings;
@@ -4587,6 +4817,12 @@ export type Query = {
   finishedReadingSessionCount: Scalars['Int']['output'];
   getNotifierById: Notifier;
   getNotifiers: Array<Notifier>;
+  /**
+   * The files Stump holds in its trash folder for the retention (originals replaced by
+   * post-processing, versions replaced by a put-back) in the libraries the user can see,
+   * most recent first
+   */
+  heldFiles: Array<HeldFile>;
   /** Existing author folders (no `seriesKind`) or series folders, for the folder picker */
   intakeFolders: Array<IntakeFolder>;
   intakeItem?: Maybe<IntakeItem>;
@@ -4628,6 +4864,12 @@ export type Query = {
   mediaAlphabet: Scalars['JSONObject']['output'];
   mediaById?: Maybe<Media>;
   mediaByPath?: Maybe<Media>;
+  /**
+   * The books at these paths (as Stump stores them), in the order asked: `media` is null
+   * for a path with no book the user can see. For scripts that know their files by path,
+   * e.g. before `editMediaMetadataBatch`. At most 500 paths per call
+   */
+  mediaByPaths: Array<MediaPathMatch>;
   mediaCount: Scalars['Int']['output'];
   mediaDiskUsage: Scalars['Int']['output'];
   /**
@@ -4666,15 +4908,14 @@ export type Query = {
   numberOfLibraries: Scalars['Int']['output'];
   numberOfSeries: Scalars['Int']['output'];
   onDeck: PaginatedMediaResponse;
+  /** The online lookups' settings (whether a Google Books API key is set) */
+  onlineLookupSettings: OnlineLookupSettings;
   /** Return all metadata fetch records that are awaiting user review. */
   pendingMetadataMatches: Array<MetadataFetchRecord>;
   /** Post-processing tasks, most recently updated first */
   postProcessingTasks: Array<PostProcessingTaskModel>;
   previousBookClubDiscussions: Array<BookClubDiscussion>;
-  /**
-   * The books deleted permanently, most recent first: their files are in the quarantine
-   * folder and can be moved back
-   */
+  /** The books deleted permanently, most recent first (a log: their files were deleted) */
   purgedBooks: Array<PurgedBook>;
   /**
    * Retrieves a reading list by ID for the current user.
@@ -4847,6 +5088,11 @@ export type QueryGetNotifierByIdArgs = {
 };
 
 
+export type QueryHeldFilesArgs = {
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryIntakeFoldersArgs = {
   libraryId: Scalars['ID']['input'];
   limit?: Scalars['Int']['input'];
@@ -4947,6 +5193,11 @@ export type QueryMediaByIdArgs = {
 
 export type QueryMediaByPathArgs = {
   path: Scalars['String']['input'];
+};
+
+
+export type QueryMediaByPathsArgs = {
+  paths: Array<Scalars['String']['input']>;
 };
 
 
@@ -5423,6 +5674,16 @@ export type RegisteredEmailDevice = {
   id: Scalars['Int']['output'];
   name: Scalars['String']['output'];
   sendHistory: Array<EmailerSendRecord>;
+};
+
+export type RescanBooksOutput = {
+  __typename?: 'RescanBooksOutput';
+  /** Books that are no longer in Stump */
+  missingBooks: Scalars['Int']['output'];
+  /** Books read again from their files */
+  rescannedBooks: Scalars['Int']['output'];
+  /** Books whose stored data changed */
+  updatedBooks: Scalars['Int']['output'];
 };
 
 /** A `DateRangeInput` where `end` is always set */
@@ -6084,9 +6345,10 @@ export type StumpConfig = {
   /** Whether or not to pretty print logs */
   prettyLogs: Scalars['Boolean']['output'];
   /**
-   * Where post-processing (16 greys for manga, PDF OCR and shrinking) keeps the originals it
-   * replaces, in dated batch folders with a `restore_log.csv`. Nothing is ever deleted, so
-   * post-processing replaces no file until this is set
+   * No longer used (kept so an existing `Stump.toml` or `STUMP_QUARANTINE_DIR` still loads):
+   * the originals post-processing replaces are kept in `<config_dir>/trash` and listed in
+   * *Deleted books*, and books deleted permanently are deleted. Files already in that folder
+   * are left alone
    */
   quarantineDir?: Maybe<Scalars['String']['output']>;
   /** The time in seconds that a refresh token will be valid for */
@@ -6204,14 +6466,16 @@ export type TrashPurgeOutput = {
   __typename?: 'TrashPurgeOutput';
   /** Why books were kept (the first few) */
   errors: Array<DeletedBooksPurgeError>;
-  /** Books kept in Deleted books because their file couldn't be moved */
+  /** The disk space given back (deleted book files and held files) */
+  freedBytes: Scalars['Int']['output'];
+  /** Books kept in Deleted books because their file or data couldn't be deleted */
   keptBooks: Scalars['Int']['output'];
   /** Books whose file was already gone: only their data was deleted */
   missingBookFiles: Scalars['Int']['output'];
-  /** Books whose file went to the quarantine folder and whose data was deleted */
+  /** Books deleted permanently (their file and their data) */
   purgedBooks: Scalars['Int']['output'];
-  /** The size of the files moved to the quarantine folder */
-  quarantinedBytes: Scalars['Int']['output'];
+  /** Held files (originals replaced by post-processing) deleted */
+  purgedHeldFiles: Scalars['Int']['output'];
 };
 
 /**
@@ -7460,7 +7724,7 @@ export type MediaGenreSuggestionsQueryVariables = Exact<{
 }>;
 
 
-export type MediaGenreSuggestionsQuery = { __typename?: 'Query', mediaGenreSuggestions: { __typename?: 'MediaGenreSuggestions', subjects: Array<string>, lookedUpOnline: boolean, suggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, current: Array<{ __typename?: 'CurrentGenreFit', value: string, kind: string, confidence: number, fits: boolean, reasons: Array<string>, libraryCount: number }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }> } };
+export type MediaGenreSuggestionsQuery = { __typename?: 'Query', mediaGenreSuggestions: { __typename?: 'MediaGenreSuggestions', subjects: Array<string>, lookedUpOnline: boolean, suggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, current: Array<{ __typename?: 'CurrentGenreFit', value: string, kind: string, confidence: number, fits: boolean, reasons: Array<string>, libraryCount: number }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, onlineLookups: Array<{ __typename?: 'OnlineLookup', source: IntakeSource, status: OnlineLookupStatus, subjects: number, message: string }> } };
 
 export type EditMediaMetadataMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -7947,7 +8211,7 @@ export type SeriesThumbnailSelectorUploadMutation = { __typename?: 'Mutation', u
 export type UseCoreEventSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type UseCoreEventSubscription = { __typename?: 'Subscription', readEvents: { __typename: 'CreatedManySeries', count: number, libraryId: string } | { __typename: 'CreatedMedia' } | { __typename: 'CreatedOrUpdatedManyMedia' } | { __typename: 'DiscoveredMissingLibrary', id: string } | { __typename: 'JobOutput', id: string, output: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', createdMedia: number, createdSeries: number, updatedMedia: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput', createdMedia: number, updatedMedia: number } | { __typename: 'ThumbnailGenerationOutput' } | { __typename: 'TrashPurgeOutput' } } | { __typename: 'JobStarted', id: string } | { __typename: 'JobUpdate', id: string, status?: JobStatus | null, message?: string | null, completedTasks?: number | null, remainingTasks?: number | null, completedSubtasks?: number | null, totalSubtasks?: number | null, subtitle?: string | null } };
+export type UseCoreEventSubscription = { __typename?: 'Subscription', readEvents: { __typename: 'CreatedManySeries', count: number, libraryId: string } | { __typename: 'CreatedMedia' } | { __typename: 'CreatedOrUpdatedManyMedia' } | { __typename: 'DiscoveredMissingLibrary', id: string } | { __typename: 'JobOutput', id: string, output: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', createdMedia: number, createdSeries: number, updatedMedia: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'RescanBooksOutput' } | { __typename: 'SeriesScanOutput', createdMedia: number, updatedMedia: number } | { __typename: 'ThumbnailGenerationOutput' } | { __typename: 'TrashPurgeOutput' } } | { __typename: 'JobStarted', id: string } | { __typename: 'JobUpdate', id: string, status?: JobStatus | null, message?: string | null, completedTasks?: number | null, remainingTasks?: number | null, completedSubtasks?: number | null, totalSubtasks?: number | null, subtitle?: string | null } };
 
 export type UsePreferencesMutationVariables = Exact<{
   input: UpdateUserPreferencesInput;
@@ -8214,7 +8478,7 @@ export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHom
 export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, csvPath?: string | null, notes: Array<string> } | null }> };
+export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null }> };
 
 export type IntakeLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -8428,7 +8692,7 @@ export type LibraryAddBooksSettingsQueryVariables = Exact<{
 }>;
 
 
-export type LibraryAddBooksSettingsQuery = { __typename?: 'Query', libraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string, mangaDir: string, lightNovelDir: string, csvPath?: string | null, onlineLookup: boolean } };
+export type LibraryAddBooksSettingsQuery = { __typename?: 'Query', libraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string, mangaDir: string, lightNovelDir: string, onlineLookup: boolean } };
 
 export type UpdateLibraryAddBooksSettingsMutationVariables = Exact<{
   libraryId: Scalars['ID']['input'];
@@ -8443,7 +8707,7 @@ export type LibraryPostProcessingQueryVariables = Exact<{
 }>;
 
 
-export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', quarantineDir?: string | null, pdfQueueDir: string, bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, pdfWorker: { __typename?: 'PdfWorker', alive: boolean, state?: string | null, version?: string | null, lastSeen?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
+export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', trashDir: string, pdfQueueDir: string, bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, pdfWorker: { __typename?: 'PdfWorker', alive: boolean, state?: string | null, version?: string | null, lastSeen?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
 
 export type UpdateLibraryPostProcessingMutationVariables = Exact<{
   libraryId: Scalars['ID']['input'];
@@ -8484,7 +8748,7 @@ export type ScanRecordInspectorJobsQueryVariables = Exact<{
 }>;
 
 
-export type ScanRecordInspectorJobsQuery = { __typename?: 'Query', jobById?: { __typename?: 'Job', id: string, outputData?: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', totalFiles: number, totalDirectories: number, ignoredFiles: number, skippedFiles: number, ignoredDirectories: number, createdMedia: number, updatedMedia: number, createdSeries: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput' } | { __typename: 'ThumbnailGenerationOutput' } | { __typename: 'TrashPurgeOutput' } | null, logs?: Array<{ __typename?: 'Log', id: number }> } | null };
+export type ScanRecordInspectorJobsQuery = { __typename?: 'Query', jobById?: { __typename?: 'Job', id: string, outputData?: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', totalFiles: number, totalDirectories: number, ignoredFiles: number, skippedFiles: number, ignoredDirectories: number, createdMedia: number, updatedMedia: number, createdSeries: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'RescanBooksOutput' } | { __typename: 'SeriesScanOutput' } | { __typename: 'ThumbnailGenerationOutput' } | { __typename: 'TrashPurgeOutput' } | null, logs?: Array<{ __typename?: 'Log', id: number }> } | null };
 
 export type DeleteLibraryThumbnailsMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -8610,14 +8874,35 @@ export type DeletedBooksQuery = { __typename?: 'Query', deletedBooks: Array<{ __
 export type DeletedBooksSettingsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type DeletedBooksSettingsQuery = { __typename?: 'Query', deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number, quarantineDir?: string | null, quarantineReady: boolean, nextPurgeAt?: any | null, lastPurgeAt?: any | null, lastPurge?: { __typename?: 'DeletedBooksPurgeSummary', finishedAt: any, jobId?: string | null, purged: number, missingFiles: number, failed: number, errors: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } | null } };
+export type DeletedBooksSettingsQuery = { __typename?: 'Query', deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number, trashDir?: string | null, heldFiles: number, heldBytes: number, nextPurgeAt?: any | null, lastPurgeAt?: any | null, lastPurge?: { __typename?: 'DeletedBooksPurgeSummary', finishedAt: any, jobId?: string | null, purged: number, missingFiles: number, failed: number, originals: number, errors: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } | null } };
 
 export type PurgedBooksQueryVariables = Exact<{
   limit: Scalars['Int']['input'];
 }>;
 
 
-export type PurgedBooksQuery = { __typename?: 'Query', purgedBooks: Array<{ __typename?: 'PurgedBook', id: number, mediaId: string, title: string, authors: Array<string>, libraryName?: string | null, originalPath: string, quarantinePath?: string | null, bytes?: number | null, purgedBy?: string | null, automatic: boolean, purgedAt: any, restoredAt?: any | null, restoredBy?: string | null, canRestore: boolean }> };
+export type PurgedBooksQuery = { __typename?: 'Query', purgedBooks: Array<{ __typename?: 'PurgedBook', id: number, mediaId: string, title: string, authors: Array<string>, libraryName?: string | null, originalPath: string, bytes?: number | null, purgedBy?: string | null, automatic: boolean, purgedAt: any }> };
+
+export type HeldFilesQueryVariables = Exact<{
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+}>;
+
+
+export type HeldFilesQuery = { __typename?: 'Query', heldFiles: Array<{ __typename?: 'HeldFile', id: number, reason: HeldFileReason, steps?: string | null, title: string, libraryId?: string | null, libraryName?: string | null, relativePath: string, bytes: number, heldAt: any, heldBy?: string | null, expiresAt?: any | null, purgeAt?: any | null, canPutBack: boolean, book?: { __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string } } | null }> };
+
+export type PutBackHeldFileMutationVariables = Exact<{
+  id: Scalars['Int']['input'];
+}>;
+
+
+export type PutBackHeldFileMutation = { __typename?: 'Mutation', putBackHeldFile: { __typename?: 'HeldFilePutBack', replaced?: number | null, book: { __typename?: 'Media', id: string, resolvedName: string } } };
+
+export type DeleteHeldFilesMutationVariables = Exact<{
+  ids: Array<Scalars['Int']['input']> | Scalars['Int']['input'];
+}>;
+
+
+export type DeleteHeldFilesMutation = { __typename?: 'Mutation', deleteHeldFiles: { __typename?: 'HeldFilesDeleteResult', deleted: number, freedBytes: number, kept: Array<{ __typename?: 'HeldFileKept', id: number, title: string, error: string }> } };
 
 export type DeletedBooksLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -8636,14 +8921,14 @@ export type PurgeDeletedBooksMutationVariables = Exact<{
 }>;
 
 
-export type PurgeDeletedBooksMutation = { __typename?: 'Mutation', purgeDeletedBooks: { __typename?: 'DeletedBooksPurgeResult', purged: number, missingFiles: number, quarantinedBytes: number, kept: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } };
+export type PurgeDeletedBooksMutation = { __typename?: 'Mutation', purgeDeletedBooks: { __typename?: 'DeletedBooksPurgeResult', purged: number, missingFiles: number, freedBytes: number, kept: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } };
 
 export type EmptyDeletedBooksMutationVariables = Exact<{
   libraryId?: InputMaybe<Scalars['ID']['input']>;
 }>;
 
 
-export type EmptyDeletedBooksMutation = { __typename?: 'Mutation', emptyDeletedBooks: { __typename?: 'DeletedBooksPurgeResult', purged: number, missingFiles: number, quarantinedBytes: number, kept: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } };
+export type EmptyDeletedBooksMutation = { __typename?: 'Mutation', emptyDeletedBooks: { __typename?: 'DeletedBooksPurgeResult', purged: number, missingFiles: number, freedBytes: number, kept: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } };
 
 export type UpdateDeletedBooksRetentionMutationVariables = Exact<{
   days: Scalars['Int']['input'];
@@ -8651,13 +8936,6 @@ export type UpdateDeletedBooksRetentionMutationVariables = Exact<{
 
 
 export type UpdateDeletedBooksRetentionMutation = { __typename?: 'Mutation', updateDeletedBooksRetention: { __typename?: 'DeletedBooksSettings', retentionDays: number } };
-
-export type RestorePurgedBookMutationVariables = Exact<{
-  id: Scalars['Int']['input'];
-}>;
-
-
-export type RestorePurgedBookMutation = { __typename?: 'Mutation', restorePurgedBook: { __typename?: 'PurgedBook', id: number, title: string, libraryName?: string | null, restoredAt?: any | null } };
 
 export type CreateEmailerSceneEmailersQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -8853,13 +9131,15 @@ type JobDataInspector_PlaceholderGenerationOutput_Fragment = { __typename: 'Plac
 
 type JobDataInspector_PostProcessOutput_Fragment = { __typename: 'PostProcessOutput' } & { ' $fragmentName'?: 'JobDataInspector_PostProcessOutput_Fragment' };
 
+type JobDataInspector_RescanBooksOutput_Fragment = { __typename: 'RescanBooksOutput', rescannedBooks: number, updatedBooks: number, missingBooks: number } & { ' $fragmentName'?: 'JobDataInspector_RescanBooksOutput_Fragment' };
+
 type JobDataInspector_SeriesScanOutput_Fragment = { __typename: 'SeriesScanOutput', totalFiles: number, ignoredFiles: number, skippedFiles: number, createdMedia: number, updatedMedia: number } & { ' $fragmentName'?: 'JobDataInspector_SeriesScanOutput_Fragment' };
 
 type JobDataInspector_ThumbnailGenerationOutput_Fragment = { __typename: 'ThumbnailGenerationOutput', visitedFiles: number, skippedFiles: number, generatedThumbnails: number, removedThumbnails: number } & { ' $fragmentName'?: 'JobDataInspector_ThumbnailGenerationOutput_Fragment' };
 
-type JobDataInspector_TrashPurgeOutput_Fragment = { __typename: 'TrashPurgeOutput', purgedBooks: number, missingBookFiles: number, keptBooks: number, quarantinedBytes: number } & { ' $fragmentName'?: 'JobDataInspector_TrashPurgeOutput_Fragment' };
+type JobDataInspector_TrashPurgeOutput_Fragment = { __typename: 'TrashPurgeOutput', purgedBooks: number, missingBookFiles: number, keptBooks: number, purgedHeldFiles: number, freedBytes: number } & { ' $fragmentName'?: 'JobDataInspector_TrashPurgeOutput_Fragment' };
 
-export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragment | JobDataInspector_LibraryScanOutput_Fragment | JobDataInspector_MetadataFetchJobOutput_Fragment | JobDataInspector_PlaceholderGenerationOutput_Fragment | JobDataInspector_PostProcessOutput_Fragment | JobDataInspector_SeriesScanOutput_Fragment | JobDataInspector_ThumbnailGenerationOutput_Fragment | JobDataInspector_TrashPurgeOutput_Fragment;
+export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragment | JobDataInspector_LibraryScanOutput_Fragment | JobDataInspector_MetadataFetchJobOutput_Fragment | JobDataInspector_PlaceholderGenerationOutput_Fragment | JobDataInspector_PostProcessOutput_Fragment | JobDataInspector_RescanBooksOutput_Fragment | JobDataInspector_SeriesScanOutput_Fragment | JobDataInspector_ThumbnailGenerationOutput_Fragment | JobDataInspector_TrashPurgeOutput_Fragment;
 
 export type JobDataInspectorLogsQueryVariables = Exact<{
   id: Scalars['String']['input'];
@@ -8904,6 +9184,9 @@ export type JobTableQuery = { __typename?: 'Query', jobs: { __typename?: 'Pagina
         { __typename?: 'PostProcessOutput' }
         & { ' $fragmentRefs'?: { 'JobDataInspector_PostProcessOutput_Fragment': JobDataInspector_PostProcessOutput_Fragment } }
       ) | (
+        { __typename?: 'RescanBooksOutput' }
+        & { ' $fragmentRefs'?: { 'JobDataInspector_RescanBooksOutput_Fragment': JobDataInspector_RescanBooksOutput_Fragment } }
+      ) | (
         { __typename?: 'SeriesScanOutput' }
         & { ' $fragmentRefs'?: { 'JobDataInspector_SeriesScanOutput_Fragment': JobDataInspector_SeriesScanOutput_Fragment } }
       ) | (
@@ -8934,6 +9217,18 @@ export type PersistedLogsQueryVariables = Exact<{
 
 
 export type PersistedLogsQuery = { __typename?: 'Query', logs: { __typename?: 'PaginatedLogResponse', nodes: Array<{ __typename?: 'Log', id: number, timestamp: any, level: LogLevel, message: string, jobId?: string | null, context?: string | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalPages: number, currentPage: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
+
+export type OnlineLookupSettingsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type OnlineLookupSettingsQuery = { __typename?: 'Query', onlineLookupSettings: { __typename?: 'OnlineLookupSettings', googleBooksApiKeySet: boolean } };
+
+export type UpdateOnlineLookupSettingsMutationVariables = Exact<{
+  googleBooksApiKey?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type UpdateOnlineLookupSettingsMutation = { __typename?: 'Mutation', updateOnlineLookupSettings: { __typename?: 'OnlineLookupSettings', googleBooksApiKeySet: boolean } };
 
 export type CreateProviderDialogCreateProviderMutationVariables = Exact<{
   input: CreateMetadataProviderConfigInput;
@@ -10799,7 +11094,13 @@ export const JobDataInspectorFragmentDoc = new TypedDocumentString(`
     purgedBooks
     missingBookFiles
     keptBooks
-    quarantinedBytes
+    purgedHeldFiles
+    freedBytes
+  }
+  ... on RescanBooksOutput {
+    rescannedBooks
+    updatedBooks
+    missingBooks
   }
 }
     `, {"fragmentName":"JobDataInspector"}) as unknown as TypedDocumentString<JobDataInspectorFragment, unknown>;
@@ -13687,6 +13988,12 @@ export const MediaGenreSuggestionsDocument = new TypedDocumentString(`
     }
     subjects
     lookedUpOnline
+    onlineLookups {
+      source
+      status
+      subjects
+      message
+    }
   }
 }
     `) as unknown as TypedDocumentString<MediaGenreSuggestionsQuery, MediaGenreSuggestionsQueryVariables>;
@@ -16243,7 +16550,6 @@ export const IntakeItemsDocument = new TypedDocumentString(`
     }
     result {
       paths
-      csvPath
       notes
     }
   }
@@ -16717,7 +17023,6 @@ export const LibraryAddBooksSettingsDocument = new TypedDocumentString(`
     libraryId
     mangaDir
     lightNovelDir
-    csvPath
     onlineLookup
   }
 }
@@ -16741,7 +17046,7 @@ export const LibraryPostProcessingDocument = new TypedDocumentString(`
       pdfOcrSince
       pdfShrinkSince
     }
-    quarantineDir
+    trashDir
     pdfQueueDir
     pdfWorker {
       alive
@@ -17029,8 +17334,9 @@ export const DeletedBooksSettingsDocument = new TypedDocumentString(`
     query DeletedBooksSettings {
   deletedBooksSettings {
     retentionDays
-    quarantineDir
-    quarantineReady
+    trashDir
+    heldFiles
+    heldBytes
     nextPurgeAt
     lastPurgeAt
     lastPurge {
@@ -17039,6 +17345,7 @@ export const DeletedBooksSettingsDocument = new TypedDocumentString(`
       purged
       missingFiles
       failed
+      originals
       errors {
         mediaId
         title
@@ -17057,17 +17364,63 @@ export const PurgedBooksDocument = new TypedDocumentString(`
     authors
     libraryName
     originalPath
-    quarantinePath
     bytes
     purgedBy
     automatic
     purgedAt
-    restoredAt
-    restoredBy
-    canRestore
   }
 }
     `) as unknown as TypedDocumentString<PurgedBooksQuery, PurgedBooksQueryVariables>;
+export const HeldFilesDocument = new TypedDocumentString(`
+    query HeldFiles($libraryId: ID) {
+  heldFiles(libraryId: $libraryId) {
+    id
+    reason
+    steps
+    title
+    libraryId
+    libraryName
+    relativePath
+    bytes
+    heldAt
+    heldBy
+    expiresAt
+    purgeAt
+    canPutBack
+    book {
+      id
+      resolvedName
+      thumbnail {
+        url
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<HeldFilesQuery, HeldFilesQueryVariables>;
+export const PutBackHeldFileDocument = new TypedDocumentString(`
+    mutation PutBackHeldFile($id: Int!) {
+  putBackHeldFile(id: $id) {
+    book {
+      id
+      resolvedName
+    }
+    replaced
+  }
+}
+    `) as unknown as TypedDocumentString<PutBackHeldFileMutation, PutBackHeldFileMutationVariables>;
+export const DeleteHeldFilesDocument = new TypedDocumentString(`
+    mutation DeleteHeldFiles($ids: [Int!]!) {
+  deleteHeldFiles(ids: $ids) {
+    deleted
+    freedBytes
+    kept {
+      id
+      title
+      error
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<DeleteHeldFilesMutation, DeleteHeldFilesMutationVariables>;
 export const DeletedBooksLibrariesDocument = new TypedDocumentString(`
     query DeletedBooksLibraries {
   libraries(pagination: {none: {unpaginated: true}}) {
@@ -17088,7 +17441,7 @@ export const PurgeDeletedBooksDocument = new TypedDocumentString(`
   purgeDeletedBooks(ids: $ids) {
     purged
     missingFiles
-    quarantinedBytes
+    freedBytes
     kept {
       mediaId
       title
@@ -17102,7 +17455,7 @@ export const EmptyDeletedBooksDocument = new TypedDocumentString(`
   emptyDeletedBooks(libraryId: $libraryId) {
     purged
     missingFiles
-    quarantinedBytes
+    freedBytes
     kept {
       mediaId
       title
@@ -17118,16 +17471,6 @@ export const UpdateDeletedBooksRetentionDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateDeletedBooksRetentionMutation, UpdateDeletedBooksRetentionMutationVariables>;
-export const RestorePurgedBookDocument = new TypedDocumentString(`
-    mutation RestorePurgedBook($id: Int!) {
-  restorePurgedBook(id: $id) {
-    id
-    title
-    libraryName
-    restoredAt
-  }
-}
-    `) as unknown as TypedDocumentString<RestorePurgedBookMutation, RestorePurgedBookMutationVariables>;
 export const CreateEmailerSceneEmailersDocument = new TypedDocumentString(`
     query CreateEmailerSceneEmailers {
   emailers {
@@ -17472,7 +17815,13 @@ export const JobTableDocument = new TypedDocumentString(`
     purgedBooks
     missingBookFiles
     keptBooks
-    quarantinedBytes
+    purgedHeldFiles
+    freedBytes
+  }
+  ... on RescanBooksOutput {
+    rescannedBooks
+    updatedBooks
+    missingBooks
   }
 }`) as unknown as TypedDocumentString<JobTableQuery, JobTableQueryVariables>;
 export const LiveLogsFeedDocument = new TypedDocumentString(`
@@ -17512,6 +17861,20 @@ export const PersistedLogsDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<PersistedLogsQuery, PersistedLogsQueryVariables>;
+export const OnlineLookupSettingsDocument = new TypedDocumentString(`
+    query OnlineLookupSettings {
+  onlineLookupSettings {
+    googleBooksApiKeySet
+  }
+}
+    `) as unknown as TypedDocumentString<OnlineLookupSettingsQuery, OnlineLookupSettingsQueryVariables>;
+export const UpdateOnlineLookupSettingsDocument = new TypedDocumentString(`
+    mutation UpdateOnlineLookupSettings($googleBooksApiKey: String) {
+  updateOnlineLookupSettings(googleBooksApiKey: $googleBooksApiKey) {
+    googleBooksApiKeySet
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateOnlineLookupSettingsMutation, UpdateOnlineLookupSettingsMutationVariables>;
 export const CreateProviderDialogCreateProviderDocument = new TypedDocumentString(`
     mutation CreateProviderDialogCreateProvider($input: CreateMetadataProviderConfigInput!) {
   createMetadataProvider(input: $input) {
