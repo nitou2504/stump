@@ -1,21 +1,15 @@
-"""book-curator's recipe for scanned PDFs (research/pdf-size.md), the parts the Stump PDF worker uses.
+"""Stump's recipe for scanned PDFs: the size step and its checks, as the PDF worker runs them.
 
-Vendored from book-curator (/mnt/data2/Code/book-curator, HEAD 1968187 on 2026-11-02). Those
-files are not tracked in book-curator's git (data/ is ignored), so their sha256 prefixes and
-dates identify the versions:
+  CHUNK_PAGES, CHUNK_MB, RULE, plan_chunks, split, graft, quality_metrics, decide: the size step
+      ('auto200', METHOD below) over chunks of the file and the rule that decides whether the
+      smaller file replaces the original;
+  excerpt, local_shrink: the 12-page excerpt measured first, and shrink_worker.py run as a child
+      process (the worker container is the sandbox, with its own memory and CPU limits);
+  words, verify: the OCR checks, with the wordfreq 3.1 lists in wordlists/ (Zipf >= 1.75).
 
-  data/acquisition/pdf-size/shrink_queue.py (26002593f26b, 2026-10-30): CHUNK_PAGES, CHUNK_MB,
-      RULE, plan_chunks, cmd_split (here `split`), graft, quality_metrics, decide
-  data/acquisition/pdf-size/shrink.py       (b614302c7715, 2026-10-29): excerpt, and
-      local_shrink (here it runs shrink_worker.py in this container instead of `docker run`)
-  data/acquisition/pdf-size/make_plan.py    (c8b0db101a51, 2026-10-30): METHOD["auto200"]
-  data/acquisition/pdf-ocr/ocr_queue.py     (8698e37e9e6e, 2026-10-26): words, verify
-  data/acquisition/pdf-ocr/wordlists/*.txt.gz (wordfreq 3.1 lists, Zipf >= 1.75)
-
-map_pdfs.py and shrink_worker.py sit next to this file, unchanged apart from a header. The
-code below is copied as it is; the only changes are noted where they are (paths, and running
-shrink_worker.py as a child process: the worker container is the sandbox now, with its own
-memory and CPU limits, instead of one `docker run --memory 900m --cpus 1` per step).
+map_pdfs.py (the text-layer classification) and shrink_worker.py sit next to this file. The
+numbers and rules were measured on the library's scans with OCRmyPDF 17.13 and Tesseract's fast
+models in the worker's base image: change them only after measuring again.
 """
 
 from __future__ import annotations

@@ -1,6 +1,7 @@
-# Stump (fork) with post-processing, all in docker compose: the quarantine folder for replaced
-# originals, and the PDF worker container that OCRs and shrinks scanned PDFs. Nothing runs on the
-# host. While no PDF is queued the worker holds a shell and inotifywait (a few MB); OCRmyPDF and
+# Stump (fork) with post-processing, all in docker compose: Stump, and the PDF worker container
+# that OCRs and shrinks scanned PDFs. Nothing runs on the host. Replaced originals are held in
+# Stump's own trash folder (<config>/trash) and listed in Settings -> Deleted books for the
+# retention: no extra folder or variable. While no PDF is queued the worker holds a shell and inotifywait (a few MB); OCRmyPDF and
 # the size step start only when Stump queues a PDF and stop when the queue is empty.
 # See scripts/fork/workers/README.md.
 #
@@ -19,15 +20,12 @@ services:
       - /mnt/data2/Books/Library/:/library
       - /mnt/data2/Books/Biblioteca-Ebooks:/biblioteca
       - /mnt/data2/Books/Guides:/guides
-      # originals of processed files land here (dated batches + restore_log.csv), never deleted
-      - /mnt/data2/Books/Biblioteca-quarantine:/quarantine
     ports:
       - 10801:10801
     environment:
       - PUID=1000
       - PGID=1000
       - STUMP_CONFIG_DIR=/config
-      - STUMP_QUARANTINE_DIR=/quarantine
     restart: unless-stopped
     mem_limit: 2g
     memswap_limit: 2560m
@@ -52,7 +50,7 @@ services:
       - /mnt/data2/Books/Guides:/guides:ro
       # work files (a copy of the PDF, OCR output, chunks) on disk, not in memory
       - stump-pdf-work:/work
-      # optional: share book-curator's g3 heavy-job pool (only if /tmp/g3-heavy-slots exists)
+      # optional: a shared slot folder (flock files) to take turns with other heavy jobs on the host
       # - /tmp/g3-heavy-slots:/g3-heavy-slots
     tmpfs:
       - /tmp:size=64m,mode=1777

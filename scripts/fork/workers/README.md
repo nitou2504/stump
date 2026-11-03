@@ -3,29 +3,28 @@
 Stump can save space after a scan (library settings → **Post-processing**):
 
 - **Manga, 16 grey levels**: done inside Stump (the `post_processing` job, its own worker, idle
-  priority). Same rules as book-curator's `src/comics_grey16.py`.
+  priority; `core/src/postproc/grey16.rs`).
 - **Scanned PDFs, OCR and shrinking**: done by the **PDF worker**, a second container next to
   Stump (`docker/Dockerfile.pdf-worker`, built on `jbarlow83/ocrmypdf-ubuntu:v17.13.0`) with
-  book-curator's recipe (`research/pdf-size.md`) vendored in `pdfrecipe/`. OCRmyPDF, Tesseract,
-  Ghostscript, JBIG2 and PyMuPDF stay out of Stump's image, and nothing runs on the host.
+  Stump's recipe for scanned PDFs in `pdfrecipe/`. OCRmyPDF, Tesseract, Ghostscript, JBIG2 and
+  PyMuPDF stay out of Stump's image, and nothing runs on the host.
 
-Stump never deletes a book: an original is copied to the quarantine folder (dated batch folders
-with a `restore_log.csv`: `original_path,quarantine_path,bytes_before,bytes_after`, paths as the
-container sees them) before the processed file replaces it. Without a quarantine folder Stump
-replaces nothing.
+Before a processed file replaces a book's file, Stump copies the original into its own trash
+folder (`<config>/trash/<date>/<path in the library>`) and lists it in **Settings → Deleted books
+→ Replaced originals** ("Original of X before 16 greys"), where it can be put back until the
+*Deleted books* retention (14 days by default) is over; then the daily purge deletes it. No extra
+folder, mount or variable is needed (`STUMP_QUARANTINE_DIR` is no longer used).
 
 ## Setup (docker compose only)
 
 `docker/compose.fork-postproc.example.yml` has both services. In short:
 
-1. Stump gets the quarantine folder: a volume such as
-   `/mnt/data2/Books/Biblioteca-quarantine:/quarantine` and `STUMP_QUARANTINE_DIR=/quarantine`.
-2. A `stump-pdf-worker` service built from this repository (`build: context: <stump checkout>,
+1. A `stump-pdf-worker` service built from this repository (`build: context: <stump checkout>,
    dockerfile: docker/Dockerfile.pdf-worker`) mounts Stump's `<config>/workers/pdf` folder
    read-write and the library folders **read-only, at the same paths as in Stump** (the requests
    carry Stump's paths), plus a named volume for its work files (`/work`). It runs as `1000:1000`,
    with `cpus: 1.5` and `mem_limit: 1536m`.
-3. Create the queue folder once before the first `docker compose up`, so that it belongs to Stump's
+2. Create the queue folder once before the first `docker compose up`, so that it belongs to Stump's
    user (docker creates a missing bind-mount folder as root): `mkdir -p ./config/workers/pdf`.
 
 `docker compose up -d --build` builds the worker image; `docker compose logs -f stump-pdf-worker`
@@ -47,8 +46,8 @@ intervals; "Queue PDFs" is disabled then.
 
 Other knobs: `PDF_WORKER_MIN_FREE_MB` (default 1536: a heavy step waits while the host has less
 memory available), a `PAUSE` file in the queue folder (stops after the current step and leaves the
-rest queued), and book-curator's g3 slot pool when its folder is mounted at `/g3-heavy-slots`
-(`- /tmp/g3-heavy-slots:/g3-heavy-slots`, only if that folder already exists).
+rest queued), and a shared slot folder when one is mounted at `/g3-heavy-slots` (flock files
+`<n>.lock`, to take turns with other heavy jobs on the host; optional).
 
 ## The queue
 
@@ -69,17 +68,16 @@ file changed after it was queued").
 What the worker does per PDF: classify the text layer (`map_pdfs.py`): born-digital PDFs are
 skipped; OCR only when the text layer is missing, partial or poor (`--skip-text` or `--redo-ocr`,
 `spa+eng` for Spanish books, `eng` otherwise); then the `auto200` size step, measured first on a
-12-page excerpt, kept only under the research's rule (same pages and text, same outline,
+12-page excerpt, kept only under the recipe's rule (same pages and text, same outline,
 structural SSIM ≥ 0.90 at Kobo size and ≥ 0.88 at 2×, saving ≥ 15 % and ≥ 2 MB). The GPU does not
 help: Tesseract and the image re-encoding are CPU-bound.
 
-## The vendored recipe
+## The recipe
 
-`pdfrecipe/` holds book-curator's code as it was on 2026-11-02 (HEAD 1968187): `map_pdfs.py` and
-`shrink_worker.py` unchanged apart from a header, `recipe.py` with the parts of `shrink_queue.py`,
-`shrink.py`, `make_plan.py` and `ocr_queue.py` the worker uses (copied as they are; the file lists
-the sources and their hashes), and the wordfreq word lists. When book-curator changes its recipe,
-copy the changes here.
+`pdfrecipe/` is Stump's recipe for scanned PDFs: `map_pdfs.py` (the text-layer classification),
+`shrink_worker.py` (one chunk of the size step), `recipe.py` (the size step, its decision rule and
+the OCR checks) and the wordfreq word lists. Its numbers were measured on the library's scans in
+this image; change them only after measuring again.
 
 ```bash
 docker compose exec stump-pdf-worker python3 /opt/stump-pdf-worker/pdf_runner.py status

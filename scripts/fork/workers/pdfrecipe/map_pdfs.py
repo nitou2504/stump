@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# Vendored from book-curator (/mnt/data2/Code/book-curator, HEAD 1968187 on 2026-11-02):
-#   data/acquisition/pdf-ocr/map_pdfs.py (sha256 a45466db10ed, 2026-10-26), unchanged below this header.
-# The file is not tracked in book-curator's git (data/ is ignored), hence the hash. Used by the Stump
-# PDF worker container (docker/Dockerfile.pdf-worker; scripts/fork/workers/README.md).
+# Part of Stump's recipe for scanned PDFs, run by the PDF worker container
+# (docker/Dockerfile.pdf-worker; scripts/fork/workers/README.md). The worker uses its
+# classification (analyse, summarise); the command line below maps a whole folder of PDFs.
 """Phase A: map every PDF in the library (read only) and class its text layer.
 
 Two steps, both resumable:
@@ -41,10 +40,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-# Paths can be moved with environment variables: on l5 the map runs in the tools container
-# with PDFOCR_LIB_ROOT=/ocr/in (a copy of the library's PDFs, same relative paths),
-# PDFOCR_CATALOGUE=/ocr/catalogo.csv, PDFOCR_CACHE=/ocr/map/cache, PDFOCR_OUT=/ocr/map,
-# PDFOCR_WORDLISTS=/ocr/wordlists.
+# Paths of the command line (the PDF worker uses none of them), movable with environment
+# variables: PDFOCR_LIB_ROOT, PDFOCR_CATALOGUE (a CSV listing the PDFs to map), PDFOCR_CACHE,
+# PDFOCR_OUT, PDFOCR_WORDLISTS.
 LIB_ROOT = Path(os.environ.get("PDFOCR_LIB_ROOT", "/mnt/data2/Books/Biblioteca-Ebooks"))
 LIB = LIB_ROOT / "biblioteca"
 CATALOGUE = Path(os.environ.get("PDFOCR_CATALOGUE", str(LIB_ROOT / "catalogo.csv")))

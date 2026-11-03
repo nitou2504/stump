@@ -5,8 +5,7 @@ It runs in its own container (docker/Dockerfile.pdf-worker, the `stump-pdf-worke
 to Stump in docker compose): Stump writes one request per PDF into `<config>/workers/pdf/queue/`,
 the container's watcher (pdf_worker.sh) starts `pdf_runner.py drain` only when that folder has
 something in it, and drain works through the queue and exits. Waiting costs a shell and an
-inotifywait, a few MB. The recipe is book-curator's (research/pdf-size.md), vendored in
-pdfrecipe/ so the image needs no book-curator checkout:
+inotifywait, a few MB. The recipe is Stump's, in pdfrecipe/:
 
   1. classify  map_pdfs.analyse + summarise: born-digital PDFs are skipped (their text is the
                real text); for scans, the text-layer class (ok / no_text / partial / poor_ocr)
@@ -23,12 +22,13 @@ pdfrecipe/ so the image needs no book-curator checkout:
 The container itself is the sandbox (compose sets its CPU and memory limits); every step runs at
 nice 19 and idle I/O priority, one PDF at a time, and waits while the host has less than
 PDF_WORKER_MIN_FREE_MB (default 1536) of available memory or while `<queue>/PAUSE` exists.
-When book-curator's g3 pool folder is mounted (G3_SLOTS_DIR, default /g3-heavy-slots), every
-heavy step also takes one of its slots, so the worker shares g3 with the curator's own jobs.
+When a shared slot folder is mounted (G3_SLOTS_DIR, default /g3-heavy-slots: flock files
+<n>.lock), every heavy step also takes one of its slots, so the worker takes turns with other
+heavy jobs on the host. Without it (the usual case) nothing changes.
 
 The result goes back to Stump as `done/<id>.json` (+ `done/<id>.pdf` when there is a new file);
-Stump swaps it in (the original goes to its quarantine folder) only if the library file did not
-change meanwhile. While it works, drain refreshes the worker's heartbeat (`worker.json`) that
+Stump swaps it in (the original is held in Deleted books for the retention, where it can be put
+back) only if the library file did not change meanwhile. While it works, drain refreshes the worker's heartbeat (`worker.json`) that
 Stump shows in the library's post-processing settings. No GPU: OCR (Tesseract) and the image
 work are CPU-bound.
 
@@ -195,8 +195,8 @@ def wait_for_room(root: Path) -> bool:
 
 @contextlib.contextmanager
 def heavy_slot(what: str):
-    """One slot of book-curator's g3 pool (data/acquisition/tools/g3slot: flock files
-    <dir>/<n>.lock) when that folder is mounted; otherwise nothing."""
+    """One slot of a shared slot folder (flock files <dir>/<n>.lock) when one is mounted;
+    otherwise nothing."""
     if not SLOTS_DIR.is_dir() or not os.access(SLOTS_DIR, os.W_OK):
         yield
         return
@@ -480,7 +480,7 @@ def process(req: dict, root: Path, pairs: list[tuple[str, str]]) -> dict:
                 if c.get("queue") != "yes":
                     notes.append(f"OCR not run ({c.get('queue')})")
                 elif c.get("mode") not in OCR_MODE_FLAGS:
-                    notes.append(f"OCR not run (mode {c.get('mode')}: needs book-curator's strip step)")
+                    notes.append(f"OCR not run (mode {c.get('mode')}: needs a strip step the worker doesn't do)")
                 else:
                     lang = "spa+eng" if str(c.get("language", "")).startswith("es") else "eng"
                     if not wait_for_room(root):

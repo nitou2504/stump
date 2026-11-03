@@ -2,14 +2,15 @@
 # The Stump PDF worker: OCR and size reduction of scanned PDFs for Stump's post-processing
 # (library settings -> Post-processing), as a second container next to Stump. It waits for Stump
 # to queue a PDF in <config>/workers/pdf/queue/ (a shell and inotifywait, a few MB) and only then
-# runs book-curator's recipe (OCRmyPDF + Tesseract, the auto200 size step and its checks).
+# runs Stump's recipe for scanned PDFs (OCRmyPDF + Tesseract, the auto200 size step and its checks).
 # See scripts/fork/workers/README.md and docker/compose.fork-postproc.example.yml.
 #
 #   docker build -f docker/Dockerfile.pdf-worker -t stump-pdf-worker:$(git rev-parse --short HEAD) \
 #     --build-arg GIT_REV=$(git rev-parse --short HEAD) .
 #
-# The recipe was measured with OCRmyPDF 17.13 and Tesseract's fast models in this exact image
-# (research/pdf-size.md); PyMuPDF 2.0 is what book-curator's checks ran with.
+# The recipe was measured with OCRmyPDF 17.13, Tesseract's fast models and PyMuPDF 2.0 in this
+# exact image. The worker never writes into a library: it mounts the libraries read-only and
+# leaves its results in the queue folder, and Stump swaps them in.
 FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM jbarlow83/ocrmypdf-ubuntu:v17.13.0

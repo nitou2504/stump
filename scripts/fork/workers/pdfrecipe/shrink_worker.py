@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-# Vendored from book-curator (/mnt/data2/Code/book-curator, HEAD 1968187 on 2026-11-02):
-#   data/acquisition/pdf-size/shrink_worker.py (sha256 ce6cdd811bb8, 2026-10-30), unchanged below this header.
-# The file is not tracked in book-curator's git (data/ is ignored), hence the hash. Used by the Stump
-# PDF worker container (docker/Dockerfile.pdf-worker; scripts/fork/workers/README.md).
+# Part of Stump's recipe for scanned PDFs, run by the PDF worker container as a child process
+# (docker/Dockerfile.pdf-worker; scripts/fork/workers/README.md).
 """Shrink one PDF (or a page-range chunk of one) without touching its text layer.
 
 Runs inside jbarlow83/ocrmypdf-ubuntu:v17.13.0 (pikepdf, Pillow, numpy, pypdfium2, jbig2enc and
