@@ -435,7 +435,7 @@ type ConfidenceFactor {
 "An event that is emitted by the core and consumed by a client"
 union CoreEvent = JobStarted | JobUpdate | JobOutput | DiscoveredMissingLibrary | CreatedMedia | CreatedManySeries | CreatedOrUpdatedManyMedia
 
-union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | TrashPurgeOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
+union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | TrashPurgeOutput | RescanBooksOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
 
 input CreateAnnotationInput {
 	mediaId: String!
@@ -662,12 +662,12 @@ type DeletedBooksPurgeError {
 
 "What deleting books permanently did"
 type DeletedBooksPurgeResult {
-	"Books whose file went to the quarantine folder and whose data was deleted"
+	"Books deleted permanently: their file and their data"
 	purged: Int!
 	"Books whose file was already gone: only their data was deleted"
 	missingFiles: Int!
-	"The size of the files moved to the quarantine folder"
-	quarantinedBytes: Int!
+	"The size of the book files deleted"
+	freedBytes: Int!
 	"Books kept in Deleted books, with why"
 	kept: [DeletedBooksPurgeError!]!
 }
@@ -678,27 +678,33 @@ type DeletedBooksPurgeSummary {
 	finishedAt: DateTime!
 	"The job that ran it, if it ran as a job (nothing had expired otherwise)"
 	jobId: String
-	"Books whose file went to the quarantine folder and whose data was deleted"
+	"Books deleted permanently (their file and their data)"
 	purged: Int!
 	"Books whose file was already gone: only their data was deleted"
 	missingFiles: Int!
-	"Books kept in Deleted books because their file couldn't be moved"
+	"Books kept in Deleted books because their file couldn't be deleted"
 	failed: Int!
+	"Held originals (and put-back versions) whose time was over, deleted"
+	originals: Int!
 	"Why books were kept (the first few)"
 	errors: [DeletedBooksPurgeError!]!
 }
 
 "How *Deleted books* works on this server"
 type DeletedBooksSettings {
-	"How many days removed books stay in Deleted books (0: until deleted by hand)"
+	"""
+	How many days removed books and held files stay in Deleted books (0: until deleted by
+	hand)
+	"""
 	retentionDays: Int!
-	"The folder book files go to when they are deleted permanently (library managers only)"
-	quarantineDir: String
 	"""
-	Whether books with a file can be deleted permanently: the quarantine folder is set and
-	exists
+	Stump's trash folder, where the files taken out of a library (originals replaced by
+	post-processing) are held (library managers only)
 	"""
-	quarantineReady: Boolean!
+	trashDir: String
+	"How many files are held there, and their size"
+	heldFiles: Int!
+	heldBytes: Int!
 	"When the automatic purge runs next (null when it is off)"
 	nextPurgeAt: DateTime
 	"When the automatic purge last ran (library managers only)"
@@ -1033,6 +1039,68 @@ type GlobalReadingTimelineNode {
 	session: SessionWithEvents!
 }
 
+"""
+A file Stump took out of a library and holds in its trash folder for the retention: the
+original of a book post-processing replaced, or the version a put-back replaced
+"""
+type HeldFile {
+	id: Int!
+	"Why it was taken out"
+	reason: HeldFileReason!
+	"For a PDF: the post-processing steps asked for (`OCR`, `SHRINK`, `OCR+SHRINK`)"
+	steps: String
+	"The book's title when the file was held"
+	title: String!
+	"The book, when it is still in Stump (removed books included)"
+	book: Media
+	libraryId: String
+	libraryName: String
+	"Where it was, inside its library"
+	relativePath: String!
+	bytes: Int!
+	heldAt: DateTime!
+	"Who made Stump take it out (null: post-processing)"
+	heldBy: String
+	"When its time in Deleted books is over (null: kept until deleted by hand)"
+	expiresAt: DateTime
+	"When the automatic purge will delete it"
+	purgeAt: DateTime
+	"Whether it can be put back: its file is in the trash folder and its book is in Stump"
+	canPutBack: Boolean!
+}
+
+type HeldFileKept {
+	id: Int!
+	title: String!
+	error: String!
+}
+
+"What putting a held file back did"
+type HeldFilePutBack {
+	"The book, with its file back"
+	book: Media!
+	"The version that was in the library, now held in turn (null: there was none)"
+	replaced: Int
+}
+
+"Why Stump holds a file in its trash folder"
+enum HeldFileReason {
+	"The original of a manga volume reduced to 16 grey levels"
+	GREY_16
+	"The original of a PDF the PDF worker OCRed and/or shrank"
+	PDF
+	"The version of a book that was in the library when its held original was put back"
+	PUT_BACK
+}
+
+"What deleting held files did"
+type HeldFilesDeleteResult {
+	deleted: Int!
+	freedBytes: Int!
+	"The ones kept, with why"
+	kept: [HeldFileKept!]!
+}
+
 "The sections displayed on a user's home page."
 type HomeArrangement {
 	sections: [ArrangementSection!]!
@@ -1311,16 +1379,16 @@ type IntakeProposal {
 	warnings: [String!]!
 	"Overall confidence, 0-1; under the threshold the item needs review"
 	confidence: Float!
-	"Whether online lookups were used"
+	"Whether an online source found the book (a failed or empty lookup isn't one)"
 	lookedUpOnline: Boolean!
+	"How each online source answered, when they were asked"
+	onlineLookups: [OnlineLookup!]!
 }
 
 "What filing did"
 type IntakeResult {
 	"Absolute paths of the filed files"
 	paths: [String!]!
-	"The intake CSV the rows were appended to"
-	csvPath: String
 	"Notes, e.g. a metadata field that could not be written into a PDF"
 	notes: [String!]!
 }
@@ -1613,11 +1681,6 @@ type LibraryIntakeSettings {
 	mangaDir: String!
 	"Folder (relative to the library root) holding one folder per light novel series"
 	lightNovelDir: String!
-	"""
-	Where the intake CSV is appended to. `None` = next to `catalogo.csv` when the
-	library's parent folder has one, else in the library root
-	"""
-	csvPath: String
 	"Look titles up on Open Library and Google Books while analysing"
 	onlineLookup: Boolean!
 }
@@ -1625,11 +1688,6 @@ type LibraryIntakeSettings {
 input LibraryIntakeSettingsInput {
 	mangaDir: String!
 	lightNovelDir: String!
-	"""
-	Empty or omitted: next to `catalogo.csv` when the library's parent has one, else
-	the library root
-	"""
-	csvPath: String
 	onlineLookup: Boolean!
 }
 
@@ -1662,8 +1720,11 @@ enum LibraryPattern {
 "A library's post-processing settings and where its work stands"
 type LibraryPostProcessing {
 	config: PostProcessingConfig!
-	"Where replaced originals go (nothing is replaced while this is unset)"
-	quarantineDir: String
+	"""
+	Where replaced originals are kept for the *Deleted books* retention (Stump's trash
+	folder), as Stump sees it
+	"""
+	trashDir: String!
 	"The PDF queue shared with the PDF worker container, as Stump sees it"
 	pdfQueueDir: String!
 	"The PDF worker container, from its heartbeat in the queue folder"
@@ -1978,7 +2039,13 @@ type MediaGenreSuggestions {
 	similarBooks: [IntakeSimilarBook!]!
 	"Subjects found online"
 	subjects: [String!]!
+	"Whether an online source found the book (a failed lookup isn't one)"
 	lookedUpOnline: Boolean!
+	"""
+	How each online source answered (empty when they weren't asked): found with N
+	subjects, no subjects, no match, rate-limited (Google Books without an API key), error
+	"""
+	onlineLookups: [OnlineLookup!]!
 }
 
 type MediaMetadata {
@@ -2029,6 +2096,62 @@ type MediaMetadata {
 	pencillers: [String!]!
 	teams: [String!]!
 	lockedFields: [MetadataField!]!
+}
+
+"""
+One book of `editMediaMetadataBatch`: named by `id` or by `path` (as Stump stores it; both
+may be given, then they must agree), with the values to set
+"""
+input MediaMetadataBatchInput {
+	id: ID
+	path: String
+	input: MediaMetadataInput!
+}
+
+"One book of `editMediaMetadataBatch`, in the order sent"
+type MediaMetadataBatchItemResult {
+	"Its position in `inputs`"
+	index: Int!
+	"The id and path the item was sent with"
+	requestedId: String
+	requestedPath: String
+	"The book found, if any"
+	mediaId: String
+	path: String
+	status: MetadataBatchItemStatus!
+	"The fields changed (or, for a dry run, that would change), with old and new values"
+	changes: [MetadataEditChange!]!
+	"Where the changes went (or, for a dry run, would go)"
+	file: MetadataEditFile
+	"The save in the book's edit history (revert it with `revertMediaMetadataEdit`)"
+	saveId: String
+	"Why it wasn't saved, or why the file kept its old values"
+	errors: [String!]!
+}
+
+"How `editMediaMetadataBatch` saves"
+input MediaMetadataBatchOptions {
+	"Only report what would change: nothing is saved or written"
+	dryRun: Boolean! = false
+	"Write the changes into the book files (else they stay in Stump only, locked)"
+	writeToFile: Boolean! = true
+}
+
+"The result of `editMediaMetadataBatch`"
+type MediaMetadataBatchResult {
+	dryRun: Boolean!
+	items: [MediaMetadataBatchItemResult!]!
+	saved: Int!
+	unchanged: Int!
+	"Items that would be saved (dry run)"
+	wouldSave: Int!
+	failed: Int!
+	notFound: Int!
+	"""
+	How many books the targeted rescan job queued at the end reads again (the ones whose
+	files were rewritten; 0: no rescan was needed)
+	"""
+	rescanBooks: Int!
 }
 
 input MediaMetadataFilterInput {
@@ -2093,6 +2216,12 @@ input MediaMetadataInput {
 	teams: [String!]
 	pageCount: Int
 	ageRating: Int
+	"""
+	The book's rating, 0 to 5 (decimals allowed). EPUBs get calibre's half stars and a
+	precise `bcurator:rating` meta, PDFs a `bcurator:rating=` keyword field, CBZs ComicInfo's
+	`CommunityRating`
+	"""
+	rating: Decimal
 	identifierAmazon: String
 	identifierCalibre: String
 	identifierGoogle: String
@@ -2226,6 +2355,12 @@ input MediaOrderByField {
 	direction: OrderDirection!
 }
 
+"A path asked for by `mediaByPaths`, and the book there"
+type MediaPathMatch {
+	path: String!
+	media: Media
+}
+
 input MediaProgressInput @oneOf {
 	epub: EpubProgressInput
 	paged: PagedProgressInput
@@ -2241,6 +2376,20 @@ enum MergeStrategy {
 	PREFER_EXTERNAL_AND_MERGE_LISTS
 	"FillGaps and merge/dedupe for array fields"
 	FILL_AND_MERGE_LISTS
+}
+
+"What happened to one book of a batch edit"
+enum MetadataBatchItemStatus {
+	"Saved (see `file` for whether the book file has it)"
+	SAVED
+	"Nothing to change: the book already had these values"
+	UNCHANGED
+	"Dry run: these changes would be saved"
+	WOULD_SAVE
+	"Not saved: see `errors`"
+	FAILED
+	"No book with that id or path that the caller can see (removed books included)"
+	NOT_FOUND
 }
 
 "One field changed by a save"
@@ -2265,8 +2414,6 @@ type MetadataEditFile {
 	locked: [MetadataField!]!
 	"Why the file was not written, or a note about it"
 	message: String
-	"The edits log the change was appended to"
-	csvPath: String
 }
 
 "The result of saving a book's metadata"
@@ -2409,6 +2556,8 @@ enum MetadataField {
 	META_TYPE
 	COMIC_IMAGE
 	DESCRIPTION_FORMATTED
+	"The 0-5 rating (a book's own, from its file or set by hand)"
+	RATING
 }
 
 "A user-provided override value for a specific metadata field"
@@ -2427,6 +2576,8 @@ enum MetadataFileWriteStatus {
 	NOT_NEEDED
 	"The file could not take the changes: they are kept in Stump only (and locked)"
 	FAILED
+	"The save asked to keep the changes in Stump only (`writeToFile: false`)"
+	SKIPPED
 }
 
 "The supported external metadata providers"
@@ -2565,13 +2716,24 @@ type Mutation {
 	updateMediaMetadata(id: ID!, input: MediaMetadataInput!): Media!
 	"""
 	Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
-	files carry title, authors, series, genres, summary and more): the edited copy is
-	read back before it replaces the book, so a failed write leaves the file untouched
+	files carry title, authors, series, genres, summary, rating and more): the edited copy
+	is read back before it replaces the book, so a failed write leaves the file untouched
 	and the changes in Stump only. Every edited field is locked so rescans keep it, and
-	the save is recorded in the book's edit history (see `revertMediaMetadataEdit`) and
-	in `stump_edits.csv`.
+	the save is recorded in the book's edit history (see `revertMediaMetadataEdit`).
 	"""
 	editMediaMetadata(id: ID!, input: MediaMetadataInput!): MetadataEditResult!
+	"""
+	Edit many books' metadata in one call (for scripts: an API key with *Edit metadata*
+	works as a Bearer token). Each item names a book by `id` or by `path` (as Stump stores
+	it) and carries a `MediaMetadataInput` (omitted fields stay as they are, `null` clears
+	one). Every item goes through the same save as `editMediaMetadata` (book file written
+	and read back, database, locks, edit history), in order, one book at a time; an item
+	that fails doesn't stop the others. `dryRun` reports what would change without saving
+	anything; `writeToFile: false` keeps the changes in Stump only. Stump's own writes
+	don't set off a library scan: the books whose files were rewritten are read again by
+	one targeted rescan job at the end. At most 500 items per call.
+	"""
+	editMediaMetadataBatch(inputs: [MediaMetadataBatchInput!]!, options: MediaMetadataBatchOptions): MediaMetadataBatchResult!
 	"""
 	Revert a save of the book's edit history: the fields it changed get their old values
 	back (in the book file and in Stump), except the ones changed again since, which
@@ -2790,6 +2952,12 @@ type Mutation {
 	updateNotifier(id: Int!, input: NotifierInput!): Notifier!
 	deleteNotifier(id: Int!): Notifier!
 	updatePublicUrl(publicUrl: String!): ServerConfigModel!
+	"""
+	Sets (or, with null or an empty string, removes) the Google Books API key the online
+	lookups of *Add books* and *Suggest genres* use. It is stored encrypted and never sent
+	back (`onlineLookupSettings` only says whether one is set)
+	"""
+	updateOnlineLookupSettings(googleBooksApiKey: String): OnlineLookupSettings!
 	createScheduledJob(input: CreateScheduledJobInput!): ScheduledJob!
 	updateScheduledJob(id: Int!, input: UpdateScheduledJobInput!): ScheduledJob!
 	deleteScheduledJob(id: Int!): Boolean!
@@ -2819,10 +2987,9 @@ type Mutation {
 	"""
 	restoreDeletedBooks(ids: [ID!]!): Int!
 	"""
-	Deletes books in *Deleted books* permanently: each file is moved to the quarantine
-	folder (`deleted/<date>/`, with a `restore_log.csv` row), then the book's data is
-	deleted. A book whose file can't be moved stays in Deleted books; one whose file is
-	already gone only has its data deleted
+	Deletes books in *Deleted books* permanently: the book's data and its file (and the
+	originals Stump holds for it) are deleted, for good. A book whose file or data can't be
+	deleted stays in Deleted books; one whose file is already gone only has its data deleted
 	"""
 	purgeDeletedBooks(ids: [ID!]!): DeletedBooksPurgeResult!
 	"""
@@ -2836,11 +3003,13 @@ type Mutation {
 	"""
 	updateDeletedBooksRetention(days: Int!): DeletedBooksSettings!
 	"""
-	Moves the file of a book deleted permanently back from the quarantine folder to where
-	it was, and scans its folder: it comes back as a new book (its reading progress and
-	annotations were deleted with it)
+	Puts a held file back in its book's place (the original of a book post-processing
+	replaced): the book's current file is held in turn, so this can be undone the same way
+	until the retention is over
 	"""
-	restorePurgedBook(id: Int!): PurgedBook!
+	putBackHeldFile(id: Int!): HeldFilePutBack!
+	"Deletes held files for good (their copies in Stump's trash folder and their rows)"
+	deleteHeldFiles(ids: [Int!]!): HeldFilesDeleteResult!
 	"""
 	Uploads books into the user's inbox for a library. Each book (or each folder / .zip
 	of volumes) becomes an item that is analysed right away; poll `intakeItems`.
@@ -3091,6 +3260,46 @@ input OnDeckBooksInput {
 	name: String
 }
 
+"One online source's answer to a lookup, for the review screens"
+type OnlineLookup {
+	"`OPEN_LIBRARY` or `GOOGLE_BOOKS`"
+	source: IntakeSource!
+	status: OnlineLookupStatus!
+	"How many subjects it gave"
+	subjects: Int!
+	"""
+	What happened, in a few words (e.g. "daily limit reached: add an API key in
+	Settings")
+	"""
+	message: String!
+}
+
+"The online lookups of *Add books* and *Suggest genres* (Open Library and Google Books)"
+type OnlineLookupSettings {
+	"""
+	Whether a Google Books API key is set (the key itself is never sent back). Without one,
+	Google Books lookups share Google's anonymous daily quota, which is often used up
+	"""
+	googleBooksApiKeySet: Boolean!
+}
+
+"How an online source answered a lookup"
+enum OnlineLookupStatus {
+	"The book was found, with subjects"
+	OK
+	"The book was found, but the source has no subjects for it"
+	NO_SUBJECTS
+	"The source answered, but has no matching book"
+	NO_MATCH
+	"""
+	The source refused for now: its request quota (Google Books' shared daily quota
+	without an API key) is used up
+	"""
+	RATE_LIMITED
+	"The source failed (network, timeout, an unexpected answer, a refused API key)"
+	ERROR
+}
+
 enum OrderDirection {
 	ASC
 	DESC
@@ -3327,7 +3536,10 @@ enum PostProcessStatus {
 	PENDING
 	"Being processed"
 	RUNNING
-	"The smaller (or OCRed) file replaced the original, which went to quarantine"
+	"""
+	The smaller (or OCRed) file replaced the original, which is held in *Deleted books*
+	for the retention (it can be put back from there)
+	"""
 	DONE
 	"Processed, but the result was not used (saves too little, or a quality check failed)"
 	REJECTED
@@ -3337,6 +3549,8 @@ enum PostProcessStatus {
 	FAILED
 	"A dry run's estimate (nothing was changed)"
 	ESTIMATED
+	"The original was put back from *Deleted books*: the book is left as it is"
+	REVERTED
 }
 
 "A library's post-processing settings (stored as JSON in `library_configs`)"
@@ -3416,8 +3630,8 @@ enum PublicationStatus {
 }
 
 """
-A book deleted permanently: its file is in the quarantine folder (unless it was already
-gone) and can be moved back
+A book deleted permanently: its file and its data were deleted; the row records what it
+was, where and who deleted it
 """
 type PurgedBook {
 	id: Int!
@@ -3427,8 +3641,7 @@ type PurgedBook {
 	libraryId: String
 	libraryName: String
 	originalPath: String!
-	"Where its file is (null: it was already gone)"
-	quarantinePath: String
+	"The size of its file (null: it was already gone)"
 	bytes: Int
 	deletedBy: String
 	deletedAt: DateTime
@@ -3437,14 +3650,6 @@ type PurgedBook {
 	"Deleted by the automatic purge"
 	automatic: Boolean!
 	purgedAt: DateTime!
-	"When its file was moved back into the library"
-	restoredAt: DateTime
-	restoredBy: String
-	"""
-	Whether its file can be moved back: it is still in the quarantine folder and nothing
-	took its place in the library
-	"""
-	canRestore: Boolean!
 }
 
 type Query {
@@ -3499,6 +3704,12 @@ type Query {
 	"""
 	removedMedia(libraryId: ID): [Media!]!
 	mediaByPath(path: String!): Media
+	"""
+	The books at these paths (as Stump stores them), in the order asked: `media` is null
+	for a path with no book the user can see. For scripts that know their files by path,
+	e.g. before `editMediaMetadataBatch`. At most 500 paths per call
+	"""
+	mediaByPaths(paths: [String!]!): [MediaPathMatch!]!
 	"Returns the available alphabet for all media in the server"
 	mediaAlphabet: JSONObject!
 	keepReading(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
@@ -3595,6 +3806,8 @@ type Query {
 	"Return all metadata fetch records that are awaiting user review."
 	pendingMetadataMatches: [MetadataFetchRecord!]!
 	serverConfig: ServerConfigModel!
+	"The online lookups' settings (whether a Google Books API key is set)"
+	onlineLookupSettings: OnlineLookupSettings!
 	listDirectory(pagination: Pagination!, input: DirectoryListingInput): PaginatedDirectoryListingResponse!
 	"A library's post-processing settings and task counts"
 	libraryPostProcessing(libraryId: ID!): LibraryPostProcessing!
@@ -3607,15 +3820,18 @@ type Query {
 	deletedBooks(libraryId: ID): [DeletedBook!]!
 	"""
 	How long removed books are kept and when they are deleted permanently. Users who may
-	remove books see the retention; library managers also see the quarantine folder and the
+	remove books see the retention; library managers also see the trash folder and the
 	last automatic purge
 	"""
 	deletedBooksSettings: DeletedBooksSettings!
-	"""
-	The books deleted permanently, most recent first: their files are in the quarantine
-	folder and can be moved back
-	"""
+	"The books deleted permanently, most recent first (a log: their files were deleted)"
 	purgedBooks(limit: Int! = 20): [PurgedBook!]!
+	"""
+	The files Stump holds in its trash folder for the retention (originals replaced by
+	post-processing, versions replaced by a put-back) in the libraries the user can see,
+	most recent first
+	"""
+	heldFiles(libraryId: ID): [HeldFile!]!
 	"""
 	The items of the user's "Add books" inbox, newest first. By default everything but
 	discarded items.
@@ -3952,6 +4168,15 @@ type RegisteredEmailDevice {
 	email: String!
 	forbidden: Boolean!
 	sendHistory: [EmailerSendRecord!]!
+}
+
+type RescanBooksOutput {
+	"Books read again from their files"
+	rescannedBooks: Int!
+	"Books whose stored data changed"
+	updatedBooks: Int!
+	"Books that are no longer in Stump"
+	missingBooks: Int!
 }
 
 "A `DateRangeInput` where `end` is always set"
@@ -4572,9 +4797,10 @@ type StumpConfig {
 	"Whether to trust proxy headers for determining client IP and scheme (e.g., X-Forwarded-For)"
 	trustProxyHeaders: Boolean!
 	"""
-	Where post-processing (16 greys for manga, PDF OCR and shrinking) keeps the originals it
-	replaces, in dated batch folders with a `restore_log.csv`. Nothing is ever deleted, so
-	post-processing replaces no file until this is set
+	No longer used (kept so an existing `Stump.toml` or `STUMP_QUARANTINE_DIR` still loads):
+	the originals post-processing replaces are kept in `<config_dir>/trash` and listed in
+	*Deleted books*, and books deleted permanently are deleted. Files already in that folder
+	are left alone
 	"""
 	quarantineDir: String
 }
@@ -4672,14 +4898,16 @@ type TimeToFinishStat {
 }
 
 type TrashPurgeOutput {
-	"Books whose file went to the quarantine folder and whose data was deleted"
+	"Books deleted permanently (their file and their data)"
 	purgedBooks: Int!
 	"Books whose file was already gone: only their data was deleted"
 	missingBookFiles: Int!
-	"Books kept in Deleted books because their file couldn't be moved"
+	"Books kept in Deleted books because their file or data couldn't be deleted"
 	keptBooks: Int!
-	"The size of the files moved to the quarantine folder"
-	quarantinedBytes: Int!
+	"Held files (originals replaced by post-processing) deleted"
+	purgedHeldFiles: Int!
+	"The disk space given back (deleted book files and held files)"
+	freedBytes: Int!
 	"Why books were kept (the first few)"
 	errors: [DeletedBooksPurgeError!]!
 }
