@@ -153,6 +153,7 @@ type Documents = {
     "\n\tquery EmailBookDropdownDevice {\n\t\temailDevices {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": typeof types.EmailBookDropdownDeviceDocument,
     "\n\tmutation SendEmailAttachment($id: ID!, $sendTo: [EmailerSendTo!]!) {\n\t\tsendAttachmentEmail(input: { mediaIds: [$id], sendTo: $sendTo }) {\n\t\t\tsentCount\n\t\t\terrors\n\t\t}\n\t}\n": typeof types.SendEmailAttachmentDocument,
     "\n\tmutation RemoveBookFromLibrary($id: ID!) {\n\t\tdeleteMedia(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.RemoveBookFromLibraryDocument,
+    "\n\tquery RemoveBookRetention {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t}\n\t}\n": typeof types.RemoveBookRetentionDocument,
     "\n\tfragment SimpleBookCard on Media {\n\t\tid\n\t\tresolvedName\n\t\tcreatedAt\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": typeof types.SimpleBookCardFragmentDoc,
     "\n\tfragment MediaMetadataEditor on MediaMetadata {\n\t\tageRating\n\t\tcharacters\n\t\tcolorists\n\t\tcoverArtists\n\t\tday\n\t\teditors\n\t\tformat\n\t\tidentifierAmazon\n\t\tidentifierCalibre\n\t\tidentifierGoogle\n\t\tidentifierIsbn\n\t\tidentifierMobiAsin\n\t\tidentifierUuid\n\t\tgenres\n\t\tinkers\n\t\tlanguage\n\t\tletterers\n\t\tlinks\n\t\tmonth\n\t\tnotes\n\t\tnumber\n\t\tpageCount\n\t\tpencillers\n\t\tpublisher\n\t\tseries\n\t\tseriesGroup\n\t\tstoryArc\n\t\tstoryArcNumber\n\t\tsummary\n\t\tteams\n\t\ttitle\n\t\ttitleSort\n\t\tvolume\n\t\twriters\n\t\tyear\n\t\tlockedFields\n\t}\n": typeof types.MediaMetadataEditorFragmentDoc,
     "\n\tmutation MediaEditorSetLockedFields($mediaId: ID!, $lockedFields: [MetadataField!]!) {\n\t\tsetMediaLockedFields(mediaId: $mediaId, lockedFields: $lockedFields) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.MediaEditorSetLockedFieldsDocument,
@@ -287,9 +288,8 @@ type Documents = {
     "\n\tquery LibraryExclusionsQuery($id: ID!) {\n\t\tlibraryById(id: $id) {\n\t\t\texcludedUsers {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.LibraryExclusionsQueryDocument,
     "\n\tmutation UpdateLibraryExclusions($id: ID!, $userIds: [String!]!) {\n\t\tupdateLibraryExcludedUsers(id: $id, userIds: $userIds) {\n\t\t\tid\n\t\t\texcludedUsers {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UpdateLibraryExclusionsDocument,
     "\n\tmutation CleanLibrary($id: ID!) {\n\t\tcleanLibrary(id: $id) {\n\t\t\tdeletedMediaCount\n\t\t\tdeletedSeriesCount\n\t\t\tisEmpty\n\t\t}\n\t}\n": typeof types.CleanLibraryDocument,
+    "\n\tquery LibraryDeletedBooks($libraryId: ID!) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t}\n\t}\n": typeof types.LibraryDeletedBooksDocument,
     "\n\tquery LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {\n\t\tlibraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tpath\n\t\t\t\ttype\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\ttotalPages\n\t\t\t\t\tcurrentPage\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t\ttotalItems\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.LibraryMissingEntitiesDocument,
-    "\n\tquery LibraryRemovedBooks($libraryId: ID!) {\n\t\tremovedMedia(libraryId: $libraryId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t\tpath\n\t\t}\n\t}\n": typeof types.LibraryRemovedBooksDocument,
-    "\n\tmutation RestoreRemovedBook($id: ID!) {\n\t\trestoreMedia(id: $id)\n\t}\n": typeof types.RestoreRemovedBookDocument,
     "\n\tmutation AnalyzeLibraryMedia($id: ID!) {\n\t\tanalyzeLibrary(id: $id)\n\t}\n": typeof types.AnalyzeLibraryMediaDocument,
     "\n\tquery InitFetchJobCheckProviders {\n\t\tmetadataProviderConfigs {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.InitFetchJobCheckProvidersDocument,
     "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n": typeof types.InitFetchJobDocument,
@@ -317,6 +317,15 @@ type Documents = {
     "\n\tquery NavigationArrangement {\n\t\tme {\n\t\t\tpreferences {\n\t\t\t\tnavigationArrangement {\n\t\t\t\t\tlocked\n\t\t\t\t\tsections {\n\t\t\t\t\t\t__typename\n\t\t\t\t\t\tconfig {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on SystemArrangementConfig {\n\t\t\t\t\t\t\t\tvariant\n\t\t\t\t\t\t\t\tlinks\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvisible\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.NavigationArrangementDocument,
     "\n\tmutation NavigationArrangementUpdate($input: NavigationArrangementInput!) {\n\t\tupdateNavigationArrangement(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.NavigationArrangementUpdateDocument,
     "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.NavigationArrangementUpdateLockStatusDocument,
+    "\n\tquery DeletedBooks($libraryId: ID) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tdeletedAt\n\t\t\tdeletedBy\n\t\t\texpiresAt\n\t\t\tpurgeAt\n\t\t\tlibraryId\n\t\t\tlibraryName\n\t\t\trelativePath\n\t\t\tfileExists\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\textension\n\t\t\t\tsize\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tmetadata {\n\t\t\t\t\twriters\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DeletedBooksDocument,
+    "\n\tquery DeletedBooksSettings {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t\tquarantineDir\n\t\t\tquarantineReady\n\t\t\tnextPurgeAt\n\t\t\tlastPurgeAt\n\t\t\tlastPurge {\n\t\t\t\tfinishedAt\n\t\t\t\tjobId\n\t\t\t\tpurged\n\t\t\t\tmissingFiles\n\t\t\t\tfailed\n\t\t\t\terrors {\n\t\t\t\t\tmediaId\n\t\t\t\t\ttitle\n\t\t\t\t\terror\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DeletedBooksSettingsDocument,
+    "\n\tquery PurgedBooks($limit: Int!) {\n\t\tpurgedBooks(limit: $limit) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\ttitle\n\t\t\tauthors\n\t\t\tlibraryName\n\t\t\toriginalPath\n\t\t\tquarantinePath\n\t\t\tbytes\n\t\t\tpurgedBy\n\t\t\tautomatic\n\t\t\tpurgedAt\n\t\t\trestoredAt\n\t\t\trestoredBy\n\t\t\tcanRestore\n\t\t}\n\t}\n": typeof types.PurgedBooksDocument,
+    "\n\tquery DeletedBooksLibraries {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DeletedBooksLibrariesDocument,
+    "\n\tmutation RestoreDeletedBooks($ids: [ID!]!) {\n\t\trestoreDeletedBooks(ids: $ids)\n\t}\n": typeof types.RestoreDeletedBooksDocument,
+    "\n\tmutation PurgeDeletedBooks($ids: [ID!]!) {\n\t\tpurgeDeletedBooks(ids: $ids) {\n\t\t\tpurged\n\t\t\tmissingFiles\n\t\t\tquarantinedBytes\n\t\t\tkept {\n\t\t\t\tmediaId\n\t\t\t\ttitle\n\t\t\t\terror\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PurgeDeletedBooksDocument,
+    "\n\tmutation EmptyDeletedBooks($libraryId: ID) {\n\t\temptyDeletedBooks(libraryId: $libraryId) {\n\t\t\tpurged\n\t\t\tmissingFiles\n\t\t\tquarantinedBytes\n\t\t\tkept {\n\t\t\t\tmediaId\n\t\t\t\ttitle\n\t\t\t\terror\n\t\t\t}\n\t\t}\n\t}\n": typeof types.EmptyDeletedBooksDocument,
+    "\n\tmutation UpdateDeletedBooksRetention($days: Int!) {\n\t\tupdateDeletedBooksRetention(days: $days) {\n\t\t\tretentionDays\n\t\t}\n\t}\n": typeof types.UpdateDeletedBooksRetentionDocument,
+    "\n\tmutation RestorePurgedBook($id: Int!) {\n\t\trestorePurgedBook(id: $id) {\n\t\t\tid\n\t\t\ttitle\n\t\t\tlibraryName\n\t\t\trestoredAt\n\t\t}\n\t}\n": typeof types.RestorePurgedBookDocument,
     "\n\tquery CreateEmailerSceneEmailers {\n\t\temailers {\n\t\t\tname\n\t\t}\n\t}\n": typeof types.CreateEmailerSceneEmailersDocument,
     "\n\tmutation CreateEmailerSceneCreateEmailer($input: EmailerInput!) {\n\t\tcreateEmailer(input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.CreateEmailerSceneCreateEmailerDocument,
     "\n\tquery EditEmailerScene($id: Int!) {\n\t\temailers {\n\t\t\tname\n\t\t}\n\t\temailerById(id: $id) {\n\t\t\tid\n\t\t\t...CreateOrUpdateEmailerForm\n\t\t}\n\t}\n": typeof types.EditEmailerSceneDocument,
@@ -344,7 +353,7 @@ type Documents = {
     "\n\tmutation JobActionMenuCancelJob($id: ID!) {\n\t\tcancelJob(id: $id)\n\t}\n": typeof types.JobActionMenuCancelJobDocument,
     "\n\tmutation JobActionMenuDeleteJob($id: ID!) {\n\t\tcancelJob(id: $id)\n\t}\n": typeof types.JobActionMenuDeleteJobDocument,
     "\n\tmutation JobActionMenuDeleteLogs($id: ID!) {\n\t\tdeleteJobLogs(id: $id) {\n\t\t\taffectedRows\n\t\t}\n\t}\n": typeof types.JobActionMenuDeleteLogsDocument,
-    "\n\tfragment JobDataInspector on CoreJobOutput {\n\t\t__typename\n\t\t... on LibraryScanOutput {\n\t\t\ttotalFiles\n\t\t\ttotalDirectories\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tignoredDirectories\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t\tcreatedSeries\n\t\t\tupdatedSeries\n\t\t}\n\t\t... on SeriesScanOutput {\n\t\t\ttotalFiles\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t}\n\t\t... on ThumbnailGenerationOutput {\n\t\t\tvisitedFiles\n\t\t\tskippedFiles\n\t\t\tgeneratedThumbnails\n\t\t\tremovedThumbnails\n\t\t}\n\t}\n": typeof types.JobDataInspectorFragmentDoc,
+    "\n\tfragment JobDataInspector on CoreJobOutput {\n\t\t__typename\n\t\t... on LibraryScanOutput {\n\t\t\ttotalFiles\n\t\t\ttotalDirectories\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tignoredDirectories\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t\tcreatedSeries\n\t\t\tupdatedSeries\n\t\t}\n\t\t... on SeriesScanOutput {\n\t\t\ttotalFiles\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t}\n\t\t... on ThumbnailGenerationOutput {\n\t\t\tvisitedFiles\n\t\t\tskippedFiles\n\t\t\tgeneratedThumbnails\n\t\t\tremovedThumbnails\n\t\t}\n\t\t... on TrashPurgeOutput {\n\t\t\tpurgedBooks\n\t\t\tmissingBookFiles\n\t\t\tkeptBooks\n\t\t\tquarantinedBytes\n\t\t}\n\t}\n": typeof types.JobDataInspectorFragmentDoc,
     "\n\tquery JobDataInspectorLogs($id: String!) {\n\t\tlogs(filter: { jobId: { eq: $id } }, pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlevel\n\t\t\t\tmessage\n\t\t\t\ttimestamp\n\t\t\t}\n\t\t}\n\t}\n": typeof types.JobDataInspectorLogsDocument,
     "\n\tquery ScheduledJobs {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t}\n\t\t}\n\t\tscheduledJobs {\n\t\t\tid\n\t\t\tname\n\t\t\t...ScheduledJobRow\n\t\t}\n\t}\n": typeof types.ScheduledJobsDocument,
     "\n\tmutation DeleteScheduledJob($id: Int!) {\n\t\tdeleteScheduledJob(id: $id)\n\t}\n": typeof types.DeleteScheduledJobDocument,
@@ -530,6 +539,7 @@ const documents: Documents = {
     "\n\tquery EmailBookDropdownDevice {\n\t\temailDevices {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": types.EmailBookDropdownDeviceDocument,
     "\n\tmutation SendEmailAttachment($id: ID!, $sendTo: [EmailerSendTo!]!) {\n\t\tsendAttachmentEmail(input: { mediaIds: [$id], sendTo: $sendTo }) {\n\t\t\tsentCount\n\t\t\terrors\n\t\t}\n\t}\n": types.SendEmailAttachmentDocument,
     "\n\tmutation RemoveBookFromLibrary($id: ID!) {\n\t\tdeleteMedia(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": types.RemoveBookFromLibraryDocument,
+    "\n\tquery RemoveBookRetention {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t}\n\t}\n": types.RemoveBookRetentionDocument,
     "\n\tfragment SimpleBookCard on Media {\n\t\tid\n\t\tresolvedName\n\t\tcreatedAt\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": types.SimpleBookCardFragmentDoc,
     "\n\tfragment MediaMetadataEditor on MediaMetadata {\n\t\tageRating\n\t\tcharacters\n\t\tcolorists\n\t\tcoverArtists\n\t\tday\n\t\teditors\n\t\tformat\n\t\tidentifierAmazon\n\t\tidentifierCalibre\n\t\tidentifierGoogle\n\t\tidentifierIsbn\n\t\tidentifierMobiAsin\n\t\tidentifierUuid\n\t\tgenres\n\t\tinkers\n\t\tlanguage\n\t\tletterers\n\t\tlinks\n\t\tmonth\n\t\tnotes\n\t\tnumber\n\t\tpageCount\n\t\tpencillers\n\t\tpublisher\n\t\tseries\n\t\tseriesGroup\n\t\tstoryArc\n\t\tstoryArcNumber\n\t\tsummary\n\t\tteams\n\t\ttitle\n\t\ttitleSort\n\t\tvolume\n\t\twriters\n\t\tyear\n\t\tlockedFields\n\t}\n": types.MediaMetadataEditorFragmentDoc,
     "\n\tmutation MediaEditorSetLockedFields($mediaId: ID!, $lockedFields: [MetadataField!]!) {\n\t\tsetMediaLockedFields(mediaId: $mediaId, lockedFields: $lockedFields) {\n\t\t\tid\n\t\t}\n\t}\n": types.MediaEditorSetLockedFieldsDocument,
@@ -664,9 +674,8 @@ const documents: Documents = {
     "\n\tquery LibraryExclusionsQuery($id: ID!) {\n\t\tlibraryById(id: $id) {\n\t\t\texcludedUsers {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.LibraryExclusionsQueryDocument,
     "\n\tmutation UpdateLibraryExclusions($id: ID!, $userIds: [String!]!) {\n\t\tupdateLibraryExcludedUsers(id: $id, userIds: $userIds) {\n\t\t\tid\n\t\t\texcludedUsers {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.UpdateLibraryExclusionsDocument,
     "\n\tmutation CleanLibrary($id: ID!) {\n\t\tcleanLibrary(id: $id) {\n\t\t\tdeletedMediaCount\n\t\t\tdeletedSeriesCount\n\t\t\tisEmpty\n\t\t}\n\t}\n": types.CleanLibraryDocument,
+    "\n\tquery LibraryDeletedBooks($libraryId: ID!) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t}\n\t}\n": types.LibraryDeletedBooksDocument,
     "\n\tquery LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {\n\t\tlibraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tpath\n\t\t\t\ttype\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\ttotalPages\n\t\t\t\t\tcurrentPage\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t\ttotalItems\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.LibraryMissingEntitiesDocument,
-    "\n\tquery LibraryRemovedBooks($libraryId: ID!) {\n\t\tremovedMedia(libraryId: $libraryId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t\tpath\n\t\t}\n\t}\n": types.LibraryRemovedBooksDocument,
-    "\n\tmutation RestoreRemovedBook($id: ID!) {\n\t\trestoreMedia(id: $id)\n\t}\n": types.RestoreRemovedBookDocument,
     "\n\tmutation AnalyzeLibraryMedia($id: ID!) {\n\t\tanalyzeLibrary(id: $id)\n\t}\n": types.AnalyzeLibraryMediaDocument,
     "\n\tquery InitFetchJobCheckProviders {\n\t\tmetadataProviderConfigs {\n\t\t\tid\n\t\t}\n\t}\n": types.InitFetchJobCheckProvidersDocument,
     "\n\tmutation InitFetchJob($id: ID!) {\n\t\tfetchLibraryMetadata(id: $id)\n\t}\n": types.InitFetchJobDocument,
@@ -694,6 +703,15 @@ const documents: Documents = {
     "\n\tquery NavigationArrangement {\n\t\tme {\n\t\t\tpreferences {\n\t\t\t\tnavigationArrangement {\n\t\t\t\t\tlocked\n\t\t\t\t\tsections {\n\t\t\t\t\t\t__typename\n\t\t\t\t\t\tconfig {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on SystemArrangementConfig {\n\t\t\t\t\t\t\t\tvariant\n\t\t\t\t\t\t\t\tlinks\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvisible\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.NavigationArrangementDocument,
     "\n\tmutation NavigationArrangementUpdate($input: NavigationArrangementInput!) {\n\t\tupdateNavigationArrangement(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.NavigationArrangementUpdateDocument,
     "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.NavigationArrangementUpdateLockStatusDocument,
+    "\n\tquery DeletedBooks($libraryId: ID) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tdeletedAt\n\t\t\tdeletedBy\n\t\t\texpiresAt\n\t\t\tpurgeAt\n\t\t\tlibraryId\n\t\t\tlibraryName\n\t\t\trelativePath\n\t\t\tfileExists\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\textension\n\t\t\t\tsize\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tmetadata {\n\t\t\t\t\twriters\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.DeletedBooksDocument,
+    "\n\tquery DeletedBooksSettings {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t\tquarantineDir\n\t\t\tquarantineReady\n\t\t\tnextPurgeAt\n\t\t\tlastPurgeAt\n\t\t\tlastPurge {\n\t\t\t\tfinishedAt\n\t\t\t\tjobId\n\t\t\t\tpurged\n\t\t\t\tmissingFiles\n\t\t\t\tfailed\n\t\t\t\terrors {\n\t\t\t\t\tmediaId\n\t\t\t\t\ttitle\n\t\t\t\t\terror\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.DeletedBooksSettingsDocument,
+    "\n\tquery PurgedBooks($limit: Int!) {\n\t\tpurgedBooks(limit: $limit) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\ttitle\n\t\t\tauthors\n\t\t\tlibraryName\n\t\t\toriginalPath\n\t\t\tquarantinePath\n\t\t\tbytes\n\t\t\tpurgedBy\n\t\t\tautomatic\n\t\t\tpurgedAt\n\t\t\trestoredAt\n\t\t\trestoredBy\n\t\t\tcanRestore\n\t\t}\n\t}\n": types.PurgedBooksDocument,
+    "\n\tquery DeletedBooksLibraries {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t}\n\t\t}\n\t}\n": types.DeletedBooksLibrariesDocument,
+    "\n\tmutation RestoreDeletedBooks($ids: [ID!]!) {\n\t\trestoreDeletedBooks(ids: $ids)\n\t}\n": types.RestoreDeletedBooksDocument,
+    "\n\tmutation PurgeDeletedBooks($ids: [ID!]!) {\n\t\tpurgeDeletedBooks(ids: $ids) {\n\t\t\tpurged\n\t\t\tmissingFiles\n\t\t\tquarantinedBytes\n\t\t\tkept {\n\t\t\t\tmediaId\n\t\t\t\ttitle\n\t\t\t\terror\n\t\t\t}\n\t\t}\n\t}\n": types.PurgeDeletedBooksDocument,
+    "\n\tmutation EmptyDeletedBooks($libraryId: ID) {\n\t\temptyDeletedBooks(libraryId: $libraryId) {\n\t\t\tpurged\n\t\t\tmissingFiles\n\t\t\tquarantinedBytes\n\t\t\tkept {\n\t\t\t\tmediaId\n\t\t\t\ttitle\n\t\t\t\terror\n\t\t\t}\n\t\t}\n\t}\n": types.EmptyDeletedBooksDocument,
+    "\n\tmutation UpdateDeletedBooksRetention($days: Int!) {\n\t\tupdateDeletedBooksRetention(days: $days) {\n\t\t\tretentionDays\n\t\t}\n\t}\n": types.UpdateDeletedBooksRetentionDocument,
+    "\n\tmutation RestorePurgedBook($id: Int!) {\n\t\trestorePurgedBook(id: $id) {\n\t\t\tid\n\t\t\ttitle\n\t\t\tlibraryName\n\t\t\trestoredAt\n\t\t}\n\t}\n": types.RestorePurgedBookDocument,
     "\n\tquery CreateEmailerSceneEmailers {\n\t\temailers {\n\t\t\tname\n\t\t}\n\t}\n": types.CreateEmailerSceneEmailersDocument,
     "\n\tmutation CreateEmailerSceneCreateEmailer($input: EmailerInput!) {\n\t\tcreateEmailer(input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": types.CreateEmailerSceneCreateEmailerDocument,
     "\n\tquery EditEmailerScene($id: Int!) {\n\t\temailers {\n\t\t\tname\n\t\t}\n\t\temailerById(id: $id) {\n\t\t\tid\n\t\t\t...CreateOrUpdateEmailerForm\n\t\t}\n\t}\n": types.EditEmailerSceneDocument,
@@ -721,7 +739,7 @@ const documents: Documents = {
     "\n\tmutation JobActionMenuCancelJob($id: ID!) {\n\t\tcancelJob(id: $id)\n\t}\n": types.JobActionMenuCancelJobDocument,
     "\n\tmutation JobActionMenuDeleteJob($id: ID!) {\n\t\tcancelJob(id: $id)\n\t}\n": types.JobActionMenuDeleteJobDocument,
     "\n\tmutation JobActionMenuDeleteLogs($id: ID!) {\n\t\tdeleteJobLogs(id: $id) {\n\t\t\taffectedRows\n\t\t}\n\t}\n": types.JobActionMenuDeleteLogsDocument,
-    "\n\tfragment JobDataInspector on CoreJobOutput {\n\t\t__typename\n\t\t... on LibraryScanOutput {\n\t\t\ttotalFiles\n\t\t\ttotalDirectories\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tignoredDirectories\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t\tcreatedSeries\n\t\t\tupdatedSeries\n\t\t}\n\t\t... on SeriesScanOutput {\n\t\t\ttotalFiles\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t}\n\t\t... on ThumbnailGenerationOutput {\n\t\t\tvisitedFiles\n\t\t\tskippedFiles\n\t\t\tgeneratedThumbnails\n\t\t\tremovedThumbnails\n\t\t}\n\t}\n": types.JobDataInspectorFragmentDoc,
+    "\n\tfragment JobDataInspector on CoreJobOutput {\n\t\t__typename\n\t\t... on LibraryScanOutput {\n\t\t\ttotalFiles\n\t\t\ttotalDirectories\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tignoredDirectories\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t\tcreatedSeries\n\t\t\tupdatedSeries\n\t\t}\n\t\t... on SeriesScanOutput {\n\t\t\ttotalFiles\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t}\n\t\t... on ThumbnailGenerationOutput {\n\t\t\tvisitedFiles\n\t\t\tskippedFiles\n\t\t\tgeneratedThumbnails\n\t\t\tremovedThumbnails\n\t\t}\n\t\t... on TrashPurgeOutput {\n\t\t\tpurgedBooks\n\t\t\tmissingBookFiles\n\t\t\tkeptBooks\n\t\t\tquarantinedBytes\n\t\t}\n\t}\n": types.JobDataInspectorFragmentDoc,
     "\n\tquery JobDataInspectorLogs($id: String!) {\n\t\tlogs(filter: { jobId: { eq: $id } }, pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlevel\n\t\t\t\tmessage\n\t\t\t\ttimestamp\n\t\t\t}\n\t\t}\n\t}\n": types.JobDataInspectorLogsDocument,
     "\n\tquery ScheduledJobs {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t}\n\t\t}\n\t\tscheduledJobs {\n\t\t\tid\n\t\t\tname\n\t\t\t...ScheduledJobRow\n\t\t}\n\t}\n": types.ScheduledJobsDocument,
     "\n\tmutation DeleteScheduledJob($id: Int!) {\n\t\tdeleteScheduledJob(id: $id)\n\t}\n": types.DeleteScheduledJobDocument,
@@ -1324,6 +1342,10 @@ export function graphql(source: "\n\tmutation RemoveBookFromLibrary($id: ID!) {\
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tquery RemoveBookRetention {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t}\n\t}\n"): typeof import('./graphql').RemoveBookRetentionDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tfragment SimpleBookCard on Media {\n\t\tid\n\t\tresolvedName\n\t\tcreatedAt\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').SimpleBookCardFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -1860,15 +1882,11 @@ export function graphql(source: "\n\tmutation CleanLibrary($id: ID!) {\n\t\tclea
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tquery LibraryDeletedBooks($libraryId: ID!) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t}\n\t}\n"): typeof import('./graphql').LibraryDeletedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tquery LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {\n\t\tlibraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tpath\n\t\t\t\ttype\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\ttotalPages\n\t\t\t\t\tcurrentPage\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t\ttotalItems\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').LibraryMissingEntitiesDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n\tquery LibraryRemovedBooks($libraryId: ID!) {\n\t\tremovedMedia(libraryId: $libraryId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t\tpath\n\t\t}\n\t}\n"): typeof import('./graphql').LibraryRemovedBooksDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n\tmutation RestoreRemovedBook($id: ID!) {\n\t\trestoreMedia(id: $id)\n\t}\n"): typeof import('./graphql').RestoreRemovedBookDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -1980,6 +1998,42 @@ export function graphql(source: "\n\tmutation NavigationArrangementUpdateLockSta
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tquery DeletedBooks($libraryId: ID) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tdeletedAt\n\t\t\tdeletedBy\n\t\t\texpiresAt\n\t\t\tpurgeAt\n\t\t\tlibraryId\n\t\t\tlibraryName\n\t\t\trelativePath\n\t\t\tfileExists\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\textension\n\t\t\t\tsize\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tmetadata {\n\t\t\t\t\twriters\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').DeletedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery DeletedBooksSettings {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t\tquarantineDir\n\t\t\tquarantineReady\n\t\t\tnextPurgeAt\n\t\t\tlastPurgeAt\n\t\t\tlastPurge {\n\t\t\t\tfinishedAt\n\t\t\t\tjobId\n\t\t\t\tpurged\n\t\t\t\tmissingFiles\n\t\t\t\tfailed\n\t\t\t\terrors {\n\t\t\t\t\tmediaId\n\t\t\t\t\ttitle\n\t\t\t\t\terror\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').DeletedBooksSettingsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PurgedBooks($limit: Int!) {\n\t\tpurgedBooks(limit: $limit) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\ttitle\n\t\t\tauthors\n\t\t\tlibraryName\n\t\t\toriginalPath\n\t\t\tquarantinePath\n\t\t\tbytes\n\t\t\tpurgedBy\n\t\t\tautomatic\n\t\t\tpurgedAt\n\t\t\trestoredAt\n\t\t\trestoredBy\n\t\t\tcanRestore\n\t\t}\n\t}\n"): typeof import('./graphql').PurgedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery DeletedBooksLibraries {\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').DeletedBooksLibrariesDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation RestoreDeletedBooks($ids: [ID!]!) {\n\t\trestoreDeletedBooks(ids: $ids)\n\t}\n"): typeof import('./graphql').RestoreDeletedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PurgeDeletedBooks($ids: [ID!]!) {\n\t\tpurgeDeletedBooks(ids: $ids) {\n\t\t\tpurged\n\t\t\tmissingFiles\n\t\t\tquarantinedBytes\n\t\t\tkept {\n\t\t\t\tmediaId\n\t\t\t\ttitle\n\t\t\t\terror\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PurgeDeletedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation EmptyDeletedBooks($libraryId: ID) {\n\t\temptyDeletedBooks(libraryId: $libraryId) {\n\t\t\tpurged\n\t\t\tmissingFiles\n\t\t\tquarantinedBytes\n\t\t\tkept {\n\t\t\t\tmediaId\n\t\t\t\ttitle\n\t\t\t\terror\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').EmptyDeletedBooksDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation UpdateDeletedBooksRetention($days: Int!) {\n\t\tupdateDeletedBooksRetention(days: $days) {\n\t\t\tretentionDays\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateDeletedBooksRetentionDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation RestorePurgedBook($id: Int!) {\n\t\trestorePurgedBook(id: $id) {\n\t\t\tid\n\t\t\ttitle\n\t\t\tlibraryName\n\t\t\trestoredAt\n\t\t}\n\t}\n"): typeof import('./graphql').RestorePurgedBookDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tquery CreateEmailerSceneEmailers {\n\t\temailers {\n\t\t\tname\n\t\t}\n\t}\n"): typeof import('./graphql').CreateEmailerSceneEmailersDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -2088,7 +2142,7 @@ export function graphql(source: "\n\tmutation JobActionMenuDeleteLogs($id: ID!) 
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n\tfragment JobDataInspector on CoreJobOutput {\n\t\t__typename\n\t\t... on LibraryScanOutput {\n\t\t\ttotalFiles\n\t\t\ttotalDirectories\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tignoredDirectories\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t\tcreatedSeries\n\t\t\tupdatedSeries\n\t\t}\n\t\t... on SeriesScanOutput {\n\t\t\ttotalFiles\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t}\n\t\t... on ThumbnailGenerationOutput {\n\t\t\tvisitedFiles\n\t\t\tskippedFiles\n\t\t\tgeneratedThumbnails\n\t\t\tremovedThumbnails\n\t\t}\n\t}\n"): typeof import('./graphql').JobDataInspectorFragmentDoc;
+export function graphql(source: "\n\tfragment JobDataInspector on CoreJobOutput {\n\t\t__typename\n\t\t... on LibraryScanOutput {\n\t\t\ttotalFiles\n\t\t\ttotalDirectories\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tignoredDirectories\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t\tcreatedSeries\n\t\t\tupdatedSeries\n\t\t}\n\t\t... on SeriesScanOutput {\n\t\t\ttotalFiles\n\t\t\tignoredFiles\n\t\t\tskippedFiles\n\t\t\tcreatedMedia\n\t\t\tupdatedMedia\n\t\t}\n\t\t... on ThumbnailGenerationOutput {\n\t\t\tvisitedFiles\n\t\t\tskippedFiles\n\t\t\tgeneratedThumbnails\n\t\t\tremovedThumbnails\n\t\t}\n\t\t... on TrashPurgeOutput {\n\t\t\tpurgedBooks\n\t\t\tmissingBookFiles\n\t\t\tkeptBooks\n\t\t\tquarantinedBytes\n\t\t}\n\t}\n"): typeof import('./graphql').JobDataInspectorFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

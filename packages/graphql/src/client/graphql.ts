@@ -492,7 +492,7 @@ export type ConfidenceFactor = {
 /** An event that is emitted by the core and consumed by a client */
 export type CoreEvent = CreatedManySeries | CreatedMedia | CreatedOrUpdatedManyMedia | DiscoveredMissingLibrary | JobOutput | JobStarted | JobUpdate;
 
-export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | PostProcessOutput | SeriesScanOutput | ThumbnailGenerationOutput;
+export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | PostProcessOutput | SeriesScanOutput | ThumbnailGenerationOutput | TrashPurgeOutput;
 
 export type CreateAnnotationInput = {
   annotationText?: InputMaybe<Scalars['String']['input']>;
@@ -690,6 +690,87 @@ export type DeleteJobHistory = {
   __typename?: 'DeleteJobHistory';
   /** The number of logs deleted that were related to a job */
   affectedRows: Scalars['Int']['output'];
+};
+
+/**
+ * A book in *Deleted books*: removed from its library, hidden everywhere, its file still on
+ * disk until it is deleted permanently
+ */
+export type DeletedBook = {
+  __typename?: 'DeletedBook';
+  /** The book as it was when it was removed (its progress, annotations and tags are kept) */
+  book: Media;
+  deletedAt: Scalars['DateTime']['output'];
+  /** Who removed it, when known */
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  /** When its time in Deleted books is over (null: kept until deleted by hand) */
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Whether its file is still there (otherwise deleting it permanently only deletes its data) */
+  fileExists: Scalars['Boolean']['output'];
+  libraryId: Scalars['String']['output'];
+  libraryName: Scalars['String']['output'];
+  /** When the automatic purge will delete it permanently */
+  purgeAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Its path inside its library */
+  relativePath: Scalars['String']['output'];
+};
+
+/** A book a purge couldn't delete permanently */
+export type DeletedBooksPurgeError = {
+  __typename?: 'DeletedBooksPurgeError';
+  error: Scalars['String']['output'];
+  mediaId: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
+/** What deleting books permanently did */
+export type DeletedBooksPurgeResult = {
+  __typename?: 'DeletedBooksPurgeResult';
+  /** Books kept in Deleted books, with why */
+  kept: Array<DeletedBooksPurgeError>;
+  /** Books whose file was already gone: only their data was deleted */
+  missingFiles: Scalars['Int']['output'];
+  /** Books whose file went to the quarantine folder and whose data was deleted */
+  purged: Scalars['Int']['output'];
+  /** The size of the files moved to the quarantine folder */
+  quarantinedBytes: Scalars['Int']['output'];
+};
+
+/** What an automatic purge of expired deleted books did */
+export type DeletedBooksPurgeSummary = {
+  __typename?: 'DeletedBooksPurgeSummary';
+  /** Why books were kept (the first few) */
+  errors: Array<DeletedBooksPurgeError>;
+  /** Books kept in Deleted books because their file couldn't be moved */
+  failed: Scalars['Int']['output'];
+  /** When it finished */
+  finishedAt: Scalars['DateTime']['output'];
+  /** The job that ran it, if it ran as a job (nothing had expired otherwise) */
+  jobId?: Maybe<Scalars['String']['output']>;
+  /** Books whose file was already gone: only their data was deleted */
+  missingFiles: Scalars['Int']['output'];
+  /** Books whose file went to the quarantine folder and whose data was deleted */
+  purged: Scalars['Int']['output'];
+};
+
+/** How *Deleted books* works on this server */
+export type DeletedBooksSettings = {
+  __typename?: 'DeletedBooksSettings';
+  /** What it did (library managers only) */
+  lastPurge?: Maybe<DeletedBooksPurgeSummary>;
+  /** When the automatic purge last ran (library managers only) */
+  lastPurgeAt?: Maybe<Scalars['DateTime']['output']>;
+  /** When the automatic purge runs next (null when it is off) */
+  nextPurgeAt?: Maybe<Scalars['DateTime']['output']>;
+  /** The folder book files go to when they are deleted permanently (library managers only) */
+  quarantineDir?: Maybe<Scalars['String']['output']>;
+  /**
+   * Whether books with a file can be deleted permanently: the quarantine folder is set and
+   * exists
+   */
+  quarantineReady: Scalars['Boolean']['output'];
+  /** How many days removed books stay in Deleted books (0: until deleted by hand) */
+  retentionDays: Scalars['Int']['output'];
 };
 
 export enum Dimension {
@@ -2692,9 +2773,11 @@ export type Mutation = {
   deleteLoginActivity: Scalars['Int']['output'];
   deleteLogs: LogDeleteOutput;
   /**
-   * Removes a book from its library (soft delete: the file stays on disk). Requires the
-   * `REMOVE_BOOK` permission, which an admin grants per user; library managers can bring
-   * the book back with `restoreMedia`
+   * Removes a book from its library: it goes to *Deleted books* (soft delete: hidden
+   * everywhere, the file stays on disk) until a library manager restores it
+   * (`restoreDeletedBooks`) or it is deleted permanently, by hand or by the daily purge once
+   * the retention is over. Requires the `REMOVE_BOOK` permission, which an admin grants per
+   * user
    */
   deleteMedia: Media;
   /** trashes all completed readthroughs for the media */
@@ -2745,6 +2828,11 @@ export type Mutation = {
   editMediaMetadata: MetadataEditResult;
   /** Edit your own message */
   editMessage: BookClubDiscussionMessage;
+  /**
+   * Deletes every book in *Deleted books* permanently (in one library, if given), like
+   * `purgeDeletedBooks`
+   */
+  emptyDeletedBooks: DeletedBooksPurgeResult;
   extendReadingSession: ReadingSession;
   favoriteMedia: Media;
   favoriteSeries: Series;
@@ -2800,6 +2888,13 @@ export type Mutation = {
   /** Pin or unpin a message (Moderator+) */
   pinMessage: Scalars['Boolean']['output'];
   processLibraryThumbnails: Scalars['Boolean']['output'];
+  /**
+   * Deletes books in *Deleted books* permanently: each file is moved to the quarantine
+   * folder (`deleted/<date>/`, with a `restore_log.csv` row), then the book's data is
+   * deleted. A book whose file can't be moved stays in Deleted books; one whose file is
+   * already gone only has its data deleted
+   */
+  purgeDeletedBooks: DeletedBooksPurgeResult;
   /** Reject all pending metadata matches, setting their status to NoMatch */
   rejectAllPendingMatches: Scalars['Int']['output'];
   /** Reject the current match candidates for a media item */
@@ -2822,8 +2917,20 @@ export type Mutation = {
   resetLibraryMetadata: Library;
   resetSeriesMetadata: Series;
   respondToBookClubInvitation: BookClubInvitation;
+  /**
+   * Brings books in *Deleted books* back to their library exactly as they were (reading
+   * progress, annotations, bookmarks, tags and smart lists never left). Returns how many came
+   * back
+   */
+  restoreDeletedBooks: Scalars['Int']['output'];
   /** Brings back a book removed with `deleteMedia` */
   restoreMedia: Scalars['Boolean']['output'];
+  /**
+   * Moves the file of a book deleted permanently back from the quarantine folder to where
+   * it was, and scans its folder: it comes back as a new book (its reading progress and
+   * annotations were deleted with it)
+   */
+  restorePurgedBook: PurgedBook;
   /**
    * Revert a save of the book's edit history: the fields it changed get their old values
    * back (in the book file and in Stump), except the ones changed again since, which
@@ -2882,6 +2989,11 @@ export type Mutation = {
   updateBookClub: BookClub;
   /** Rename a custom emoji */
   updateCustomEmoji: CustomEmoji;
+  /**
+   * How many days removed books stay in *Deleted books* before the daily purge deletes
+   * them permanently (0: until deleted by hand)
+   */
+  updateDeletedBooksRetention: DeletedBooksSettings;
   updateEmailDevice: RegisteredEmailDevice;
   updateEmailer: Emailer;
   /** Replace the authenticated user's home sections */
@@ -3345,6 +3457,11 @@ export type MutationEditMessageArgs = {
 };
 
 
+export type MutationEmptyDeletedBooksArgs = {
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type MutationExtendReadingSessionArgs = {
   sessionId: Scalars['Int']['input'];
 };
@@ -3473,6 +3590,11 @@ export type MutationProcessLibraryThumbnailsArgs = {
 };
 
 
+export type MutationPurgeDeletedBooksArgs = {
+  ids: Array<Scalars['ID']['input']>;
+};
+
+
 export type MutationRejectMediaMatchArgs = {
   candidateIndex: Scalars['Int']['input'];
   mediaId: Scalars['ID']['input'];
@@ -3531,8 +3653,18 @@ export type MutationRespondToBookClubInvitationArgs = {
 };
 
 
+export type MutationRestoreDeletedBooksArgs = {
+  ids: Array<Scalars['ID']['input']>;
+};
+
+
 export type MutationRestoreMediaArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationRestorePurgedBookArgs = {
+  id: Scalars['Int']['input'];
 };
 
 
@@ -3653,6 +3785,11 @@ export type MutationUpdateBookClubArgs = {
 export type MutationUpdateCustomEmojiArgs = {
   id: Scalars['ID']['input'];
   input: UpdateCustomEmojiInput;
+};
+
+
+export type MutationUpdateDeletedBooksRetentionArgs = {
+  days: Scalars['Int']['input'];
 };
 
 
@@ -4360,6 +4497,39 @@ export enum PublicationStatus {
   Upcoming = 'UPCOMING'
 }
 
+/**
+ * A book deleted permanently: its file is in the quarantine folder (unless it was already
+ * gone) and can be moved back
+ */
+export type PurgedBook = {
+  __typename?: 'PurgedBook';
+  authors: Array<Scalars['String']['output']>;
+  /** Deleted by the automatic purge */
+  automatic: Scalars['Boolean']['output'];
+  bytes?: Maybe<Scalars['Int']['output']>;
+  /**
+   * Whether its file can be moved back: it is still in the quarantine folder and nothing
+   * took its place in the library
+   */
+  canRestore: Scalars['Boolean']['output'];
+  deletedAt?: Maybe<Scalars['DateTime']['output']>;
+  deletedBy?: Maybe<Scalars['String']['output']>;
+  id: Scalars['Int']['output'];
+  libraryId?: Maybe<Scalars['String']['output']>;
+  libraryName?: Maybe<Scalars['String']['output']>;
+  mediaId: Scalars['String']['output'];
+  originalPath: Scalars['String']['output'];
+  purgedAt: Scalars['DateTime']['output'];
+  /** Who deleted it permanently, when known */
+  purgedBy?: Maybe<Scalars['String']['output']>;
+  /** Where its file is (null: it was already gone) */
+  quarantinePath?: Maybe<Scalars['String']['output']>;
+  /** When its file was moved back into the library */
+  restoredAt?: Maybe<Scalars['DateTime']['output']>;
+  restoredBy?: Maybe<Scalars['String']['output']>;
+  title: Scalars['String']['output'];
+};
+
 export type Query = {
   __typename?: 'Query';
   activeReadingSessionCount: Scalars['Int']['output'];
@@ -4396,6 +4566,17 @@ export type Query = {
   bookmarksByMediaId: Array<Bookmark>;
   /** List the custom emojis available on this server */
   customEmojis: Array<CustomEmoji>;
+  /**
+   * The books in *Deleted books* (removed from their library, not yet deleted
+   * permanently) in the libraries the user can see, most recently removed first
+   */
+  deletedBooks: Array<DeletedBook>;
+  /**
+   * How long removed books are kept and when they are deleted permanently. Users who may
+   * remove books see the retention; library managers also see the quarantine folder and the
+   * last automatic purge
+   */
+  deletedBooksSettings: DeletedBooksSettings;
   duplicateMedia: Array<Media>;
   emailDeviceById?: Maybe<RegisteredEmailDevice>;
   emailDevices: Array<RegisteredEmailDevice>;
@@ -4490,6 +4671,11 @@ export type Query = {
   /** Post-processing tasks, most recently updated first */
   postProcessingTasks: Array<PostProcessingTaskModel>;
   previousBookClubDiscussions: Array<BookClubDiscussion>;
+  /**
+   * The books deleted permanently, most recent first: their files are in the quarantine
+   * folder and can be moved back
+   */
+  purgedBooks: Array<PurgedBook>;
   /**
    * Retrieves a reading list by ID for the current user.
    *
@@ -4633,6 +4819,11 @@ export type QueryBookClubsArgs = {
 
 export type QueryBookmarksByMediaIdArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryDeletedBooksArgs = {
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
@@ -4820,6 +5011,11 @@ export type QueryPostProcessingTasksArgs = {
 
 export type QueryPreviousBookClubDiscussionsArgs = {
   bookClubId: Scalars['ID']['input'];
+};
+
+
+export type QueryPurgedBooksArgs = {
+  limit?: Scalars['Int']['input'];
 };
 
 
@@ -6002,6 +6198,20 @@ export type TimeToFinishStat = {
   medianCalendarDays: Scalars['Float']['output'];
   medianSecondsPerPage?: Maybe<Scalars['Float']['output']>;
   sampleSize: Scalars['Int']['output'];
+};
+
+export type TrashPurgeOutput = {
+  __typename?: 'TrashPurgeOutput';
+  /** Why books were kept (the first few) */
+  errors: Array<DeletedBooksPurgeError>;
+  /** Books kept in Deleted books because their file couldn't be moved */
+  keptBooks: Scalars['Int']['output'];
+  /** Books whose file was already gone: only their data was deleted */
+  missingBookFiles: Scalars['Int']['output'];
+  /** Books whose file went to the quarantine folder and whose data was deleted */
+  purgedBooks: Scalars['Int']['output'];
+  /** The size of the files moved to the quarantine folder */
+  quarantinedBytes: Scalars['Int']['output'];
 };
 
 /**
@@ -7218,6 +7428,11 @@ export type RemoveBookFromLibraryMutationVariables = Exact<{
 
 export type RemoveBookFromLibraryMutation = { __typename?: 'Mutation', deleteMedia: { __typename?: 'Media', id: string } };
 
+export type RemoveBookRetentionQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type RemoveBookRetentionQuery = { __typename?: 'Query', deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number } };
+
 export type SimpleBookCardFragment = { __typename?: 'Media', id: string, resolvedName: string, createdAt: any, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'SimpleBookCardFragment' };
 
 export type MediaMetadataEditorFragment = { __typename?: 'MediaMetadata', ageRating?: number | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, day?: number | null, editors: Array<string>, format?: string | null, identifierAmazon?: string | null, identifierCalibre?: string | null, identifierGoogle?: string | null, identifierIsbn?: string | null, identifierMobiAsin?: string | null, identifierUuid?: string | null, genres: Array<string>, inkers: Array<string>, language?: string | null, letterers: Array<string>, links: Array<string>, month?: number | null, notes?: string | null, number?: any | null, pageCount?: number | null, pencillers: Array<string>, publisher?: string | null, series?: string | null, seriesGroup?: string | null, storyArc?: string | null, storyArcNumber?: any | null, summary?: string | null, teams: Array<string>, title?: string | null, titleSort?: string | null, volume?: number | null, writers: Array<string>, year?: number | null, lockedFields: Array<MetadataField> } & { ' $fragmentName'?: 'MediaMetadataEditorFragment' };
@@ -7732,7 +7947,7 @@ export type SeriesThumbnailSelectorUploadMutation = { __typename?: 'Mutation', u
 export type UseCoreEventSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type UseCoreEventSubscription = { __typename?: 'Subscription', readEvents: { __typename: 'CreatedManySeries', count: number, libraryId: string } | { __typename: 'CreatedMedia' } | { __typename: 'CreatedOrUpdatedManyMedia' } | { __typename: 'DiscoveredMissingLibrary', id: string } | { __typename: 'JobOutput', id: string, output: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', createdMedia: number, createdSeries: number, updatedMedia: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput', createdMedia: number, updatedMedia: number } | { __typename: 'ThumbnailGenerationOutput' } } | { __typename: 'JobStarted', id: string } | { __typename: 'JobUpdate', id: string, status?: JobStatus | null, message?: string | null, completedTasks?: number | null, remainingTasks?: number | null, completedSubtasks?: number | null, totalSubtasks?: number | null, subtitle?: string | null } };
+export type UseCoreEventSubscription = { __typename?: 'Subscription', readEvents: { __typename: 'CreatedManySeries', count: number, libraryId: string } | { __typename: 'CreatedMedia' } | { __typename: 'CreatedOrUpdatedManyMedia' } | { __typename: 'DiscoveredMissingLibrary', id: string } | { __typename: 'JobOutput', id: string, output: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', createdMedia: number, createdSeries: number, updatedMedia: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput', createdMedia: number, updatedMedia: number } | { __typename: 'ThumbnailGenerationOutput' } | { __typename: 'TrashPurgeOutput' } } | { __typename: 'JobStarted', id: string } | { __typename: 'JobUpdate', id: string, status?: JobStatus | null, message?: string | null, completedTasks?: number | null, remainingTasks?: number | null, completedSubtasks?: number | null, totalSubtasks?: number | null, subtitle?: string | null } };
 
 export type UsePreferencesMutationVariables = Exact<{
   input: UpdateUserPreferencesInput;
@@ -8174,6 +8389,13 @@ export type CleanLibraryMutationVariables = Exact<{
 
 export type CleanLibraryMutation = { __typename?: 'Mutation', cleanLibrary: { __typename?: 'CleanLibraryResponse', deletedMediaCount: number, deletedSeriesCount: number, isEmpty: boolean } };
 
+export type LibraryDeletedBooksQueryVariables = Exact<{
+  libraryId: Scalars['ID']['input'];
+}>;
+
+
+export type LibraryDeletedBooksQuery = { __typename?: 'Query', deletedBooks: Array<{ __typename?: 'DeletedBook', book: { __typename?: 'Media', id: string } }>, deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number } };
+
 export type LibraryMissingEntitiesQueryVariables = Exact<{
   libraryId: Scalars['ID']['input'];
   pagination: Pagination;
@@ -8181,20 +8403,6 @@ export type LibraryMissingEntitiesQueryVariables = Exact<{
 
 
 export type LibraryMissingEntitiesQuery = { __typename?: 'Query', libraryMissingEntities: { __typename?: 'PaginatedMissingEntityResponse', nodes: Array<{ __typename?: 'MissingEntity', id: string, name: string, path?: string | null, type: MissingEntityType }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalPages: number, currentPage: number, pageSize: number, pageOffset: number, zeroBased: boolean, totalItems: number } } };
-
-export type LibraryRemovedBooksQueryVariables = Exact<{
-  libraryId: Scalars['ID']['input'];
-}>;
-
-
-export type LibraryRemovedBooksQuery = { __typename?: 'Query', removedMedia: Array<{ __typename?: 'Media', id: string, resolvedName: string, path: string }> };
-
-export type RestoreRemovedBookMutationVariables = Exact<{
-  id: Scalars['ID']['input'];
-}>;
-
-
-export type RestoreRemovedBookMutation = { __typename?: 'Mutation', restoreMedia: boolean };
 
 export type AnalyzeLibraryMediaMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -8276,7 +8484,7 @@ export type ScanRecordInspectorJobsQueryVariables = Exact<{
 }>;
 
 
-export type ScanRecordInspectorJobsQuery = { __typename?: 'Query', jobById?: { __typename?: 'Job', id: string, outputData?: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', totalFiles: number, totalDirectories: number, ignoredFiles: number, skippedFiles: number, ignoredDirectories: number, createdMedia: number, updatedMedia: number, createdSeries: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput' } | { __typename: 'ThumbnailGenerationOutput' } | null, logs?: Array<{ __typename?: 'Log', id: number }> } | null };
+export type ScanRecordInspectorJobsQuery = { __typename?: 'Query', jobById?: { __typename?: 'Job', id: string, outputData?: { __typename: 'AnalyzeMediaOutput' } | { __typename: 'LibraryScanOutput', totalFiles: number, totalDirectories: number, ignoredFiles: number, skippedFiles: number, ignoredDirectories: number, createdMedia: number, updatedMedia: number, createdSeries: number, updatedSeries: number } | { __typename: 'MetadataFetchJobOutput' } | { __typename: 'PlaceholderGenerationOutput' } | { __typename: 'PostProcessOutput' } | { __typename: 'SeriesScanOutput' } | { __typename: 'ThumbnailGenerationOutput' } | { __typename: 'TrashPurgeOutput' } | null, logs?: Array<{ __typename?: 'Log', id: number }> } | null };
 
 export type DeleteLibraryThumbnailsMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -8391,6 +8599,65 @@ export type NavigationArrangementUpdateLockStatusMutationVariables = Exact<{
 
 
 export type NavigationArrangementUpdateLockStatusMutation = { __typename?: 'Mutation', updateNavigationArrangementLock: { __typename: 'Arrangement' } };
+
+export type DeletedBooksQueryVariables = Exact<{
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+}>;
+
+
+export type DeletedBooksQuery = { __typename?: 'Query', deletedBooks: Array<{ __typename?: 'DeletedBook', deletedAt: any, deletedBy?: string | null, expiresAt?: any | null, purgeAt?: any | null, libraryId: string, libraryName: string, relativePath: string, fileExists: boolean, book: { __typename?: 'Media', id: string, resolvedName: string, extension: string, size: number, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string> } | null } }> };
+
+export type DeletedBooksSettingsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type DeletedBooksSettingsQuery = { __typename?: 'Query', deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number, quarantineDir?: string | null, quarantineReady: boolean, nextPurgeAt?: any | null, lastPurgeAt?: any | null, lastPurge?: { __typename?: 'DeletedBooksPurgeSummary', finishedAt: any, jobId?: string | null, purged: number, missingFiles: number, failed: number, errors: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } | null } };
+
+export type PurgedBooksQueryVariables = Exact<{
+  limit: Scalars['Int']['input'];
+}>;
+
+
+export type PurgedBooksQuery = { __typename?: 'Query', purgedBooks: Array<{ __typename?: 'PurgedBook', id: number, mediaId: string, title: string, authors: Array<string>, libraryName?: string | null, originalPath: string, quarantinePath?: string | null, bytes?: number | null, purgedBy?: string | null, automatic: boolean, purgedAt: any, restoredAt?: any | null, restoredBy?: string | null, canRestore: boolean }> };
+
+export type DeletedBooksLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type DeletedBooksLibrariesQuery = { __typename?: 'Query', libraries: { __typename?: 'PaginatedLibraryResponse', nodes: Array<{ __typename?: 'Library', id: string, name: string }> } };
+
+export type RestoreDeletedBooksMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type RestoreDeletedBooksMutation = { __typename?: 'Mutation', restoreDeletedBooks: number };
+
+export type PurgeDeletedBooksMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type PurgeDeletedBooksMutation = { __typename?: 'Mutation', purgeDeletedBooks: { __typename?: 'DeletedBooksPurgeResult', purged: number, missingFiles: number, quarantinedBytes: number, kept: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } };
+
+export type EmptyDeletedBooksMutationVariables = Exact<{
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+}>;
+
+
+export type EmptyDeletedBooksMutation = { __typename?: 'Mutation', emptyDeletedBooks: { __typename?: 'DeletedBooksPurgeResult', purged: number, missingFiles: number, quarantinedBytes: number, kept: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } };
+
+export type UpdateDeletedBooksRetentionMutationVariables = Exact<{
+  days: Scalars['Int']['input'];
+}>;
+
+
+export type UpdateDeletedBooksRetentionMutation = { __typename?: 'Mutation', updateDeletedBooksRetention: { __typename?: 'DeletedBooksSettings', retentionDays: number } };
+
+export type RestorePurgedBookMutationVariables = Exact<{
+  id: Scalars['Int']['input'];
+}>;
+
+
+export type RestorePurgedBookMutation = { __typename?: 'Mutation', restorePurgedBook: { __typename?: 'PurgedBook', id: number, title: string, libraryName?: string | null, restoredAt?: any | null } };
 
 export type CreateEmailerSceneEmailersQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -8590,7 +8857,9 @@ type JobDataInspector_SeriesScanOutput_Fragment = { __typename: 'SeriesScanOutpu
 
 type JobDataInspector_ThumbnailGenerationOutput_Fragment = { __typename: 'ThumbnailGenerationOutput', visitedFiles: number, skippedFiles: number, generatedThumbnails: number, removedThumbnails: number } & { ' $fragmentName'?: 'JobDataInspector_ThumbnailGenerationOutput_Fragment' };
 
-export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragment | JobDataInspector_LibraryScanOutput_Fragment | JobDataInspector_MetadataFetchJobOutput_Fragment | JobDataInspector_PlaceholderGenerationOutput_Fragment | JobDataInspector_PostProcessOutput_Fragment | JobDataInspector_SeriesScanOutput_Fragment | JobDataInspector_ThumbnailGenerationOutput_Fragment;
+type JobDataInspector_TrashPurgeOutput_Fragment = { __typename: 'TrashPurgeOutput', purgedBooks: number, missingBookFiles: number, keptBooks: number, quarantinedBytes: number } & { ' $fragmentName'?: 'JobDataInspector_TrashPurgeOutput_Fragment' };
+
+export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragment | JobDataInspector_LibraryScanOutput_Fragment | JobDataInspector_MetadataFetchJobOutput_Fragment | JobDataInspector_PlaceholderGenerationOutput_Fragment | JobDataInspector_PostProcessOutput_Fragment | JobDataInspector_SeriesScanOutput_Fragment | JobDataInspector_ThumbnailGenerationOutput_Fragment | JobDataInspector_TrashPurgeOutput_Fragment;
 
 export type JobDataInspectorLogsQueryVariables = Exact<{
   id: Scalars['String']['input'];
@@ -8640,6 +8909,9 @@ export type JobTableQuery = { __typename?: 'Query', jobs: { __typename?: 'Pagina
       ) | (
         { __typename?: 'ThumbnailGenerationOutput' }
         & { ' $fragmentRefs'?: { 'JobDataInspector_ThumbnailGenerationOutput_Fragment': JobDataInspector_ThumbnailGenerationOutput_Fragment } }
+      ) | (
+        { __typename?: 'TrashPurgeOutput' }
+        & { ' $fragmentRefs'?: { 'JobDataInspector_TrashPurgeOutput_Fragment': JobDataInspector_TrashPurgeOutput_Fragment } }
       ) | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', currentPage: number, totalPages: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
 
 export type ScheduledJobRowFragment = { __typename?: 'ScheduledJob', id: number, name: string, kind: ScheduledJobKind, schedule: string, config?: any | null, enabled: boolean, createdAt: any, lastRunAt?: any | null } & { ' $fragmentName'?: 'ScheduledJobRowFragment' };
@@ -10522,6 +10794,12 @@ export const JobDataInspectorFragmentDoc = new TypedDocumentString(`
     skippedFiles
     generatedThumbnails
     removedThumbnails
+  }
+  ... on TrashPurgeOutput {
+    purgedBooks
+    missingBookFiles
+    keptBooks
+    quarantinedBytes
   }
 }
     `, {"fragmentName":"JobDataInspector"}) as unknown as TypedDocumentString<JobDataInspectorFragment, unknown>;
@@ -13359,6 +13637,13 @@ export const RemoveBookFromLibraryDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<RemoveBookFromLibraryMutation, RemoveBookFromLibraryMutationVariables>;
+export const RemoveBookRetentionDocument = new TypedDocumentString(`
+    query RemoveBookRetention {
+  deletedBooksSettings {
+    retentionDays
+  }
+}
+    `) as unknown as TypedDocumentString<RemoveBookRetentionQuery, RemoveBookRetentionQueryVariables>;
 export const MediaEditorSetLockedFieldsDocument = new TypedDocumentString(`
     mutation MediaEditorSetLockedFields($mediaId: ID!, $lockedFields: [MetadataField!]!) {
   setMediaLockedFields(mediaId: $mediaId, lockedFields: $lockedFields) {
@@ -16373,6 +16658,18 @@ export const CleanLibraryDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<CleanLibraryMutation, CleanLibraryMutationVariables>;
+export const LibraryDeletedBooksDocument = new TypedDocumentString(`
+    query LibraryDeletedBooks($libraryId: ID!) {
+  deletedBooks(libraryId: $libraryId) {
+    book {
+      id
+    }
+  }
+  deletedBooksSettings {
+    retentionDays
+  }
+}
+    `) as unknown as TypedDocumentString<LibraryDeletedBooksQuery, LibraryDeletedBooksQueryVariables>;
 export const LibraryMissingEntitiesDocument = new TypedDocumentString(`
     query LibraryMissingEntities($libraryId: ID!, $pagination: Pagination!) {
   libraryMissingEntities(libraryId: $libraryId, pagination: $pagination) {
@@ -16397,20 +16694,6 @@ export const LibraryMissingEntitiesDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<LibraryMissingEntitiesQuery, LibraryMissingEntitiesQueryVariables>;
-export const LibraryRemovedBooksDocument = new TypedDocumentString(`
-    query LibraryRemovedBooks($libraryId: ID!) {
-  removedMedia(libraryId: $libraryId) {
-    id
-    resolvedName
-    path
-  }
-}
-    `) as unknown as TypedDocumentString<LibraryRemovedBooksQuery, LibraryRemovedBooksQueryVariables>;
-export const RestoreRemovedBookDocument = new TypedDocumentString(`
-    mutation RestoreRemovedBook($id: ID!) {
-  restoreMedia(id: $id)
-}
-    `) as unknown as TypedDocumentString<RestoreRemovedBookMutation, RestoreRemovedBookMutationVariables>;
 export const AnalyzeLibraryMediaDocument = new TypedDocumentString(`
     mutation AnalyzeLibraryMedia($id: ID!) {
   analyzeLibrary(id: $id)
@@ -16716,6 +16999,135 @@ export const NavigationArrangementUpdateLockStatusDocument = new TypedDocumentSt
   }
 }
     `) as unknown as TypedDocumentString<NavigationArrangementUpdateLockStatusMutation, NavigationArrangementUpdateLockStatusMutationVariables>;
+export const DeletedBooksDocument = new TypedDocumentString(`
+    query DeletedBooks($libraryId: ID) {
+  deletedBooks(libraryId: $libraryId) {
+    deletedAt
+    deletedBy
+    expiresAt
+    purgeAt
+    libraryId
+    libraryName
+    relativePath
+    fileExists
+    book {
+      id
+      resolvedName
+      extension
+      size
+      thumbnail {
+        url
+      }
+      metadata {
+        writers
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<DeletedBooksQuery, DeletedBooksQueryVariables>;
+export const DeletedBooksSettingsDocument = new TypedDocumentString(`
+    query DeletedBooksSettings {
+  deletedBooksSettings {
+    retentionDays
+    quarantineDir
+    quarantineReady
+    nextPurgeAt
+    lastPurgeAt
+    lastPurge {
+      finishedAt
+      jobId
+      purged
+      missingFiles
+      failed
+      errors {
+        mediaId
+        title
+        error
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<DeletedBooksSettingsQuery, DeletedBooksSettingsQueryVariables>;
+export const PurgedBooksDocument = new TypedDocumentString(`
+    query PurgedBooks($limit: Int!) {
+  purgedBooks(limit: $limit) {
+    id
+    mediaId
+    title
+    authors
+    libraryName
+    originalPath
+    quarantinePath
+    bytes
+    purgedBy
+    automatic
+    purgedAt
+    restoredAt
+    restoredBy
+    canRestore
+  }
+}
+    `) as unknown as TypedDocumentString<PurgedBooksQuery, PurgedBooksQueryVariables>;
+export const DeletedBooksLibrariesDocument = new TypedDocumentString(`
+    query DeletedBooksLibraries {
+  libraries(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      name
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<DeletedBooksLibrariesQuery, DeletedBooksLibrariesQueryVariables>;
+export const RestoreDeletedBooksDocument = new TypedDocumentString(`
+    mutation RestoreDeletedBooks($ids: [ID!]!) {
+  restoreDeletedBooks(ids: $ids)
+}
+    `) as unknown as TypedDocumentString<RestoreDeletedBooksMutation, RestoreDeletedBooksMutationVariables>;
+export const PurgeDeletedBooksDocument = new TypedDocumentString(`
+    mutation PurgeDeletedBooks($ids: [ID!]!) {
+  purgeDeletedBooks(ids: $ids) {
+    purged
+    missingFiles
+    quarantinedBytes
+    kept {
+      mediaId
+      title
+      error
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PurgeDeletedBooksMutation, PurgeDeletedBooksMutationVariables>;
+export const EmptyDeletedBooksDocument = new TypedDocumentString(`
+    mutation EmptyDeletedBooks($libraryId: ID) {
+  emptyDeletedBooks(libraryId: $libraryId) {
+    purged
+    missingFiles
+    quarantinedBytes
+    kept {
+      mediaId
+      title
+      error
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<EmptyDeletedBooksMutation, EmptyDeletedBooksMutationVariables>;
+export const UpdateDeletedBooksRetentionDocument = new TypedDocumentString(`
+    mutation UpdateDeletedBooksRetention($days: Int!) {
+  updateDeletedBooksRetention(days: $days) {
+    retentionDays
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateDeletedBooksRetentionMutation, UpdateDeletedBooksRetentionMutationVariables>;
+export const RestorePurgedBookDocument = new TypedDocumentString(`
+    mutation RestorePurgedBook($id: Int!) {
+  restorePurgedBook(id: $id) {
+    id
+    title
+    libraryName
+    restoredAt
+  }
+}
+    `) as unknown as TypedDocumentString<RestorePurgedBookMutation, RestorePurgedBookMutationVariables>;
 export const CreateEmailerSceneEmailersDocument = new TypedDocumentString(`
     query CreateEmailerSceneEmailers {
   emailers {
@@ -17055,6 +17467,12 @@ export const JobTableDocument = new TypedDocumentString(`
     skippedFiles
     generatedThumbnails
     removedThumbnails
+  }
+  ... on TrashPurgeOutput {
+    purgedBooks
+    missingBookFiles
+    keptBooks
+    quarantinedBytes
   }
 }`) as unknown as TypedDocumentString<JobTableQuery, JobTableQueryVariables>;
 export const LiveLogsFeedDocument = new TypedDocumentString(`
