@@ -39,8 +39,8 @@ function Consequences({
 				</Point>
 				{withFile > 0 && quarantineReady && (
 					<Point icon={<History aria-hidden />}>
-						{one ? 'Its file' : 'A file'} can be put back from <em>Deleted permanently</em> below;
-						it returns as a new book.
+						{one ? 'Its file' : 'A file'} can be put back from <em>Recently deleted permanently</em>{' '}
+						below; it returns as a new book.
 					</Point>
 				)}
 				{missing > 0 && (

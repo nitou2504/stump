@@ -31,7 +31,7 @@ export default function PurgedBooks({ onPutBack, isPuttingBack }: Props) {
 
 	return (
 		<SettingsSection
-			title="Deleted permanently"
+			title="Recently deleted permanently"
 			description="The latest books deleted for good. Their files wait in the quarantine folder and can be put back."
 		>
 			{rows.length === 0 ? (
