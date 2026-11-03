@@ -13,15 +13,16 @@ use metadata_integrations::{
 	MatchCandidate, MergeStrategy, MetadataField, MetadataFieldOverride, SearchQuery,
 };
 use models::{
-	entity::{library, library_config, media, media_metadata, metadata_fetch_record},
+	entity::{media, media_metadata, metadata_fetch_record, user::AuthUser},
 	shared::enums::{MetadataFetchStatus, UserPermission},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel, TransactionTrait};
 use std::collections::HashMap;
 use stump_core::{
-	intake::edit::{clean_genres, clean_writers, write_edit},
+	intake::edit::{
+		clean_genres, clean_writers, revert_save, save_edit, Editor, SavedEdit,
+	},
 	metadata::{
-		locked::locked_fields_of,
 		membership::{remove_series_thumbnails, sync_media_membership},
 		provider::ProviderClientCache,
 	},
@@ -85,10 +86,11 @@ impl MediaMetadataMutation {
 	}
 
 	/// Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
-	/// files carry title, authors, series, genres, summary and more), so they survive
-	/// rescans and the library's curator sees them. The original file is kept in the
-	/// quarantine folder when one is set. Changes a file cannot carry stay in Stump and are
-	/// locked so rescans keep them. Every change is logged in `stump_edits.csv`.
+	/// files carry title, authors, series, genres, summary and more): the edited copy is
+	/// read back before it replaces the book, so a failed write leaves the file untouched
+	/// and the changes in Stump only. Every edited field is locked so rescans keep it, and
+	/// the save is recorded in the book's edit history (see `revertMediaMetadataEdit`) and
+	/// in `stump_edits.csv`.
 	#[graphql(guard = "PermissionGuard::one(UserPermission::EditMetadata)")]
 	async fn edit_media_metadata(
 		&self,
@@ -98,74 +100,52 @@ impl MediaMetadataMutation {
 	) -> Result<MetadataEditResult> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
-		let conn = core.conn.as_ref();
 
 		input.genres = clean_list(input.genres, clean_genres);
 		input.writers = clean_list(input.writers, clean_writers);
 
-		let model = media::ModelWithMetadata::find_for_user(user)
-			.filter(media::Column::Id.eq(id.to_string()))
-			.into_model::<media::ModelWithMetadata>()
-			.one(conn)
-			.await?
-			.ok_or("Media not found")?;
-		let (library, library_config) = library::Entity::find_by_id(model.media.library_id.clone())
-			.find_also_related(library_config::Entity)
-			.one(conn)
-			.await?
-			.ok_or("Library not found")?;
-		let library_config = library_config.ok_or("Library configuration not found")?;
-		let old = model.metadata.clone().unwrap_or_default();
-
-		let txn = conn.begin().await?;
-		let updated = if let Some(existing) = &model.metadata {
-			let mut active_model = input.into_active_model();
-			active_model.id = Set(existing.id);
-			active_model.media_id = Set(Some(model.media.id.clone()));
-			active_model.update(&txn).await?
-		} else {
-			let mut active_model = input.into_active_model();
-			active_model.media_id = Set(Some(model.media.id.clone()));
-			active_model.insert(&txn).await?
-		};
-		let (book, thumbnails) =
-			sync_media_membership(&txn, model.media, updated.series.clone()).await?;
-		txn.commit().await?;
-		remove_series_thumbnails(thumbnails).await;
-
-		let outcome = write_edit(
+		let model = find_book(core, user, &id).await?;
+		let saved = save_edit(
 			core,
-			&book,
-			&library,
-			&library_config,
-			&old,
-			&updated,
-			&user.username,
+			model.media,
+			model.metadata,
+			input.into_active_model(),
+			Editor {
+				id: &user.id,
+				username: &user.username,
+			},
+			None,
 		)
-		.await;
+		.await?;
+		edit_result(core, user, saved).await
+	}
 
-		if !outcome.locks.is_empty() {
-			let mut locked = locked_fields_of(&updated.locked_fields);
-			for field in &outcome.locks {
-				if !locked.contains(field) {
-					locked.push(*field);
-				}
-			}
-			let mut active = updated.clone().into_active_model();
-			active.locked_fields = Set(Some(serde_json::to_value(&locked)?));
-			active.update(conn).await?;
-		}
+	/// Revert a save of the book's edit history: the fields it changed get their old values
+	/// back (in the book file and in Stump), except the ones changed again since, which
+	/// are left as they are (`skippedFields`). The revert is recorded as a new save.
+	#[graphql(guard = "PermissionGuard::one(UserPermission::EditMetadata)")]
+	async fn revert_media_metadata_edit(
+		&self,
+		ctx: &Context<'_>,
+		media_id: ID,
+		save_id: String,
+	) -> Result<MetadataEditResult> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let core = ctx.data::<CoreContext>()?;
 
-		let media = media::ModelWithMetadata::find_for_user(user)
-			.filter(media::Column::Id.eq(id.to_string()))
-			.into_model::<media::ModelWithMetadata>()
-			.one(conn)
-			.await?
-			.ok_or("Media not found")?;
-		Ok(MetadataEditResult {
-			media: media.into(),
-			file: MetadataEditFile::from(outcome),
-		})
+		let model = find_book(core, user, &media_id).await?;
+		let saved = revert_save(
+			core,
+			model.media,
+			model.metadata,
+			&save_id,
+			Editor {
+				id: &user.id,
+				username: &user.username,
+			},
+		)
+		.await?;
+		edit_result(core, user, saved).await
 	}
 
 	/// Search external metadata providers for a media item and return the resulting fetch
@@ -406,4 +386,32 @@ impl MediaMetadataMutation {
 
 		Ok(model.into())
 	}
+}
+
+/// A book the user can see, with its metadata
+async fn find_book(
+	core: &stump_core::Ctx,
+	user: &AuthUser,
+	id: &ID,
+) -> Result<media::ModelWithMetadata> {
+	Ok(media::ModelWithMetadata::find_for_user(user)
+		.filter(media::Column::Id.eq(id.to_string()))
+		.into_model::<media::ModelWithMetadata>()
+		.one(core.conn.as_ref())
+		.await?
+		.ok_or("Media not found")?)
+}
+
+async fn edit_result(
+	core: &stump_core::Ctx,
+	user: &AuthUser,
+	saved: SavedEdit,
+) -> Result<MetadataEditResult> {
+	let media = find_book(core, user, &ID::from(saved.book.id.clone())).await?;
+	Ok(MetadataEditResult {
+		media: media.into(),
+		file: MetadataEditFile::from(saved.outcome),
+		save_id: saved.save_id,
+		skipped_fields: saved.skipped,
+	})
 }

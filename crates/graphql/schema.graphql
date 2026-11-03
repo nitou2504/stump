@@ -2167,19 +2167,28 @@ enum MergeStrategy {
 	FILL_AND_MERGE_LISTS
 }
 
+"One field changed by a save"
+type MetadataEditChange {
+	"The field's camelCase name (`genres`, `writers`, ...)"
+	field: String!
+	"The value before (lists comma-separated)"
+	oldValue: String
+	newValue: String
+	"Whether the book file carries the new value (else it was kept in Stump only)"
+	writtenToFile: Boolean!
+}
+
 "Where the changes of a metadata edit went"
 type MetadataEditFile {
 	status: MetadataFileWriteStatus!
 	"The changed fields (camelCase) now in the book file"
 	fileFields: [String!]!
-	"The changed fields kept in Stump only, locked so rescans keep them"
+	"The changed fields kept in Stump only"
 	stumpOnlyFields: [String!]!
-	"The locks added for them"
+	"The locks that keep the edited fields through rescans"
 	locked: [MetadataField!]!
 	"Why the file was not written, or a note about it"
 	message: String
-	"Where the original file was kept"
-	quarantinePath: String
 	"The edits log the change was appended to"
 	csvPath: String
 }
@@ -2188,6 +2197,23 @@ type MetadataEditFile {
 type MetadataEditResult {
 	media: Media!
 	file: MetadataEditFile!
+	"The save in the book's edit history (none when nothing changed)"
+	saveId: String
+	"For a revert: the fields left as they are because they changed again since"
+	skippedFields: [String!]!
+}
+
+"One save of a book's metadata edit history"
+type MetadataEditSave {
+	saveId: String!
+	editedAt: DateTime!
+	"The username of who saved it"
+	editedBy: String
+	"The save this one reverted"
+	revertsSaveId: String
+	"The save that reverted this one"
+	revertedBy: String
+	changes: [MetadataEditChange!]!
 }
 
 "The metadata fields which can be listed with their book counts"
@@ -2461,12 +2487,19 @@ type Mutation {
 	updateMediaMetadata(id: ID!, input: MediaMetadataInput!): Media!
 	"""
 	Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
-	files carry title, authors, series, genres, summary and more), so they survive
-	rescans and the library's curator sees them. The original file is kept in the
-	quarantine folder when one is set. Changes a file cannot carry stay in Stump and are
-	locked so rescans keep them. Every change is logged in `stump_edits.csv`.
+	files carry title, authors, series, genres, summary and more): the edited copy is
+	read back before it replaces the book, so a failed write leaves the file untouched
+	and the changes in Stump only. Every edited field is locked so rescans keep it, and
+	the save is recorded in the book's edit history (see `revertMediaMetadataEdit`) and
+	in `stump_edits.csv`.
 	"""
 	editMediaMetadata(id: ID!, input: MediaMetadataInput!): MetadataEditResult!
+	"""
+	Revert a save of the book's edit history: the fields it changed get their old values
+	back (in the book file and in Stump), except the ones changed again since, which
+	are left as they are (`skippedFields`). The revert is recorded as a new save.
+	"""
+	revertMediaMetadataEdit(mediaId: ID!, saveId: String!): MetadataEditResult!
 	"""
 	Search external metadata providers for a media item and return the resulting fetch
 	record with its match candidates. When `search` is provided, the caller's fields
@@ -3368,6 +3401,8 @@ type Query {
 	the same evidence
 	"""
 	mediaGenreSuggestions(id: ID!, online: Boolean): MediaGenreSuggestions!
+	"The latest saves of a book's metadata edit history, newest first (20 by default)"
+	mediaMetadataEdits(mediaId: ID!, limit: Int): [MetadataEditSave!]!
 	"""
 	List the distinct values of a metadata field with their book counts, e.g. every
 	genre and how many books have it

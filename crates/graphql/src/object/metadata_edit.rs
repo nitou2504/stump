@@ -1,8 +1,13 @@
 use async_graphql::{Enum, SimpleObject};
+use chrono::{DateTime, Utc};
 use metadata_integrations::MetadataField;
-use models::shared::intake::{IntakeGenreSuggestion, IntakeSimilarBook};
+use models::{
+	entity::media_metadata_edit,
+	shared::intake::{IntakeGenreSuggestion, IntakeSimilarBook},
+};
 use stump_core::intake::edit::{
-	CurrentTagFit, ExistingBookSuggestions, FileEditOutcome, FileWriteStatus,
+	CurrentTagFit, EditHistorySave, ExistingBookSuggestions, FileEditOutcome,
+	FileWriteStatus,
 };
 
 use super::media::Media;
@@ -34,14 +39,12 @@ pub struct MetadataEditFile {
 	pub status: MetadataFileWriteStatus,
 	/// The changed fields (camelCase) now in the book file
 	pub file_fields: Vec<String>,
-	/// The changed fields kept in Stump only, locked so rescans keep them
+	/// The changed fields kept in Stump only
 	pub stump_only_fields: Vec<String>,
-	/// The locks added for them
+	/// The locks that keep the edited fields through rescans
 	pub locked: Vec<MetadataField>,
 	/// Why the file was not written, or a note about it
 	pub message: Option<String>,
-	/// Where the original file was kept
-	pub quarantine_path: Option<String>,
 	/// The edits log the change was appended to
 	pub csv_path: Option<String>,
 }
@@ -51,10 +54,13 @@ impl From<FileEditOutcome> for MetadataEditFile {
 		Self {
 			status: outcome.status.into(),
 			file_fields: outcome.file_fields.iter().map(|f| f.to_string()).collect(),
-			stump_only_fields: outcome.db_only_fields.iter().map(|f| f.to_string()).collect(),
+			stump_only_fields: outcome
+				.db_only_fields
+				.iter()
+				.map(|f| f.to_string())
+				.collect(),
 			locked: outcome.locks,
 			message: outcome.message,
-			quarantine_path: outcome.quarantine_path,
 			csv_path: outcome.csv_path,
 		}
 	}
@@ -65,6 +71,64 @@ impl From<FileEditOutcome> for MetadataEditFile {
 pub struct MetadataEditResult {
 	pub media: Media,
 	pub file: MetadataEditFile,
+	/// The save in the book's edit history (none when nothing changed)
+	pub save_id: Option<String>,
+	/// For a revert: the fields left as they are because they changed again since
+	pub skipped_fields: Vec<String>,
+}
+
+/// One field changed by a save
+#[derive(Debug, Clone, SimpleObject)]
+pub struct MetadataEditChange {
+	/// The field's camelCase name (`genres`, `writers`, ...)
+	pub field: String,
+	/// The value before (lists comma-separated)
+	pub old_value: Option<String>,
+	pub new_value: Option<String>,
+	/// Whether the book file carries the new value (else it was kept in Stump only)
+	pub written_to_file: bool,
+}
+
+impl From<media_metadata_edit::Model> for MetadataEditChange {
+	fn from(row: media_metadata_edit::Model) -> Self {
+		Self {
+			field: row.field,
+			old_value: row.old_value,
+			new_value: row.new_value,
+			written_to_file: row.written_to_file,
+		}
+	}
+}
+
+/// One save of a book's metadata edit history
+#[derive(Debug, Clone, SimpleObject)]
+pub struct MetadataEditSave {
+	pub save_id: String,
+	pub edited_at: DateTime<Utc>,
+	/// The username of who saved it
+	pub edited_by: Option<String>,
+	/// The save this one reverted
+	pub reverts_save_id: Option<String>,
+	/// The save that reverted this one
+	pub reverted_by: Option<String>,
+	pub changes: Vec<MetadataEditChange>,
+}
+
+impl From<EditHistorySave> for MetadataEditSave {
+	fn from(save: EditHistorySave) -> Self {
+		Self {
+			save_id: save.save_id,
+			edited_at: save.edited_at,
+			edited_by: save.edited_by,
+			reverts_save_id: save.reverts_save_id,
+			reverted_by: save.reverted_by,
+			changes: save
+				.changes
+				.into_iter()
+				.map(MetadataEditChange::from)
+				.collect(),
+		}
+	}
 }
 
 /// How well one of a book's current tags fits it

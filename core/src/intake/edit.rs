@@ -6,12 +6,14 @@
 //! the intake and book-curator write them (EPUB OPF, PDF Info dictionary and Keywords, CBZ
 //! ComicInfo.xml). Only the fields that changed are touched, everything else in the file is
 //! kept as it is. The new file is prepared next to the book under a hidden name, read back
-//! with Stump's own readers, and only then replaces the book; the original goes to the
-//! quarantine folder first when one is set. Changes a file cannot carry (other fields, CBR
-//! files, a failed write) stay in the database and are locked so rescans keep them.
+//! with Stump's own readers, and only then renamed over the book (an atomic swap: the
+//! original stays untouched on any failure). Changes a file cannot carry (other fields, CBR
+//! files, a failed write) stay in the database. Every edited field is locked, so rescans
+//! keep it even if another tool rewrites the file.
 //!
-//! Every change is also appended to `stump_edits.csv`, next to the intake CSV, so the
-//! curator can pick the owner's corrections up.
+//! Every save is recorded in `media_metadata_edits` (one row per changed field, old and new
+//! value), which is what "Revert" works from, and appended to `stump_edits.csv`, next to the
+//! intake CSV, so the curator can pick the owner's corrections up.
 
 use std::{
 	collections::{BTreeSet, HashMap},
@@ -22,7 +24,7 @@ use std::{
 
 use metadata_integrations::MetadataField;
 use models::{
-	entity::{library, library_config, media, media_metadata},
+	entity::{library, library_config, media, media_metadata, media_metadata_edit, user},
 	shared::{
 		enums::OrganizationMode,
 		intake::{
@@ -32,7 +34,10 @@ use models::{
 	},
 };
 use regex::Regex;
-use sea_orm::{prelude::Decimal, EntityTrait};
+use sea_orm::{
+	prelude::Decimal, ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait,
+	IntoActiveModel, QueryFilter, QueryOrder, TransactionTrait,
+};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive};
 
 use super::{
@@ -43,9 +48,8 @@ use super::{
 	settings_for,
 	suggest::{merge_online, rank_suggestions, score_tags},
 	write::{
-		append_pdf_info, check_xml, comic_info, esc, file_as, num,
-		opf_path, order_tags, pdf_string, rewrite_zip, FileMetadata, KeptPdfInfo,
-		WriteError, WriteResult,
+		append_pdf_info, check_xml, comic_info, esc, file_as, num, opf_path, order_tags,
+		pdf_string, rewrite_zip, FileMetadata, KeptPdfInfo, WriteError, WriteResult,
 	},
 };
 use crate::{
@@ -53,7 +57,11 @@ use crate::{
 		pdf::{read_info_values, PdfInfoValues},
 		process_metadata,
 	},
-	postproc::{refresh_media_after_swap, swap},
+	metadata::{
+		locked::locked_fields_of,
+		membership::{remove_series_thumbnails, sync_media_membership},
+	},
+	postproc::refresh_media_after_swap,
 	CoreError, CoreResult, Ctx,
 };
 
@@ -61,7 +69,13 @@ use crate::{
 pub const EDITS_CSV_NAME: &str = "stump_edits.csv";
 
 const EDITS_CSV_HEADER: &[&str] = &[
-	"path", "field", "old", "new", "written_to", "edited_by", "edited_at",
+	"path",
+	"field",
+	"old",
+	"new",
+	"written_to",
+	"edited_by",
+	"edited_at",
 ];
 
 /// The book formats whose files carry the edited metadata
@@ -106,7 +120,13 @@ impl EditableFormat {
 			// PDFs have no language, publisher or date of their own (CreationDate is when the
 			// file was made); series, number and age live in the curator's Keywords entries
 			Self::Pdf => &[
-				"title", "writers", "series", "number", "summary", "genres", "ageRating",
+				"title",
+				"writers",
+				"series",
+				"number",
+				"summary",
+				"genres",
+				"ageRating",
 			],
 			// Stump reads no ComicInfo language (LanguageISO)
 			Self::Cbz => &[
@@ -187,94 +207,188 @@ fn decimal_f64(value: &Option<Decimal>) -> Option<f64> {
 	value.and_then(|d| d.to_string().parse::<f64>().ok())
 }
 
+/// The fields an edit can change, in the order they are reported: the camelCase name and
+/// the lock that keeps the field through rescans (a date's parts share the year's lock)
+pub const EDIT_FIELDS: &[(&str, Option<MetadataField>)] = &[
+	("title", Some(MetadataField::Title)),
+	("titleSort", Some(MetadataField::TitleSort)),
+	("writers", Some(MetadataField::Writers)),
+	("series", Some(MetadataField::Series)),
+	("number", Some(MetadataField::Number)),
+	("seriesGroup", Some(MetadataField::SeriesGroup)),
+	("storyArc", Some(MetadataField::StoryArc)),
+	("storyArcNumber", Some(MetadataField::StoryArcNumber)),
+	("volume", None),
+	("summary", Some(MetadataField::Summary)),
+	("notes", Some(MetadataField::Notes)),
+	("genres", Some(MetadataField::Genres)),
+	("format", Some(MetadataField::Format)),
+	("year", Some(MetadataField::Year)),
+	("month", Some(MetadataField::Year)),
+	("day", Some(MetadataField::Year)),
+	("pencillers", Some(MetadataField::Pencillers)),
+	("inkers", Some(MetadataField::Inkers)),
+	("colorists", Some(MetadataField::Colorists)),
+	("letterers", Some(MetadataField::Letterers)),
+	("coverArtists", Some(MetadataField::CoverArtists)),
+	("editors", Some(MetadataField::Editors)),
+	("publisher", Some(MetadataField::Publisher)),
+	("links", Some(MetadataField::Links)),
+	("characters", Some(MetadataField::Characters)),
+	("teams", Some(MetadataField::Teams)),
+	("pageCount", Some(MetadataField::PageCount)),
+	("ageRating", Some(MetadataField::AgeRating)),
+	("identifierAmazon", Some(MetadataField::IdentifierAmazon)),
+	("identifierCalibre", Some(MetadataField::IdentifierCalibre)),
+	("identifierGoogle", Some(MetadataField::IdentifierGoogle)),
+	("identifierIsbn", Some(MetadataField::Isbn)),
+	(
+		"identifierMobiAsin",
+		Some(MetadataField::IdentifierMobiAsin),
+	),
+	("identifierUuid", Some(MetadataField::IdentifierUuid)),
+	("language", Some(MetadataField::Language)),
+];
+
+/// A field's value as text, the way the metadata row stores it (lists comma-separated);
+/// empty when it has none
+pub fn field_text(meta: &media_metadata::Model, field: &str) -> String {
+	match field {
+		"title" => text(&meta.title),
+		"titleSort" => text(&meta.title_sort),
+		"writers" => text(&meta.writers),
+		"series" => text(&meta.series),
+		"number" => decimal_text(&meta.number),
+		"seriesGroup" => text(&meta.series_group),
+		"storyArc" => text(&meta.story_arc),
+		"storyArcNumber" => decimal_text(&meta.story_arc_number),
+		"volume" => int_text(&meta.volume),
+		"summary" => text(&meta.summary),
+		"notes" => text(&meta.notes),
+		"genres" => text(&meta.genres),
+		"format" => text(&meta.format),
+		"year" => int_text(&meta.year),
+		"month" => int_text(&meta.month),
+		"day" => int_text(&meta.day),
+		"pencillers" => text(&meta.pencillers),
+		"inkers" => text(&meta.inkers),
+		"colorists" => text(&meta.colorists),
+		"letterers" => text(&meta.letterers),
+		"coverArtists" => text(&meta.cover_artists),
+		"editors" => text(&meta.editors),
+		"publisher" => text(&meta.publisher),
+		"links" => text(&meta.links),
+		"characters" => text(&meta.characters),
+		"teams" => text(&meta.teams),
+		"pageCount" => int_text(&meta.page_count),
+		"ageRating" => int_text(&meta.age_rating),
+		"identifierAmazon" => text(&meta.identifier_amazon),
+		"identifierCalibre" => text(&meta.identifier_calibre),
+		"identifierGoogle" => text(&meta.identifier_google),
+		"identifierIsbn" => text(&meta.identifier_isbn),
+		"identifierMobiAsin" => text(&meta.identifier_mobi_asin),
+		"identifierUuid" => text(&meta.identifier_uuid),
+		"language" => text(&meta.language),
+		_ => String::new(),
+	}
+}
+
+/// Sets one field of a metadata row from its text form ([`field_text`]; empty: no value).
+/// `false` for an unknown field or a number that doesn't parse.
+pub fn set_field_from_text(
+	active: &mut media_metadata::ActiveModel,
+	field: &str,
+	value: &str,
+) -> bool {
+	let trimmed = value.trim();
+	let string = || (!trimmed.is_empty()).then(|| value.to_string());
+	let int = || -> Option<Option<i32>> {
+		if trimmed.is_empty() {
+			Some(None)
+		} else {
+			trimmed.parse::<i32>().ok().map(Some)
+		}
+	};
+	let decimal = || -> Option<Option<Decimal>> {
+		if trimmed.is_empty() {
+			Some(None)
+		} else {
+			trimmed.parse::<Decimal>().ok().map(Some)
+		}
+	};
+	match field {
+		"title" => active.title = Set(string()),
+		"titleSort" => active.title_sort = Set(string()),
+		"writers" => active.writers = Set(string()),
+		"series" => active.series = Set(string()),
+		"seriesGroup" => active.series_group = Set(string()),
+		"storyArc" => active.story_arc = Set(string()),
+		"summary" => active.summary = Set(string()),
+		"notes" => active.notes = Set(string()),
+		"genres" => active.genres = Set(string()),
+		"format" => active.format = Set(string()),
+		"pencillers" => active.pencillers = Set(string()),
+		"inkers" => active.inkers = Set(string()),
+		"colorists" => active.colorists = Set(string()),
+		"letterers" => active.letterers = Set(string()),
+		"coverArtists" => active.cover_artists = Set(string()),
+		"editors" => active.editors = Set(string()),
+		"publisher" => active.publisher = Set(string()),
+		"links" => active.links = Set(string()),
+		"characters" => active.characters = Set(string()),
+		"teams" => active.teams = Set(string()),
+		"identifierAmazon" => active.identifier_amazon = Set(string()),
+		"identifierCalibre" => active.identifier_calibre = Set(string()),
+		"identifierGoogle" => active.identifier_google = Set(string()),
+		"identifierIsbn" => active.identifier_isbn = Set(string()),
+		"identifierMobiAsin" => active.identifier_mobi_asin = Set(string()),
+		"identifierUuid" => active.identifier_uuid = Set(string()),
+		"language" => active.language = Set(string()),
+		"number" | "storyArcNumber" => {
+			let Some(number) = decimal() else {
+				return false;
+			};
+			if field == "number" {
+				active.number = Set(number);
+			} else {
+				active.story_arc_number = Set(number);
+			}
+		},
+		"volume" | "year" | "month" | "day" | "pageCount" | "ageRating" => {
+			let Some(number) = int() else {
+				return false;
+			};
+			match field {
+				"volume" => active.volume = Set(number),
+				"year" => active.year = Set(number),
+				"month" => active.month = Set(number),
+				"day" => active.day = Set(number),
+				"pageCount" => active.page_count = Set(number),
+				_ => active.age_rating = Set(number),
+			}
+		},
+		_ => return false,
+	}
+	true
+}
+
 /// The fields that differ between the stored metadata and the edited one
 pub fn changed_fields(
 	old: &media_metadata::Model,
 	new: &media_metadata::Model,
 ) -> Vec<ChangedField> {
-	use MetadataField as F;
-	let mut out = vec![];
-	let mut push = |field: &'static str, lock: Option<F>, old: String, new: String| {
-		if old != new {
-			out.push(ChangedField {
+	EDIT_FIELDS
+		.iter()
+		.filter_map(|&(field, lock)| {
+			let (old, new) = (field_text(old, field), field_text(new, field));
+			(old != new).then_some(ChangedField {
 				field,
 				lock,
 				old,
 				new,
-			});
-		}
-	};
-	push("title", Some(F::Title), text(&old.title), text(&new.title));
-	push("titleSort", Some(F::TitleSort), text(&old.title_sort), text(&new.title_sort));
-	push("writers", Some(F::Writers), text(&old.writers), text(&new.writers));
-	push("series", Some(F::Series), text(&old.series), text(&new.series));
-	push("number", Some(F::Number), decimal_text(&old.number), decimal_text(&new.number));
-	push("seriesGroup", Some(F::SeriesGroup), text(&old.series_group), text(&new.series_group));
-	push("storyArc", Some(F::StoryArc), text(&old.story_arc), text(&new.story_arc));
-	push(
-		"storyArcNumber",
-		Some(F::StoryArcNumber),
-		decimal_text(&old.story_arc_number),
-		decimal_text(&new.story_arc_number),
-	);
-	push("volume", None, int_text(&old.volume), int_text(&new.volume));
-	push("summary", Some(F::Summary), text(&old.summary), text(&new.summary));
-	push("notes", Some(F::Notes), text(&old.notes), text(&new.notes));
-	push("genres", Some(F::Genres), text(&old.genres), text(&new.genres));
-	push("format", Some(F::Format), text(&old.format), text(&new.format));
-	push("year", Some(F::Year), int_text(&old.year), int_text(&new.year));
-	push("month", Some(F::Year), int_text(&old.month), int_text(&new.month));
-	push("day", Some(F::Year), int_text(&old.day), int_text(&new.day));
-	push("pencillers", Some(F::Pencillers), text(&old.pencillers), text(&new.pencillers));
-	push("inkers", Some(F::Inkers), text(&old.inkers), text(&new.inkers));
-	push("colorists", Some(F::Colorists), text(&old.colorists), text(&new.colorists));
-	push("letterers", Some(F::Letterers), text(&old.letterers), text(&new.letterers));
-	push(
-		"coverArtists",
-		Some(F::CoverArtists),
-		text(&old.cover_artists),
-		text(&new.cover_artists),
-	);
-	push("editors", Some(F::Editors), text(&old.editors), text(&new.editors));
-	push("publisher", Some(F::Publisher), text(&old.publisher), text(&new.publisher));
-	push("links", Some(F::Links), text(&old.links), text(&new.links));
-	push("characters", Some(F::Characters), text(&old.characters), text(&new.characters));
-	push("teams", Some(F::Teams), text(&old.teams), text(&new.teams));
-	push("pageCount", Some(F::PageCount), int_text(&old.page_count), int_text(&new.page_count));
-	push("ageRating", Some(F::AgeRating), int_text(&old.age_rating), int_text(&new.age_rating));
-	push(
-		"identifierAmazon",
-		Some(F::IdentifierAmazon),
-		text(&old.identifier_amazon),
-		text(&new.identifier_amazon),
-	);
-	push(
-		"identifierCalibre",
-		Some(F::IdentifierCalibre),
-		text(&old.identifier_calibre),
-		text(&new.identifier_calibre),
-	);
-	push(
-		"identifierGoogle",
-		Some(F::IdentifierGoogle),
-		text(&old.identifier_google),
-		text(&new.identifier_google),
-	);
-	push("identifierIsbn", Some(F::Isbn), text(&old.identifier_isbn), text(&new.identifier_isbn));
-	push(
-		"identifierMobiAsin",
-		Some(F::IdentifierMobiAsin),
-		text(&old.identifier_mobi_asin),
-		text(&new.identifier_mobi_asin),
-	);
-	push(
-		"identifierUuid",
-		Some(F::IdentifierUuid),
-		text(&old.identifier_uuid),
-		text(&new.identifier_uuid),
-	);
-	push("language", Some(F::Language), text(&old.language), text(&new.language));
-	out
+			})
+		})
+		.collect()
 }
 
 /// What a format's file gets from the changed fields (the new values)
@@ -283,11 +397,17 @@ pub fn file_changes(
 	changed: &[ChangedField],
 	new: &media_metadata::Model,
 ) -> FileChanges {
-	let has = |field: &str| changed.iter().any(|c| c.field == field) && format.carries(field);
+	let has =
+		|field: &str| changed.iter().any(|c| c.field == field) && format.carries(field);
 	let mut out = FileChanges::default();
 	if has("title") {
 		// a book keeps a title in its file: removing it stays a database change
-		if let Some(title) = new.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+		if let Some(title) = new
+			.title
+			.as_deref()
+			.map(str::trim)
+			.filter(|t| !t.is_empty())
+		{
 			out.title = Some(Some(title.to_string()));
 		}
 	}
@@ -326,7 +446,10 @@ pub fn file_changes(
 }
 
 /// The changed fields a write of `changes` covers
-pub fn fields_written(changed: &[ChangedField], changes: &FileChanges) -> Vec<&'static str> {
+pub fn fields_written(
+	changed: &[ChangedField],
+	changes: &FileChanges,
+) -> Vec<&'static str> {
 	changed
 		.iter()
 		.filter(|c| match c.field {
@@ -364,7 +487,12 @@ pub fn clean_writers(values: &[String]) -> Vec<String> {
 	values
 		.iter()
 		.map(|v| display_name(v))
-		.map(|v| v.replace(',', " ").split_whitespace().collect::<Vec<_>>().join(" "))
+		.map(|v| {
+			v.replace(',', " ")
+				.split_whitespace()
+				.collect::<Vec<_>>()
+				.join(" ")
+		})
 		.filter(|v| !v.is_empty() && seen.insert(v.to_lowercase()))
 		.collect()
 }
@@ -392,8 +520,9 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	let decl = Regex::new(r#"^(<\?xml[^>]*encoding=["'])[^"']+"#).expect("valid regex");
 	let opf = decl.replace(opf, "${1}UTF-8").into_owned();
 
-	let block = Regex::new(r"(?s)(<(?:\w+:)?metadata\b[^>]*>)(.*?)(</(?:\w+:)?metadata>)")
-		.expect("valid regex");
+	let block =
+		Regex::new(r"(?s)(<(?:\w+:)?metadata\b[^>]*>)(.*?)(</(?:\w+:)?metadata>)")
+			.expect("valid regex");
 	let Some(caps) = block.captures(&opf) else {
 		return Err(WriteError::Invalid("OPF has no metadata block".into()));
 	};
@@ -406,9 +535,14 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 		.find(&opf)
 		.map(|m| m.as_str().to_string())
 		.unwrap_or_default();
-	let epub3 = Regex::new(r#"version=["']3"#).expect("valid regex").is_match(&package);
+	let epub3 = Regex::new(r#"version=["']3"#)
+		.expect("valid regex")
+		.is_match(&package);
 	if !head.contains("xmlns:opf") && !package.contains("xmlns:opf") {
-		head = format!("{} xmlns:opf=\"http://www.idpf.org/2007/opf\">", &head[..head.len() - 1]);
+		head = format!(
+			"{} xmlns:opf=\"http://www.idpf.org/2007/opf\">",
+			&head[..head.len() - 1]
+		);
 	}
 	if !head.contains("xmlns:dc") && !package.contains("xmlns:dc") {
 		head = format!(
@@ -430,8 +564,9 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 			))
 			.expect("valid regex");
 			*body = re.replace_all(body, "").into_owned();
-			let re = Regex::new(&format!(r#"\s*<meta\b[^>]*refines=["']#{id}["'][^>]*/>"#))
-				.expect("valid regex");
+			let re =
+				Regex::new(&format!(r#"\s*<meta\b[^>]*refines=["']#{id}["'][^>]*/>"#))
+					.expect("valid regex");
 			*body = re.replace_all(body, "").into_owned();
 		}
 	};
@@ -444,7 +579,8 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	};
 
 	if let Some(Some(title)) = &changes.title {
-		let re = Regex::new(r"(?s)(<dc:title\b[^>]*>)(.*?)(</dc:title>)").expect("valid regex");
+		let re = Regex::new(r"(?s)(<dc:title\b[^>]*>)(.*?)(</dc:title>)")
+			.expect("valid regex");
 		if let Some(c) = re.captures(&body) {
 			let replaced = format!("{}{}{}", &c[1], esc(title), &c[3]);
 			body = body.replacen(c.get(0).expect("match").as_str(), &replaced, 1);
@@ -480,13 +616,19 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	if let Some(genres) = &changes.genres {
 		remove(&mut body, r"(?s)\s*<dc:subject\b[^>]*>.*?</dc:subject>");
 		remove(&mut body, r"\s*<dc:subject\b[^>]*/>");
-		remove(&mut body, r#"\s*<meta\b[^>]*name=["']bcurator:(?:estante|shelf)["'][^>]*/>"#);
+		remove(
+			&mut body,
+			r#"\s*<meta\b[^>]*name=["']bcurator:(?:estante|shelf)["'][^>]*/>"#,
+		);
 		for tag in genres {
 			add.push(format!("<dc:subject>{}</dc:subject>", esc(tag)));
 		}
 		let shelf = genres.iter().find(|t| !t.contains(':') && !is_facet(t));
 		if let Some(shelf) = shelf {
-			add.push(format!("<meta name=\"bcurator:shelf\" content=\"{}\"/>", esc(shelf)));
+			add.push(format!(
+				"<meta name=\"bcurator:shelf\" content=\"{}\"/>",
+				esc(shelf)
+			));
 		}
 	}
 
@@ -500,9 +642,15 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 			&mut body,
 			r#"(?s)\s*<meta[^>]*property=["']belongs-to-collection["'][^>]*>.*?</meta>"#,
 		);
-		remove(&mut body, r#"\s*<meta[^>]*name=["']calibre:series(?:_index)?["'][^>]*/>"#);
+		remove(
+			&mut body,
+			r#"\s*<meta[^>]*name=["']calibre:series(?:_index)?["'][^>]*/>"#,
+		);
 		if let Some(series) = series {
-			add.push(format!("<meta name=\"calibre:series\" content=\"{}\"/>", esc(series)));
+			add.push(format!(
+				"<meta name=\"calibre:series\" content=\"{}\"/>",
+				esc(series)
+			));
 			if let Some(index) = number {
 				add.push(format!(
 					"<meta name=\"calibre:series_index\" content=\"{}\"/>",
@@ -534,7 +682,10 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	}
 
 	if let Some(summary) = &changes.summary {
-		remove(&mut body, r"(?s)\s*<dc:description\b[^>]*>.*?</dc:description>");
+		remove(
+			&mut body,
+			r"(?s)\s*<dc:description\b[^>]*>.*?</dc:description>",
+		);
 		remove(&mut body, r"\s*<dc:description\b[^>]*/>");
 		if let Some(summary) = summary {
 			add.push(format!("<dc:description>{}</dc:description>", esc(summary)));
@@ -543,7 +694,8 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 
 	if let Some(date) = &changes.date {
 		// the publication date: modification dates (opf:event) stay
-		let re = Regex::new(r"(?s)\s*<dc:date\b([^>]*)>([^<]*)</dc:date>").expect("valid regex");
+		let re = Regex::new(r"(?s)\s*<dc:date\b([^>]*)>([^<]*)</dc:date>")
+			.expect("valid regex");
 		body = re
 			.replace_all(&body, |c: &regex::Captures| {
 				if c[1].to_lowercase().contains("modification") {
@@ -567,7 +719,10 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	}
 
 	if let Some(age) = &changes.age_rating {
-		remove(&mut body, r#"\s*<meta\b[^>]*name=["']typicalAgeRange["'][^>]*/>"#);
+		remove(
+			&mut body,
+			r#"\s*<meta\b[^>]*name=["']typicalAgeRange["'][^>]*/>"#,
+		);
 		if let Some(age) = age {
 			add.push(format!(
 				"<meta name=\"typicalAgeRange\" content=\"{}\"/>",
@@ -609,19 +764,14 @@ fn write_epub_changes(path: &Path, changes: &FileChanges) -> WriteResult<()> {
 	}
 	check_xml(&new_opf)?;
 	let tmp = super::write::temp_path(path);
-	let result = rewrite_zip(
-		path,
-		&tmp,
-		&|name| name == opf_name,
-		&mut |writer| {
-			writer.start_file(
-				opf_name.as_str(),
-				SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
-			)?;
-			writer.write_all(new_opf.as_bytes())?;
-			Ok(())
-		},
-	)
+	let result = rewrite_zip(path, &tmp, &|name| name == opf_name, &mut |writer| {
+		writer.start_file(
+			opf_name.as_str(),
+			SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+		)?;
+		writer.write_all(new_opf.as_bytes())?;
+		Ok(())
+	})
 	.and_then(|_| {
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
 		let mut text = String::new();
@@ -642,7 +792,8 @@ fn write_epub_changes(path: &Path, changes: &FileChanges) -> WriteResult<()> {
 
 /// Sets (or adds, or removes) one element of a ComicInfo document
 fn set_comic_element(xml: &mut String, tag: &str, value: Option<&str>) {
-	let full = Regex::new(&format!(r"(?s)\s*<{tag}(?:\s[^>]*)?>.*?</{tag}>")).expect("valid regex");
+	let full = Regex::new(&format!(r"(?s)\s*<{tag}(?:\s[^>]*)?>.*?</{tag}>"))
+		.expect("valid regex");
 	let empty = Regex::new(&format!(r"\s*<{tag}(?:\s[^>]*)?/>")).expect("valid regex");
 	*xml = full.replace_all(xml, "").into_owned();
 	*xml = empty.replace_all(xml, "").into_owned();
@@ -697,7 +848,11 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 	}
 	if let Some(writers) = &changes.writers {
 		let joined = writers.join(", ");
-		set_comic_element(&mut xml, "Writer", Some(&joined).filter(|w| !w.is_empty()).map(|w| w.as_str()));
+		set_comic_element(
+			&mut xml,
+			"Writer",
+			Some(&joined).filter(|w| !w.is_empty()).map(|w| w.as_str()),
+		);
 	}
 	if let Some((series, number)) = &changes.series {
 		set_comic_element(&mut xml, "Series", series.as_deref());
@@ -709,7 +864,11 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 	}
 	if let Some(date) = &changes.date {
 		let (year, month, day) = match date {
-			Some((y, m, d)) => (Some(y.to_string()), m.map(|m| m.to_string()), d.map(|d| d.to_string())),
+			Some((y, m, d)) => (
+				Some(y.to_string()),
+				m.map(|m| m.to_string()),
+				d.map(|d| d.to_string()),
+			),
 			None => (None, None, None),
 		};
 		set_comic_element(&mut xml, "Year", year.as_deref());
@@ -721,10 +880,22 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 	}
 	if let Some(genres) = &changes.genres {
 		let joined = genres.join(", ");
-		set_comic_element(&mut xml, "Genre", Some(joined.as_str()).filter(|g| !g.is_empty()));
+		set_comic_element(
+			&mut xml,
+			"Genre",
+			Some(joined.as_str()).filter(|g| !g.is_empty()),
+		);
 	}
 	if let Some(age) = &changes.age_rating {
-		let value = age.map(|a| if a >= 18 { "Adults Only 18+" } else if a <= 0 { "Everyone" } else { "Teen" });
+		let value = age.map(|a| {
+			if a >= 18 {
+				"Adults Only 18+"
+			} else if a <= 0 {
+				"Everyone"
+			} else {
+				"Teen"
+			}
+		});
 		set_comic_element(&mut xml, "AgeRating", value);
 	}
 	xml
@@ -761,7 +932,8 @@ fn write_cbz_changes(path: &Path, changes: &FileChanges) -> WriteResult<()> {
 		&mut |writer| {
 			writer.start_file(
 				info_name.as_str(),
-				SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+				SimpleFileOptions::default()
+					.compression_method(CompressionMethod::Deflated),
 			)?;
 			writer.write_all(info.as_bytes())?;
 			Ok(())
@@ -788,7 +960,10 @@ fn write_cbz_changes(path: &Path, changes: &FileChanges) -> WriteResult<()> {
 
 /// A PDF Keywords value without commas inside its items (Stump splits on them)
 fn keyword_item(value: &str) -> String {
-	value.replace(", ", " · ").replace(',', " ·").replace(';', " ·")
+	value
+		.replace(", ", " · ")
+		.replace(',', " ·")
+		.replace(';', " ·")
 }
 
 /// The Keywords after the changes: the tags replaced when genres changed, the curator's
@@ -807,7 +982,9 @@ pub fn pdf_keywords_after(existing: Option<&str>, changes: &FileChanges) -> Stri
 			.strip_prefix("bcurator:")
 			.and_then(|rest| rest.split_once('='))
 		{
-			Some((key, value)) => curator.push((key.trim().to_string(), value.trim().to_string())),
+			Some((key, value)) => {
+				curator.push((key.trim().to_string(), value.trim().to_string()))
+			},
 			None => tags.push(item.to_string()),
 		}
 	}
@@ -827,27 +1004,37 @@ pub fn pdf_keywords_after(existing: Option<&str>, changes: &FileChanges) -> Stri
 	};
 	if let Some((series, number)) = &changes.series {
 		set_curator("series", series.as_deref().map(keyword_item));
-		set_curator(
-			"series_index",
-			series.as_ref().and(number.map(num)),
-		);
+		set_curator("series_index", series.as_ref().and(number.map(num)));
 	}
 	if let Some(age) = &changes.age_rating {
 		set_curator(
 			"age",
-			age.map(|a| if a >= 18 { "18+".to_string() } else { "All ages".to_string() }),
+			age.map(|a| {
+				if a >= 18 {
+					"18+".to_string()
+				} else {
+					"All ages".to_string()
+				}
+			}),
 		);
 	}
 	let mut seen = BTreeSet::new();
 	tags.into_iter()
-		.chain(curator.into_iter().map(|(k, v)| format!("bcurator:{k}={v}")))
+		.chain(
+			curator
+				.into_iter()
+				.map(|(k, v)| format!("bcurator:{k}={v}")),
+		)
 		.filter(|k| seen.insert(k.clone()))
 		.collect::<Vec<_>>()
 		.join(", ")
 }
 
 /// The PDF Info entries after the changes, keeping what did not change
-pub fn pdf_info_after(existing: &PdfInfoValues, changes: &FileChanges) -> Vec<(String, String)> {
+pub fn pdf_info_after(
+	existing: &PdfInfoValues,
+	changes: &FileChanges,
+) -> Vec<(String, String)> {
 	let mut info: Vec<(String, String)> = vec![];
 	let title = match &changes.title {
 		Some(Some(title)) => Some(title.clone()),
@@ -902,13 +1089,26 @@ pub struct FileEditOutcome {
 	pub status: FileWriteStatus,
 	/// The changed fields now in the file
 	pub file_fields: Vec<&'static str>,
-	/// The changed fields kept in Stump only (locked so rescans keep them)
+	/// The changed fields kept in Stump only
 	pub db_only_fields: Vec<&'static str>,
+	/// The locks that keep the edited fields through rescans
 	pub locks: Vec<MetadataField>,
 	/// Why the file was not written, or a note about it
 	pub message: Option<String>,
-	pub quarantine_path: Option<String>,
 	pub csv_path: Option<String>,
+}
+
+impl FileEditOutcome {
+	fn nothing() -> Self {
+		Self {
+			status: FileWriteStatus::NotNeeded,
+			file_fields: vec![],
+			db_only_fields: vec![],
+			locks: vec![],
+			message: None,
+			csv_path: None,
+		}
+	}
 }
 
 /// What the file says after the write, for the fields that were written
@@ -918,7 +1118,11 @@ fn verify_read_back(
 	format: EditableFormat,
 ) -> Result<(), String> {
 	let mut wrong = vec![];
-	let set = |v: &[String]| v.iter().map(|s| s.trim().to_lowercase()).collect::<BTreeSet<_>>();
+	let set = |v: &[String]| {
+		v.iter()
+			.map(|s| s.trim().to_lowercase())
+			.collect::<BTreeSet<_>>()
+	};
 	if let Some(Some(title)) = &changes.title {
 		if written.title.as_deref().map(str::trim) != Some(title.trim()) {
 			wrong.push("title");
@@ -974,7 +1178,9 @@ fn verify_read_back(
 		}
 	}
 	if let Some(publisher) = &changes.publisher {
-		if written.publisher.as_deref().map(str::trim) != publisher.as_deref().map(str::trim) {
+		if written.publisher.as_deref().map(str::trim)
+			!= publisher.as_deref().map(str::trim)
+		{
 			wrong.push("publisher");
 		}
 	}
@@ -984,7 +1190,15 @@ fn verify_read_back(
 		}
 	}
 	if let Some(age) = &changes.age_rating {
-		let expected = age.map(|a| if a >= 18 { 18 } else if a <= 0 { 0 } else { a });
+		let expected = age.map(|a| {
+			if a >= 18 {
+				18
+			} else if a <= 0 {
+				0
+			} else {
+				a
+			}
+		});
 		if format != EditableFormat::Cbz || age.is_none_or(|a| a >= 18 || a <= 0) {
 			if written.age_rating.map(|a| a.max(0)) != expected.map(|a| a.max(0)) {
 				wrong.push("age rating");
@@ -994,17 +1208,27 @@ fn verify_read_back(
 	if wrong.is_empty() {
 		Ok(())
 	} else {
-		Err(format!("the file read back without the new {}", wrong.join(", ")))
+		Err(format!(
+			"the file read back without the new {}",
+			wrong.join(", ")
+		))
 	}
 }
 
-/// The hidden copy of a book next to it that receives the edit (scans skip hidden files)
+/// The hidden copy of a book next to it that receives the edit (scans skip hidden files;
+/// the name keeps the book's extension, which the readers look at)
 fn work_path(path: &Path) -> PathBuf {
 	let name = path
 		.file_name()
 		.map(|n| n.to_string_lossy().into_owned())
 		.unwrap_or_else(|| "book".into());
-	path.with_file_name(format!(".{name}.stump-edit"))
+	path.with_file_name(format!(".stump-edit.{name}"))
+}
+
+/// A file's size and modification time, to notice it changing under an edit
+fn file_stamp(path: &Path) -> std::io::Result<(u64, Option<std::time::SystemTime>)> {
+	let meta = std::fs::metadata(path)?;
+	Ok((meta.len(), meta.modified().ok()))
 }
 
 /// Writes `changes` into a copy of the book next to it, reads the copy back with Stump's
@@ -1061,75 +1285,79 @@ async fn prepare_edited_copy(
 	Ok(work)
 }
 
-/// Puts the edited copy in the book's place: the original goes to the quarantine folder
-/// first when one is set (never deleted); else the copy just replaces it
+/// Puts the edited copy in the book's place: the copy is flushed to disk and renamed over
+/// the book (same folder, so the swap is atomic). Refused when the book changed since the
+/// copy was taken (another tool rewrote it); the book is then left as it is.
 fn replace_book(
 	path: &Path,
 	work: &Path,
-	quarantine: Option<(PathBuf, PathBuf)>,
-) -> std::io::Result<Option<PathBuf>> {
-	match quarantine {
-		Some((batch, rel)) => {
-			let out = swap::quarantine_then_rename(path, work, &batch, &rel)?;
-			Ok(Some(out.quarantine_path))
-		},
-		None => {
-			std::fs::rename(work, path)?;
-			Ok(None)
-		},
+	stamp: (u64, Option<std::time::SystemTime>),
+) -> std::io::Result<()> {
+	if file_stamp(path)? != stamp {
+		return Err(std::io::Error::other(
+			"the book file changed while it was being edited",
+		));
 	}
+	File::open(work)?.sync_all()?;
+	std::fs::rename(work, path)?;
+	if let Some(dir) = path.parent() {
+		// the rename itself, on disk (best effort: not every filesystem allows it)
+		let _ = File::open(dir).and_then(|d| d.sync_all());
+	}
+	Ok(())
 }
 
-/// Writes an edit into the book file and logs it: the stored metadata was `old`, the user
-/// saved `new`. Returns which changed fields the file now carries and which stay in Stump
-/// only (to lock).
+/// Writes the changed fields of an edit into the book file and logs them in the edits CSV:
+/// the book's metadata now is `new`. Returns which changed fields the file now carries,
+/// which stay in Stump only, and the locks that keep all of them through rescans.
 pub async fn write_edit(
 	ctx: &Ctx,
 	book: &media::Model,
 	library: &library::Model,
 	library_config: &library_config::Model,
-	old: &media_metadata::Model,
+	changed: &[ChangedField],
 	new: &media_metadata::Model,
 	username: &str,
 ) -> FileEditOutcome {
-	let changed = changed_fields(old, new);
 	let path = PathBuf::from(&book.path);
 	let format = EditableFormat::of(&path);
 
-	let mut outcome = FileEditOutcome {
-		status: FileWriteStatus::NotNeeded,
-		file_fields: vec![],
-		db_only_fields: vec![],
-		locks: vec![],
-		message: None,
-		quarantine_path: None,
-		csv_path: None,
-	};
+	let mut outcome = FileEditOutcome::nothing();
 	let changes = format
-		.map(|f| file_changes(f, &changed, new))
+		.map(|f| file_changes(f, changed, new))
 		.unwrap_or_default();
 	let mut written: Vec<&'static str> = vec![];
 	if let (Some(format), false) = (format, changes.is_empty()) {
-		match prepare_edited_copy(ctx, &path, format, &changes).await {
-			Ok(work) => {
-				let quarantine = ctx.config.quarantine_directory().map(|root| {
-					(
-						swap::batch_dir(&root, "edit", chrono::Utc::now()),
-						swap::quarantine_rel(Path::new(&library.path), &path),
-					)
-				});
+		let stamp = {
+			let p = path.clone();
+			tokio::task::spawn_blocking(move || file_stamp(&p)).await
+		};
+		let prepared = match stamp {
+			Ok(Ok(stamp)) => prepare_edited_copy(ctx, &path, format, &changes)
+				.await
+				.map(|work| (work, stamp)),
+			Ok(Err(error)) => Err(format!("the book file could not be read: {error}")),
+			Err(error) => Err(error.to_string()),
+		};
+		match prepared {
+			Ok((work, stamp)) => {
 				let (p, w) = (path.clone(), work.clone());
 				let replaced =
-					tokio::task::spawn_blocking(move || replace_book(&p, &w, quarantine)).await;
+					tokio::task::spawn_blocking(move || replace_book(&p, &w, stamp))
+						.await;
 				match replaced {
-					Ok(Ok(quarantined)) => {
+					Ok(Ok(())) => {
 						outcome.status = FileWriteStatus::Written;
-						outcome.quarantine_path =
-							quarantined.map(|q| q.to_string_lossy().into_owned());
-						written = fields_written(&changed, &changes);
-						if let Err(error) =
-							refresh_media_after_swap(ctx.conn.as_ref(), &ctx.config, library_config, book)
-								.await
+						written = fields_written(changed, &changes);
+						// the new size and hashes, and a modification time after the file's,
+						// so the next scan doesn't rebuild the book
+						if let Err(error) = refresh_media_after_swap(
+							ctx.conn.as_ref(),
+							&ctx.config,
+							library_config,
+							book,
+						)
+						.await
 						{
 							tracing::warn!(?error, path = %book.path, "Could not refresh an edited book");
 						}
@@ -1137,12 +1365,14 @@ pub async fn write_edit(
 					Ok(Err(error)) => {
 						let _ = tokio::fs::remove_file(&work).await;
 						outcome.status = FileWriteStatus::Failed;
-						outcome.message = Some(format!("The book file could not be replaced: {error}"));
+						outcome.message =
+							Some(format!("The book file was not changed: {error}"));
 					},
 					Err(error) => {
 						let _ = tokio::fs::remove_file(&work).await;
 						outcome.status = FileWriteStatus::Failed;
-						outcome.message = Some(error.to_string());
+						outcome.message =
+							Some(format!("The book file was not changed: {error}"));
 					},
 				}
 			},
@@ -1153,19 +1383,22 @@ pub async fn write_edit(
 		}
 	} else if format.is_none() && !changed.is_empty() {
 		outcome.message = Some(
-			"This kind of file can't carry metadata: the changes are kept in Stump".to_string(),
+			"This kind of file can't carry metadata: the changes are kept in Stump"
+				.to_string(),
 		);
 	}
 
-	for change in &changed {
+	for change in changed {
 		if written.contains(&change.field) {
 			outcome.file_fields.push(change.field);
 		} else {
 			outcome.db_only_fields.push(change.field);
-			if let Some(lock) = change.lock {
-				if !outcome.locks.contains(&lock) {
-					outcome.locks.push(lock);
-				}
+		}
+		// every edited field is locked: a rescan after another tool rewrote the file
+		// (book-curator replaces subjects) keeps what was set by hand
+		if let Some(lock) = change.lock {
+			if !outcome.locks.contains(&lock) {
+				outcome.locks.push(lock);
 			}
 		}
 	}
@@ -1184,7 +1417,8 @@ pub async fn write_edit(
 				.unwrap_or(&path)
 				.to_string_lossy()
 				.into_owned();
-			let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+			let now =
+				chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 			let rows = changed
 				.iter()
 				.map(|c| {
@@ -1193,7 +1427,12 @@ pub async fn write_edit(
 						c.field.to_string(),
 						c.old.clone(),
 						c.new.clone(),
-						if written.contains(&c.field) { "file" } else { "stump" }.to_string(),
+						if written.contains(&c.field) {
+							"file"
+						} else {
+							"stump"
+						}
+						.to_string(),
 						username.to_string(),
 						now.clone(),
 					]
@@ -1207,6 +1446,276 @@ pub async fn write_edit(
 	}
 	super::library_index::invalidate_index(&library.id);
 	outcome
+}
+
+// ------------------------------------------------------------------ saving and history
+
+/// Who saves an edit
+#[derive(Debug, Clone, Copy)]
+pub struct Editor<'a> {
+	pub id: &'a str,
+	pub username: &'a str,
+}
+
+/// A saved metadata edit
+#[derive(Debug, Clone)]
+pub struct SavedEdit {
+	/// The save's id in the edit history (`None` when nothing changed)
+	pub save_id: Option<String>,
+	pub outcome: FileEditOutcome,
+	/// The book after the save
+	pub book: media::Model,
+	/// For a revert: the fields left as they are because they changed again since
+	pub skipped: Vec<String>,
+}
+
+fn non_empty(value: &str) -> Option<String> {
+	(!value.is_empty()).then(|| value.to_string())
+}
+
+/// Saves an edit of a book's metadata: the database row first (with the book's series
+/// membership), then the book file ([`write_edit`]), the locks for the edited fields and
+/// a row per changed field in the edit history. `active` holds the edited values (fields
+/// left unset stay as they are); `reverts` names the save a revert undoes.
+pub async fn save_edit(
+	ctx: &Ctx,
+	book: media::Model,
+	existing: Option<media_metadata::Model>,
+	mut active: media_metadata::ActiveModel,
+	editor: Editor<'_>,
+	reverts: Option<&str>,
+) -> CoreResult<SavedEdit> {
+	let conn = ctx.conn.as_ref();
+	let (library, library_config) = library::Entity::find_by_id(book.library_id.clone())
+		.find_also_related(library_config::Entity)
+		.one(conn)
+		.await?
+		.ok_or_else(|| {
+			CoreError::NotFound(format!("Library {} not found", book.library_id))
+		})?;
+	let library_config = library_config
+		.ok_or_else(|| CoreError::NotFound("Library configuration".to_string()))?;
+	let old = existing.clone().unwrap_or_default();
+
+	let txn = conn.begin().await?;
+	active.media_id = Set(Some(book.id.clone()));
+	let updated = if let Some(existing) = &existing {
+		active.id = Set(existing.id);
+		active.update(&txn).await?
+	} else {
+		active.insert(&txn).await?
+	};
+	let (book, thumbnails) =
+		sync_media_membership(&txn, book, updated.series.clone()).await?;
+	txn.commit().await?;
+	remove_series_thumbnails(thumbnails).await;
+
+	let changed = changed_fields(&old, &updated);
+	let outcome = write_edit(
+		ctx,
+		&book,
+		&library,
+		&library_config,
+		&changed,
+		&updated,
+		editor.username,
+	)
+	.await;
+
+	let mut locked = locked_fields_of(&updated.locked_fields);
+	let before = locked.len();
+	for field in &outcome.locks {
+		if !locked.contains(field) {
+			locked.push(*field);
+		}
+	}
+	if locked.len() != before {
+		let mut lock = updated.clone().into_active_model();
+		lock.locked_fields = Set(Some(serde_json::to_value(&locked)?));
+		lock.update(conn).await?;
+	}
+
+	let save_id = if changed.is_empty() {
+		None
+	} else {
+		let save_id = uuid::Uuid::new_v4().to_string();
+		let now = chrono::Utc::now();
+		let rows = changed.iter().map(|c| media_metadata_edit::ActiveModel {
+			media_id: Set(book.id.clone()),
+			save_id: Set(save_id.clone()),
+			field: Set(c.field.to_string()),
+			old_value: Set(non_empty(&c.old)),
+			new_value: Set(non_empty(&c.new)),
+			edited_by: Set(Some(editor.id.to_string())),
+			edited_at: Set(now),
+			written_to_file: Set(outcome.file_fields.contains(&c.field)),
+			reverts_save_id: Set(reverts.map(str::to_string)),
+			..Default::default()
+		});
+		media_metadata_edit::Entity::insert_many(rows)
+			.exec(conn)
+			.await?;
+		Some(save_id)
+	};
+
+	let book = media::Entity::find_by_id(book.id.clone())
+		.one(conn)
+		.await?
+		.unwrap_or(book);
+	Ok(SavedEdit {
+		save_id,
+		outcome,
+		book,
+		skipped: vec![],
+	})
+}
+
+/// The edit that puts back the values a save changed, for the fields that still have the
+/// value it gave them (the others changed again since: they are left, and listed)
+pub fn revert_changes(
+	current: &media_metadata::Model,
+	rows: &[media_metadata_edit::Model],
+) -> (media_metadata::ActiveModel, Vec<String>, usize) {
+	let mut active = current.clone().into_active_model();
+	let mut skipped = vec![];
+	let mut reverted = 0;
+	for row in rows {
+		let now = field_text(current, &row.field);
+		if now != row.new_value.clone().unwrap_or_default() {
+			skipped.push(row.field.clone());
+			continue;
+		}
+		if set_field_from_text(
+			&mut active,
+			&row.field,
+			row.old_value.as_deref().unwrap_or(""),
+		) {
+			reverted += 1;
+		} else {
+			skipped.push(row.field.clone());
+		}
+	}
+	(active, skipped, reverted)
+}
+
+/// Reverts a save: its fields get their old values back through the same path as an edit
+/// (book file, database, locks), recorded as a new save that names the reverted one
+pub async fn revert_save(
+	ctx: &Ctx,
+	book: media::Model,
+	existing: Option<media_metadata::Model>,
+	save_id: &str,
+	editor: Editor<'_>,
+) -> CoreResult<SavedEdit> {
+	let rows = media_metadata_edit::Entity::find()
+		.filter(media_metadata_edit::Column::MediaId.eq(book.id.clone()))
+		.filter(media_metadata_edit::Column::SaveId.eq(save_id))
+		.order_by_asc(media_metadata_edit::Column::Id)
+		.all(ctx.conn.as_ref())
+		.await?;
+	if rows.is_empty() {
+		return Err(CoreError::NotFound(
+			"This edit is not in the book's history".to_string(),
+		));
+	}
+	let current = existing
+		.clone()
+		.ok_or_else(|| CoreError::NotFound("The book has no metadata".to_string()))?;
+	let (active, skipped, reverted) = revert_changes(&current, &rows);
+	if reverted == 0 {
+		return Err(CoreError::BadRequest(
+			"Nothing to revert: every field of this edit has changed again since"
+				.to_string(),
+		));
+	}
+	let mut saved = save_edit(ctx, book, existing, active, editor, Some(save_id)).await?;
+	saved.skipped = skipped;
+	Ok(saved)
+}
+
+/// One save of a book's edit history
+#[derive(Debug, Clone)]
+pub struct EditHistorySave {
+	pub save_id: String,
+	pub edited_at: chrono::DateTime<chrono::Utc>,
+	/// The username of who saved it
+	pub edited_by: Option<String>,
+	pub reverts_save_id: Option<String>,
+	/// The save that reverted this one
+	pub reverted_by: Option<String>,
+	pub changes: Vec<media_metadata_edit::Model>,
+}
+
+/// Groups a book's edit rows (newest first) into saves, at most `limit` of them
+pub fn group_saves(
+	rows: Vec<media_metadata_edit::Model>,
+	usernames: &HashMap<String, String>,
+	limit: usize,
+) -> Vec<EditHistorySave> {
+	let reverted_by: HashMap<String, String> = rows
+		.iter()
+		.filter_map(|r| r.reverts_save_id.clone().map(|s| (s, r.save_id.clone())))
+		.collect();
+	let mut saves: Vec<EditHistorySave> = vec![];
+	for row in rows {
+		match saves.iter_mut().find(|s| s.save_id == row.save_id) {
+			Some(save) => save.changes.push(row),
+			None => {
+				if saves.len() == limit {
+					continue;
+				}
+				saves.push(EditHistorySave {
+					save_id: row.save_id.clone(),
+					edited_at: row.edited_at,
+					edited_by: row
+						.edited_by
+						.as_ref()
+						.and_then(|id| usernames.get(id).cloned()),
+					reverts_save_id: row.reverts_save_id.clone(),
+					reverted_by: reverted_by.get(&row.save_id).cloned(),
+					changes: vec![row],
+				});
+			},
+		}
+	}
+	for save in &mut saves {
+		// in the order the editor shows the fields
+		save.changes.sort_by_key(|c| {
+			EDIT_FIELDS
+				.iter()
+				.position(|(f, _)| *f == c.field)
+				.unwrap_or(usize::MAX)
+		});
+	}
+	saves
+}
+
+/// A book's latest saves, newest first
+pub async fn edit_history(
+	ctx: &Ctx,
+	media_id: &str,
+	limit: usize,
+) -> CoreResult<Vec<EditHistorySave>> {
+	let conn = ctx.conn.as_ref();
+	let rows = media_metadata_edit::Entity::find()
+		.filter(media_metadata_edit::Column::MediaId.eq(media_id))
+		.order_by_desc(media_metadata_edit::Column::EditedAt)
+		.order_by_desc(media_metadata_edit::Column::Id)
+		.all(conn)
+		.await?;
+	let ids: BTreeSet<String> = rows.iter().filter_map(|r| r.edited_by.clone()).collect();
+	let usernames: HashMap<String, String> = if ids.is_empty() {
+		HashMap::new()
+	} else {
+		user::Entity::find()
+			.filter(user::Column::Id.is_in(ids))
+			.all(conn)
+			.await?
+			.into_iter()
+			.map(|u| (u.id, u.username))
+			.collect()
+	};
+	Ok(group_saves(rows, &usernames, limit))
 }
 
 // ------------------------------------------------------------------ suggestions
@@ -1247,7 +1756,10 @@ pub fn intake_metadata_of(meta: &media_metadata::Model) -> IntakeMetadata {
 		authors: split_list(&meta.writers),
 		series: meta.series.clone().filter(|s| !s.trim().is_empty()),
 		series_index: decimal_f64(&meta.number),
-		language: meta.language.as_deref().and_then(super::naming::language_code),
+		language: meta
+			.language
+			.as_deref()
+			.and_then(super::naming::language_code),
 		year: meta.year,
 		publisher: meta.publisher.clone(),
 		description: meta
@@ -1306,7 +1818,9 @@ pub async fn suggest_for_book(
 	let library = library::Entity::find_by_id(book.library_id.clone())
 		.one(conn)
 		.await?
-		.ok_or_else(|| CoreError::NotFound(format!("Library {} not found", book.library_id)))?;
+		.ok_or_else(|| {
+			CoreError::NotFound(format!("Library {} not found", book.library_id))
+		})?;
 	let settings = settings_for(conn, &library.id).await?;
 	let index = library_index(
 		conn,
@@ -1463,10 +1977,19 @@ mod tests {
 		// a language change: in EPUBs, not in PDFs or CBZs
 		new.language = Some("es".into());
 		let changed = changed_fields(&old, &new);
-		assert!(file_changes(EditableFormat::Epub, &changed, &new).language.is_some());
-		assert!(file_changes(EditableFormat::Pdf, &changed, &new).language.is_none());
-		assert!(file_changes(EditableFormat::Cbz, &changed, &new).language.is_none());
-		assert_eq!(EditableFormat::of(Path::new("/a/b.kepub.epub")), Some(EditableFormat::Epub));
+		assert!(file_changes(EditableFormat::Epub, &changed, &new)
+			.language
+			.is_some());
+		assert!(file_changes(EditableFormat::Pdf, &changed, &new)
+			.language
+			.is_none());
+		assert!(file_changes(EditableFormat::Cbz, &changed, &new)
+			.language
+			.is_none());
+		assert_eq!(
+			EditableFormat::of(Path::new("/a/b.kepub.epub")),
+			Some(EditableFormat::Epub)
+		);
 		assert_eq!(EditableFormat::of(Path::new("/a/b.cbr")), None);
 	}
 
@@ -1487,7 +2010,11 @@ mod tests {
 			]
 		);
 		assert_eq!(
-			clean_writers(&["Pantano, Robert".into(), "Robert Pantano".into(), " ".into()]),
+			clean_writers(&[
+				"Pantano, Robert".into(),
+				"Robert Pantano".into(),
+				" ".into()
+			]),
 			vec!["Robert Pantano"]
 		);
 	}
@@ -1524,12 +2051,19 @@ mod tests {
 		check_xml(&new).unwrap();
 		assert!(!new.contains("Physics"));
 		assert!(new.contains("<dc:subject>Literary Fiction: Philosophical</dc:subject>"));
-		assert!(new.contains(r#"<meta name="bcurator:shelf" content="Literary Fiction"/>"#));
+		assert!(
+			new.contains(r#"<meta name="bcurator:shelf" content="Literary Fiction"/>"#)
+		);
 		// untouched: title and its refines, creator, dates, language, identifier
-		assert!(new.contains(r##"<meta refines="#t1" property="title-type">main</meta>"##));
-		assert!(new.contains(r##"<meta refines="#c1" property="file-as">Pantano, Robert</meta>"##));
+		assert!(
+			new.contains(r##"<meta refines="#t1" property="title-type">main</meta>"##)
+		);
+		assert!(new.contains(
+			r##"<meta refines="#c1" property="file-as">Pantano, Robert</meta>"##
+		));
 		assert!(new.contains("<dc:date>2020-07-01</dc:date>"));
-		assert!(new.contains("<dc:identifier id=\"id\">urn:isbn:9798667150664</dc:identifier>"));
+		assert!(new
+			.contains("<dc:identifier id=\"id\">urn:isbn:9798667150664</dc:identifier>"));
 
 		let changes = FileChanges {
 			title: Some(Some("Notes & More".into())),
@@ -1550,11 +2084,15 @@ mod tests {
 		assert!(!new.contains("<dc:subject>"));
 		assert!(!new.contains("bcurator:shelf"));
 		assert!(new.contains(r#"<meta name="calibre:series" content="Pursuit"/>"#));
-		assert!(new.contains(r##"<meta refines="#bcurator-series" property="group-position">2</meta>"##));
+		assert!(new.contains(
+			r##"<meta refines="#bcurator-series" property="group-position">2</meta>"##
+		));
 		assert!(new.contains("<dc:date>2021-03</dc:date>"));
 		assert!(new.contains(r#"<dc:date opf:event="modification">2024-01-01</dc:date>"#));
 		assert!(!new.contains("2020-07-01"));
-		assert!(new.contains("<dc:description>A &lt;b&gt;bold&lt;/b&gt; novel</dc:description>"));
+		assert!(new.contains(
+			"<dc:description>A &lt;b&gt;bold&lt;/b&gt; novel</dc:description>"
+		));
 		assert!(new.contains("<dc:publisher>Pursuit of Wonder</dc:publisher>"));
 		assert!(new.contains(r#"<meta name="typicalAgeRange" content="18+"/>"#));
 		assert!(new.contains("<dc:language>es</dc:language>"));
@@ -1590,13 +2128,18 @@ mod tests {
   </Pages>
 </ComicInfo>"#;
 		let changes = FileChanges {
-			genres: Some(vec!["Manga & Comics".into(), "Manga & Comics: Slice of Life".into()]),
+			genres: Some(vec![
+				"Manga & Comics".into(),
+				"Manga & Comics: Slice of Life".into(),
+			]),
 			summary: Some(Some("Everyday adventures".into())),
 			..Default::default()
 		};
 		let xml = apply_comic_info_changes(Some(existing), &changes);
 		check_xml(&xml).unwrap();
-		assert!(xml.contains("<Genre>Manga &amp; Comics, Manga &amp; Comics: Slice of Life</Genre>"));
+		assert!(xml.contains(
+			"<Genre>Manga &amp; Comics, Manga &amp; Comics: Slice of Life</Genre>"
+		));
 		assert!(xml.contains("<Summary>Everyday adventures</Summary>"));
 		assert!(xml.contains(r#"<Page Image="0" Type="FrontCover" />"#));
 		assert!(xml.contains("<Writer>Kiyohiko Azuma</Writer>"));
@@ -1653,7 +2196,10 @@ mod tests {
 			},
 		);
 		let keys: Vec<&str> = info.iter().map(|(k, _)| k.as_str()).collect();
-		assert_eq!(keys, vec!["Title", "Author", "Keywords", "Creator", "ModDate"]);
+		assert_eq!(
+			keys,
+			vec!["Title", "Author", "Keywords", "Creator", "ModDate"]
+		);
 		assert_eq!(info[1].1, "(Umberto Eco)");
 	}
 
@@ -1666,12 +2212,16 @@ mod tests {
 		)
 		.unwrap();
 		zip.write_all(b"application/epub+zip").unwrap();
-		zip.start_file("META-INF/container.xml", SimpleFileOptions::default()).unwrap();
+		zip.start_file("META-INF/container.xml", SimpleFileOptions::default())
+			.unwrap();
 		zip.write_all(br#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#).unwrap();
-		zip.start_file("OEBPS/content.opf", SimpleFileOptions::default()).unwrap();
+		zip.start_file("OEBPS/content.opf", SimpleFileOptions::default())
+			.unwrap();
 		zip.write_all(OPF3.as_bytes()).unwrap();
-		zip.start_file("OEBPS/chapter.xhtml", SimpleFileOptions::default()).unwrap();
-		zip.write_all(b"<html><body><p>Hello</p></body></html>").unwrap();
+		zip.start_file("OEBPS/chapter.xhtml", SimpleFileOptions::default())
+			.unwrap();
+		zip.write_all(b"<html><body><p>Hello</p></body></html>")
+			.unwrap();
 		zip.finish().unwrap();
 		path
 	}
@@ -1688,27 +2238,47 @@ mod tests {
 		let mut archive = ZipArchive::new(File::open(&epub).unwrap()).unwrap();
 		assert_eq!(archive.by_index(0).unwrap().name(), "mimetype");
 		let mut opf = String::new();
-		archive.by_name("OEBPS/content.opf").unwrap().read_to_string(&mut opf).unwrap();
+		archive
+			.by_name("OEBPS/content.opf")
+			.unwrap()
+			.read_to_string(&mut opf)
+			.unwrap();
 		assert!(opf.contains("<dc:subject>Philosophy</dc:subject>"));
 		assert!(!opf.contains("Physics"));
 		let mut chapter = String::new();
-		archive.by_name("OEBPS/chapter.xhtml").unwrap().read_to_string(&mut chapter).unwrap();
+		archive
+			.by_name("OEBPS/chapter.xhtml")
+			.unwrap()
+			.read_to_string(&mut chapter)
+			.unwrap();
 		assert_eq!(chapter, "<html><body><p>Hello</p></body></html>");
 		// the intake's writer and this one agree on what a curated file looks like
 		let again = dir.path().join("again.epub");
 		std::fs::copy(&epub, &again).unwrap();
-		write_epub(&again, &FileMetadata { tags: vec!["Philosophy".into()], ..Default::default() }).unwrap();
+		write_epub(
+			&again,
+			&FileMetadata {
+				tags: vec!["Philosophy".into()],
+				..Default::default()
+			},
+		)
+		.unwrap();
 
 		let cbz = dir.path().join("v01.cbz");
 		let mut zip = zip::ZipWriter::new(File::create(&cbz).unwrap());
-		zip.start_file("001.png", SimpleFileOptions::default()).unwrap();
+		zip.start_file("001.png", SimpleFileOptions::default())
+			.unwrap();
 		zip.write_all(b"png").unwrap();
 		zip.finish().unwrap();
 		write_cbz_changes(&cbz, &changes).unwrap();
 		let mut archive = ZipArchive::new(File::open(&cbz).unwrap()).unwrap();
 		assert_eq!(archive.len(), 2);
 		let mut info = String::new();
-		archive.by_name("ComicInfo.xml").unwrap().read_to_string(&mut info).unwrap();
+		archive
+			.by_name("ComicInfo.xml")
+			.unwrap()
+			.read_to_string(&mut info)
+			.unwrap();
 		assert!(info.contains("<Genre>Philosophy</Genre>"));
 		// a second edit replaces the element instead of adding one
 		write_cbz_changes(
@@ -1722,7 +2292,11 @@ mod tests {
 		let mut archive = ZipArchive::new(File::open(&cbz).unwrap()).unwrap();
 		assert_eq!(archive.len(), 2);
 		let mut info = String::new();
-		archive.by_name("ComicInfo.xml").unwrap().read_to_string(&mut info).unwrap();
+		archive
+			.by_name("ComicInfo.xml")
+			.unwrap()
+			.read_to_string(&mut info)
+			.unwrap();
 		assert!(info.contains("<Genre>History</Genre>"));
 		assert!(!info.contains("Philosophy"));
 		let _ = write_cbz;
@@ -1756,5 +2330,379 @@ mod tests {
 			..Default::default()
 		};
 		assert!(verify_read_back(&pdf, &changes, EditableFormat::Pdf).is_ok());
+	}
+	#[test]
+	fn every_edit_field_round_trips_through_its_text() {
+		let meta = media_metadata::Model {
+			title: Some("T".into()),
+			title_sort: Some("T, The".into()),
+			writers: Some("A, B".into()),
+			series: Some("S".into()),
+			number: Some(Decimal::new(25, 1)),
+			series_group: Some("G".into()),
+			story_arc: Some("Arc".into()),
+			story_arc_number: Some(Decimal::new(3, 0)),
+			volume: Some(2),
+			summary: Some(" spaced summary ".into()),
+			notes: Some("n".into()),
+			genres: Some("Philosophy, Level: General Reader".into()),
+			format: Some("f".into()),
+			year: Some(2020),
+			month: Some(7),
+			day: Some(16),
+			pencillers: Some("p".into()),
+			inkers: Some("i".into()),
+			colorists: Some("c".into()),
+			letterers: Some("l".into()),
+			cover_artists: Some("ca".into()),
+			editors: Some("e".into()),
+			publisher: Some("Pub".into()),
+			links: Some("https://x".into()),
+			characters: Some("ch".into()),
+			teams: Some("te".into()),
+			page_count: Some(300),
+			age_rating: Some(18),
+			identifier_amazon: Some("am".into()),
+			identifier_calibre: Some("cal".into()),
+			identifier_google: Some("go".into()),
+			identifier_isbn: Some("978".into()),
+			identifier_mobi_asin: Some("asin".into()),
+			identifier_uuid: Some("uuid".into()),
+			language: Some("en".into()),
+			..Default::default()
+		};
+		let empty = media_metadata::Model::default();
+		let changed = changed_fields(&empty, &meta);
+		assert_eq!(
+			changed.len(),
+			EDIT_FIELDS.len(),
+			"every field differs from empty"
+		);
+		for (field, _) in EDIT_FIELDS {
+			// setting a field from its text gives the same value back
+			let mut active = empty.clone().into_active_model();
+			assert!(set_field_from_text(
+				&mut active,
+				field,
+				&field_text(&meta, field)
+			));
+			let mut back = empty.clone();
+			apply_set_values(&mut back, active);
+			assert_eq!(
+				field_text(&back, field),
+				field_text(&meta, field),
+				"{field}"
+			);
+			// and an empty text clears it
+			let mut active = meta.clone().into_active_model();
+			assert!(set_field_from_text(&mut active, field, ""));
+			let mut back = meta.clone();
+			apply_set_values(&mut back, active);
+			assert_eq!(field_text(&back, field), "", "{field}");
+		}
+		let mut active = empty.clone().into_active_model();
+		assert!(!set_field_from_text(&mut active, "year", "MMXX"));
+		assert!(!set_field_from_text(&mut active, "nope", "x"));
+	}
+
+	/// The values an active model sets, applied to a model (what an update would store)
+	fn apply_set_values(
+		model: &mut media_metadata::Model,
+		active: media_metadata::ActiveModel,
+	) {
+		use sea_orm::{ActiveValue, Iterable, ModelTrait};
+		for column in media_metadata::Column::iter() {
+			if let ActiveValue::Set(value) = active.get(column) {
+				model.set(column, value);
+			}
+		}
+	}
+
+	fn edit_row(
+		save_id: &str,
+		field: &str,
+		old: Option<&str>,
+		new: Option<&str>,
+	) -> media_metadata_edit::Model {
+		media_metadata_edit::Model {
+			id: 0,
+			media_id: "book".into(),
+			save_id: save_id.into(),
+			field: field.into(),
+			old_value: old.map(str::to_string),
+			new_value: new.map(str::to_string),
+			edited_by: Some("u1".into()),
+			edited_at: chrono::Utc::now(),
+			written_to_file: true,
+			reverts_save_id: None,
+		}
+	}
+
+	#[test]
+	fn a_revert_puts_back_only_the_fields_that_did_not_change_since() {
+		let current = media_metadata::Model {
+			id: 7,
+			genres: Some("Philosophy, Biography & Memoir".into()),
+			title: Some("Changed again".into()),
+			year: None,
+			..Default::default()
+		};
+		let rows = vec![
+			edit_row(
+				"s1",
+				"genres",
+				Some("Physics & Astronomy"),
+				Some("Philosophy, Biography & Memoir"),
+			),
+			edit_row("s1", "title", Some("Old"), Some("New")),
+			edit_row("s1", "year", Some("2020"), None),
+		];
+		let (active, skipped, reverted) = revert_changes(&current, &rows);
+		assert_eq!(reverted, 2);
+		assert_eq!(skipped, vec!["title".to_string()]);
+		let mut back = current.clone();
+		apply_set_values(&mut back, active);
+		assert_eq!(back.genres.as_deref(), Some("Physics & Astronomy"));
+		assert_eq!(back.year, Some(2020));
+		assert_eq!(back.title.as_deref(), Some("Changed again"));
+	}
+
+	#[test]
+	fn history_groups_rows_into_saves_newest_first() {
+		let mut revert = edit_row("s2", "genres", Some("B"), Some("A"));
+		revert.reverts_save_id = Some("s1".into());
+		let rows = vec![
+			revert,
+			edit_row("s1", "title", Some("x"), Some("y")),
+			edit_row("s1", "genres", Some("A"), Some("B")),
+			edit_row("s0", "notes", None, Some("n")),
+		];
+		let users = HashMap::from([("u1".to_string(), "g3".to_string())]);
+		let saves = group_saves(rows.clone(), &users, 2);
+		assert_eq!(saves.len(), 2);
+		assert_eq!(saves[0].save_id, "s2");
+		assert_eq!(saves[0].reverts_save_id.as_deref(), Some("s1"));
+		assert_eq!(saves[1].reverted_by.as_deref(), Some("s2"));
+		assert_eq!(saves[1].edited_by.as_deref(), Some("g3"));
+		// in the editor's order: title before genres
+		let fields: Vec<&str> =
+			saves[1].changes.iter().map(|c| c.field.as_str()).collect();
+		assert_eq!(fields, vec!["title", "genres"]);
+		assert_eq!(group_saves(rows, &users, 20).len(), 3);
+	}
+
+	const BOOK_OPF: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Notes from the End of Everything</dc:title>
+    <dc:creator>Robert Pantano</dc:creator>
+    <dc:subject>Physics &amp; Astronomy</dc:subject>
+    <dc:subject>Level: General Reader</dc:subject>
+    <dc:language>en</dc:language>
+    <dc:identifier id="id">urn:uuid:1</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="c1"/>
+  </spine>
+</package>"##;
+
+	fn readable_epub(path: &Path) {
+		let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
+		zip.start_file(
+			"mimetype",
+			SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+		)
+		.unwrap();
+		zip.write_all(b"application/epub+zip").unwrap();
+		zip.start_file("META-INF/container.xml", SimpleFileOptions::default())
+			.unwrap();
+		zip.write_all(br#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#).unwrap();
+		zip.start_file("OEBPS/content.opf", SimpleFileOptions::default())
+			.unwrap();
+		zip.write_all(BOOK_OPF.as_bytes()).unwrap();
+		zip.start_file("OEBPS/chapter.xhtml", SimpleFileOptions::default())
+			.unwrap();
+		zip.write_all(b"<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>c</title></head><body><p>Hello</p></body></html>").unwrap();
+		zip.finish().unwrap();
+	}
+
+	fn opf_of(path: &Path) -> String {
+		let mut archive = ZipArchive::new(File::open(path).unwrap()).unwrap();
+		let mut opf = String::new();
+		archive
+			.by_name("OEBPS/content.opf")
+			.unwrap()
+			.read_to_string(&mut opf)
+			.unwrap();
+		opf
+	}
+
+	#[tokio::test]
+	async fn saving_and_reverting_an_edit_rewrites_the_file_and_keeps_a_history() {
+		use ::tests::fake_data;
+
+		// the real migrations, so the history table is checked against the entity
+		let db = crate::database::connect_at("sqlite::memory:")
+			.await
+			.unwrap();
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("biblioteca");
+		std::fs::create_dir_all(root.join("Robert_Pantano")).unwrap();
+		let book_path = root.join("Robert_Pantano/Notes.epub");
+		readable_epub(&book_path);
+
+		let library = fake_data::Library {
+			path: Some(root.to_string_lossy().into_owned()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let book = fake_data::Media {
+			series_id: series.id.clone(),
+			path: Some(book_path.to_string_lossy().into_owned()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let editor = fake_data::User::new("g3").insert(&db).await;
+		let meta = media_metadata::ActiveModel {
+			media_id: Set(Some(book.id.clone())),
+			title: Set(Some("Notes from the End of Everything".into())),
+			writers: Set(Some("Robert Pantano".into())),
+			genres: Set(Some("Physics & Astronomy, Level: General Reader".into())),
+			notes: Set(Some("mine".into())),
+			..Default::default()
+		}
+		.insert(&db)
+		.await
+		.unwrap();
+		let ctx = Ctx::for_testing(db);
+		let editor = Editor {
+			id: &editor.id,
+			username: &editor.username,
+		};
+
+		// an edit: genres (in the file) and notes (in Stump only)
+		let edit = media_metadata::ActiveModel {
+			genres: Set(Some(
+				"Philosophy, Biography & Memoir, Level: General Reader".into(),
+			)),
+			notes: Set(None),
+			..Default::default()
+		};
+		let saved = save_edit(&ctx, book.clone(), Some(meta.clone()), edit, editor, None)
+			.await
+			.unwrap();
+		assert_eq!(
+			saved.outcome.status,
+			FileWriteStatus::Written,
+			"{:?}",
+			saved.outcome.message
+		);
+		assert_eq!(saved.outcome.file_fields, vec!["genres"]);
+		assert_eq!(saved.outcome.db_only_fields, vec!["notes"]);
+		let opf = opf_of(&book_path);
+		assert!(opf.contains("<dc:subject>Biography &amp; Memoir</dc:subject>"));
+		assert!(!opf.contains("Physics"));
+		assert!(opf.contains("<dc:title>Notes from the End of Everything</dc:title>"));
+		// the book was swapped in place: no copy of the original, no leftovers
+		let mut names: Vec<String> = std::fs::read_dir(root.join("Robert_Pantano"))
+			.unwrap()
+			.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+			.collect();
+		names.sort();
+		assert_eq!(names, vec!["Notes.epub"]);
+		assert!(dir.path().join("biblioteca/stump_edits.csv").exists());
+
+		let conn = ctx.conn.as_ref();
+		let stored = media_metadata::Entity::find()
+			.filter(media_metadata::Column::MediaId.eq(book.id.clone()))
+			.one(conn)
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			stored.genres.as_deref(),
+			Some("Philosophy, Biography & Memoir, Level: General Reader")
+		);
+		let locked = locked_fields_of(&stored.locked_fields);
+		assert!(
+			locked.contains(&MetadataField::Genres)
+				&& locked.contains(&MetadataField::Notes)
+		);
+		let rows = media_metadata_edit::Entity::find().all(conn).await.unwrap();
+		assert_eq!(rows.len(), 2);
+		let genres_row = rows.iter().find(|r| r.field == "genres").unwrap();
+		assert!(genres_row.written_to_file);
+		assert_eq!(
+			genres_row.old_value.as_deref(),
+			Some("Physics & Astronomy, Level: General Reader")
+		);
+		assert_eq!(genres_row.edited_by.as_deref(), Some(editor.id));
+		let notes_row = rows.iter().find(|r| r.field == "notes").unwrap();
+		assert!(!notes_row.written_to_file);
+		assert_eq!(notes_row.new_value, None);
+
+		// reverting the save puts the old values back in the file and in Stump
+		let save_id = saved.save_id.clone().unwrap();
+		let reverted =
+			revert_save(&ctx, book.clone(), Some(stored.clone()), &save_id, editor)
+				.await
+				.unwrap();
+		assert_eq!(reverted.outcome.status, FileWriteStatus::Written);
+		assert!(reverted.skipped.is_empty());
+		let opf = opf_of(&book_path);
+		assert!(opf.contains("<dc:subject>Physics &amp; Astronomy</dc:subject>"));
+		assert!(!opf.contains("Biography"));
+		let stored = media_metadata::Entity::find()
+			.filter(media_metadata::Column::MediaId.eq(book.id.clone()))
+			.one(conn)
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			stored.genres.as_deref(),
+			Some("Physics & Astronomy, Level: General Reader")
+		);
+		assert_eq!(stored.notes.as_deref(), Some("mine"));
+
+		let history = edit_history(&ctx, &book.id, 20).await.unwrap();
+		assert_eq!(history.len(), 2);
+		assert_eq!(
+			history[0].reverts_save_id.as_deref(),
+			Some(save_id.as_str())
+		);
+		assert_eq!(
+			history[1].reverted_by,
+			history.first().map(|s| s.save_id.clone())
+		);
+		assert_eq!(history[1].edited_by.as_deref(), Some("g3"));
+
+		// a second revert of the same save has nothing left to put back
+		assert!(
+			revert_save(&ctx, book.clone(), Some(stored), &save_id, editor)
+				.await
+				.is_err()
+		);
+
+		// the history goes with its book
+		media::Entity::delete_by_id(book.id.clone())
+			.exec(conn)
+			.await
+			.unwrap();
+		assert!(media_metadata_edit::Entity::find()
+			.all(conn)
+			.await
+			.unwrap()
+			.is_empty());
 	}
 }

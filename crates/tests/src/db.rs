@@ -2,6 +2,7 @@ use models::entity::{
 	intake_item, library_intake_settings,
 	age_restriction, api_key, bookmark, kobo_sync_session, library, library_config,
 	library_exclusion, media, media_analysis, media_annotation, media_metadata,
+	media_metadata_edit,
 	media_tag, reading_device, reading_session, refresh_token, series, series_metadata,
 	server_config, session, tag, user, user_preferences,
 };
@@ -25,6 +26,7 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(api_key::Entity),
 		schema.create_table_from_entity(media::Entity),
 		schema.create_table_from_entity(media_metadata::Entity),
+		schema.create_table_from_entity(media_metadata_edit::Entity),
 		schema.create_table_from_entity(media_analysis::Entity),
 		schema.create_table_from_entity(series::Entity),
 		schema.create_table_from_entity(series_metadata::Entity),

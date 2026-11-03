@@ -132,82 +132,6 @@ pub fn swap_into_place(
 	})
 }
 
-/// Put `ready` (a finished copy next to `original`, in the same folder) in the original's
-/// place, after copying the original into the quarantine batch (checked by size) and before
-/// logging it in the batch's `restore_log.csv`. If the quarantine copy fails the original is
-/// untouched.
-pub fn quarantine_then_rename(
-	original: &Path,
-	ready: &Path,
-	batch: &Path,
-	rel: &Path,
-) -> io::Result<SwapOutcome> {
-	let bytes_before = fs::metadata(original)?.len();
-	let bytes_after = fs::metadata(ready)?.len();
-	let quarantine_path = free_quarantine_path(batch, rel);
-	if let Some(parent) = quarantine_path.parent() {
-		fs::create_dir_all(parent)?;
-	}
-	let copied = copy_synced(original, &quarantine_path)?;
-	if copied != bytes_before {
-		return Err(io::Error::other(format!(
-			"quarantine copy has {copied} bytes, the original {bytes_before}"
-		)));
-	}
-	File::open(ready)?.sync_all()?;
-	fs::rename(ready, original)?;
-	append_restore_log(batch, original, &quarantine_path, bytes_before, bytes_after)?;
-	Ok(SwapOutcome {
-		quarantine_path,
-		bytes_before,
-		bytes_after,
-	})
-}
-
-/// `batch/rel`, or `name.prevN.ext` next to it when that name is taken
-fn free_quarantine_path(batch: &Path, rel: &Path) -> PathBuf {
-	let mut quarantine_path = batch.join(rel);
-	let mut n = 1;
-	while quarantine_path.exists() {
-		let stem = rel
-			.file_stem()
-			.and_then(|s| s.to_str())
-			.unwrap_or("book")
-			.to_string();
-		let ext = rel
-			.extension()
-			.and_then(|s| s.to_str())
-			.map(|e| format!(".{e}"))
-			.unwrap_or_default();
-		quarantine_path = batch
-			.join(rel)
-			.with_file_name(format!("{stem}.prev{n}{ext}"));
-		n += 1;
-	}
-	quarantine_path
-}
-
-fn append_restore_log(
-	batch: &Path,
-	original: &Path,
-	quarantine_path: &Path,
-	bytes_before: u64,
-	bytes_after: u64,
-) -> io::Result<()> {
-	let log = batch.join("restore_log.csv");
-	let new_log = !log.exists();
-	let mut fh = OpenOptions::new().create(true).append(true).open(&log)?;
-	if new_log {
-		writeln!(fh, "original_path,quarantine_path,bytes_before,bytes_after")?;
-	}
-	writeln!(
-		fh,
-		"{},{},{bytes_before},{bytes_after}",
-		csv_field(&original.to_string_lossy()),
-		csv_field(&quarantine_path.to_string_lossy()),
-	)
-}
-
 fn csv_field(value: &str) -> String {
 	if value.contains([',', '"', '\n']) {
 		format!("\"{}\"", value.replace('"', "\"\""))
@@ -268,26 +192,6 @@ mod tests {
 		);
 		assert_eq!(lines.len(), 3);
 		assert!(lines[1].starts_with('"'), "paths with commas are quoted");
-	}
-
-	#[test]
-	fn quarantine_then_rename_keeps_the_original_and_logs_it() {
-		let dir = tempfile::tempdir().unwrap();
-		let lib = dir.path().join("lib/biblioteca/Robert_Pantano");
-		fs::create_dir_all(&lib).unwrap();
-		let original = lib.join("Notes.epub");
-		fs::write(&original, b"old opf").unwrap();
-		let ready = lib.join(".Notes.epub.stump-edit");
-		fs::write(&ready, b"new opf!").unwrap();
-		let batch = dir.path().join("q/2026-11-03-stump-edit");
-		let rel = quarantine_rel(&dir.path().join("lib/biblioteca"), &original);
-		let out = quarantine_then_rename(&original, &ready, &batch, &rel).unwrap();
-		assert_eq!(fs::read(&original).unwrap(), b"new opf!");
-		assert!(!ready.exists());
-		assert_eq!(fs::read(&out.quarantine_path).unwrap(), b"old opf");
-		assert!(out.quarantine_path.ends_with("biblioteca/Robert_Pantano/Notes.epub"));
-		let log = fs::read_to_string(batch.join("restore_log.csv")).unwrap();
-		assert_eq!(log.lines().count(), 2);
 	}
 
 	#[test]

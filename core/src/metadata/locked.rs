@@ -28,7 +28,9 @@ pub fn keep_locked_fields(
 		match field {
 			F::Title => active.title = Set(e.title.clone()),
 			F::TitleSort => active.title_sort = Set(e.title_sort.clone()),
-			F::Summary | F::DescriptionFormatted => active.summary = Set(e.summary.clone()),
+			F::Summary | F::DescriptionFormatted => {
+				active.summary = Set(e.summary.clone())
+			},
 			F::Genres => active.genres = Set(e.genres.clone()),
 			F::Publisher => active.publisher = Set(e.publisher.clone()),
 			F::Year | F::ReleaseDate => {
@@ -57,11 +59,15 @@ pub fn keep_locked_fields(
 			F::StoryArc => active.story_arc = Set(e.story_arc.clone()),
 			F::StoryArcNumber => active.story_arc_number = Set(e.story_arc_number),
 			F::Pencillers => active.pencillers = Set(e.pencillers.clone()),
-			F::IdentifierAmazon => active.identifier_amazon = Set(e.identifier_amazon.clone()),
+			F::IdentifierAmazon => {
+				active.identifier_amazon = Set(e.identifier_amazon.clone())
+			},
 			F::IdentifierCalibre => {
 				active.identifier_calibre = Set(e.identifier_calibre.clone())
 			},
-			F::IdentifierGoogle => active.identifier_google = Set(e.identifier_google.clone()),
+			F::IdentifierGoogle => {
+				active.identifier_google = Set(e.identifier_google.clone())
+			},
 			F::IdentifierMobiAsin => {
 				active.identifier_mobi_asin = Set(e.identifier_mobi_asin.clone())
 			},

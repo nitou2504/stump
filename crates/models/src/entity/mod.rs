@@ -34,6 +34,7 @@ pub mod media;
 pub mod media_analysis;
 pub mod media_annotation;
 pub mod media_metadata;
+pub mod media_metadata_edit;
 pub mod media_tag;
 pub mod metadata_fetch_record;
 pub mod metadata_provider_config;
