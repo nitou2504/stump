@@ -23,14 +23,14 @@ const DELETED_BOOKS: &str = r#"query DeletedBooks($libraryId: ID) {
 }"#;
 const SETTINGS: &str = r#"query Settings {
 	deletedBooksSettings {
-		retentionDays quarantineDir quarantineReady nextPurgeAt lastPurgeAt
+		retentionDays trashDir heldFiles heldBytes nextPurgeAt lastPurgeAt
 	}
 }"#;
 const RESTORE: &str = r#"mutation Restore($ids: [ID!]!) {
 	restoreDeletedBooks(ids: $ids)
 }"#;
 const PURGE: &str = r#"mutation Purge($ids: [ID!]!) {
-	purgeDeletedBooks(ids: $ids) { purged missingFiles quarantinedBytes kept { mediaId error } }
+	purgeDeletedBooks(ids: $ids) { purged missingFiles freedBytes kept { mediaId error } }
 }"#;
 const EMPTY: &str = r#"mutation Empty($libraryId: ID) {
 	emptyDeletedBooks(libraryId: $libraryId) { purged missingFiles kept { mediaId error } }
@@ -39,7 +39,10 @@ const RETENTION: &str = r#"mutation Retention($days: Int!) {
 	updateDeletedBooksRetention(days: $days) { retentionDays nextPurgeAt }
 }"#;
 const PURGED_BOOKS: &str = r#"query Purged {
-	purgedBooks { mediaId title quarantinePath automatic purgedBy canRestore }
+	purgedBooks { mediaId title originalPath bytes automatic purgedBy }
+}"#;
+const HELD_FILES: &str = r#"query Held {
+	heldFiles { id reason title relativePath bytes canPutBack expiresAt }
 }"#;
 const BOOK: &str = r#"query Book($id: ID!) {
 	mediaById(id: $id) { id }
@@ -163,7 +166,7 @@ async fn test_deleted_books_permissions() {
 			.await,
 	);
 
-	// the remover sees the retention (for the confirmation), not the quarantine folder
+	// the remover sees the retention (for the confirmation), not the trash folder
 	let response = app
 		.execute_gql_with_token(SETTINGS, None, &remover.token)
 		.await;
@@ -172,7 +175,7 @@ async fn test_deleted_books_permissions() {
 		response["data"]["deletedBooksSettings"]["retentionDays"],
 		json!(14)
 	);
-	assert!(response["data"]["deletedBooksSettings"]["quarantineDir"].is_null());
+	assert!(response["data"]["deletedBooksSettings"]["trashDir"].is_null());
 	assert_forbidden(
 		&app.execute_gql_with_token(SETTINGS, None, &reader.token)
 			.await,
@@ -185,6 +188,7 @@ async fn test_deleted_books_permissions() {
 		(PURGE, Some(ids.clone())),
 		(EMPTY, None),
 		(PURGED_BOOKS, None),
+		(HELD_FILES, None),
 	] {
 		let response = app
 			.execute_gql_with_token(query, variables, &remover.token)
@@ -263,10 +267,10 @@ async fn test_restore_brings_books_back_with_their_progress() {
 	assert_eq!(response["data"]["mediaById"]["id"], json!(books[0].id));
 }
 
-/// the test server has no quarantine folder: a book whose file is there is never deleted, one
-/// whose file is already gone only loses its data
+/// deleting permanently deletes the book's file and its data; a book whose file is already gone
+/// only loses its data; both are logged
 #[tokio::test]
-async fn test_purge_keeps_files_without_a_quarantine_folder() {
+async fn test_purge_deletes_files_for_real() {
 	let app = TestApp::new_with_default_user().await;
 	let (_, books) = setup_books(&app, 2).await;
 	let dir = tempfile::tempdir().unwrap();
@@ -283,9 +287,14 @@ async fn test_purge_keeps_files_without_a_quarantine_folder() {
 	}
 
 	let response = app.execute_gql(SETTINGS, None).await;
+	assert_no_errors(&response);
+	assert!(response["data"]["deletedBooksSettings"]["trashDir"]
+		.as_str()
+		.unwrap()
+		.ends_with("/trash"));
 	assert_eq!(
-		response["data"]["deletedBooksSettings"]["quarantineReady"],
-		json!(false)
+		response["data"]["deletedBooksSettings"]["heldFiles"],
+		json!(0)
 	);
 
 	let response = app
@@ -293,38 +302,49 @@ async fn test_purge_keeps_files_without_a_quarantine_folder() {
 		.await;
 	assert_no_errors(&response);
 	let result = &response["data"]["purgeDeletedBooks"];
-	assert_eq!(result["purged"], json!(0));
+	assert_eq!(result["purged"], json!(1));
 	assert_eq!(result["missingFiles"], json!(1));
-	let kept = result["kept"].as_array().unwrap();
-	assert_eq!(kept.len(), 1);
-	assert_eq!(kept[0]["mediaId"], json!(books[0].id));
-	assert!(kept[0]["error"]
-		.as_str()
-		.unwrap()
-		.contains("No quarantine folder"));
+	assert_eq!(result["freedBytes"], json!(6));
+	assert!(result["kept"].as_array().unwrap().is_empty());
 
-	// the file is untouched and the book is still in Deleted books
-	assert_eq!(std::fs::read(&file).unwrap(), b"a book");
-	let listed = deleted_books(&app).await;
-	assert_eq!(listed.len(), 1);
-	assert_eq!(listed[0]["book"]["id"], json!(books[0].id));
-	assert_eq!(listed[0]["fileExists"], json!(true));
-
-	// the other one is gone, logged without a quarantined file
-	assert!(media::Entity::find_by_id(books[1].id.clone())
-		.one(app.conn())
-		.await
-		.unwrap()
-		.is_none());
+	// the file is gone for good, nothing hidden left behind, and Deleted books is empty
+	assert!(!file.exists());
+	assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+	assert!(deleted_books(&app).await.is_empty());
+	for book in &books {
+		assert!(media::Entity::find_by_id(book.id.clone())
+			.one(app.conn())
+			.await
+			.unwrap()
+			.is_none());
+	}
 	let response = app.execute_gql(PURGED_BOOKS, None).await;
 	assert_no_errors(&response);
 	let purged = response["data"]["purgedBooks"].as_array().unwrap();
-	assert_eq!(purged.len(), 1);
-	assert_eq!(purged[0]["mediaId"], json!(books[1].id));
-	assert!(purged[0]["quarantinePath"].is_null());
-	assert_eq!(purged[0]["automatic"], json!(false));
-	assert_eq!(purged[0]["purgedBy"], json!("initial-server-admin"));
-	assert_eq!(purged[0]["canRestore"], json!(false));
+	assert_eq!(purged.len(), 2);
+	let with_file = purged
+		.iter()
+		.find(|p| p["mediaId"] == json!(books[0].id))
+		.unwrap();
+	assert_eq!(with_file["bytes"], json!(6));
+	assert_eq!(with_file["automatic"], json!(false));
+	assert_eq!(with_file["purgedBy"], json!("initial-server-admin"));
+	let without = purged
+		.iter()
+		.find(|p| p["mediaId"] == json!(books[1].id))
+		.unwrap();
+	assert!(without["bytes"].is_null());
+	assert_eq!(
+		media_purge::Entity::find()
+			.filter(media_purge::Column::QuarantinePath.is_not_null())
+			.count(app.conn())
+			.await
+			.unwrap(),
+		0
+	);
+	let response = app.execute_gql(HELD_FILES, None).await;
+	assert_no_errors(&response);
+	assert!(response["data"]["heldFiles"].as_array().unwrap().is_empty());
 }
 
 /// emptying Deleted books takes only what is in it, in one library when asked

@@ -1,4 +1,4 @@
-use async_graphql::{InputObject, MaybeUndefined, OneofObject};
+use async_graphql::{InputObject, MaybeUndefined, OneofObject, ID};
 use models::{
 	entity::{bookmark, media_annotation, media_metadata, user::AuthUser},
 	shared::{
@@ -107,6 +107,10 @@ pub struct MediaMetadataInput {
 	pub teams: MaybeUndefined<Vec<String>>,
 	pub page_count: MaybeUndefined<i32>,
 	pub age_rating: MaybeUndefined<i32>,
+	/// The book's rating, 0 to 5 (decimals allowed). EPUBs get calibre's half stars and a
+	/// precise `bcurator:rating` meta, PDFs a `bcurator:rating=` keyword field, CBZs ComicInfo's
+	/// `CommunityRating`
+	pub rating: MaybeUndefined<Decimal>,
 	pub identifier_amazon: MaybeUndefined<String>,
 	pub identifier_calibre: MaybeUndefined<String>,
 	pub identifier_google: MaybeUndefined<String>,
@@ -114,6 +118,24 @@ pub struct MediaMetadataInput {
 	pub identifier_mobi_asin: MaybeUndefined<String>,
 	pub identifier_uuid: MaybeUndefined<String>,
 	pub language: MaybeUndefined<String>,
+}
+
+impl MediaMetadataInput {
+	/// Why the input can't be saved, if it can't
+	pub fn problems(&self) -> Vec<String> {
+		let mut problems = vec![];
+		if let MaybeUndefined::Value(rating) = &self.rating {
+			if *rating < Decimal::ZERO || *rating > Decimal::from(5) {
+				problems.push(format!("rating must be between 0 and 5 (got {rating})"));
+			}
+		}
+		if let MaybeUndefined::Value(age) = &self.age_rating {
+			if *age < 0 {
+				problems.push(format!("ageRating can't be negative (got {age})"));
+			}
+		}
+		problems
+	}
 }
 
 impl IntoActiveModel<media_metadata::ActiveModel> for MediaMetadataInput {
@@ -147,6 +169,7 @@ impl IntoActiveModel<media_metadata::ActiveModel> for MediaMetadataInput {
 			teams: metadata_value(into_array_string(self.teams)),
 			page_count: metadata_value(self.page_count),
 			age_rating: metadata_value(self.age_rating),
+			rating: metadata_value(self.rating),
 			identifier_amazon: metadata_value(self.identifier_amazon),
 			identifier_calibre: metadata_value(self.identifier_calibre),
 			identifier_google: metadata_value(self.identifier_google),
@@ -170,6 +193,35 @@ where
 
 fn into_array_string(value: MaybeUndefined<Vec<String>>) -> MaybeUndefined<String> {
 	value.map(|values| values.filter(|v| !v.is_empty()).map(|v| v.join(", ")))
+}
+
+/// One book of `editMediaMetadataBatch`: named by `id` or by `path` (as Stump stores it; both
+/// may be given, then they must agree), with the values to set
+#[derive(Debug, Clone, InputObject)]
+pub struct MediaMetadataBatchInput {
+	pub id: Option<ID>,
+	pub path: Option<String>,
+	pub input: MediaMetadataInput,
+}
+
+/// How `editMediaMetadataBatch` saves
+#[derive(Debug, Clone, InputObject)]
+pub struct MediaMetadataBatchOptions {
+	/// Only report what would change: nothing is saved or written
+	#[graphql(default = false)]
+	pub dry_run: bool,
+	/// Write the changes into the book files (else they stay in Stump only, locked)
+	#[graphql(default = true)]
+	pub write_to_file: bool,
+}
+
+impl Default for MediaMetadataBatchOptions {
+	fn default() -> Self {
+		Self {
+			dry_run: false,
+			write_to_file: true,
+		}
+	}
 }
 
 #[derive(Debug, Clone, InputObject)]

@@ -5,6 +5,7 @@ mod home_arrangement;
 mod image_upload;
 mod intake;
 mod media;
+mod metadata_batch;
 mod next_in_series;
 mod upload;
 mod user_mutations;

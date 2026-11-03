@@ -1,10 +1,13 @@
 use crate::{
 	data::{AuthContext, CoreContext},
 	guard::PermissionGuard,
-	input::media::{MediaMetadataInput, MediaMetadataSearchInput},
+	input::media::{
+		MediaMetadataBatchInput, MediaMetadataBatchOptions, MediaMetadataInput,
+		MediaMetadataSearchInput,
+	},
 	object::{
 		media::Media,
-		metadata_edit::{MetadataEditFile, MetadataEditResult},
+		metadata_edit::{MediaMetadataBatchResult, MetadataEditFile, MetadataEditResult},
 		metadata_fetch_record::MetadataFetchRecord,
 	},
 };
@@ -19,8 +22,12 @@ use models::{
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel, TransactionTrait};
 use std::collections::HashMap;
 use stump_core::{
-	intake::edit::{
-		clean_genres, clean_writers, revert_save, save_edit, Editor, SavedEdit,
+	intake::{
+		batch::{save_batch, BatchItem, MAX_BATCH_ITEMS},
+		edit::{
+			clean_genres, clean_writers, revert_save, save_edit, Editor, SaveOptions,
+			SavedEdit,
+		},
 	},
 	metadata::{
 		membership::{remove_series_thumbnails, sync_media_membership},
@@ -86,11 +93,10 @@ impl MediaMetadataMutation {
 	}
 
 	/// Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
-	/// files carry title, authors, series, genres, summary and more): the edited copy is
-	/// read back before it replaces the book, so a failed write leaves the file untouched
+	/// files carry title, authors, series, genres, summary, rating and more): the edited copy
+	/// is read back before it replaces the book, so a failed write leaves the file untouched
 	/// and the changes in Stump only. Every edited field is locked so rescans keep it, and
-	/// the save is recorded in the book's edit history (see `revertMediaMetadataEdit`) and
-	/// in `stump_edits.csv`.
+	/// the save is recorded in the book's edit history (see `revertMediaMetadataEdit`).
 	#[graphql(guard = "PermissionGuard::one(UserPermission::EditMetadata)")]
 	async fn edit_media_metadata(
 		&self,
@@ -101,6 +107,10 @@ impl MediaMetadataMutation {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
 
+		let problems = input.problems();
+		if !problems.is_empty() {
+			return Err(problems.join("; ").into());
+		}
 		input.genres = clean_list(input.genres, clean_genres);
 		input.writers = clean_list(input.writers, clean_writers);
 
@@ -109,16 +119,112 @@ impl MediaMetadataMutation {
 		let saved = Box::pin(save_edit(
 			core,
 			model.media,
-			model.metadata,
 			input.into_active_model(),
 			Editor {
 				id: &user.id,
 				username: &user.username,
 			},
 			None,
+			SaveOptions::default(),
 		))
 		.await?;
 		edit_result(core, user, saved).await
+	}
+
+	/// Edit many books' metadata in one call (for scripts: an API key with *Edit metadata*
+	/// works as a Bearer token). Each item names a book by `id` or by `path` (as Stump stores
+	/// it) and carries a `MediaMetadataInput` (omitted fields stay as they are, `null` clears
+	/// one). Every item goes through the same save as `editMediaMetadata` (book file written
+	/// and read back, database, locks, edit history), in order, one book at a time; an item
+	/// that fails doesn't stop the others. `dryRun` reports what would change without saving
+	/// anything; `writeToFile: false` keeps the changes in Stump only. Stump's own writes
+	/// don't set off a library scan: the books whose files were rewritten are read again by
+	/// one targeted rescan job at the end. At most 500 items per call.
+	#[graphql(guard = "PermissionGuard::one(UserPermission::EditMetadata)")]
+	async fn edit_media_metadata_batch(
+		&self,
+		ctx: &Context<'_>,
+		inputs: Vec<MediaMetadataBatchInput>,
+		options: Option<MediaMetadataBatchOptions>,
+	) -> Result<MediaMetadataBatchResult> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let core = ctx.data::<CoreContext>()?;
+		let conn = core.conn.as_ref();
+		let options = options.unwrap_or_default();
+		if inputs.len() > MAX_BATCH_ITEMS {
+			return Err(format!(
+				"At most {MAX_BATCH_ITEMS} books per call ({} were sent)",
+				inputs.len()
+			)
+			.into());
+		}
+
+		let mut items = Vec::with_capacity(inputs.len());
+		let mut references = Vec::with_capacity(inputs.len());
+		for item in inputs {
+			let MediaMetadataBatchInput {
+				id,
+				path,
+				mut input,
+			} = item;
+			let mut problems = input.problems();
+			let book = match (&id, &path) {
+				(None, None) => {
+					problems.push("Name the book by id or by path".to_string());
+					None
+				},
+				_ => {
+					let mut query = media::Entity::find_for_user(user)
+						.filter(media::Column::DeletedAt.is_null());
+					if let Some(id) = &id {
+						query = query.filter(media::Column::Id.eq(id.to_string()));
+					}
+					if let Some(path) = &path {
+						query = query.filter(media::Column::Path.eq(path.as_str()));
+					}
+					let found = query.one(conn).await?;
+					if found.is_none() {
+						problems.push(match (&id, &path) {
+							(Some(_), Some(_)) => {
+								"No book with this id at this path".to_string()
+							},
+							(Some(id), None) => {
+								format!("No book with id {}", id.as_str())
+							},
+							_ => "No book at this path".to_string(),
+						});
+					}
+					found
+				},
+			};
+			input.genres = clean_list(input.genres, clean_genres);
+			input.writers = clean_list(input.writers, clean_writers);
+			references.push((id.map(|id| id.to_string()), path));
+			items.push(BatchItem {
+				book,
+				active: input.into_active_model(),
+				problems,
+			});
+		}
+
+		let result = Box::pin(save_batch(
+			core,
+			items,
+			Editor {
+				id: &user.id,
+				username: &user.username,
+			},
+			SaveOptions {
+				write_to_file: options.write_to_file,
+				dry_run: options.dry_run,
+			},
+		))
+		.await?;
+		Ok(MediaMetadataBatchResult::new(
+			options.dry_run,
+			result,
+			references,
+		))
 	}
 
 	/// Revert a save of the book's edit history: the fields it changed get their old values
@@ -138,7 +244,6 @@ impl MediaMetadataMutation {
 		let saved = Box::pin(revert_save(
 			core,
 			model.media,
-			model.metadata,
 			&save_id,
 			Editor {
 				id: &user.id,

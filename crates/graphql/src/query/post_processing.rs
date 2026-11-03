@@ -19,8 +19,9 @@ use crate::{
 #[derive(Debug, Clone, SimpleObject)]
 pub struct LibraryPostProcessing {
 	pub config: PostProcessingConfig,
-	/// Where replaced originals go (nothing is replaced while this is unset)
-	pub quarantine_dir: Option<String>,
+	/// Where replaced originals are kept for the *Deleted books* retention (Stump's trash
+	/// folder), as Stump sees it
+	pub trash_dir: String,
 	/// The PDF queue shared with the PDF worker container, as Stump sees it
 	pub pdf_queue_dir: String,
 	/// The PDF worker container, from its heartbeat in the queue folder
@@ -117,10 +118,7 @@ pub(crate) async fn summary(
 	let pdf_queue = core.config.pdf_worker_directory();
 	Ok(LibraryPostProcessing {
 		config,
-		quarantine_dir: core
-			.config
-			.quarantine_directory()
-			.map(|p| p.to_string_lossy().to_string()),
+		trash_dir: core.config.trash_directory().to_string_lossy().to_string(),
 		pdf_worker: worker_status(&pdf_queue, Utc::now()).into(),
 		pdf_queue_dir: pdf_queue.to_string_lossy().to_string(),
 		counts,

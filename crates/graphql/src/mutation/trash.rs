@@ -1,7 +1,7 @@
 use async_graphql::{Context, Object, Result, ID};
 use chrono::Utc;
 use models::{
-	entity::{library_exclusion, media, media_purge},
+	entity::{held_file, media},
 	shared::{enums::UserPermission, trash::TrashPurgeError},
 };
 use sea_orm::{prelude::*, sea_query::Expr};
@@ -10,8 +10,12 @@ use stump_core::trash;
 use crate::{
 	data::{AuthContext, CoreContext},
 	guard::PermissionGuard,
-	object::deleted_book::{
-		trashed_ids, DeletedBooksPurgeResult, DeletedBooksSettings, PurgedBook,
+	object::{
+		deleted_book::{
+			trashed_ids, DeletedBooksPurgeResult, DeletedBooksSettings, HeldFileKept,
+			HeldFilePutBack, HeldFilesDeleteResult,
+		},
+		media::Media,
 	},
 	query::trash::visible_libraries,
 };
@@ -57,10 +61,9 @@ impl TrashMutation {
 		Ok(restored)
 	}
 
-	/// Deletes books in *Deleted books* permanently: each file is moved to the quarantine
-	/// folder (`deleted/<date>/`, with a `restore_log.csv` row), then the book's data is
-	/// deleted. A book whose file can't be moved stays in Deleted books; one whose file is
-	/// already gone only has its data deleted
+	/// Deletes books in *Deleted books* permanently: the book's data and its file (and the
+	/// originals Stump holds for it) are deleted, for good. A book whose file or data can't be
+	/// deleted stays in Deleted books; one whose file is already gone only has its data deleted
 	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
 	async fn purge_deleted_books(
 		&self,
@@ -125,36 +128,70 @@ impl TrashMutation {
 		DeletedBooksSettings::load(core, true).await
 	}
 
-	/// Moves the file of a book deleted permanently back from the quarantine folder to where
-	/// it was, and scans its folder: it comes back as a new book (its reading progress and
-	/// annotations were deleted with it)
+	/// Puts a held file back in its book's place (the original of a book post-processing
+	/// replaced): the book's current file is held in turn, so this can be undone the same way
+	/// until the retention is over
 	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
-	async fn restore_purged_book(
+	async fn put_back_held_file(
 		&self,
 		ctx: &Context<'_>,
 		id: i32,
-	) -> Result<PurgedBook> {
+	) -> Result<HeldFilePutBack> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
-		let conn = core.conn.as_ref();
-		let row = media_purge::Entity::find_by_id(id)
-			.one(conn)
+		visible_held_files(core, user, &[id]).await?;
+		let put = trash::held::put_back(core, id, &user.id).await?;
+		let book = media::ModelWithMetadata::find_by_id(put.book.id.clone())
+			.into_model::<media::ModelWithMetadata>()
+			.one(core.conn.as_ref())
 			.await?
-			.ok_or("Deleted book not found")?;
-		if let Some(library_id) = &row.library_id {
-			let hidden = library_exclusion::Entity::find()
-				.filter(library_exclusion::Column::UserId.eq(&user.id))
-				.filter(library_exclusion::Column::LibraryId.eq(library_id))
-				.count(conn)
-				.await? > 0;
-			if hidden {
-				return Err("Deleted book not found".into());
-			}
-		}
-		let restored = trash::restore_purged(core, id, &user.id).await?;
-		Ok(PurgedBook::from_rows(conn, vec![restored])
-			.await?
-			.pop()
-			.ok_or("Deleted book not found")?)
+			.ok_or("Media not found")?;
+		Ok(HeldFilePutBack {
+			book: Media::from(book),
+			replaced: put.replaced.map(|r| r.id),
+		})
 	}
+
+	/// Deletes held files for good (their copies in Stump's trash folder and their rows)
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	async fn delete_held_files(
+		&self,
+		ctx: &Context<'_>,
+		ids: Vec<i32>,
+	) -> Result<HeldFilesDeleteResult> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let core = ctx.data::<CoreContext>()?;
+		let allowed = visible_held_files(core, user, &ids).await?;
+		let purge =
+			trash::held::purge_held(core.conn.as_ref(), &core.config, &allowed).await?;
+		Ok(HeldFilesDeleteResult {
+			deleted: purge.deleted,
+			freed_bytes: purge.bytes,
+			kept: purge
+				.kept
+				.into_iter()
+				.map(|(id, title, error)| HeldFileKept { id, title, error })
+				.collect(),
+		})
+	}
+}
+
+/// The ids among `ids` of held files in libraries the user can see (an error when none is)
+async fn visible_held_files(
+	core: &stump_core::Ctx,
+	user: &models::entity::user::AuthUser,
+	ids: &[i32],
+) -> Result<Vec<i32>> {
+	let allowed: Vec<i32> = held_file::Entity::find()
+		.filter(held_file::Column::Id.is_in(ids.to_vec()))
+		.filter(held_file::Column::LibraryId.in_subquery(visible_libraries(user)))
+		.all(core.conn.as_ref())
+		.await?
+		.into_iter()
+		.map(|row| row.id)
+		.collect();
+	if allowed.is_empty() && !ids.is_empty() {
+		return Err("Held file not found".into());
+	}
+	Ok(allowed)
 }

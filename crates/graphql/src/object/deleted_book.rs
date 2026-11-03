@@ -3,8 +3,8 @@ use std::{collections::HashMap, path::Path};
 use async_graphql::{Result, SimpleObject};
 use chrono::{DateTime, Utc};
 use models::{
-	entity::{media, media_purge, server_config, user},
-	shared::trash::{TrashPurgeError, TrashPurgeSummary},
+	entity::{held_file, media, media_purge, server_config, user},
+	shared::trash::{HeldFileReason, TrashPurgeError, TrashPurgeSummary},
 };
 use sea_orm::{prelude::*, QuerySelect};
 use stump_core::{
@@ -39,13 +39,15 @@ pub struct DeletedBook {
 /// How *Deleted books* works on this server
 #[derive(Debug, Clone, SimpleObject)]
 pub struct DeletedBooksSettings {
-	/// How many days removed books stay in Deleted books (0: until deleted by hand)
+	/// How many days removed books and held files stay in Deleted books (0: until deleted by
+	/// hand)
 	pub retention_days: i32,
-	/// The folder book files go to when they are deleted permanently (library managers only)
-	pub quarantine_dir: Option<String>,
-	/// Whether books with a file can be deleted permanently: the quarantine folder is set and
-	/// exists
-	pub quarantine_ready: bool,
+	/// Stump's trash folder, where the files taken out of a library (originals replaced by
+	/// post-processing) are held (library managers only)
+	pub trash_dir: Option<String>,
+	/// How many files are held there, and their size
+	pub held_files: u64,
+	pub held_bytes: u64,
 	/// When the automatic purge runs next (null when it is off)
 	pub next_purge_at: Option<DateTime<Utc>>,
 	/// When the automatic purge last ran (library managers only)
@@ -55,26 +57,25 @@ pub struct DeletedBooksSettings {
 }
 
 impl DeletedBooksSettings {
-	/// `for_managers` adds the quarantine folder and the last purge
+	/// `for_managers` adds the trash folder and the last purge
 	pub async fn load(core: &Ctx, for_managers: bool) -> Result<Self> {
 		let config = server_config::Entity::find()
 			.one(core.conn.as_ref())
 			.await?
 			.ok_or("Server configuration not found")?;
 		let retention_days = config.trash_retention_days;
-		let quarantine = core.config.quarantine_directory();
-		let quarantine_ready = match &quarantine {
-			Some(dir) => tokio::fs::metadata(dir)
-				.await
-				.is_ok_and(|meta| meta.is_dir()),
-			None => false,
-		};
+		let held: Vec<i64> = held_file::Entity::find()
+			.select_only()
+			.column(held_file::Column::Bytes)
+			.into_tuple()
+			.all(core.conn.as_ref())
+			.await?;
 		Ok(Self {
 			retention_days,
-			quarantine_dir: quarantine
-				.filter(|_| for_managers)
-				.map(|dir| dir.to_string_lossy().into_owned()),
-			quarantine_ready,
+			trash_dir: for_managers
+				.then(|| core.config.trash_directory().to_string_lossy().into_owned()),
+			held_files: held.len() as u64,
+			held_bytes: held.iter().map(|b| (*b).max(0) as u64).sum(),
 			next_purge_at: (retention_days > 0)
 				.then(|| trash::next_purge_run(Utc::now(), false))
 				.flatten(),
@@ -87,12 +88,12 @@ impl DeletedBooksSettings {
 /// What deleting books permanently did
 #[derive(Debug, Clone, SimpleObject)]
 pub struct DeletedBooksPurgeResult {
-	/// Books whose file went to the quarantine folder and whose data was deleted
+	/// Books deleted permanently: their file and their data
 	pub purged: u64,
 	/// Books whose file was already gone: only their data was deleted
 	pub missing_files: u64,
-	/// The size of the files moved to the quarantine folder
-	pub quarantined_bytes: u64,
+	/// The size of the book files deleted
+	pub freed_bytes: u64,
 	/// Books kept in Deleted books, with why
 	pub kept: Vec<TrashPurgeError>,
 }
@@ -102,14 +103,68 @@ impl From<PurgeReport> for DeletedBooksPurgeResult {
 		Self {
 			purged: report.purged(),
 			missing_files: report.missing_files(),
-			quarantined_bytes: report.quarantined_bytes(),
+			freed_bytes: report.freed_bytes(),
 			kept: report.errors(),
 		}
 	}
 }
 
-/// A book deleted permanently: its file is in the quarantine folder (unless it was already
-/// gone) and can be moved back
+/// A file Stump took out of a library and holds in its trash folder for the retention: the
+/// original of a book post-processing replaced, or the version a put-back replaced
+#[derive(Debug, Clone, SimpleObject)]
+pub struct HeldFile {
+	pub id: i32,
+	/// Why it was taken out
+	pub reason: HeldFileReason,
+	/// For a PDF: the post-processing steps asked for (`OCR`, `SHRINK`, `OCR+SHRINK`)
+	pub steps: Option<String>,
+	/// The book's title when the file was held
+	pub title: String,
+	/// The book, when it is still in Stump (removed books included)
+	pub book: Option<Media>,
+	pub library_id: Option<String>,
+	pub library_name: Option<String>,
+	/// Where it was, inside its library
+	pub relative_path: String,
+	pub bytes: i64,
+	pub held_at: DateTime<Utc>,
+	/// Who made Stump take it out (null: post-processing)
+	pub held_by: Option<String>,
+	/// When its time in Deleted books is over (null: kept until deleted by hand)
+	pub expires_at: Option<DateTime<Utc>>,
+	/// When the automatic purge will delete it
+	pub purge_at: Option<DateTime<Utc>>,
+	/// Whether it can be put back: its file is in the trash folder and its book is in Stump
+	pub can_put_back: bool,
+}
+
+/// What putting a held file back did
+#[derive(Debug, Clone, SimpleObject)]
+pub struct HeldFilePutBack {
+	/// The book, with its file back
+	pub book: Media,
+	/// The version that was in the library, now held in turn (null: there was none)
+	pub replaced: Option<i32>,
+}
+
+/// What deleting held files did
+#[derive(Debug, Clone, SimpleObject)]
+pub struct HeldFilesDeleteResult {
+	pub deleted: u64,
+	pub freed_bytes: u64,
+	/// The ones kept, with why
+	pub kept: Vec<HeldFileKept>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct HeldFileKept {
+	pub id: i32,
+	pub title: String,
+	pub error: String,
+}
+
+/// A book deleted permanently: its file and its data were deleted; the row records what it
+/// was, where and who deleted it
 #[derive(Debug, Clone, SimpleObject)]
 pub struct PurgedBook {
 	pub id: i32,
@@ -119,8 +174,7 @@ pub struct PurgedBook {
 	pub library_id: Option<String>,
 	pub library_name: Option<String>,
 	pub original_path: String,
-	/// Where its file is (null: it was already gone)
-	pub quarantine_path: Option<String>,
+	/// The size of its file (null: it was already gone)
 	pub bytes: Option<i64>,
 	pub deleted_by: Option<String>,
 	pub deleted_at: Option<DateTime<Utc>>,
@@ -129,12 +183,6 @@ pub struct PurgedBook {
 	/// Deleted by the automatic purge
 	pub automatic: bool,
 	pub purged_at: DateTime<Utc>,
-	/// When its file was moved back into the library
-	pub restored_at: Option<DateTime<Utc>>,
-	pub restored_by: Option<String>,
-	/// Whether its file can be moved back: it is still in the quarantine folder and nothing
-	/// took its place in the library
-	pub can_restore: bool,
 }
 
 impl PurgedBook {
@@ -145,7 +193,7 @@ impl PurgedBook {
 		let user_ids: Vec<String> = rows
 			.iter()
 			.flat_map(|row| {
-				[&row.deleted_by, &row.purged_by, &row.restored_by]
+				[&row.deleted_by, &row.purged_by]
 					.into_iter()
 					.flatten()
 					.cloned()
@@ -157,20 +205,11 @@ impl PurgedBook {
 
 		let mut books = Vec::with_capacity(rows.len());
 		for row in rows {
-			let can_restore = row.restored_at.is_none()
-				&& match &row.quarantine_path {
-					Some(path) => {
-						exists(Path::new(path)).await
-							&& !exists(Path::new(&row.original_path)).await
-					},
-					None => false,
-				};
 			books.push(Self {
 				id: row.id,
 				deleted_by: name(&row.deleted_by),
 				purged_by: name(&row.purged_by),
 				automatic: row.purged_by.is_none(),
-				restored_by: name(&row.restored_by),
 				media_id: row.media_id,
 				title: row.title,
 				authors: row
@@ -180,12 +219,9 @@ impl PurgedBook {
 				library_id: row.library_id,
 				library_name: row.library_name,
 				original_path: row.original_path,
-				quarantine_path: row.quarantine_path,
 				bytes: row.bytes,
 				deleted_at: row.deleted_at,
 				purged_at: row.purged_at,
-				restored_at: row.restored_at,
-				can_restore,
 			});
 		}
 		Ok(books)

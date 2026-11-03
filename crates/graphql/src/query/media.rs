@@ -324,6 +324,43 @@ impl MediaQuery {
 		Ok(model.map(Media::from))
 	}
 
+	/// The books at these paths (as Stump stores them), in the order asked: `media` is null
+	/// for a path with no book the user can see. For scripts that know their files by path,
+	/// e.g. before `editMediaMetadataBatch`. At most 500 paths per call
+	async fn media_by_paths(
+		&self,
+		ctx: &Context<'_>,
+		paths: Vec<String>,
+	) -> Result<Vec<MediaPathMatch>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		if paths.len() > 500 {
+			return Err("At most 500 paths per call".into());
+		}
+		let mut found: HashMap<String, Media> = HashMap::new();
+		for chunk in paths.chunks(400) {
+			let models = media::ModelWithMetadata::find_for_user(user)
+				.filter(
+					media::Column::Path
+						.is_in(chunk.to_vec())
+						.and(media::Column::DeletedAt.is_null()),
+				)
+				.into_model::<media::ModelWithMetadata>()
+				.all(conn)
+				.await?;
+			for model in models {
+				found.insert(model.media.path.clone(), Media::from(model));
+			}
+		}
+		Ok(paths
+			.into_iter()
+			.map(|path| MediaPathMatch {
+				media: found.get(&path).cloned(),
+				path,
+			})
+			.collect())
+	}
+
 	/// Returns the available alphabet for all media in the server
 	async fn media_alphabet(&self, ctx: &Context<'_>) -> Result<HashMap<String, i64>> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -880,4 +917,11 @@ impl MediaQuery {
 				.collect(),
 		})
 	}
+}
+
+/// A path asked for by `mediaByPaths`, and the book there
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct MediaPathMatch {
+	pub path: String,
+	pub media: Option<Media>,
 }

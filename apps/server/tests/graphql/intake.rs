@@ -27,7 +27,7 @@ const ITEMS: &str = r#"query Items {
 		}
 		decision { folder fileNames metadata { title authors genres } }
 		destination { relativeDir files { relativePath exists } }
-		result { paths csvPath notes }
+		result { paths notes }
 	}
 }"#;
 const ITEM: &str = r#"query Item($id: ID!) { intakeItem(id: $id) { id } }"#;
@@ -37,7 +37,7 @@ const REVIEW: &str = r#"mutation Review($id: ID!, $input: IntakeReviewInput!) {
 	}
 }"#;
 const ACCEPT: &str = r#"mutation Accept($ids: [ID!]!) {
-	intakeAccept(ids: $ids) { id state error result { paths csvPath } }
+	intakeAccept(ids: $ids) { id state error result { paths } }
 }"#;
 const RECENT: &str = r#"query Recent {
 	recentlyAddedBooks { title authors paths username libraryName }
@@ -54,7 +54,7 @@ async fn setup() -> Fixture {
 	let app = TestApp::new_with_default_user().await;
 	let tempdir = tempfile::tempdir().expect("tempdir");
 	let library_dir = tempdir.path().join("biblioteca");
-	// an author already in the library, written the curated way
+	// an author already in the library, written the library's way
 	fs::create_dir_all(library_dir.join("Umberto_Eco")).expect("author folder");
 	let library = fake_data::Library {
 		path: Some(library_dir.to_string_lossy().to_string()),
@@ -75,7 +75,10 @@ async fn setup() -> Fixture {
 }
 
 fn assert_no_errors(response: &Value) {
-	assert!(response.get("errors").is_none(), "unexpected errors: {response:#}");
+	assert!(
+		response.get("errors").is_none(),
+		"unexpected errors: {response:#}"
+	);
 }
 
 fn epub_bytes(dir: &std::path::Path) -> Vec<u8> {
@@ -95,8 +98,14 @@ fn upload_form(library_id: &str, bytes: Vec<u8>) -> MultipartForm {
 	});
 	let map = json!({ "0": ["variables.files.0"] });
 	MultipartForm::new()
-		.add_part("operations", Part::text(operations.to_string()).mime_type("application/json"))
-		.add_part("map", Part::text(map.to_string()).mime_type("application/json"))
+		.add_part(
+			"operations",
+			Part::text(operations.to_string()).mime_type("application/json"),
+		)
+		.add_part(
+			"map",
+			Part::text(map.to_string()).mime_type("application/json"),
+		)
 		.add_part(
 			"0",
 			Part::bytes(bytes)
@@ -164,7 +173,10 @@ async fn test_upload_review_and_file_a_book() {
 	assert_eq!(item["kind"], "BOOK", "{item:#}");
 	let proposal = &item["proposal"];
 	assert_eq!(proposal["metadata"]["title"], "El nombre de la rosa");
-	assert_eq!(proposal["authorFolders"][0]["folder"], "Umberto_Eco", "{item:#}");
+	assert_eq!(
+		proposal["authorFolders"][0]["folder"], "Umberto_Eco",
+		"{item:#}"
+	);
 	assert_eq!(proposal["authorFolders"][0]["isNew"], false);
 	assert_eq!(
 		item["destination"]["files"][0]["relativePath"],
@@ -176,12 +188,17 @@ async fn test_upload_review_and_file_a_book() {
 	let response = app
 		.execute_gql_with_token(
 			REVIEW,
-			Some(json!({ "id": id, "input": { "genres": ["Historical Fiction", "Origin: Italian"] } })),
+			Some(
+				json!({ "id": id, "input": { "genres": ["Historical Fiction", "Origin: Italian"] } }),
+			),
 			&uploader.token,
 		)
 		.await;
 	assert_no_errors(&response);
-	assert_eq!(response["data"]["intakeReview"]["state"], "READY", "{response:#}");
+	assert_eq!(
+		response["data"]["intakeReview"]["state"], "READY",
+		"{response:#}"
+	);
 
 	let response = app
 		.execute_gql_with_token(ACCEPT, Some(json!({ "ids": [id] })), &uploader.token)
@@ -190,28 +207,43 @@ async fn test_upload_review_and_file_a_book() {
 	let filed = &response["data"]["intakeAccept"][0];
 	assert_eq!(filed["state"], "FILED", "{filed:#}");
 
-	let target = fixture.library_dir.join("Umberto_Eco/El_nombre_de_la_rosa.epub");
+	let target = fixture
+		.library_dir
+		.join("Umberto_Eco/El_nombre_de_la_rosa.epub");
 	assert!(target.exists(), "the book should be in its author folder");
 	let mut archive = zip::ZipArchive::new(fs::File::open(&target).unwrap()).unwrap();
 	let mut opf = String::new();
-	std::io::Read::read_to_string(&mut archive.by_name("OEBPS/content.opf").unwrap(), &mut opf)
-		.unwrap();
-	assert!(opf.contains("<dc:subject>Historical Fiction</dc:subject>"), "{opf}");
-	assert!(opf.contains("<dc:subject>Origin: Italian</dc:subject>"), "{opf}");
+	std::io::Read::read_to_string(
+		&mut archive.by_name("OEBPS/content.opf").unwrap(),
+		&mut opf,
+	)
+	.unwrap();
+	assert!(
+		opf.contains("<dc:subject>Historical Fiction</dc:subject>"),
+		"{opf}"
+	);
+	assert!(
+		opf.contains("<dc:subject>Origin: Italian</dc:subject>"),
+		"{opf}"
+	);
 	assert!(!opf.contains("Novela"), "{opf}");
 	// the creator is written first name first, with its sort name
 	assert!(opf.contains(">Umberto Eco</dc:creator>"), "{opf}");
-	assert!(opf.contains(r#"property="file-as">Eco, Umberto</meta>"#), "{opf}");
+	assert!(
+		opf.contains(r#"property="file-as">Eco, Umberto</meta>"#),
+		"{opf}"
+	);
 	assert!(opf.contains(r#"<meta name="bcurator:shelf" content="Historical Fiction"/>"#));
 	assert_eq!(archive.by_index(0).unwrap().name(), "mimetype");
 
-	let csv = fixture.library_dir.join("stump_intake.csv");
-	let text = fs::read_to_string(&csv).expect("intake csv");
-	assert!(
-		text.contains("Umberto_Eco/El_nombre_de_la_rosa.epub,El nombre de la rosa,Umberto Eco,"),
-		"{text}"
-	);
-	assert!(text.contains(",uploader,"));
+	// no CSV log anywhere: the filed item in the database is the record
+	assert!(!fixture.library_dir.join("stump_intake.csv").exists());
+	assert!(!fixture
+		.library_dir
+		.parent()
+		.unwrap()
+		.join("stump_intake.csv")
+		.exists());
 
 	// the owner sees who added it
 	let response = app.execute_gql(RECENT, None).await;
@@ -234,14 +266,20 @@ async fn test_intake_requires_the_permission_and_is_private() {
 	.insert(app)
 	.await;
 	let response = app.execute_gql_with_token(ITEMS, None, &reader.token).await;
-	assert!(response.get("errors").is_some(), "should be forbidden: {response:#}");
+	assert!(
+		response.get("errors").is_some(),
+		"should be forbidden: {response:#}"
+	);
 	let response = post_multipart(
 		app,
 		&reader.token,
 		upload_form(&fixture.library_id, epub_bytes(fixture._tempdir.path())),
 	)
 	.await;
-	assert!(response.get("errors").is_some(), "upload should be forbidden");
+	assert!(
+		response.get("errors").is_some(),
+		"upload should be forbidden"
+	);
 
 	let alice = CreateTestUser {
 		username: "alice".to_string(),
@@ -264,7 +302,10 @@ async fn test_intake_requires_the_permission_and_is_private() {
 	)
 	.await;
 	assert_no_errors(&response);
-	let id = response["data"]["intakeUpload"][0]["id"].as_str().unwrap().to_string();
+	let id = response["data"]["intakeUpload"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
 	analysed_items(app, &alice.token).await;
 
 	let response = app
@@ -275,7 +316,13 @@ async fn test_intake_requires_the_permission_and_is_private() {
 	let response = app
 		.execute_gql_with_token(ACCEPT, Some(json!({ "ids": [id] })), &bob.token)
 		.await;
-	assert!(response.get("errors").is_some(), "bob can't file alice's item");
+	assert!(
+		response.get("errors").is_some(),
+		"bob can't file alice's item"
+	);
 	let response = app.execute_gql_with_token(RECENT, None, &alice.token).await;
-	assert!(response.get("errors").is_some(), "recently added is for admins");
+	assert!(
+		response.get("errors").is_some(),
+		"recently added is for admins"
+	);
 }

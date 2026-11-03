@@ -33,9 +33,6 @@ pub struct IntakeMutation;
 pub struct LibraryIntakeSettingsInput {
 	pub manga_dir: String,
 	pub light_novel_dir: String,
-	/// Empty or omitted: next to `catalogo.csv` when the library's parent has one, else
-	/// the library root
-	pub csv_path: Option<String>,
 	pub online_lookup: bool,
 }
 
@@ -322,7 +319,7 @@ impl IntakeMutation {
 		let mut out = vec![];
 		for id in ids {
 			let item = own_item(ctx, user, &id).await?;
-			match core_intake::file_item(core, item.clone(), &user.username).await {
+			match core_intake::file_item(core, item.clone()).await {
 				Ok(filed) => out.push(filed.into()),
 				Err(error) => {
 					let mut active = item.into_active_model();
@@ -371,10 +368,6 @@ impl IntakeMutation {
 			library_id: library.id.clone(),
 			manga_dir: input.manga_dir.trim().to_string(),
 			light_novel_dir: input.light_novel_dir.trim().to_string(),
-			csv_path: input
-				.csv_path
-				.map(|p| p.trim().to_string())
-				.filter(|p| !p.is_empty()),
 			online_lookup: input.online_lookup,
 		};
 		let exists = library_intake_settings::Entity::find_by_id(library.id.clone())
@@ -385,7 +378,6 @@ impl IntakeMutation {
 			library_id: Set(model.library_id.clone()),
 			manga_dir: Set(model.manga_dir.clone()),
 			light_novel_dir: Set(model.light_novel_dir.clone()),
-			csv_path: Set(model.csv_path.clone()),
 			online_lookup: Set(model.online_lookup),
 		};
 		let saved = if exists {

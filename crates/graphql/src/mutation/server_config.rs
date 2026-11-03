@@ -1,7 +1,10 @@
-use crate::{data::CoreContext, guard::PermissionGuard};
+use crate::{
+	data::CoreContext, guard::PermissionGuard, query::server_config::OnlineLookupSettings,
+};
 use async_graphql::{Context, Object, Result};
 use models::{entity::server_config, shared::enums::UserPermission};
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel};
+use stump_core::utils::encryption::encrypt_string;
 
 #[derive(Default)]
 pub struct ServerConfigMutation;
@@ -37,5 +40,39 @@ impl ServerConfigMutation {
 
 		let updated_config = config.update(conn).await?;
 		Ok(updated_config)
+	}
+
+	/// Sets (or, with null or an empty string, removes) the Google Books API key the online
+	/// lookups of *Add books* and *Suggest genres* use. It is stored encrypted and never sent
+	/// back (`onlineLookupSettings` only says whether one is set)
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageServer)")]
+	async fn update_online_lookup_settings(
+		&self,
+		ctx: &Context<'_>,
+		google_books_api_key: Option<String>,
+	) -> Result<OnlineLookupSettings> {
+		let core = ctx.data::<CoreContext>()?;
+		let conn = core.conn.as_ref();
+		let config = server_config::Entity::find()
+			.one(conn)
+			.await?
+			.ok_or("Server configuration not found")?;
+		let key = google_books_api_key
+			.map(|k| k.trim().to_string())
+			.filter(|k| !k.is_empty());
+		let stored = match key {
+			Some(key) => {
+				if key.contains(char::is_whitespace) || key.len() > 200 {
+					return Err("That doesn't look like a Google API key".into());
+				}
+				let encryption_key = core.get_encryption_key().await?;
+				Some(encrypt_string(&key, &encryption_key)?)
+			},
+			None => None,
+		};
+		let mut active = config.into_active_model();
+		active.google_books_api_key = Set(stored);
+		let updated = active.update(conn).await?;
+		Ok(OnlineLookupSettings::of(&updated))
 	}
 }
