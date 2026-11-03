@@ -259,7 +259,26 @@ pub async fn put_back(ctx: &Ctx, id: i32, user_id: &str) -> CoreResult<PutBack> 
 		)));
 	}
 
-	// the version in the library is held first: putting back never loses a file
+	// the version in the library is held first: putting back never loses a file. Putting a
+	// processed version back holds the original again, as an original
+	let replaced_reason = match row.reason {
+		HeldFileReason::PutBack => {
+			let kind = match &row.task_id {
+				Some(id) => task::Entity::find_by_id(id.clone())
+					.one(conn)
+					.await?
+					.map(|t| t.kind),
+				None => None,
+			};
+			match kind {
+				Some(models::shared::post_processing::PostProcessKind::Pdf) => {
+					HeldFileReason::Pdf
+				},
+				_ => HeldFileReason::Grey16,
+			}
+		},
+		_ => HeldFileReason::PutBack,
+	};
 	let mut replaced = None;
 	if files::exists(&target) {
 		let (absolute, relative) =
@@ -281,7 +300,7 @@ pub async fn put_back(ctx: &Ctx, id: i32, user_id: &str) -> CoreResult<PutBack> 
 			&relative,
 			bytes,
 			HeldFileInfo {
-				reason: HeldFileReason::PutBack,
+				reason: replaced_reason,
 				steps: row.steps.clone(),
 				task_id: row.task_id.clone(),
 				held_by: Some(user_id.to_string()),

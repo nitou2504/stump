@@ -773,4 +773,67 @@ mod tests {
 			.query("nothing in common at all here really", 5)
 			.is_empty());
 	}
+
+	/// How the library's own books write an author leads to the folder holding most of them:
+	/// no catalogue file is read
+	#[tokio::test]
+	async fn learns_how_the_library_writes_authors_from_its_books() {
+		use ::tests::fake_data;
+		use models::entity::media_metadata;
+		use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+		let conn = ::tests::db::test_database().await;
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("biblioteca");
+		for folder in ["Fiodor_Dostoyevski", "Otros"] {
+			std::fs::create_dir_all(root.join(folder)).unwrap();
+		}
+		let library = fake_data::Library {
+			path: Some(root.to_string_lossy().into_owned()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		for (rel, writer) in [
+			("Fiodor_Dostoyevski/Crimen_y_castigo.epub", "Fiódor M. Dostoievski"),
+			("Fiodor_Dostoyevski/El_jugador.epub", "Fiódor M. Dostoievski"),
+			("Otros/Antologia.epub", "Fiódor M. Dostoievski"),
+		] {
+			let book = fake_data::Media {
+				series_id: series.id.clone(),
+				path: Some(root.join(rel).to_string_lossy().into_owned()),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await;
+			media_metadata::ActiveModel {
+				media_id: Set(Some(book.id)),
+				title: Set(Some(rel.to_string())),
+				writers: Set(Some(writer.to_string())),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await
+			.unwrap();
+		}
+		let index = build_index(&conn, &library.id, &root, "_Manga", "_Novela ligera")
+			.await
+			.unwrap();
+		assert!(!root.parent().unwrap().join("catalogo.csv").exists());
+		let matches = index.match_author_folder("Fiódor M. Dostoievski");
+		let best = &matches[0];
+		assert_eq!(index.author_folders[best.folder].name, "Fiodor_Dostoyevski");
+		assert!(
+			best.reason.contains("the library writes this author"),
+			"{}",
+			best.reason
+		);
+		assert_eq!(index.author_folders[best.folder].books, 2);
+	}
 }

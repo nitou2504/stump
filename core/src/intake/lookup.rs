@@ -394,23 +394,60 @@ fn str_list(value: &Value, key: &str) -> Vec<String> {
 		.unwrap_or_default()
 }
 
-/// Whether an online title is the same book as ours (main titles compared, subtitles off)
+/// Words a title comparison skips: articles and conjunctions (`El crimen y el castigo` is
+/// `Crimen y castigo`)
+const TITLE_STOPWORDS: &[&str] = &[
+	"a", "an", "and", "the", "of", "el", "la", "los", "las", "lo", "un", "una", "y", "e", "de",
+	"del", "le", "les", "il", "l", "et", "der", "die", "das", "und",
+];
+
+/// Whether an online title is the same book as ours: main titles compared (subtitles off),
+/// without articles, loosely; a bilingual title (`El Principito / The Little Prince`) agrees
+/// when one of its sides does
 pub fn titles_agree(ours: &str, theirs: &str) -> bool {
-	let main = |t: &str| name_tokens(t.split([':', '(']).next().unwrap_or(t)).join(" ");
-	let (a, b) = (main(ours), main(theirs));
-	!a.is_empty() && !b.is_empty() && (a == b || strsim::jaro_winkler(&a, &b) >= 0.9)
+	let main = |t: &str| -> String {
+		name_tokens(t.split([':', '(']).next().unwrap_or(t))
+			.into_iter()
+			.filter(|w| !TITLE_STOPWORDS.contains(&w.as_str()))
+			.collect::<Vec<_>>()
+			.join(" ")
+	};
+	let a = main(ours);
+	if a.is_empty() {
+		return false;
+	}
+	theirs.split(" / ").any(|side| {
+		let b = main(side);
+		!b.is_empty() && (a == b || strsim::jaro_winkler(&a, &b) >= 0.9)
+	})
+}
+
+/// Whether two names are the same person: the same name keys (in any order, loosely), or
+/// the same surname with compatible first initials (`Michael Cook` and `M. A. Cook`)
+fn same_person(ours: &str, theirs: &str) -> bool {
+	let (a, b) = (name_keys(ours).sorted, name_keys(theirs).sorted);
+	if a == b || strsim::jaro_winkler(&a, &b) >= 0.92 {
+		return true;
+	}
+	let tokens = |n: &str| name_tokens(&super::naming::reorder_last_first(n));
+	let (ta, tb) = (tokens(ours), tokens(theirs));
+	match (ta.split_last(), tb.split_last()) {
+		(Some((sa, ra)), Some((sb, rb))) if sa == sb && sa.len() > 2 => {
+			match (ra.first(), rb.first()) {
+				(Some(fa), Some(fb)) => fa.chars().next() == fb.chars().next(),
+				_ => false,
+			}
+		},
+		_ => false,
+	}
 }
 
 fn authors_agree(ours: &[String], theirs: &[String]) -> bool {
 	if ours.is_empty() || theirs.is_empty() {
 		return true;
 	}
-	let theirs: Vec<String> = theirs.iter().map(|a| name_keys(a).sorted).collect();
-	ours.iter().map(|a| name_keys(a).sorted).any(|k| {
-		theirs
-			.iter()
-			.any(|t| *t == k || strsim::jaro_winkler(t, &k) >= 0.92)
-	})
+	ours.iter()
+		.any(|a| theirs.iter().any(|t| same_person(a, t)))
 }
 
 const OPEN_LIBRARY_FIELDS: &str = "key,title,author_name,first_publish_year,subject,language,publisher,isbn,edition_key,cover_edition_key,edition_count,editions";
@@ -523,7 +560,8 @@ pub(crate) fn strip_html(text: &str) -> String {
 
 /// The best candidate for a book: its title (or one of its matching edition titles) agrees
 /// with ours and its authors don't disagree; a candidate whose author matches beats one with no
-/// author, then the one with most editions (the canonical work) wins
+/// author, then one with subjects beats one without, then the one with most editions (the
+/// canonical work) wins
 fn pick<'a>(
 	candidates: impl Iterator<Item = &'a Value>,
 	parse: fn(&Value) -> OnlineRecord,
@@ -549,6 +587,7 @@ fn pick<'a>(
 			let author_named = !authors.is_empty() && !record.authors.is_empty();
 			(
 				author_named,
+				!record.subjects.is_empty(),
 				record.edition_count,
 				std::cmp::Reverse(*position),
 			)
@@ -882,6 +921,21 @@ mod tests {
 		);
 		assert_eq!(record.isbn.as_deref(), Some("9788499080307"));
 		assert_eq!(record.first_publish_year, Some(2011));
+	}
+
+	#[test]
+	fn compares_translated_and_bilingual_titles_and_initials() {
+		assert!(titles_agree("Crimen y castigo", "El crimen y el castigo"));
+		assert!(titles_agree("El principito", "El Principito / The Little Prince"));
+		assert!(!titles_agree("Dune", "Dune Messiah"));
+		assert!(authors_agree(&["Michael Cook".into()], &["M. A. Cook".into()]));
+		assert!(authors_agree(&["Michael Cook".into()], &["Michael A. Cook".into()]));
+		assert!(authors_agree(
+			&["Fiódor Dostoyevski".into()],
+			&["Fiódor Dostoievski".into()]
+		));
+		assert!(!authors_agree(&["Brian Herbert".into()], &["Frank Herbert".into()]));
+		assert!(!authors_agree(&["Ana Cook".into()], &["M. A. Cook".into()]));
 	}
 
 	#[test]

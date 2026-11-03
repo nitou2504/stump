@@ -446,6 +446,29 @@ async fn test_held_original_put_back_and_deleted() {
 	// no hidden leftovers next to the book
 	assert_eq!(files_under(&setup.library_path).len(), 1);
 
+	// putting the processed version back holds the original again, as an original
+	let again = held::put_back(&ctx, replaced.id, &setup.user_id).await.unwrap();
+	assert_eq!(fs::read(&book.path).unwrap(), b"16 greys");
+	let original_again = again.replaced.expect("the original should be held again");
+	assert_eq!(original_again.reason, HeldFileReason::Grey16);
+	assert_eq!(
+		fs::read(held::held_file_path(&setup.config, &original_again)).unwrap(),
+		b"original bytes"
+	);
+	let task = post_processing_task::Entity::find_by_id(format!("task-{}", book.id))
+		.one(&setup.conn)
+		.await
+		.unwrap()
+		.unwrap();
+	assert_eq!(task.status, PostProcessStatus::Done);
+	// and back to the original, so the processed version is the one held below
+	let replaced = held::put_back(&ctx, original_again.id, &setup.user_id)
+		.await
+		.unwrap()
+		.replaced
+		.unwrap();
+	assert_eq!(fs::read(&book.path).unwrap(), b"original bytes");
+
 	// the held processed version is deleted by hand: gone from disk and from the list
 	let purge = held::purge_held(&setup.conn, &setup.config, &[replaced.id])
 		.await
