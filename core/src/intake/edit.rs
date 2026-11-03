@@ -1091,7 +1091,7 @@ pub struct FileEditOutcome {
 	pub file_fields: Vec<&'static str>,
 	/// The changed fields kept in Stump only
 	pub db_only_fields: Vec<&'static str>,
-	/// The locks that keep the edited fields through rescans
+	/// The locks that keep the edited fields through rescans (set when saving)
 	pub locks: Vec<MetadataField>,
 	/// Why the file was not written, or a note about it
 	pub message: Option<String>,
@@ -1308,8 +1308,8 @@ fn replace_book(
 }
 
 /// Writes the changed fields of an edit into the book file and logs them in the edits CSV:
-/// the book's metadata now is `new`. Returns which changed fields the file now carries,
-/// which stay in Stump only, and the locks that keep all of them through rescans.
+/// the book's metadata now is `new`. Returns which changed fields the file now carries and
+/// which stay in Stump only.
 pub async fn write_edit(
 	ctx: &Ctx,
 	book: &media::Model,
@@ -1394,13 +1394,6 @@ pub async fn write_edit(
 		} else {
 			outcome.db_only_fields.push(change.field);
 		}
-		// every edited field is locked: a rescan after another tool rewrote the file
-		// (book-curator replaces subjects) keeps what was set by hand
-		if let Some(lock) = change.lock {
-			if !outcome.locks.contains(&lock) {
-				outcome.locks.push(lock);
-			}
-		}
 	}
 	if outcome.status == FileWriteStatus::Failed {
 		tracing::warn!(path = %book.path, message = ?outcome.message, "A metadata edit stayed in Stump only");
@@ -1449,6 +1442,19 @@ pub async fn write_edit(
 }
 
 // ------------------------------------------------------------------ saving and history
+
+/// The locks that keep changed fields through rescans: every field edited by hand is
+/// locked, so a rescan after another tool rewrote the file (book-curator replaces
+/// subjects) keeps what was set
+pub fn locks_for(changed: &[ChangedField]) -> Vec<MetadataField> {
+	let mut locks = vec![];
+	for lock in changed.iter().filter_map(|c| c.lock) {
+		if !locks.contains(&lock) {
+			locks.push(lock);
+		}
+	}
+	locks
+}
 
 /// Who saves an edit
 #[derive(Debug, Clone, Copy)]
@@ -1499,19 +1505,35 @@ pub async fn save_edit(
 
 	let txn = conn.begin().await?;
 	active.media_id = Set(Some(book.id.clone()));
-	let updated = if let Some(existing) = &existing {
+	let mut updated = if let Some(existing) = &existing {
 		active.id = Set(existing.id);
 		active.update(&txn).await?
 	} else {
 		active.insert(&txn).await?
 	};
+	let changed = changed_fields(&old, &updated);
+	// the edited fields are locked along with their values, before the file changes: a
+	// scan that the file change sets off (the library watcher) then keeps them, even the
+	// ones the file can't carry
+	let locks = locks_for(&changed);
+	let mut locked = locked_fields_of(&updated.locked_fields);
+	let before = locked.len();
+	for lock in &locks {
+		if !locked.contains(lock) {
+			locked.push(*lock);
+		}
+	}
+	if locked.len() != before {
+		let mut lock = updated.clone().into_active_model();
+		lock.locked_fields = Set(Some(serde_json::to_value(&locked)?));
+		updated = lock.update(&txn).await?;
+	}
 	let (book, thumbnails) =
 		sync_media_membership(&txn, book, updated.series.clone()).await?;
 	txn.commit().await?;
 	remove_series_thumbnails(thumbnails).await;
 
-	let changed = changed_fields(&old, &updated);
-	let outcome = write_edit(
+	let mut outcome = write_edit(
 		ctx,
 		&book,
 		&library,
@@ -1521,19 +1543,7 @@ pub async fn save_edit(
 		editor.username,
 	)
 	.await;
-
-	let mut locked = locked_fields_of(&updated.locked_fields);
-	let before = locked.len();
-	for field in &outcome.locks {
-		if !locked.contains(field) {
-			locked.push(*field);
-		}
-	}
-	if locked.len() != before {
-		let mut lock = updated.clone().into_active_model();
-		lock.locked_fields = Set(Some(serde_json::to_value(&locked)?));
-		lock.update(conn).await?;
-	}
+	outcome.locks = locks;
 
 	let save_id = if changed.is_empty() {
 		None
