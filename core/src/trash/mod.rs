@@ -30,7 +30,7 @@ use std::{
 	str::FromStr,
 };
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use croner::Cron;
 use models::{
 	entity::{library, library_config, media, media_purge, server_config, user},
@@ -72,8 +72,10 @@ fn purge_schedule() -> Cron {
 	Cron::from_str(PURGE_SCHEDULE).expect("the purge schedule is a valid cron expression")
 }
 
-/// The first automatic purge after `after` (or at it, when `inclusive`)
+/// The first automatic purge after `after` (or at it, when `inclusive`), on the whole second
 pub fn next_purge_run(after: DateTime<Utc>, inclusive: bool) -> Option<DateTime<Utc>> {
+	// croner keeps the sub-second part of the time it starts from
+	let after = after.with_nanosecond(0).unwrap_or(after);
 	purge_schedule()
 		.find_next_occurrence(&after, inclusive)
 		.ok()
