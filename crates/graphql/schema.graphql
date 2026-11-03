@@ -435,7 +435,7 @@ type ConfidenceFactor {
 "An event that is emitted by the core and consumed by a client"
 union CoreEvent = JobStarted | JobUpdate | JobOutput | DiscoveredMissingLibrary | CreatedMedia | CreatedManySeries | CreatedOrUpdatedManyMedia
 
-union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
+union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | TrashPurgeOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
 
 input CreateAnnotationInput {
 	mediaId: String!
@@ -629,6 +629,82 @@ type DeleteJobAssociatedLogs {
 type DeleteJobHistory {
 	"The number of logs deleted that were related to a job"
 	affectedRows: Int!
+}
+
+"""
+A book in *Deleted books*: removed from its library, hidden everywhere, its file still on
+disk until it is deleted permanently
+"""
+type DeletedBook {
+	"The book as it was when it was removed (its progress, annotations and tags are kept)"
+	book: Media!
+	deletedAt: DateTime!
+	"Who removed it, when known"
+	deletedBy: String
+	"When its time in Deleted books is over (null: kept until deleted by hand)"
+	expiresAt: DateTime
+	"When the automatic purge will delete it permanently"
+	purgeAt: DateTime
+	libraryId: String!
+	libraryName: String!
+	"Its path inside its library"
+	relativePath: String!
+	"Whether its file is still there (otherwise deleting it permanently only deletes its data)"
+	fileExists: Boolean!
+}
+
+"A book a purge couldn't delete permanently"
+type DeletedBooksPurgeError {
+	mediaId: String!
+	title: String!
+	error: String!
+}
+
+"What deleting books permanently did"
+type DeletedBooksPurgeResult {
+	"Books whose file went to the quarantine folder and whose data was deleted"
+	purged: Int!
+	"Books whose file was already gone: only their data was deleted"
+	missingFiles: Int!
+	"The size of the files moved to the quarantine folder"
+	quarantinedBytes: Int!
+	"Books kept in Deleted books, with why"
+	kept: [DeletedBooksPurgeError!]!
+}
+
+"What an automatic purge of expired deleted books did"
+type DeletedBooksPurgeSummary {
+	"When it finished"
+	finishedAt: DateTime!
+	"The job that ran it, if it ran as a job (nothing had expired otherwise)"
+	jobId: String
+	"Books whose file went to the quarantine folder and whose data was deleted"
+	purged: Int!
+	"Books whose file was already gone: only their data was deleted"
+	missingFiles: Int!
+	"Books kept in Deleted books because their file couldn't be moved"
+	failed: Int!
+	"Why books were kept (the first few)"
+	errors: [DeletedBooksPurgeError!]!
+}
+
+"How *Deleted books* works on this server"
+type DeletedBooksSettings {
+	"How many days removed books stay in Deleted books (0: until deleted by hand)"
+	retentionDays: Int!
+	"The folder book files go to when they are deleted permanently (library managers only)"
+	quarantineDir: String
+	"""
+	Whether books with a file can be deleted permanently: the quarantine folder is set and
+	exists
+	"""
+	quarantineReady: Boolean!
+	"When the automatic purge runs next (null when it is off)"
+	nextPurgeAt: DateTime
+	"When the automatic purge last ran (library managers only)"
+	lastPurgeAt: DateTime
+	"What it did (library managers only)"
+	lastPurge: DeletedBooksPurgeSummary
 }
 
 enum Dimension {
@@ -2470,9 +2546,11 @@ type Mutation {
 	analyzeMedia(id: ID!, forceReanalysis: Boolean! = false): Boolean!
 	convertMedia(id: ID!): Boolean!
 	"""
-	Removes a book from its library (soft delete: the file stays on disk). Requires the
-	`REMOVE_BOOK` permission, which an admin grants per user; library managers can bring
-	the book back with `restoreMedia`
+	Removes a book from its library: it goes to *Deleted books* (soft delete: hidden
+	everywhere, the file stays on disk) until a library manager restores it
+	(`restoreDeletedBooks`) or it is deleted permanently, by hand or by the daily purge once
+	the retention is over. Requires the `REMOVE_BOOK` permission, which an admin grants per
+	user
 	"""
 	deleteMedia(id: ID!): Media!
 	"Brings back a book removed with `deleteMedia`"
@@ -2734,6 +2812,35 @@ type Mutation {
 	estimate) and/or the PDF steps (queued for the PDF worker)
 	"""
 	runPostProcessing(libraryId: ID!, grey16: Boolean! = false, pdfOcr: Boolean! = false, pdfShrink: Boolean! = false, dryRun: Boolean! = false): Boolean!
+	"""
+	Brings books in *Deleted books* back to their library exactly as they were (reading
+	progress, annotations, bookmarks, tags and smart lists never left). Returns how many came
+	back
+	"""
+	restoreDeletedBooks(ids: [ID!]!): Int!
+	"""
+	Deletes books in *Deleted books* permanently: each file is moved to the quarantine
+	folder (`deleted/<date>/`, with a `restore_log.csv` row), then the book's data is
+	deleted. A book whose file can't be moved stays in Deleted books; one whose file is
+	already gone only has its data deleted
+	"""
+	purgeDeletedBooks(ids: [ID!]!): DeletedBooksPurgeResult!
+	"""
+	Deletes every book in *Deleted books* permanently (in one library, if given), like
+	`purgeDeletedBooks`
+	"""
+	emptyDeletedBooks(libraryId: ID): DeletedBooksPurgeResult!
+	"""
+	How many days removed books stay in *Deleted books* before the daily purge deletes
+	them permanently (0: until deleted by hand)
+	"""
+	updateDeletedBooksRetention(days: Int!): DeletedBooksSettings!
+	"""
+	Moves the file of a book deleted permanently back from the quarantine folder to where
+	it was, and scans its folder: it comes back as a new book (its reading progress and
+	annotations were deleted with it)
+	"""
+	restorePurgedBook(id: Int!): PurgedBook!
 	"""
 	Uploads books into the user's inbox for a library. Each book (or each folder / .zip
 	of volumes) becomes an item that is analysed right away; poll `intakeItems`.
@@ -3308,6 +3415,38 @@ enum PublicationStatus {
 	UPCOMING
 }
 
+"""
+A book deleted permanently: its file is in the quarantine folder (unless it was already
+gone) and can be moved back
+"""
+type PurgedBook {
+	id: Int!
+	mediaId: String!
+	title: String!
+	authors: [String!]!
+	libraryId: String
+	libraryName: String
+	originalPath: String!
+	"Where its file is (null: it was already gone)"
+	quarantinePath: String
+	bytes: Int
+	deletedBy: String
+	deletedAt: DateTime
+	"Who deleted it permanently, when known"
+	purgedBy: String
+	"Deleted by the automatic purge"
+	automatic: Boolean!
+	purgedAt: DateTime!
+	"When its file was moved back into the library"
+	restoredAt: DateTime
+	restoredBy: String
+	"""
+	Whether its file can be moved back: it is still in the quarantine folder and nothing
+	took its place in the library
+	"""
+	canRestore: Boolean!
+}
+
 type Query {
 	bookClubs(all: Boolean = null): [BookClub!]!
 	bookClubById(id: ID!): BookClub!
@@ -3461,6 +3600,22 @@ type Query {
 	libraryPostProcessing(libraryId: ID!): LibraryPostProcessing!
 	"Post-processing tasks, most recently updated first"
 	postProcessingTasks(libraryId: ID, kind: PostProcessKind, statuses: [PostProcessStatus!], limit: Int! = 100): [PostProcessingTaskModel!]!
+	"""
+	The books in *Deleted books* (removed from their library, not yet deleted
+	permanently) in the libraries the user can see, most recently removed first
+	"""
+	deletedBooks(libraryId: ID): [DeletedBook!]!
+	"""
+	How long removed books are kept and when they are deleted permanently. Users who may
+	remove books see the retention; library managers also see the quarantine folder and the
+	last automatic purge
+	"""
+	deletedBooksSettings: DeletedBooksSettings!
+	"""
+	The books deleted permanently, most recent first: their files are in the quarantine
+	folder and can be moved back
+	"""
+	purgedBooks(limit: Int! = 20): [PurgedBook!]!
 	"""
 	The items of the user's "Add books" inbox, newest first. By default everything but
 	discarded items.
@@ -4514,6 +4669,19 @@ type TimeToFinishStat {
 	medianActiveSeconds: Int!
 	medianCalendarDays: Float!
 	medianSecondsPerPage: Float
+}
+
+type TrashPurgeOutput {
+	"Books whose file went to the quarantine folder and whose data was deleted"
+	purgedBooks: Int!
+	"Books whose file was already gone: only their data was deleted"
+	missingBookFiles: Int!
+	"Books kept in Deleted books because their file couldn't be moved"
+	keptBooks: Int!
+	"The size of the files moved to the quarantine folder"
+	quarantinedBytes: Int!
+	"Why books were kept (the first few)"
+	errors: [DeletedBooksPurgeError!]!
 }
 
 """
