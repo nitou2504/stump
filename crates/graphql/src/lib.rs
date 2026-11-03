@@ -1,3 +1,7 @@
+// the resolvers' futures nest deeply (a metadata save: database, book file, read-back); the
+// Send checks of the test build need more than the default 128 levels, like core and the server
+#![recursion_limit = "256"]
+
 pub mod data;
 pub mod error_message;
 pub mod filter;
