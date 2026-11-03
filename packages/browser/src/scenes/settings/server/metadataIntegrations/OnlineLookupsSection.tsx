@@ -49,10 +49,7 @@ export default function OnlineLookupsSection() {
 			<div>
 				<Heading size="sm">Online lookups</Heading>
 				<Text size="sm" variant="muted" className="mt-1 max-w-prose">
-					Add books and Suggest genres look books up on Open Library and Google Books. Google Books
-					shares one daily quota among everyone who calls it without a key, and it is often used up:
-					a free API key from the Google Cloud console (Books API enabled) gives this server its
-					own.
+					A Google Books API key gives this server its own daily quota.
 				</Text>
 			</div>
 			<form
@@ -65,9 +62,7 @@ export default function OnlineLookupsSection() {
 				<div className="flex-1">
 					<PasswordInput
 						label="Google Books API key"
-						placeholder={
-							isSet ? 'A key is set: type a new one to replace it' : 'No key: shared quota'
-						}
+						placeholder={isSet ? 'Type a new key to replace it' : 'Optional'}
 						value={key}
 						onChange={(event) => setKey(event.target.value)}
 						autoComplete="off"
@@ -90,9 +85,11 @@ export default function OnlineLookupsSection() {
 					)}
 				</div>
 			</form>
-			<Text size="xs" variant="muted">
-				{isSet ? 'A key is set. It is stored encrypted and never shown.' : 'No key is set.'}
-			</Text>
+			{isSet && (
+				<Text size="xs" variant="muted">
+					A key is set.
+				</Text>
+			)}
 		</section>
 	)
 }

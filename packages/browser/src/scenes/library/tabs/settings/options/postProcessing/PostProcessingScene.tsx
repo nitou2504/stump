@@ -36,8 +36,6 @@ const query = graphql(`
 				pdfOcrSince
 				pdfShrinkSince
 			}
-			trashDir
-			pdfQueueDir
 			pdfWorker {
 				alive
 				state
@@ -86,7 +84,7 @@ const MODE_OPTIONS = [
 ]
 
 const since = (date?: string | null) =>
-	date ? `on for books added since ${new Date(date).toLocaleDateString()}` : null
+	date ? `Books added since ${new Date(date).toLocaleDateString()}` : undefined
 
 type RunArgs = { grey16?: boolean; pdfOcr?: boolean; pdfShrink?: boolean; dryRun?: boolean }
 
@@ -119,14 +117,14 @@ export default function PostProcessingScene() {
 
 	const { mutate: update } = useGraphQLMutation(updateMutation, {
 		onSuccess: () => {
-			toast.success('Post-processing settings saved')
+			toast.success('Saved')
 			invalidate()
 		},
-		onError: () => toast.error('Failed to save the post-processing settings'),
+		onError: () => toast.error('Failed to save'),
 	})
 	const { mutate: run, isPending: isRunning } = useGraphQLMutation(runMutation, {
 		onSuccess: () => {
-			toast.success('Post-processing started: follow it below or in Settings → Jobs')
+			toast.success('Post-processing started')
 			setTimeout(invalidate, 1500)
 		},
 		onError: () => toast.error('Failed to start post-processing'),
@@ -171,25 +169,23 @@ export default function PostProcessingScene() {
 	const lastSeen = worker.lastSeen
 		? formatDistanceToNow(new Date(worker.lastSeen), { addSuffix: true })
 		: null
+	const converted = count(PostProcessKind.Grey_16, PostProcessStatus.Done)
 
 	return (
 		<div className="gap-10 flex flex-col">
 			<p className="text-sm max-w-prose text-muted-foreground">
-				Processed files replace the originals. Each original waits in{' '}
+				Originals wait in{' '}
 				<Link to={paths.deletedBooks()} className="underline">
-					Settings → Deleted books
-				</Link>{' '}
-				for the retention period, where it can be put back; then it is deleted.
+					Deleted books
+				</Link>
+				, where you can put them back.
 			</p>
 
 			<NewCard
-				label="Manga: 16 grey levels"
-				description="Grey PNG pages of CBZ files become 16-grey 4-bit PNGs, what an e-ink screen shows. Colour pages and JPEG pages stay as they are; a volume is replaced only when it saves at least 1 MB and 5 %."
+				label="Manga: 16 greys"
+				description="Grey pages reduced to the 16 levels e-ink shows."
 			>
-				<NewCard.Row
-					label="Run on"
-					description={since(config.grey16Since) ?? 'Off: run it from here when you want'}
-				>
+				<NewCard.Row label="Run on" description={since(config.grey16Since)}>
 					<NativeSelect
 						className="w-40"
 						options={MODE_OPTIONS}
@@ -197,10 +193,7 @@ export default function PostProcessingScene() {
 						onChange={(e) => save({ grey16: e.target.value as PostProcessMode })}
 					/>
 				</NewCard.Row>
-				<NewCard.Row
-					label="Leave out"
-					description="One path part per line, matched inside the library (e.g. /Berserk/: its pages are already compact JPEGs)"
-				>
+				<NewCard.Row label="Skip folders" description="One per line, like /Berserk/">
 					<RawTextArea
 						className="sm:w-64 text-sm min-h-[4.5rem] w-full"
 						value={exclude}
@@ -213,9 +206,9 @@ export default function PostProcessingScene() {
 				<NewCard.Row
 					label="This library now"
 					description={
-						count(PostProcessKind.Grey_16, PostProcessStatus.Done) > 0
-							? `${count(PostProcessKind.Grey_16, PostProcessStatus.Done)} volumes converted so far, ${formatBytes(settings.bytesSaved)} saved in this library`
-							: 'Estimate first: it converts a few pages of each volume and changes nothing'
+						converted > 0
+							? `${converted === 1 ? '1 volume' : `${converted} volumes`} converted, ${formatBytes(settings.bytesSaved)} saved`
+							: 'An estimate changes nothing'
 					}
 				>
 					<div className="gap-2 flex flex-wrap">
@@ -239,29 +232,26 @@ export default function PostProcessingScene() {
 				{!worker.alive && (
 					<Alert variant="warning">
 						<AlertTriangle />
-						<AlertTitle>PDF worker container not running</AlertTitle>
+						<AlertTitle>PDF worker offline</AlertTitle>
 						<AlertDescription>
-							{lastSeen ? `Its last heartbeat was ${lastSeen}. ` : 'It has never checked in. '}
-							Start the <code>stump-pdf-worker</code> service of the docker compose file (see{' '}
-							<code>docker/compose.fork-postproc.example.yml</code>). Until it runs, PDFs are not
-							queued from here, and PDFs that new books queue wait for it.
+							{lastSeen ? `Last seen ${lastSeen}. ` : ''}Queued PDFs wait until it runs.
 						</AlertDescription>
 					</Alert>
 				)}
 				<NewCard
 					label="Scanned PDFs"
-					description="OCR for scans whose text layer is missing or poor, and size reduction when it saves at least 15 % and 2 MB without visible loss. Born-digital PDFs are left alone. These run in the PDF worker container next to Stump (OCRmyPDF and Stump's recipe for scans), which uses almost no memory while nothing is queued."
+					description="OCR and shrink scans. Other PDFs are left alone."
 				>
 					<NewCard.Row
 						label="Worker"
 						description={
 							worker.alive
-								? `The stump-pdf-worker container${worker.version ? ` (${worker.version})` : ''}, last heartbeat ${lastSeen}`
-								: 'The stump-pdf-worker container is not running'
+								? `Last seen ${lastSeen}${worker.version ? ` · ${worker.version}` : ''}`
+								: undefined
 						}
 						value={worker.alive ? (worker.state === 'busy' ? 'Working' : 'Idle') : 'Offline'}
 					/>
-					<NewCard.Row label="OCR" description={since(config.pdfOcrSince) ?? 'Off'}>
+					<NewCard.Row label="OCR" description={since(config.pdfOcrSince)}>
 						<NativeSelect
 							className="w-40"
 							options={MODE_OPTIONS}
@@ -269,7 +259,7 @@ export default function PostProcessingScene() {
 							onChange={(e) => save({ pdfOcr: e.target.value as PostProcessMode })}
 						/>
 					</NewCard.Row>
-					<NewCard.Row label="Shrink" description={since(config.pdfShrinkSince) ?? 'Off'}>
+					<NewCard.Row label="Shrink" description={since(config.pdfShrinkSince)}>
 						<NativeSelect
 							className="w-40"
 							options={MODE_OPTIONS}
@@ -277,15 +267,7 @@ export default function PostProcessingScene() {
 							onChange={(e) => save({ pdfShrink: e.target.value as PostProcessMode })}
 						/>
 					</NewCard.Row>
-					<NewCard.Row
-						label="Queue this library now"
-						description={
-							<>
-								Requests go to <code className="break-all">{settings.pdfQueueDir}</code>; the PDF
-								worker picks them up and Stump swaps the results in.
-							</>
-						}
-					>
+					<NewCard.Row label="This library now">
 						<DropdownMenu
 							trigger={
 								<Button variant="outline" disabled={isRunning || !worker.alive}>
@@ -319,7 +301,7 @@ export default function PostProcessingScene() {
 
 			<ConfirmationModal
 				title="Convert this library's manga now?"
-				description="Every CBZ that is not left out and not converted yet is reduced to 16 grey levels, one volume at a time at low priority. Each original waits in Deleted books for the retention period, where it can be put back."
+				description="Originals wait in Deleted books, where you can put them back."
 				isOpen={confirmConvert}
 				onClose={() => setConfirmConvert(false)}
 				onConfirm={() => {

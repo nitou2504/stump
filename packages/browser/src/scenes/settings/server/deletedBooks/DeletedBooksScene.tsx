@@ -247,11 +247,11 @@ export default function DeletedBooksScene() {
 
 				{!isLoading && visible.length === 0 ? (
 					<div className="px-6 py-10 rounded-lg border border-dashed border-border text-center">
-						<p className="font-medium">Nothing in Deleted books</p>
+						<p className="font-medium">No deleted books</p>
 						<p className="mt-1 text-sm text-muted-foreground">
 							{filteredLibraryName
-								? `No book removed from ${filteredLibraryName} is waiting here.`
-								: 'Books removed from their page (“Remove from library”) wait here until they are restored or deleted permanently.'}
+								? `None from ${filteredLibraryName}.`
+								: 'Books removed from a library wait here.'}
 						</p>
 					</div>
 				) : (

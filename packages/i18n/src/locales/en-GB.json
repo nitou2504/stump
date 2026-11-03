@@ -924,7 +924,7 @@
             "heading": "Clean Library",
             "description": "Remove missing books and series, and empty series",
             "disclaimerTitle": "No files will be deleted",
-            "disclaimer": "This action removes database records for missing books and series, and for empty series. Files on disk will not be deleted.",
+            "disclaimer": "Removes missing books and series, and empty series, from Stump.",
             "confirmation": {
               "label": "Clean Library",
               "text": "Are you sure you want to clean this library?",

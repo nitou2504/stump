@@ -54,23 +54,17 @@ export default function DeletedBookRow({
 				/>
 				<Cover url={book.thumbnail.url} title={title} />
 				<div className="min-w-0 gap-0.5 flex flex-1 flex-col">
-					<p className="font-medium leading-snug line-clamp-2" title={title}>
+					<p className="font-medium leading-snug line-clamp-2" title={entry.relativePath}>
 						{title}
 					</p>
 					<p className="text-sm truncate text-muted-foreground">
 						{authors ? `${authors} · ` : ''}
 						{entry.libraryName}
 					</p>
-					<p
-						className="font-mono text-xs md:truncate break-all text-muted-foreground/80"
-						title={entry.relativePath}
-					>
-						{entry.relativePath}
-					</p>
 					{!entry.fileExists && (
 						<Badge variant="warning" size="sm" className="mt-1 gap-1">
 							<FileX2 className="size-3" aria-hidden />
-							File already gone
+							File missing
 						</Badge>
 					)}
 				</div>

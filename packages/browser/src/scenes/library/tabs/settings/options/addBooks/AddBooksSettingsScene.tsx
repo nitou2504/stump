@@ -86,7 +86,7 @@ export default function AddBooksSettingsScene() {
 		<div className="gap-10 flex flex-col">
 			<SettingsSection
 				title="Series folders"
-				description="Manga and light novels are filed by series, one folder per series inside these folders (relative to the library root). Other books go to their author's folder."
+				description="Manga and light novels get a folder per series. Other books go to their author’s folder."
 			>
 				<div className="gap-4 sm:grid-cols-2 grid">
 					<Input
@@ -106,8 +106,8 @@ export default function AddBooksSettingsScene() {
 
 			<SettingsSection title="Online lookups">
 				<WideSwitch
-					label="Look books up on Open Library and Google Books"
-					description="Fills in missing authors, series, year and subjects while analysing an upload. Google Books works best with an API key (Settings → Metadata)"
+					label="Look up books online"
+					description="Open Library and Google Books fill in missing details"
 					checked={draft.onlineLookup}
 					onCheckedChange={(onlineLookup) => setDraft({ ...draft, onlineLookup })}
 				/>

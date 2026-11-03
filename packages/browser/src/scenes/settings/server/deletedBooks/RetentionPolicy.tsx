@@ -1,12 +1,12 @@
 import { Link, NativeSelect } from '@stump/components'
 import { DeletedBooksSettingsQuery } from '@stump/graphql'
 import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns'
-import { CalendarClock, FolderArchive, History } from 'lucide-react'
+import { CalendarClock, History } from 'lucide-react'
 import { ReactNode } from 'react'
 
 import { usePaths } from '@/paths'
 
-import { books, formatBytes, retentionLabel, retentionOptions } from './countdown'
+import { books, retentionLabel, retentionOptions } from './countdown'
 
 type Settings = DeletedBooksSettingsQuery['deletedBooksSettings']
 
@@ -28,7 +28,7 @@ export function when(iso: string): string {
 
 /**
  * The rules of Deleted books, up front: how long books and replaced originals wait, when the purge
- * runs and what it last did, and where Stump keeps the originals
+ * runs and what it last did
  */
 export default function RetentionPolicy({
 	settings,
@@ -37,36 +37,17 @@ export default function RetentionPolicy({
 	onRetentionChange,
 }: Props) {
 	const paths = usePaths()
-	const { retentionDays, trashDir, heldFiles, heldBytes, nextPurgeAt, lastPurge, lastPurgeAt } =
-		settings
+	const { retentionDays, nextPurgeAt, lastPurge, lastPurgeAt } = settings
 	const never = retentionDays === 0
 
 	return (
 		<section
-			aria-label="How Deleted books works"
-			className="gap-4 p-4 sm:p-5 flex flex-col rounded-lg border border-border bg-muted/30"
+			aria-label="Retention"
+			className="gap-3 p-4 flex flex-col rounded-lg border border-border bg-muted/30"
 		>
-			<p className="text-sm max-w-prose leading-relaxed">
-				{never ? (
-					<>
-						Removed books, and the originals post-processing replaced, wait here until you delete
-						them permanently.{' '}
-					</>
-				) : (
-					<>
-						Removed books, and the originals post-processing replaced, wait here{' '}
-						<strong>{retentionLabel(retentionDays)}</strong>, then they are deleted
-						permanently.{' '}
-					</>
-				)}
-				Restore brings a book back as it was, with its progress, notes and tags; Put back returns an
-				original to its book. Delete permanently deletes the file from disk and erases the book from
-				Stump.
-			</p>
-
 			<div className="gap-x-8 gap-y-3 sm:flex-row sm:flex-wrap sm:items-center flex flex-col">
 				<label className="gap-2 text-sm flex items-center">
-					<span className="text-muted-foreground">Keep removed books</span>
+					<span className="text-muted-foreground">Delete after</span>
 					{canEditRetention ? (
 						<NativeSelect
 							size="sm"
@@ -74,13 +55,11 @@ export default function RetentionPolicy({
 							value={String(retentionDays)}
 							options={retentionOptions(retentionDays)}
 							disabled={isSaving}
-							aria-label="How long removed books are kept"
+							aria-label="Delete after"
 							onChange={(event) => onRetentionChange(Number(event.target.value))}
 						/>
 					) : (
-						<strong title="Set by a server administrator">
-							{never ? 'until deleted by hand' : retentionLabel(retentionDays)}
-						</strong>
+						<strong title="Set by a server administrator">{retentionLabel(retentionDays)}</strong>
 					)}
 				</label>
 
@@ -116,22 +95,6 @@ export default function RetentionPolicy({
 						</li>
 					))}
 				</ul>
-			)}
-
-			{trashDir && (
-				<p className="gap-2 text-xs flex items-start text-muted-foreground">
-					<FolderArchive className="size-4 mt-px shrink-0" aria-hidden />
-					<span>
-						Replaced originals are kept in{' '}
-						<code className="font-mono break-all text-foreground">
-							{trashDir.replace(/\/+$/, '')}/&lt;date&gt;/
-						</code>
-						{heldFiles > 0
-							? ` (${heldFiles === 1 ? '1 file' : `${heldFiles} files`}, ${formatBytes(heldBytes)})`
-							: ''}
-						. Removed books keep their file where it is until they are deleted permanently.
-					</span>
-				</p>
 			)}
 		</section>
 	)

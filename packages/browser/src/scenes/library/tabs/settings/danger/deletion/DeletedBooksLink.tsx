@@ -26,7 +26,7 @@ const query = graphql(`
  */
 export default function DeletedBooksLink() {
 	const {
-		library: { id, name },
+		library: { id },
 	} = useLibraryManagement()
 	const paths = usePaths()
 	const { data } = useGraphQL(query, ['deletedBooks', 'library', id], { libraryId: id })
@@ -38,13 +38,11 @@ export default function DeletedBooksLink() {
 			<div>
 				<Heading size="sm">Deleted books</Heading>
 				<Text size="sm" variant="muted">
-					Books removed from {name} wait in Deleted books{' '}
 					{days === undefined
-						? ''
+						? '\u00a0'
 						: days === 0
-							? 'until they are deleted by hand'
-							: `for ${days === 1 ? '1 day' : `${days} days`}`}
-					, where you can restore them or delete them permanently.
+							? 'Removed books wait there until you delete them.'
+							: `Removed books wait there ${days === 1 ? '1 day' : `${days} days`}.`}
 				</Text>
 			</div>
 			<div>

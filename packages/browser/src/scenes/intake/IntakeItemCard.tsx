@@ -73,6 +73,9 @@ export function FormatIcon({
 	return <Icon className={className} aria-hidden />
 }
 
+/** The server's warning that goes with a duplicate, which the duplicates alert already says */
+const DUPLICATE_WARNING = 'This book may already be in the library'
+
 const STATE_BADGE: Partial<
 	Record<IntakeState, { label: string; variant: 'success' | 'warning' | 'error' }>
 > = {
@@ -114,6 +117,10 @@ export default function IntakeItemCard({
 	const singleFile = destination?.files.length === 1 ? destination.files[0] : undefined
 
 	const folderCandidates = (filedAsSeries ? proposal?.seriesFolders : proposal?.authorFolders) ?? []
+	// the duplicates have their own alert
+	const warnings = (proposal?.warnings ?? []).filter(
+		(warning) => !proposal?.duplicates.length || warning !== DUPLICATE_WARNING,
+	)
 
 	return (
 		<article
@@ -144,7 +151,6 @@ export default function IntakeItemCard({
 					</div>
 					<span className="text-xs truncate text-muted-foreground" title={item.name}>
 						{item.name} · {item.libraryName}
-						{proposal && !proposal.lookedUpOnline && ' · not looked up online'}
 					</span>
 				</div>
 				<DropdownMenu
@@ -163,7 +169,7 @@ export default function IntakeItemCard({
 									onClick: () => onReanalyse(item.id),
 								},
 								{
-									label: 'Look it up online again',
+									label: 'Look up online',
 									leftIcon: <Globe className="mr-2 h-4 w-4" />,
 									onClick: () => onReanalyse(item.id, true),
 								},
@@ -181,7 +187,7 @@ export default function IntakeItemCard({
 			{item.state === IntakeState.Failed && (
 				<Alert variant="destructive">
 					<CircleAlert />
-					<AlertTitle>It could not be analysed</AlertTitle>
+					<AlertTitle>Couldn’t analyse it</AlertTitle>
 					<AlertDescription>{item.error || 'Unknown error'}</AlertDescription>
 				</Alert>
 			)}
@@ -347,7 +353,7 @@ export default function IntakeItemCard({
 					{!filedAsSeries || chips.length > 0 ? (
 						<section className="gap-2 flex flex-col" aria-label="Tags">
 							<div className="gap-2 flex items-center">
-								<span className="text-xs text-muted-foreground">Genres and tags</span>
+								<span className="text-xs text-muted-foreground">Genres</span>
 								<span className="text-xs text-muted-foreground/70">
 									{chosenGenres.length ? `${chosenGenres.length} chosen` : 'none chosen'}
 								</span>
@@ -366,7 +372,7 @@ export default function IntakeItemCard({
 					{!!proposal?.similarBooks.length && (
 						<section className="gap-1.5 p-3 flex flex-col rounded-lg border border-dashed border-border">
 							<div className="gap-2 flex flex-wrap items-center justify-between">
-								<span className="text-sm font-medium">Does this look right?</span>
+								<span className="text-sm font-medium">Similar books</span>
 								{item.state === IntakeState.NeedsReview && item.problems.length === 0 && (
 									<Button
 										size="xs"
@@ -378,9 +384,6 @@ export default function IntakeItemCard({
 									</Button>
 								)}
 							</div>
-							<span className="text-xs text-muted-foreground">
-								Similar books already in the library:
-							</span>
 							<ul className="gap-1 flex flex-col">
 								{proposal.similarBooks.slice(0, 3).map((book) => (
 									<li key={book.mediaId} className="text-sm min-w-0">
@@ -408,20 +411,10 @@ export default function IntakeItemCard({
 							<AlertDescription>
 								<ul className="gap-1 flex flex-col">
 									{proposal.duplicates.map((dup) => (
-										<li key={`${dup.mediaId}:${dup.fileName}`}>
+										<li key={`${dup.mediaId}:${dup.fileName}`} title={dup.path || undefined}>
 											<Link to={paths.bookOverview(dup.mediaId)}>{dup.title}</Link>{' '}
 											<span className="text-muted-foreground">
-												(
-												{dup.reason === 'SAME_FILE'
-													? 'the very same file'
-													: 'same author and title'}
-												{dup.path && (
-													<>
-														{' — '}
-														<span className="break-all">{dup.path}</span>
-													</>
-												)}
-												)
+												({dup.reason === 'SAME_FILE' ? 'same file' : 'same author and title'})
 											</span>
 										</li>
 									))}
@@ -430,9 +423,9 @@ export default function IntakeItemCard({
 						</Alert>
 					)}
 
-					{!!proposal?.warnings.length && (
+					{warnings.length > 0 && (
 						<ul className="gap-1 text-xs flex flex-col text-muted-foreground">
-							{proposal.warnings.map((warning) => (
+							{warnings.map((warning) => (
 								<li key={warning} className="gap-1.5 flex items-start">
 									<AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0 text-warning" aria-hidden />
 									{warning}

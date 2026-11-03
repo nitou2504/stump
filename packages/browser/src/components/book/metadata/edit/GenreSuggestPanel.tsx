@@ -110,14 +110,10 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 
 			{isFetching && (
 				<p className="text-xs text-muted-foreground" role="status">
-					{online
-						? 'Looking the book up online and comparing with the library…'
-						: 'Comparing with the author’s other books and similar books…'}
+					{online ? 'Looking online…' : 'Finding genres…'}
 				</p>
 			)}
-			{isError && (
-				<p className="text-xs text-destructive">The suggestions could not be loaded. Try again.</p>
-			)}
+			{isError && <p className="text-xs text-destructive">Couldn’t load suggestions. Try again.</p>}
 			{result && !isFetching && result.onlineLookups.length > 0 && (
 				<ul className="gap-0.5 text-xs flex flex-col" aria-label="Online lookups">
 					{result.onlineLookups.map((lookup) => (
@@ -139,9 +135,7 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 				<>
 					{currentFits.length > 0 && (
 						<div className="gap-1.5 flex flex-col">
-							<p className="text-xs text-muted-foreground">
-								Its genres now: tap one to keep or drop it
-							</p>
+							<p className="text-xs text-muted-foreground">Current: tap to keep or drop</p>
 							<div className="gap-1.5 flex flex-wrap" role="group" aria-label="Current genres">
 								{currentFits.map((fit) => {
 									const dropping = remove.includes(fit.value)
@@ -152,7 +146,9 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 											type="button"
 											aria-pressed={!dropping}
 											onClick={() => setRemove((r) => toggle(r, fit.value))}
-											title={fit.reasons.join(' · ') || undefined}
+											title={
+												fit.reasons.join(' · ') || (fits ? undefined : 'Nothing else points to it')
+											}
 											className={cn(
 												'gap-1.5 px-2.5 py-1 text-xs min-h-7 pointer-coarse:min-h-9 inline-flex max-w-full items-center rounded-full border transition-colors',
 												dropping
@@ -174,12 +170,7 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 							</div>
 							{unfit.length > 0 && (
 								<p className="text-xs text-muted-foreground">
-									<span className="text-amber-600 dark:text-amber-400">
-										{unfit.map((f) => f.value).join(', ')}
-									</span>
-									: nothing besides this book points to {unfit.length > 1 ? 'them' : 'it'} (not the
-									author’s other books, similar books or catalogue subjects), so{' '}
-									{unfit.length > 1 ? 'they are' : 'it is'} struck out. Tap to keep.
+									Struck out: nothing else points to {unfit.length > 1 ? 'them' : 'it'}.
 								</p>
 							)}
 						</div>
@@ -187,9 +178,7 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 
 					<div className="gap-1.5 flex flex-col">
 						<div className="gap-2 flex items-center">
-							<p className="text-xs flex-1 text-muted-foreground">
-								From the library’s genres, best first
-							</p>
+							<p className="text-xs flex-1 text-muted-foreground">Suggestions, best first</p>
 							{suggestions.length > 1 && (
 								<Button
 									type="button"
@@ -214,8 +203,7 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 							</ul>
 						) : (
 							<p className="text-xs text-muted-foreground">
-								Nothing in the library points to other genres.
-								{!online && ' Try looking it up online.'}
+								Nothing to suggest.{!online && ' Try Look online.'}
 							</p>
 						)}
 					</div>
@@ -304,9 +292,12 @@ function SuggestionRow({
 							<span className="text-xs ml-1.5 text-muted-foreground not-italic">facet</span>
 						)}
 					</span>
-					<span className="text-xs line-clamp-2 text-muted-foreground">
-						{s.reasons.join(' · ') || 'suggested'}
-						{s.libraryCount ? ` · ${s.libraryCount} in the library` : ''}
+					<span
+						className="text-xs line-clamp-2 text-muted-foreground"
+						title={s.reasons.join(' · ') || undefined}
+					>
+						{s.reasons[0] ?? 'suggested'}
+						{s.reasons.length > 1 ? ` (+${s.reasons.length - 1} more)` : ''}
 					</span>
 				</span>
 				<span

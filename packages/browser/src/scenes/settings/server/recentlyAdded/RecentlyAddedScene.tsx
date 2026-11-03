@@ -50,7 +50,7 @@ export default function RecentlyAddedScene() {
 		<SceneContainer variant="settings">
 			<SettingsSection
 				title="Recently added"
-				description='Books added through "Add books", newest first'
+				description="Newest first"
 				actions={
 					Object.keys(users).length > 1 || userId ? (
 						<NativeSelect
@@ -71,9 +71,7 @@ export default function RecentlyAddedScene() {
 				}
 			>
 				{!isLoading && rows.length === 0 && (
-					<p className="text-sm text-muted-foreground">
-						Nothing has been added through “Add books” yet.
-					</p>
+					<p className="text-sm text-muted-foreground">Nothing added yet.</p>
 				)}
 
 				{rows.length > 0 && (
@@ -84,7 +82,7 @@ export default function RecentlyAddedScene() {
 								className="gap-1 px-4 py-3 sm:gap-4 sm:flex-row sm:items-start flex flex-col"
 							>
 								<div className="min-w-0 flex flex-1 flex-col">
-									<span className="font-medium">
+									<span className="font-medium" title={row.paths.join('\n')}>
 										{row.mediaIds[0] ? (
 											<Link to={paths.bookOverview(row.mediaIds[0])}>{row.title}</Link>
 										) : (
@@ -92,15 +90,9 @@ export default function RecentlyAddedScene() {
 										)}
 										{row.series && <span className="text-muted-foreground"> · {row.series}</span>}
 									</span>
-									{row.authors.length > 0 && (
-										<span className="text-sm text-muted-foreground">{row.authors.join(', ')}</span>
-									)}
-									<span
-										className="font-mono text-xs break-all text-muted-foreground"
-										title={row.paths.join('\n')}
-									>
-										{row.libraryName} / {row.paths[0]}
-										{row.paths.length > 1 && ` (+${row.paths.length - 1} more)`}
+									<span className="text-sm text-muted-foreground">
+										{[row.authors.join(', '), row.libraryName].filter(Boolean).join(' · ')}
+										{row.paths.length > 1 && ` · ${row.paths.length} files`}
 									</span>
 								</div>
 								<div className="gap-0.5 text-sm gap-x-2 sm:flex-col sm:items-end flex shrink-0 flex-row">

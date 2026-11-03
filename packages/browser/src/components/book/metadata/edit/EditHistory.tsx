@@ -81,16 +81,12 @@ export default function EditHistory({ mediaId, disabled }: Props) {
 			{open && (
 				<div id={`${id}-list`} className="gap-2 flex flex-col">
 					{isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
-					{isError && <p className="text-xs text-destructive">The history could not be loaded.</p>}
+					{isError && <p className="text-xs text-destructive">Couldn’t load the history.</p>}
 					{!isLoading && !isError && !saves.length && (
-						<p className="text-xs text-muted-foreground">
-							No edits yet. Every save is listed here and can be reverted.
-						</p>
+						<p className="text-xs text-muted-foreground">No edits yet.</p>
 					)}
 					{disabled && saves.length > 0 && (
-						<p className="text-xs text-muted-foreground">
-							Save or cancel your changes to revert an edit.
-						</p>
+						<p className="text-xs text-muted-foreground">Save or cancel first to revert.</p>
 					)}
 					<ol className="gap-2 flex flex-col">
 						{saves.map((save) => (

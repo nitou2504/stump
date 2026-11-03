@@ -17,12 +17,9 @@ export default function PurgedBooks() {
 	const rows = data?.purgedBooks ?? []
 
 	return (
-		<SettingsSection
-			title="Recently deleted permanently"
-			description="The latest books deleted for good, with their files. A log: they can’t be brought back."
-		>
+		<SettingsSection title="Recently deleted permanently">
 			{rows.length === 0 ? (
-				<p className="text-sm text-muted-foreground">Nothing has been deleted permanently yet.</p>
+				<p className="text-sm text-muted-foreground">None yet.</p>
 			) : (
 				<ul className="divide-y divide-border rounded-lg border border-border">
 					{rows.map((row) => (
@@ -32,31 +29,26 @@ export default function PurgedBooks() {
 							data-testid="purged-book"
 						>
 							<div className="min-w-0 gap-0.5 flex flex-1 flex-col">
-								<p className="font-medium leading-snug">{row.title}</p>
+								<p className="font-medium leading-snug" title={row.originalPath}>
+									{row.title}
+								</p>
 								<p className="text-sm truncate text-muted-foreground">
 									{[row.authors.join(', '), row.libraryName, formatBytes(row.bytes)]
 										.filter(Boolean)
 										.join(' · ')}
 								</p>
-								<p
-									className="font-mono text-xs break-all text-muted-foreground/80"
-									title={row.originalPath}
-								>
-									{row.originalPath}
-								</p>
 							</div>
 							<div className="gap-1.5 md:w-72 md:items-end flex shrink-0 flex-col">
 								<span className="text-xs text-muted-foreground" title={row.purgedAt}>
-									Deleted permanently{' '}
 									{row.automatic
-										? 'by the automatic purge'
+										? 'Purged automatically'
 										: row.purgedBy
-											? `by ${row.purgedBy}`
-											: ''}{' '}
+											? `Deleted by ${row.purgedBy}`
+											: 'Deleted'}{' '}
 									{formatDistanceToNow(new Date(row.purgedAt), { addSuffix: true })}
 								</span>
 								{row.bytes == null && (
-									<span className="text-xs text-muted-foreground">Its file was already gone</span>
+									<span className="text-xs text-muted-foreground">File was missing</span>
 								)}
 							</div>
 						</li>

@@ -54,8 +54,6 @@ export const fieldLabel = (field: string) => FIELD_LABELS[field] ?? field
 export const describeFields = (fields: string[]) =>
 	Array.from(new Set(fields.map(fieldLabel))).join(', ')
 
-const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
-
 /** A server message as a sentence */
 const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`)
 
@@ -69,27 +67,17 @@ export function notifySaved(
 ) {
 	const verb = reverted ? 'Reverted' : 'Saved'
 	const stumpOnly = describeFields(file.stumpOnlyFields)
-	const left = skipped.length
-		? `Left as they are (changed again since): ${describeFields(skipped)}.`
-		: ''
+	const left = skipped.length ? `Not reverted (changed since): ${describeFields(skipped)}.` : ''
 	const join = (...parts: (string | false | null | undefined)[]) =>
 		parts.filter(Boolean).join(' ') || undefined
 
 	if (file.status === MetadataFileWriteStatus.Written) {
 		toast.success(`${verb} to the book file`, {
-			description: join(
-				`${capitalize(describeFields(file.fileFields))} written into the file.`,
-				stumpOnly && `Kept in Stump only: ${stumpOnly}.`,
-				left,
-			),
+			description: join(stumpOnly && `In Stump only: ${stumpOnly}.`, left),
 		})
 	} else if (file.status === MetadataFileWriteStatus.Failed) {
 		toast.warning(`${verb} in Stump only`, {
-			description: join(
-				sentence(file.message ?? 'The book file was not changed'),
-				'Rescans keep the change.',
-				left,
-			),
+			description: join(sentence(file.message ?? 'The book file was not changed'), left),
 			duration: 12000,
 		})
 	} else if (!file.fileFields.length && !file.stumpOnlyFields.length) {

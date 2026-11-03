@@ -96,7 +96,7 @@ export default function PostProcessingTasks({ libraryId, limit = 50, className }
 
 			{!isLoading && tasks.length === 0 && (
 				<Text size="sm" variant="muted">
-					Nothing has been post-processed yet.
+					Nothing processed yet.
 				</Text>
 			)}
 

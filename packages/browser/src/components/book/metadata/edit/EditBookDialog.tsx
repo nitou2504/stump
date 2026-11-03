@@ -139,9 +139,7 @@ export default function EditBookDialog({ mediaId, isOpen, onClose, focus }: Prop
 		mutate({ id: mediaId, input })
 	}
 
-	const fileNote = WRITABLE.includes(extension)
-		? `Saving writes the changes into the ${extension.toUpperCase()} file. Earlier versions stay in the edit history.`
-		: 'This kind of file can’t hold these details: they are kept in Stump.'
+	const fileNote = WRITABLE.includes(extension) ? 'Saved into the book file' : 'Saved in Stump only'
 
 	return (
 		<Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

@@ -67,14 +67,9 @@ export default function IntakeDropZone({ onFiles, entries, onClearFinished, disa
 			>
 				<input {...getInputProps()} />
 				<Upload className="h-8 w-8 sm:block hidden text-muted-foreground" aria-hidden />
-				<div>
-					<p className="font-medium">
-						{isDragActive ? 'Drop to upload' : 'Drop books, folders or .zip files here'}
-					</p>
-					<p className="text-sm text-muted-foreground">
-						EPUB, PDF, CBZ or CBR. A folder of volumes becomes one series.
-					</p>
-				</div>
+				<p className="font-medium">
+					{isDragActive ? 'Drop to upload' : 'Drop books, folders or zips here'}
+				</p>
 				<div className="gap-2 flex flex-wrap justify-center">
 					<Button size="sm" onClick={open} disabled={disabled}>
 						<Upload /> Choose files
@@ -102,13 +97,13 @@ export default function IntakeDropZone({ onFiles, entries, onClearFinished, disa
 					/>
 				</div>
 				<label className="gap-x-2 gap-y-1 text-xs flex flex-wrap items-center justify-center text-muted-foreground">
-					<span>Each folder becomes</span>
+					<span>Each folder is</span>
 					<select
 						value={folderMode}
 						onChange={(e) => setFolderMode(e.target.value as IntakeUploadMode)}
 						className="h-8 px-2 text-base md:text-xs rounded-md border border-border bg-background text-foreground"
 					>
-						<option value={IntakeUploadMode.Auto}>one series (manga, light novels)</option>
+						<option value={IntakeUploadMode.Auto}>one series</option>
 						<option value={IntakeUploadMode.Books}>separate books</option>
 					</select>
 				</label>

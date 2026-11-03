@@ -35,10 +35,8 @@ describe('PurgeConfirmation', () => {
 			/>,
 		)
 		expect(screen.getByText('Delete “El nombre de la rosa” permanently?')).toBeTruthy()
-		expect(screen.getByText(/Its file is deleted from disk/)).toBeTruthy()
-		expect(
-			screen.getByText(/erases its reading progress, annotations, bookmarks and tags/),
-		).toBeTruthy()
+		expect(screen.getByText(/Deletes its file, progress, notes and bookmarks/)).toBeTruthy()
+		expect(screen.getByText('This can’t be undone.')).toBeTruthy()
 		expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeTruthy()
 	})
 
@@ -52,8 +50,8 @@ describe('PurgeConfirmation', () => {
 			/>,
 		)
 		expect(screen.getByText('Delete 2 books permanently?')).toBeTruthy()
-		expect(screen.getByText(/1 file is deleted from disk/)).toBeTruthy()
-		expect(screen.getByText(/1 file is already gone from the library/)).toBeTruthy()
+		expect(screen.getByText(/Deletes their files, progress, notes and bookmarks/)).toBeTruthy()
+		expect(screen.getByText(/1 file is already missing/)).toBeTruthy()
 		expect(screen.queryByText(/quarantine/)).toBeNull()
 	})
 })
@@ -94,7 +92,7 @@ describe('RetentionFuse', () => {
 				now={new Date(2026, 10, 3, 12, 0)}
 			/>,
 		)
-		expect(screen.getByText('Deleted permanently in 12 days')).toBeTruthy()
+		expect(screen.getByText('12 days left')).toBeTruthy()
 		const ticks = container.querySelectorAll(
 			'[data-testid="retention-fuse"] > span[aria-hidden] > span',
 		)
@@ -103,6 +101,6 @@ describe('RetentionFuse', () => {
 
 	it('says when books are kept until deleted by hand', () => {
 		render(<RetentionFuse purgeAt={null} retentionDays={0} now={new Date()} />)
-		expect(screen.getByText('Kept until deleted by hand')).toBeTruthy()
+		expect(screen.getByText('Kept until deleted')).toBeTruthy()
 	})
 })

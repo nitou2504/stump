@@ -27,7 +27,7 @@ export default function AcceptAllSheet({ items, open, onClose, onConfirm, isPend
 			open={open}
 			onClose={onClose}
 			title={`Add ${items.length} ${items.length === 1 ? 'book' : 'books'}`}
-			description="Untick any tag that doesn't fit. Guessed tags (from similar books) are in italics."
+			description="Untick any genre that doesn’t fit."
 			contentClassName="flex w-full flex-col sm:max-w-lg"
 		>
 			{open && (
@@ -90,7 +90,7 @@ function AcceptAllList({ items, onClose, onConfirm, isPending }: Omit<Props, 'op
 							</span>
 							<div className="gap-1 flex flex-wrap">
 								{chips.length === 0 && (
-									<span className="text-xs text-muted-foreground">No tags</span>
+									<span className="text-xs text-muted-foreground">No genres</span>
 								)}
 								{chips.map((chip) => (
 									<TagChip
@@ -115,7 +115,7 @@ function AcceptAllList({ items, onClose, onConfirm, isPending }: Omit<Props, 'op
 			<div className="gap-2 px-4 py-3 flex items-center justify-end border-t border-border">
 				{guessedTicked > 0 && (
 					<span className="text-xs mr-auto text-warning">
-						{guessedTicked} guessed {guessedTicked === 1 ? 'tag' : 'tags'} ticked
+						{guessedTicked} guessed {guessedTicked === 1 ? 'genre' : 'genres'} ticked
 					</span>
 				)}
 				<Button variant="ghost" onClick={onClose} disabled={isPending}>

@@ -26,12 +26,7 @@ export function announcePurge(result: PurgeSummary, singleTitle?: string) {
 	const gone = result.purged + result.missingFiles
 	if (gone > 0) {
 		const what = gone === 1 && singleTitle ? `“${singleTitle}”` : books(gone)
-		toast.success(`Deleted ${what} permanently`, {
-			description:
-				result.purged > 0
-					? `${result.purged === 1 ? 'Its file was' : 'Their files were'} deleted from disk.`
-					: 'Its file was already gone: only its data was deleted.',
-		})
+		toast.success(`Deleted ${what} permanently`)
 	}
 	if (result.kept.length > 0) {
 		const [first] = result.kept
@@ -81,7 +76,6 @@ export function useDeletedBooksActions() {
 				const { restoreDeletedBooks: count } = await restoreAsync({ ids })
 				toast.success(
 					count === 1 && singleTitle ? `Restored “${singleTitle}”` : `Restored ${books(count)}`,
-					{ description: 'Back in the library with its progress, notes and tags.' },
 				)
 				await refreshAll()
 				return true
@@ -129,8 +123,8 @@ export function useDeletedBooksActions() {
 				await retentionAsync({ days })
 				toast.success(
 					days === 0
-						? 'Deleted books are kept until you delete them'
-						: `Deleted books are kept ${days === 1 ? '1 day' : `${days} days`}`,
+						? 'Removed books are kept until you delete them'
+						: `Removed books are deleted after ${days === 1 ? '1 day' : `${days} days`}`,
 				)
 				await refreshTrash()
 			} catch (error) {
@@ -144,12 +138,7 @@ export function useDeletedBooksActions() {
 		async (id: number) => {
 			try {
 				const { putBackHeldFile: result } = await putBackAsync({ id })
-				toast.success(`“${result.book.resolvedName}” has its original file back`, {
-					description:
-						result.replaced != null
-							? 'The version it replaced waits in Deleted books, in case you want it again.'
-							: undefined,
-				})
+				toast.success(`Put back the original of “${result.book.resolvedName}”`)
 				await refreshAll()
 				return true
 			} catch (error) {

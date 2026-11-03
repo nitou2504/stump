@@ -49,9 +49,7 @@ export default function HeldFiles({
 	return (
 		<SettingsSection
 			title="Replaced originals"
-			description={`The files post-processing replaced, kept so they can be put back (${
-				rows.length === 1 ? '1 file' : `${rows.length} files`
-			}, ${formatBytes(total)}).`}
+			description={`${rows.length === 1 ? '1 file' : `${rows.length} files`}, ${formatBytes(total)}`}
 		>
 			<ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
 				{rows.map((row) => (
@@ -67,7 +65,7 @@ export default function HeldFiles({
 								<Cover url="" title={row.title} />
 							)}
 							<div className="min-w-0 gap-0.5 flex flex-1 flex-col">
-								<p className="font-medium leading-snug line-clamp-2" title={row.title}>
+								<p className="font-medium leading-snug line-clamp-2" title={row.relativePath}>
 									{row.title}
 								</p>
 								<p className="text-sm text-muted-foreground">
@@ -76,18 +74,12 @@ export default function HeldFiles({
 									{formatBytes(row.bytes)}
 									{row.libraryName ? ` · ${row.libraryName}` : ''}
 								</p>
-								<p
-									className="font-mono text-xs md:truncate break-all text-muted-foreground/80"
-									title={row.relativePath}
-								>
-									{row.relativePath}
-								</p>
 							</div>
 						</div>
 						<div className="gap-1.5 md:w-72 md:items-end flex shrink-0 flex-col">
 							<div className="gap-x-3 gap-y-1 md:flex-col md:items-end flex flex-wrap items-center justify-between">
 								<span className="text-xs text-muted-foreground" title={row.heldAt}>
-									Replaced {row.heldBy ? `(put back by ${row.heldBy}) ` : ''}
+									Replaced {row.heldBy ? `by ${row.heldBy} ` : ''}
 									{formatDistanceToNow(new Date(row.heldAt), { addSuffix: true })}
 								</span>
 								<RetentionFuse purgeAt={row.purgeAt} retentionDays={retentionDays} now={now} />
@@ -142,8 +134,8 @@ export default function HeldFiles({
 				}}
 				confirmIsLoading={busy}
 				confirmText="Put back"
-				title={`Put the original of “${putting?.title}” back?`}
-				description="The book's file becomes this one again. The version in the library now waits here in turn, so this can be undone the same way."
+				title={`Put back the original of “${putting?.title}”?`}
+				description="The current version waits here instead, so you can undo this."
 			/>
 			<ConfirmationModal
 				isOpen={!!deleting}
@@ -159,7 +151,7 @@ export default function HeldFiles({
 						? `Delete the original of “${deleting[0]?.title}” permanently?`
 						: `Delete ${deleting?.length ?? 0} originals permanently?`
 				}
-				description="The files are deleted from disk; the books keep the versions in the library. This can't be undone."
+				description="The books keep their current files. This can’t be undone."
 			/>
 		</SettingsSection>
 	)

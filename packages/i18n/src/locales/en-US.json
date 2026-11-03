@@ -1035,7 +1035,7 @@
       },
       "options/post-processing": {
         "title": "Post-processing",
-        "description": "Save space: 16 grey levels for manga, OCR and size reduction for scanned PDFs"
+        "description": "Shrink manga and OCR scanned PDFs"
       },
       "integrations/analysis": {
         "title": "Analysis",
@@ -1098,7 +1098,7 @@
             "heading": "Clean Library",
             "description": "Remove missing books and series, and empty series",
             "disclaimerTitle": "No files will be deleted",
-            "disclaimer": "This action removes database records for missing books and series, and for empty series. Files on disk will not be deleted.",
+            "disclaimer": "Removes missing books and series, and empty series, from Stump.",
             "confirmation": {
               "label": "Clean Library",
               "text": "Are you sure you want to clean this library?",
@@ -1131,7 +1131,7 @@
       },
       "options/add-books": {
         "title": "Add books",
-        "description": "Where books added through \"Add books\" are filed in this library"
+        "description": "Where added books are filed"
       }
     },
     "errorScene": {
@@ -1969,11 +1969,11 @@
           },
           "lists": {
             "title": "Book and Series Lists",
-            "description": "How libraries, series, searches, smart lists and files are shown"
+            "description": "How lists of books and series are shown"
           },
           "preferredLayout": {
             "label": "Layout",
-            "description": "A cover grid or a table, for every list. The grid and table buttons of the lists change this too",
+            "description": "Grid or table, for every list",
             "options": {
               "GRID": "Grid",
               "TABLE": "Table"
@@ -2750,11 +2750,11 @@
       },
       "server/recentlyAdded": {
         "title": "Recently added",
-        "description": "Books added through \"Add books\": who added what, when and where"
+        "description": "Who added what, and when"
       },
       "server/deletedBooks": {
         "title": "Deleted books",
-        "description": "Books removed from their library, waiting to be restored or deleted permanently"
+        "description": "Restore removed books or delete them permanently"
       }
     },
     "jobOverlay": {
@@ -2963,11 +2963,11 @@
       },
       "REMOVE_BOOK": {
         "label": "Remove Books",
-        "description": "Allows the user to remove books from their library. The files stay on disk, and anyone who can manage libraries can restore them"
+        "description": "Allows the user to remove books from libraries"
       },
       "ADD_BOOKS": {
         "label": "Add Books",
-        "description": "Allows the user to upload books to their own \"Add books\" inbox, review the proposed folder, metadata and tags, and add them to the libraries they can access. No approval step"
+        "description": "Allows the user to upload books and add them to libraries"
       },
       "SCAN_LIBRARY": {
         "label": "Scan Libraries",
@@ -3832,9 +3832,9 @@
       "retry": "Try Again",
       "pageFailed": "Page {{page}} didn't load. Tap to retry.",
       "openAs": "Other Ways to Open It",
-      "openAsPages": "Show as Pages (Comic Reader)",
-      "openAsText": "Open in the PDF Reader (Selectable Text)",
-      "openInBrowser": "Open in the Browser's PDF Viewer",
+      "openAsPages": "Show as Pages",
+      "openAsText": "Open in the PDF Reader",
+      "openInBrowser": "Open in the Browser",
       "theme": "Theme",
       "invertPages": "Invert Pages in Dark Themes",
       "invertPagesHint": "Turn this off for illustrated books to keep pictures as they are",
@@ -3843,7 +3843,6 @@
         "width": "Fit Width",
         "page": "Fit Page"
       },
-      "singlePage": "Single Page",
       "zoom": "Zoom",
       "zoomIn": "Zoom In",
       "zoomOut": "Zoom Out",
@@ -3853,8 +3852,7 @@
       "go": "Go",
       "noSuchPage": "There is no such page",
       "noOutline": "No Table of Contents",
-      "noTextHint": "This PDF has no text (it is a scan without OCR), so only bookmarks are available.",
-      "noTextShort": "No text: bookmarks only",
+      "noTextHint": "This PDF has no text: bookmarks only.",
       "bookmarksDisabledInIncognito": "Bookmarks are disabled in incognito mode",
       "shortcuts": {
         "zoom": "Zoom In / Out / Reset",
@@ -3904,7 +3902,6 @@
         "page": "Page",
         "display": "Display",
         "pageNumber": "Page Number",
-        "pageNumberHint": "The small page number in the bottom corner",
         "layout": "Pages",
         "size": "Size",
         "smaller": "Smaller Text",
@@ -3972,21 +3969,20 @@
         "sepia": "Sepia",
         "dark": "Dark",
         "black": "Black",
-        "autoHint": "Follows the app theme",
-        "dayNightHint": "Press D to switch between day and night"
+        "autoHint": "Follows the app theme"
       },
       "shortcuts": {
         "dayNight": "Switch Day / Night",
         "settings": "Reader Settings",
         "toggleBar": "Show / Hide the Top Bar",
-        "turnPageAlways": "Turn the Page (Also When Zoomed)",
+        "turnPageAlways": "Turn the Page",
         "panZoomed": "Move Around a Zoomed Page",
-        "stepPage": "Next / Previous Part of the Page, Then the Page",
-        "stepScreen": "Next / Previous Screen of the Page, Then the Page",
-        "scrollPage": "Scroll the Page (at Its End: Turn)",
+        "stepPage": "Next / Previous Part or Page",
+        "stepScreen": "Next / Previous Screen or Page",
+        "scrollPage": "Scroll, Then Turn",
         "scrollLine": "Scroll Up / Down",
         "scrollScreen": "Scroll a Screen",
-        "scrollScreenChapter": "Scroll a Screen (at the End: the Next Chapter)",
+        "scrollScreenChapter": "Scroll a Screen, Then the Next Chapter",
         "scrollSideways": "Move Sideways on a Zoomed Page",
         "firstLastPage": "First / Last Page",
         "chapterStartEnd": "Start / End of the Chapter",

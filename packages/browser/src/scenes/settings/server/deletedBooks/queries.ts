@@ -28,14 +28,11 @@ export const deletedBooksQuery = graphql(`
 	}
 `)
 
-/** How long removed books are kept, the trash folder and the automatic purge */
+/** How long removed books are kept and the automatic purge */
 export const deletedBooksSettingsQuery = graphql(`
 	query DeletedBooksSettings {
 		deletedBooksSettings {
 			retentionDays
-			trashDir
-			heldFiles
-			heldBytes
 			nextPurgeAt
 			lastPurgeAt
 			lastPurge {
@@ -108,7 +105,6 @@ export const putBackHeldFileMutation = graphql(`
 				id
 				resolvedName
 			}
-			replaced
 		}
 	}
 `)

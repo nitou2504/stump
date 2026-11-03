@@ -40,35 +40,33 @@ export default function TagPicker({ libraryId, chips, chosen, onChange, disabled
 				<ChipRow chips={facets} chosen={chosen} onChange={onChange} disabled={disabled} muted />
 			)}
 			{explained.length > 0 && (
-				<ul
-					className="gap-0.5 text-xs flex flex-col text-muted-foreground"
-					aria-label="Why these tags"
-				>
-					{explained.map((chip) => (
-						<li key={chip.value} className="gap-1.5 min-w-0 flex items-baseline">
-							<span
-								className={cn(
-									'size-2 shrink-0 translate-y-px rounded-full border border-muted-foreground',
-									chip.chosen && chip.origin !== 'guessed' && 'bg-muted-foreground',
-									chip.chosen && chip.origin === 'guessed' && 'border-warning bg-warning/40',
-								)}
-								aria-hidden
-							/>
-							<span
-								className={cn('shrink-0 text-foreground', chip.origin === 'guessed' && 'italic')}
-							>
-								{chip.value}
-							</span>
-							<span className="min-w-0 line-clamp-2 break-words" title={chip.reasons.join(' · ')}>
-								{tagWhy(chip)}
-								{chip.origin === 'guessed' &&
-									!chip.chosen &&
-									chip.preselected &&
-									' — not ticked, tick it if right'}
-							</span>
-						</li>
-					))}
-				</ul>
+				<details className="text-xs text-muted-foreground">
+					<summary className="pointer-coarse:py-2 w-fit cursor-pointer select-none hover:text-foreground">
+						Why these genres
+					</summary>
+					<ul className="mt-1 gap-0.5 flex flex-col" aria-label="Why these genres">
+						{explained.map((chip) => (
+							<li key={chip.value} className="gap-1.5 min-w-0 flex items-baseline">
+								<span
+									className={cn(
+										'size-2 shrink-0 translate-y-px rounded-full border border-muted-foreground',
+										chip.chosen && chip.origin !== 'guessed' && 'bg-muted-foreground',
+										chip.chosen && chip.origin === 'guessed' && 'border-warning bg-warning/40',
+									)}
+									aria-hidden
+								/>
+								<span
+									className={cn('shrink-0 text-foreground', chip.origin === 'guessed' && 'italic')}
+								>
+									{chip.value}
+								</span>
+								<span className="min-w-0 line-clamp-2 break-words" title={chip.reasons.join(' · ')}>
+									{tagWhy(chip)}
+								</span>
+							</li>
+						))}
+					</ul>
+				</details>
 			)}
 			<div>
 				<AddTag
@@ -196,7 +194,7 @@ function AddTag({
 		<Popover open={open} onOpenChange={setOpen}>
 			<Popover.Trigger asChild>
 				<Button variant="ghost" size="xs" disabled={disabled} className="text-muted-foreground">
-					<Plus /> Add a tag
+					<Plus /> Add a genre
 				</Button>
 			</Popover.Trigger>
 			<Popover.Content
@@ -205,11 +203,7 @@ function AddTag({
 				collisionPadding={12}
 			>
 				<Command shouldFilter={false}>
-					<Command.Input
-						placeholder="Search the library's tags…"
-						value={search}
-						onValueChange={setSearch}
-					/>
+					<Command.Input placeholder="Search genres…" value={search} onValueChange={setSearch} />
 					<Command.List className="max-h-[min(18rem,50vh)]">
 						{options.map((option) => (
 							<Command.Item
@@ -227,7 +221,7 @@ function AddTag({
 						))}
 						{!options.length && (
 							<div className="py-6 text-sm text-center text-muted-foreground">
-								{isFetching ? 'Searching…' : 'No matching tag in the library'}
+								{isFetching ? 'Searching…' : 'No match'}
 							</div>
 						)}
 					</Command.List>

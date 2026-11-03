@@ -8707,7 +8707,7 @@ export type LibraryPostProcessingQueryVariables = Exact<{
 }>;
 
 
-export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', trashDir: string, pdfQueueDir: string, bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, pdfWorker: { __typename?: 'PdfWorker', alive: boolean, state?: string | null, version?: string | null, lastSeen?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
+export type LibraryPostProcessingQuery = { __typename?: 'Query', libraryPostProcessing: { __typename?: 'LibraryPostProcessing', bytesSaved: number, config: { __typename?: 'PostProcessingConfig', grey16: PostProcessMode, grey16Exclude: Array<string>, pdfOcr: PostProcessMode, pdfShrink: PostProcessMode, grey16Since?: any | null, pdfOcrSince?: any | null, pdfShrinkSince?: any | null }, pdfWorker: { __typename?: 'PdfWorker', alive: boolean, state?: string | null, version?: string | null, lastSeen?: any | null }, counts: Array<{ __typename?: 'PostProcessingCount', kind: PostProcessKind, status: PostProcessStatus, count: number }> } };
 
 export type UpdateLibraryPostProcessingMutationVariables = Exact<{
   libraryId: Scalars['ID']['input'];
@@ -8874,7 +8874,7 @@ export type DeletedBooksQuery = { __typename?: 'Query', deletedBooks: Array<{ __
 export type DeletedBooksSettingsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type DeletedBooksSettingsQuery = { __typename?: 'Query', deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number, trashDir?: string | null, heldFiles: number, heldBytes: number, nextPurgeAt?: any | null, lastPurgeAt?: any | null, lastPurge?: { __typename?: 'DeletedBooksPurgeSummary', finishedAt: any, jobId?: string | null, purged: number, missingFiles: number, failed: number, originals: number, errors: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } | null } };
+export type DeletedBooksSettingsQuery = { __typename?: 'Query', deletedBooksSettings: { __typename?: 'DeletedBooksSettings', retentionDays: number, nextPurgeAt?: any | null, lastPurgeAt?: any | null, lastPurge?: { __typename?: 'DeletedBooksPurgeSummary', finishedAt: any, jobId?: string | null, purged: number, missingFiles: number, failed: number, originals: number, errors: Array<{ __typename?: 'DeletedBooksPurgeError', mediaId: string, title: string, error: string }> } | null } };
 
 export type PurgedBooksQueryVariables = Exact<{
   limit: Scalars['Int']['input'];
@@ -8895,7 +8895,7 @@ export type PutBackHeldFileMutationVariables = Exact<{
 }>;
 
 
-export type PutBackHeldFileMutation = { __typename?: 'Mutation', putBackHeldFile: { __typename?: 'HeldFilePutBack', replaced?: number | null, book: { __typename?: 'Media', id: string, resolvedName: string } } };
+export type PutBackHeldFileMutation = { __typename?: 'Mutation', putBackHeldFile: { __typename?: 'HeldFilePutBack', book: { __typename?: 'Media', id: string, resolvedName: string } } };
 
 export type DeleteHeldFilesMutationVariables = Exact<{
   ids: Array<Scalars['Int']['input']> | Scalars['Int']['input'];
@@ -17046,8 +17046,6 @@ export const LibraryPostProcessingDocument = new TypedDocumentString(`
       pdfOcrSince
       pdfShrinkSince
     }
-    trashDir
-    pdfQueueDir
     pdfWorker {
       alive
       state
@@ -17334,9 +17332,6 @@ export const DeletedBooksSettingsDocument = new TypedDocumentString(`
     query DeletedBooksSettings {
   deletedBooksSettings {
     retentionDays
-    trashDir
-    heldFiles
-    heldBytes
     nextPurgeAt
     lastPurgeAt
     lastPurge {
@@ -17404,7 +17399,6 @@ export const PutBackHeldFileDocument = new TypedDocumentString(`
       id
       resolvedName
     }
-    replaced
   }
 }
     `) as unknown as TypedDocumentString<PutBackHeldFileMutation, PutBackHeldFileMutationVariables>;

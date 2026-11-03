@@ -84,18 +84,15 @@ export default function RemoveBookConfirmation({
 	})
 	const days = data?.deletedBooksSettings.retentionDays
 
-	const stay =
-		days === undefined
-			? 'It stays in Deleted books'
-			: days === 0
-				? 'It stays in Deleted books until it is deleted permanently by hand'
-				: `It stays in Deleted books for ${days === 1 ? '1 day' : `${days} days`}, then it is deleted permanently with its file`
+	const until = days
+		? ` for ${days === 1 ? '1 day' : `${days} days`}; then its file is deleted`
+		: ''
 	const deletedBooks = canRestore ? (
 		<Link to={paths.deletedBooks()} onClick={onClose} className="underline">
-			Settings → Deleted books
+			Deleted books
 		</Link>
 	) : (
-		'Settings → Deleted books'
+		'Deleted books'
 	)
 
 	return (
@@ -113,12 +110,8 @@ export default function RemoveBookConfirmation({
 				<Info />
 				<AlertDescription>
 					<p>
-						{stay}. Until then {canRestore ? 'you' : 'a library manager'} can restore it, with its
-						reading progress and notes, from {deletedBooks}.
-					</p>
-					<p className="mt-1.5">
-						It disappears from Stump right away, OPDS and smart lists included. Its file stays on
-						disk.
+						{canRestore ? 'You' : 'A library manager'} can restore it from {deletedBooks}
+						{until}.
 					</p>
 				</AlertDescription>
 			</Alert>

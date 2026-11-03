@@ -137,7 +137,7 @@ export default function IntakeScene() {
 										aria-hidden
 									/>
 									<span className="text-sm flex-1 truncate">{item.name}</span>
-									<span className="text-xs text-muted-foreground">reading metadata…</span>
+									<span className="text-xs text-muted-foreground">reading…</span>
 								</li>
 							))}
 						</ul>
@@ -145,12 +145,7 @@ export default function IntakeScene() {
 				)}
 
 				{groups.toReview.length > 0 && (
-					<Section
-						title="To check"
-						icon={ClipboardCheck}
-						count={groups.toReview.length}
-						description="Something is missing or uncertain. Fix it, or confirm it looks right."
-					>
+					<Section title="To check" icon={ClipboardCheck} count={groups.toReview.length}>
 						<div className="gap-4 flex flex-col">
 							{groups.toReview.map((item) => (
 								<IntakeItemCard key={item.id} item={item} {...cardProps} />
@@ -186,9 +181,7 @@ export default function IntakeScene() {
 					!groups.ready.length && (
 						<div className="gap-2 py-10 flex flex-col items-center text-center text-muted-foreground">
 							<Inbox className="h-8 w-8" aria-hidden />
-							<p className="text-sm">
-								Your inbox is empty. Uploaded books wait here until you add them.
-							</p>
+							<p className="text-sm">Your inbox is empty.</p>
 						</div>
 					)}
 

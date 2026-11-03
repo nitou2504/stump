@@ -31,10 +31,10 @@ describe('daysLeft', () => {
 
 describe('countdownLabel', () => {
 	it('says when the book goes', () => {
-		expect(countdownLabel(14)).toBe('Deleted permanently in 14 days')
-		expect(countdownLabel(1)).toBe('Deleted permanently tomorrow')
-		expect(countdownLabel(0)).toBe('Deleted permanently today')
-		expect(countdownLabel(null)).toBe('Kept until deleted by hand')
+		expect(countdownLabel(14)).toBe('14 days left')
+		expect(countdownLabel(1)).toBe('1 day left')
+		expect(countdownLabel(0)).toBe('Last day')
+		expect(countdownLabel(null)).toBe('Kept until deleted')
 	})
 
 	it('flags the last day and the day before', () => {
@@ -99,8 +99,6 @@ describe('formatting', () => {
 		)
 		expect(heldFileLabel(HeldFileReason.Pdf, 'SHRINK')).toBe('Original before shrinking')
 		expect(heldFileLabel(HeldFileReason.Pdf, null)).toBe('Original before post-processing')
-		expect(heldFileLabel(HeldFileReason.PutBack, 'OCR')).toBe(
-			'Version replaced when its original was put back',
-		)
+		expect(heldFileLabel(HeldFileReason.PutBack, 'OCR')).toBe('Processed version')
 	})
 })

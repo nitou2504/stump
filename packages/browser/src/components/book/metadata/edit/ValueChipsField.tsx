@@ -134,7 +134,7 @@ export default function ValueChipsField({
 						}}
 					>
 						<Command.Input
-							placeholder={isGenres ? "Search the library's genres…" : 'Search the authors…'}
+							placeholder={isGenres ? 'Search genres…' : 'Search authors…'}
 							value={search}
 							onValueChange={setSearch}
 						/>
@@ -194,9 +194,7 @@ export default function ValueChipsField({
 												{isGenres ? 'Create' : 'Add'} “{creatable}”
 											</span>
 											{isGenres && (
-												<span className="text-xs text-muted-foreground">
-													No book has this genre yet: check the spelling
-												</span>
+												<span className="text-xs text-muted-foreground">Check the spelling</span>
 											)}
 										</span>
 									</Command.Item>

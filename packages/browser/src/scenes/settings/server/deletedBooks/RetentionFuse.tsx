@@ -25,7 +25,7 @@ export default function RetentionFuse({ purgeAt, retentionDays, now, className }
 	return (
 		<div
 			className={cn('gap-2 flex items-center', className)}
-			title={when ? `Deleted permanently by the automatic purge on ${when}` : undefined}
+			title={when ? `Deleted permanently on ${when}` : undefined}
 			data-testid="retention-fuse"
 		>
 			{ticks.length > 0 && (

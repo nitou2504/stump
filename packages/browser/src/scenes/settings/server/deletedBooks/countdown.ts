@@ -23,12 +23,12 @@ export function daysLeft(purgeAt: string | null | undefined, now: Date): number 
 	return Math.max(0, differenceInCalendarDays(new Date(purgeAt), now))
 }
 
-/** "Deleted permanently in 12 days" and its variants */
+/** "12 days left" and its variants, next to the fuse */
 export function countdownLabel(days: number | null): string {
-	if (days === null) return 'Kept until deleted by hand'
-	if (days === 0) return 'Deleted permanently today'
-	if (days === 1) return 'Deleted permanently tomorrow'
-	return `Deleted permanently in ${days} days`
+	if (days === null) return 'Kept until deleted'
+	if (days === 0) return 'Last day'
+	if (days === 1) return '1 day left'
+	return `${days} days left`
 }
 
 export type FuseTick = 'left' | 'spent'
@@ -67,7 +67,7 @@ export const books = (count: number) => (count === 1 ? '1 book' : `${count} book
 /** What a held file is, from why Stump took it out of the library */
 export function heldFileLabel(reason: HeldFileReason, steps?: string | null): string {
 	if (reason === HeldFileReason.Grey_16) return 'Original before 16 greys'
-	if (reason === HeldFileReason.PutBack) return 'Version replaced when its original was put back'
+	if (reason === HeldFileReason.PutBack) return 'Processed version'
 	const parts = (steps ?? '').split('+').filter(Boolean)
 	const ocr = parts.includes('OCR')
 	const shrink = parts.includes('SHRINK')
