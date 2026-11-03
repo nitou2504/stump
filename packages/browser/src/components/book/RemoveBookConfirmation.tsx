@@ -89,7 +89,7 @@ export default function RemoveBookConfirmation({
 			? 'It stays in Deleted books'
 			: days === 0
 				? 'It stays in Deleted books until it is deleted permanently by hand'
-				: `It stays in Deleted books for ${days === 1 ? '1 day' : `${days} days`}, then it is deleted permanently (its file moves to the quarantine folder)`
+				: `It stays in Deleted books for ${days === 1 ? '1 day' : `${days} days`}, then it is deleted permanently with its file`
 	const deletedBooks = canRestore ? (
 		<Link to={paths.deletedBooks()} onClick={onClose} className="underline">
 			Settings → Deleted books

@@ -5,6 +5,7 @@ import { ExperimentalFeatureDisclaimer } from '@/components/ExperimentalFeatureD
 import { PendingMatchesSection } from '@/components/metadata/metadataMatching'
 import { useTranslate } from '@/hooks/useTranslate'
 
+import OnlineLookupsSection from './OnlineLookupsSection'
 import { ProvidersSection } from './providers'
 
 export default function GeneralServerSettingsScene() {
@@ -19,6 +20,7 @@ export default function GeneralServerSettingsScene() {
 			<ExperimentalFeatureDisclaimer />
 
 			<div className="gap-12 flex flex-col">
+				<OnlineLookupsSection />
 				<ProvidersSection />
 				<PendingMatchesSection />
 			</div>

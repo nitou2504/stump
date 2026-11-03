@@ -1,12 +1,12 @@
-import { Alert, AlertDescription, AlertTitle, Link, NativeSelect } from '@stump/components'
+import { Link, NativeSelect } from '@stump/components'
 import { DeletedBooksSettingsQuery } from '@stump/graphql'
 import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns'
-import { CalendarClock, FolderInput, History, ShieldAlert } from 'lucide-react'
+import { CalendarClock, FolderArchive, History } from 'lucide-react'
 import { ReactNode } from 'react'
 
 import { usePaths } from '@/paths'
 
-import { books, retentionLabel, retentionOptions } from './countdown'
+import { books, formatBytes, retentionLabel, retentionOptions } from './countdown'
 
 type Settings = DeletedBooksSettingsQuery['deletedBooksSettings']
 
@@ -27,8 +27,8 @@ export function when(iso: string): string {
 }
 
 /**
- * The rules of Deleted books, up front: how long books wait, when the purge runs and what it last
- * did, and where files go
+ * The rules of Deleted books, up front: how long books and replaced originals wait, when the purge
+ * runs and what it last did, and where Stump keeps the originals
  */
 export default function RetentionPolicy({
 	settings,
@@ -37,7 +37,7 @@ export default function RetentionPolicy({
 	onRetentionChange,
 }: Props) {
 	const paths = usePaths()
-	const { retentionDays, quarantineDir, quarantineReady, nextPurgeAt, lastPurge, lastPurgeAt } =
+	const { retentionDays, trashDir, heldFiles, heldBytes, nextPurgeAt, lastPurge, lastPurgeAt } =
 		settings
 	const never = retentionDays === 0
 
@@ -48,15 +48,20 @@ export default function RetentionPolicy({
 		>
 			<p className="text-sm max-w-prose leading-relaxed">
 				{never ? (
-					<>Removed books wait here until you delete them permanently. </>
+					<>
+						Removed books, and the originals post-processing replaced, wait here until you delete
+						them permanently.{' '}
+					</>
 				) : (
 					<>
-						Removed books wait here <strong>{retentionLabel(retentionDays)}</strong>, then they are
-						deleted permanently.{' '}
+						Removed books, and the originals post-processing replaced, wait here{' '}
+						<strong>{retentionLabel(retentionDays)}</strong>, then they are deleted
+						permanently.{' '}
 					</>
 				)}
-				Restore brings a book back as it was, with its progress, notes and tags. Delete permanently
-				moves its file to the quarantine folder and erases the book from Stump.
+				Restore brings a book back as it was, with its progress, notes and tags; Put back returns an
+				original to its book. Delete permanently deletes the file from disk and erases the book from
+				Stump.
 			</p>
 
 			<div className="gap-x-8 gap-y-3 sm:flex-row sm:flex-wrap sm:items-center flex flex-col">
@@ -113,40 +118,20 @@ export default function RetentionPolicy({
 				</ul>
 			)}
 
-			{quarantineReady && quarantineDir ? (
+			{trashDir && (
 				<p className="gap-2 text-xs flex items-start text-muted-foreground">
-					<FolderInput className="size-4 mt-px shrink-0" aria-hidden />
+					<FolderArchive className="size-4 mt-px shrink-0" aria-hidden />
 					<span>
-						Files deleted permanently go to{' '}
+						Replaced originals are kept in{' '}
 						<code className="font-mono break-all text-foreground">
-							{quarantineDir.replace(/\/+$/, '')}/deleted/&lt;date&gt;/
+							{trashDir.replace(/\/+$/, '')}/&lt;date&gt;/
 						</code>
-						, each listed in that folder’s <code className="font-mono">restore_log.csv</code>.
-						Nothing is erased from disk.
+						{heldFiles > 0
+							? ` (${heldFiles === 1 ? '1 file' : `${heldFiles} files`}, ${formatBytes(heldBytes)})`
+							: ''}
+						. Removed books keep their file where it is until they are deleted permanently.
 					</span>
 				</p>
-			) : (
-				<Alert variant="warning">
-					<ShieldAlert />
-					<AlertTitle>Permanent deletion can’t move files</AlertTitle>
-					<AlertDescription>
-						<p>
-							{quarantineDir ? (
-								<>
-									The quarantine folder <code className="font-mono">{quarantineDir}</code> doesn’t
-									exist (is it mounted?).
-								</>
-							) : (
-								<>
-									No quarantine folder is set (
-									<code className="font-mono">STUMP_QUARANTINE_DIR</code>).
-								</>
-							)}{' '}
-							Stump never deletes book files, so books stay here until you restore them; only books
-							whose file is already gone can be deleted permanently.
-						</p>
-					</AlertDescription>
-				</Alert>
 			)}
 		</section>
 	)
@@ -154,9 +139,13 @@ export default function RetentionPolicy({
 
 function lastPurgeResult(summary: NonNullable<Settings['lastPurge']>): string {
 	const gone = summary.purged + summary.missingFiles
-	if (gone === 0 && summary.failed === 0) return 'nothing was due'
+	if (gone === 0 && summary.failed === 0 && summary.originals === 0) return 'nothing was due'
 	const parts = []
 	if (gone > 0) parts.push(`${books(gone)} deleted permanently`)
+	if (summary.originals > 0)
+		parts.push(
+			`${summary.originals === 1 ? '1 original' : `${summary.originals} originals`} deleted`,
+		)
 	if (summary.failed > 0) parts.push(`${books(summary.failed)} kept`)
 	return parts.join(', ')
 }

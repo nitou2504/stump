@@ -24,47 +24,37 @@ const entry = (id: string, title: string, fileExists = true): DeletedBookEntry =
 	},
 })
 
-const quarantine = {
-	quarantineDir: '/quarantine',
-	quarantineReady: true,
-	now: new Date('2026-11-04T10:00:00Z'),
-}
-
 describe('PurgeConfirmation', () => {
-	it('says where the file goes and what Stump erases', () => {
+	it('says the file is deleted and what Stump erases', () => {
 		render(
 			<PurgeConfirmation
 				entries={[entry('a', 'El nombre de la rosa')]}
 				isPending={false}
 				onConfirm={vi.fn()}
 				onClose={vi.fn()}
-				{...quarantine}
 			/>,
 		)
 		expect(screen.getByText('Delete “El nombre de la rosa” permanently?')).toBeTruthy()
-		expect(screen.getByText('/quarantine/deleted/2026-11-04/')).toBeTruthy()
+		expect(screen.getByText(/Its file is deleted from disk/)).toBeTruthy()
 		expect(
 			screen.getByText(/erases its reading progress, annotations, bookmarks and tags/),
 		).toBeTruthy()
 		expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeTruthy()
 	})
 
-	it('warns that books with a file are kept without a quarantine folder', () => {
+	it('counts the files deleted and the ones already gone', () => {
 		render(
 			<PurgeConfirmation
 				entries={[entry('a', 'On disk'), entry('b', 'Gone', false)]}
 				isPending={false}
 				onConfirm={vi.fn()}
 				onClose={vi.fn()}
-				{...quarantine}
-				quarantineDir={null}
-				quarantineReady={false}
 			/>,
 		)
 		expect(screen.getByText('Delete 2 books permanently?')).toBeTruthy()
-		expect(screen.getByText(/the book with a file will stay in Deleted books/)).toBeTruthy()
+		expect(screen.getByText(/1 file is deleted from disk/)).toBeTruthy()
 		expect(screen.getByText(/1 file is already gone from the library/)).toBeTruthy()
-		expect(screen.queryByText(/deleted\/2026-11-04/)).toBeNull()
+		expect(screen.queryByText(/quarantine/)).toBeNull()
 	})
 })
 
@@ -78,7 +68,6 @@ describe('EmptyConfirmation', () => {
 				isPending={false}
 				onConfirm={onConfirm}
 				onClose={vi.fn()}
-				{...quarantine}
 			/>,
 		)
 		const confirm = screen.getByRole('button', { name: 'Empty Deleted books' })

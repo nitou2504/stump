@@ -30,6 +30,7 @@ const STATUS_LABEL: Record<PostProcessStatus, string> = {
 	[PostProcessStatus.Skipped]: 'Nothing to do',
 	[PostProcessStatus.Failed]: 'Failed',
 	[PostProcessStatus.Estimated]: 'Estimate',
+	[PostProcessStatus.Reverted]: 'Original put back',
 }
 
 const STATUS_VARIANT: Record<PostProcessStatus, 'secondary' | 'primary' | 'success' | 'error'> = {
@@ -40,6 +41,7 @@ const STATUS_VARIANT: Record<PostProcessStatus, 'secondary' | 'primary' | 'succe
 	[PostProcessStatus.Skipped]: 'secondary',
 	[PostProcessStatus.Failed]: 'error',
 	[PostProcessStatus.Estimated]: 'primary',
+	[PostProcessStatus.Reverted]: 'secondary',
 }
 
 export const formatBytes = (bytes?: number | null) =>

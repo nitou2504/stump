@@ -6,6 +6,7 @@ import {
 	Button,
 	ConfirmationModal,
 	DropdownMenu,
+	Link,
 	NativeSelect,
 	NewCard,
 	RawTextArea,
@@ -19,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import PostProcessingTasks, { formatBytes } from '@/components/postProcessing/PostProcessingTasks'
+import { usePaths } from '@/paths'
 
 import { useLibraryManagement } from '../../context'
 
@@ -34,7 +36,7 @@ const query = graphql(`
 				pdfOcrSince
 				pdfShrinkSince
 			}
-			quarantineDir
+			trashDir
 			pdfQueueDir
 			pdfWorker {
 				alive
@@ -92,6 +94,7 @@ export default function PostProcessingScene() {
 	const {
 		library: { id: libraryId },
 	} = useLibraryManagement()
+	const paths = usePaths()
 	const client = useQueryClient()
 	// refreshed every 30 s so the PDF worker's state (its heartbeat) stays current
 	const { data } = useGraphQL(
@@ -164,7 +167,6 @@ export default function PostProcessingScene() {
 
 	const count = (kind: PostProcessKind, status: PostProcessStatus) =>
 		settings.counts.find((c) => c.kind === kind && c.status === status)?.count ?? 0
-	const noQuarantine = !settings.quarantineDir
 	const worker = settings.pdfWorker
 	const lastSeen = worker.lastSeen
 		? formatDistanceToNow(new Date(worker.lastSeen), { addSuffix: true })
@@ -172,18 +174,13 @@ export default function PostProcessingScene() {
 
 	return (
 		<div className="gap-10 flex flex-col">
-			{noQuarantine && (
-				<Alert variant="warning">
-					<AlertTriangle />
-					<AlertTitle>No quarantine folder</AlertTitle>
-					<AlertDescription>
-						Processed files replace the originals, which are kept in a quarantine folder and never
-						deleted. Set <code>STUMP_QUARANTINE_DIR</code> (or <code>quarantine_dir</code> in
-						Stump.toml) to a folder mounted in the container; until then nothing is replaced and
-						only the 16-grey estimate works.
-					</AlertDescription>
-				</Alert>
-			)}
+			<p className="text-sm max-w-prose text-muted-foreground">
+				Processed files replace the originals. Each original waits in{' '}
+				<Link to={paths.deletedBooks()} className="underline">
+					Settings → Deleted books
+				</Link>{' '}
+				for the retention period, where it can be put back; then it is deleted.
+			</p>
 
 			<NewCard
 				label="Manga: 16 grey levels"
@@ -230,11 +227,7 @@ export default function PostProcessingScene() {
 							<Gauge className="mr-2 h-4 w-4" />
 							Estimate savings
 						</Button>
-						<Button
-							variant="outline"
-							disabled={isRunning || noQuarantine}
-							onClick={() => setConfirmConvert(true)}
-						>
+						<Button variant="outline" disabled={isRunning} onClick={() => setConfirmConvert(true)}>
 							<Shrink className="mr-2 h-4 w-4" />
 							Convert now
 						</Button>
@@ -257,7 +250,7 @@ export default function PostProcessingScene() {
 				)}
 				<NewCard
 					label="Scanned PDFs"
-					description="OCR for scans whose text layer is missing or poor, and size reduction when it saves at least 15 % and 2 MB without visible loss. Born-digital PDFs are left alone. These run in the PDF worker container next to Stump (OCRmyPDF and book-curator's recipe), which uses almost no memory while nothing is queued."
+					description="OCR for scans whose text layer is missing or poor, and size reduction when it saves at least 15 % and 2 MB without visible loss. Born-digital PDFs are left alone. These run in the PDF worker container next to Stump (OCRmyPDF and Stump's recipe for scans), which uses almost no memory while nothing is queued."
 				>
 					<NewCard.Row
 						label="Worker"
@@ -295,7 +288,7 @@ export default function PostProcessingScene() {
 					>
 						<DropdownMenu
 							trigger={
-								<Button variant="outline" disabled={isRunning || noQuarantine || !worker.alive}>
+								<Button variant="outline" disabled={isRunning || !worker.alive}>
 									<FileScan className="mr-2 h-4 w-4" />
 									Queue PDFs
 									<ChevronDown className="ml-2 h-4 w-4" />
@@ -326,7 +319,7 @@ export default function PostProcessingScene() {
 
 			<ConfirmationModal
 				title="Convert this library's manga now?"
-				description="Every CBZ that is not left out and not converted yet is reduced to 16 grey levels, one volume at a time at low priority. Each original is copied to the quarantine folder before it is replaced."
+				description="Every CBZ that is not left out and not converted yet is reduced to 16 grey levels, one volume at a time at low priority. Each original waits in Deleted books for the retention period, where it can be put back."
 				isOpen={confirmConvert}
 				onClose={() => setConfirmConvert(false)}
 				onConfirm={() => {

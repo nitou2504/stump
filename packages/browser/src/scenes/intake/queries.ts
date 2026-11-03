@@ -113,7 +113,6 @@ export const intakeItemsQuery = graphql(`
 			}
 			result {
 				paths
-				csvPath
 				notes
 			}
 		}

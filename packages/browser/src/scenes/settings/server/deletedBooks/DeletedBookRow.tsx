@@ -18,8 +18,6 @@ type Props = {
 	onPurge: () => void
 	retentionDays: number
 	now: Date
-	/** Whether a book with a file can be deleted permanently (the quarantine folder is ready) */
-	canMoveFiles: boolean
 	busy: boolean
 }
 
@@ -32,14 +30,12 @@ export default function DeletedBookRow({
 	onPurge,
 	retentionDays,
 	now,
-	canMoveFiles,
 	busy,
 }: Props) {
 	const { book } = entry
 	const title = book.resolvedName
 	const authors = book.metadata?.writers?.join(', ')
 	const removed = formatDistanceToNow(new Date(entry.deletedAt), { addSuffix: true })
-	const purgeBlocked = entry.fileExists && !canMoveFiles
 
 	return (
 		<li
@@ -104,10 +100,7 @@ export default function DeletedBookRow({
 						variant="destructive"
 						className="md:flex-none flex-1"
 						onClick={onPurge}
-						disabled={busy || purgeBlocked}
-						title={
-							purgeBlocked ? 'No quarantine folder is set: book files are never deleted' : undefined
-						}
+						disabled={busy}
 					>
 						<Trash2 aria-hidden />
 						Delete permanently
@@ -118,7 +111,7 @@ export default function DeletedBookRow({
 	)
 }
 
-function Cover({ url, title }: { url: string; title: string }) {
+export function Cover({ url, title }: { url: string; title: string }) {
 	const [failed, setFailed] = useState(false)
 	const frame = 'h-[60px] w-10 shrink-0 rounded-sm border-[0.5px] border-border shadow-sm'
 	if (failed) {

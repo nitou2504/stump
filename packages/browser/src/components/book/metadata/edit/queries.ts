@@ -39,6 +39,12 @@ export const mediaGenreSuggestionsQuery = graphql(`
 			}
 			subjects
 			lookedUpOnline
+			onlineLookups {
+				source
+				status
+				subjects
+				message
+			}
 		}
 	}
 `)

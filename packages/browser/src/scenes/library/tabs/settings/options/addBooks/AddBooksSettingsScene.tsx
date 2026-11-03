@@ -14,7 +14,6 @@ const query = graphql(`
 			libraryId
 			mangaDir
 			lightNovelDir
-			csvPath
 			onlineLookup
 		}
 	}
@@ -28,7 +27,7 @@ const mutation = graphql(`
 	}
 `)
 
-type Draft = { mangaDir: string; lightNovelDir: string; csvPath: string; onlineLookup: boolean }
+type Draft = { mangaDir: string; lightNovelDir: string; onlineLookup: boolean }
 
 /** Where "Add books" files books in this library, and whether it looks titles up online */
 export default function AddBooksSettingsScene() {
@@ -44,7 +43,6 @@ export default function AddBooksSettingsScene() {
 	useEffect(() => {
 		if (settings) {
 			setDraft({
-				csvPath: settings.csvPath ?? '',
 				lightNovelDir: settings.lightNovelDir,
 				mangaDir: settings.mangaDir,
 				onlineLookup: settings.onlineLookup,
@@ -72,13 +70,11 @@ export default function AddBooksSettingsScene() {
 	const changed =
 		draft.mangaDir !== settings.mangaDir ||
 		draft.lightNovelDir !== settings.lightNovelDir ||
-		draft.csvPath !== (settings.csvPath ?? '') ||
 		draft.onlineLookup !== settings.onlineLookup
 
 	const save = () =>
 		mutate({
 			input: {
-				csvPath: draft.csvPath.trim() || null,
 				lightNovelDir: draft.lightNovelDir.trim(),
 				mangaDir: draft.mangaDir.trim(),
 				onlineLookup: draft.onlineLookup,
@@ -108,23 +104,10 @@ export default function AddBooksSettingsScene() {
 				</div>
 			</SettingsSection>
 
-			<SettingsSection
-				title="Added books list"
-				description="Every added book gets a row (catalogo.csv columns plus who added it and when) so the curator can pick it up."
-			>
-				<Input
-					label="CSV file"
-					placeholder="Default: stump_intake.csv next to catalogo.csv, or in the library root"
-					value={draft.csvPath}
-					onChange={(e) => setDraft({ ...draft, csvPath: e.target.value })}
-					fullWidth
-				/>
-			</SettingsSection>
-
 			<SettingsSection title="Online lookups">
 				<WideSwitch
 					label="Look books up on Open Library and Google Books"
-					description="Fills in missing authors, series, year and subjects while analysing an upload"
+					description="Fills in missing authors, series, year and subjects while analysing an upload. Google Books works best with an API key (Settings → Metadata Integrations)"
 					checked={draft.onlineLookup}
 					onCheckedChange={(onlineLookup) => setDraft({ ...draft, onlineLookup })}
 				/>

@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { confidenceLevel, isVoteReason } from '@/scenes/intake/reviewState'
 
+import { lookupLine, lookupNeedsAttention } from './onlineLookups'
 import { mediaGenreSuggestionsQuery } from './queries'
 import { applyPicks, defaultPicks, tagGroup } from './tags'
 
@@ -116,6 +117,22 @@ export default function GenreSuggestPanel({ mediaId, current, onApply, onClose }
 			)}
 			{isError && (
 				<p className="text-xs text-destructive">The suggestions could not be loaded. Try again.</p>
+			)}
+			{result && !isFetching && result.onlineLookups.length > 0 && (
+				<ul className="gap-0.5 text-xs flex flex-col" aria-label="Online lookups">
+					{result.onlineLookups.map((lookup) => (
+						<li
+							key={lookup.source}
+							className={cn(
+								lookupNeedsAttention(lookup.status)
+									? 'text-amber-700 dark:text-amber-400'
+									: 'text-muted-foreground',
+							)}
+						>
+							{lookupLine(lookup)}
+						</li>
+					))}
+				</ul>
 			)}
 
 			{result && (

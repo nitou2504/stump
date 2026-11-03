@@ -26,7 +26,7 @@ describe('edit details form', () => {
 		expect(initial.summary).toBe('A diary.\n')
 	})
 
-	it('sends only the edited fields, genres in the curator order', () => {
+	it('sends only the edited fields, genres in the library order', () => {
 		const initial = detailsForm(stored)
 		const input = editInput(initial, {
 			...initial,

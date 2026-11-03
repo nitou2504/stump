@@ -4,12 +4,13 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 
-import { books } from './countdown'
+import { books, formatBytes } from './countdown'
 import {
+	deleteHeldFilesMutation,
 	emptyDeletedBooksMutation,
 	purgeDeletedBooksMutation,
+	putBackHeldFileMutation,
 	restoreDeletedBooksMutation,
-	restorePurgedBookMutation,
 	updateRetentionMutation,
 } from './queries'
 
@@ -28,7 +29,7 @@ export function announcePurge(result: PurgeSummary, singleTitle?: string) {
 		toast.success(`Deleted ${what} permanently`, {
 			description:
 				result.purged > 0
-					? `${result.purged === 1 ? 'Its file is' : 'Their files are'} in the quarantine folder.`
+					? `${result.purged === 1 ? 'Its file was' : 'Their files were'} deleted from disk.`
 					: 'Its file was already gone: only its data was deleted.',
 		})
 	}
@@ -43,7 +44,7 @@ export function announcePurge(result: PurgeSummary, singleTitle?: string) {
 	}
 }
 
-/** Restoring, deleting permanently, emptying, the retention, putting files back */
+/** Restoring, deleting permanently, emptying, the retention, and the held originals */
 export function useDeletedBooksActions() {
 	const client = useQueryClient()
 
@@ -54,6 +55,7 @@ export function useDeletedBooksActions() {
 			Promise.all([
 				client.invalidateQueries({ queryKey: ['deletedBooks'] }),
 				client.invalidateQueries({ queryKey: ['purgedBooks'] }),
+				client.invalidateQueries({ queryKey: ['heldFiles'] }),
 				client.invalidateQueries({ queryKey: ['deletedBooksSettings'] }),
 			]),
 		[client],
@@ -69,7 +71,9 @@ export function useDeletedBooksActions() {
 	const { mutateAsync: retentionAsync, isPending: isSavingRetention } =
 		useGraphQLMutation(updateRetentionMutation)
 	const { mutateAsync: putBackAsync, isPending: isPuttingBack } =
-		useGraphQLMutation(restorePurgedBookMutation)
+		useGraphQLMutation(putBackHeldFileMutation)
+	const { mutateAsync: deleteHeldAsync, isPending: isDeletingHeld } =
+		useGraphQLMutation(deleteHeldFilesMutation)
 
 	const restore = useCallback(
 		async (ids: string[], singleTitle?: string) => {
@@ -139,18 +143,50 @@ export function useDeletedBooksActions() {
 	const putBack = useCallback(
 		async (id: number) => {
 			try {
-				const { restorePurgedBook: book } = await putBackAsync({ id })
-				toast.success(`“${book.title}” is back in ${book.libraryName ?? 'its library'}`, {
-					description: 'Its folder is being scanned; it returns as a new book.',
+				const { putBackHeldFile: result } = await putBackAsync({ id })
+				toast.success(`“${result.book.resolvedName}” has its original file back`, {
+					description:
+						result.replaced != null
+							? 'The version it replaced waits in Deleted books, in case you want it again.'
+							: undefined,
 				})
-				await refreshTrash()
+				await refreshAll()
 				return true
 			} catch (error) {
 				toast.error(errorMessage(error, 'Failed to put the file back'))
 				return false
 			}
 		},
-		[putBackAsync, refreshTrash],
+		[putBackAsync, refreshAll],
+	)
+
+	const deleteHeld = useCallback(
+		async (ids: number[]) => {
+			try {
+				const { deleteHeldFiles: result } = await deleteHeldAsync({ ids })
+				if (result.deleted > 0) {
+					toast.success(
+						result.deleted === 1
+							? 'Deleted 1 file permanently'
+							: `Deleted ${result.deleted} files permanently`,
+						{ description: `${formatBytes(result.freedBytes)} freed.` },
+					)
+				}
+				const [first] = result.kept
+				if (first) {
+					toast.error(`Kept the file of “${first.title}”`, {
+						description: first.error,
+						duration: 10000,
+					})
+				}
+				await refreshTrash()
+				return true
+			} catch (error) {
+				toast.error(errorMessage(error, 'Failed to delete'))
+				return false
+			}
+		},
+		[deleteHeldAsync, refreshTrash],
 	)
 
 	return {
@@ -159,9 +195,11 @@ export function useDeletedBooksActions() {
 		empty,
 		setRetention,
 		putBack,
+		deleteHeld,
 		isRestoring,
 		isPurging: isPurging || isEmptying,
 		isSavingRetention,
 		isPuttingBack,
+		isDeletingHeld,
 	}
 }

@@ -12,6 +12,7 @@ import { useAppContext } from '@/context'
 import { EmptyConfirmation, PurgeConfirmation } from './Confirmations'
 import { books } from './countdown'
 import DeletedBookRow, { type DeletedBookEntry } from './DeletedBookRow'
+import HeldFiles from './HeldFiles'
 import PurgedBooks from './PurgedBooks'
 import { deletedBooksLibrariesQuery, deletedBooksQuery, deletedBooksSettingsQuery } from './queries'
 import RetentionPolicy from './RetentionPolicy'
@@ -29,7 +30,8 @@ function useNow() {
 
 /**
  * Settings → Deleted books: the books removed from their libraries, waiting to be restored or
- * deleted permanently (by hand, or by the daily purge once the retention is over)
+ * deleted permanently (by hand, or by the daily purge once the retention is over), and the
+ * originals post-processing replaced, waiting to be put back or deleted
  */
 export default function DeletedBooksScene() {
 	const { checkPermission } = useAppContext()
@@ -101,6 +103,7 @@ export default function DeletedBooksScene() {
 	const [purging, setPurging] = useState<DeletedBookEntry[] | null>(null)
 	const [emptying, setEmptying] = useState(false)
 	const busy = actions.isRestoring || actions.isPurging
+	const heldBusy = actions.isPuttingBack || actions.isDeletingHeld
 
 	const restore = async (targets: DeletedBookEntry[]) => {
 		const ok = await actions.restore(
@@ -131,11 +134,6 @@ export default function DeletedBooksScene() {
 	}
 
 	const retentionDays = settings?.retentionDays ?? 14
-	const quarantine = {
-		quarantineDir: settings?.quarantineDir,
-		quarantineReady: settings?.quarantineReady ?? false,
-		now,
-	}
 
 	return (
 		<SceneContainer variant="settings">
@@ -268,7 +266,6 @@ export default function DeletedBooksScene() {
 								onPurge={() => setPurging([entry])}
 								retentionDays={retentionDays}
 								now={now}
-								canMoveFiles={quarantine.quarantineReady}
 								busy={busy}
 							/>
 						))}
@@ -276,14 +273,22 @@ export default function DeletedBooksScene() {
 				)}
 			</section>
 
-			<PurgedBooks onPutBack={actions.putBack} isPuttingBack={actions.isPuttingBack} />
+			<HeldFiles
+				libraryId={libraryFilter || undefined}
+				retentionDays={retentionDays}
+				now={now}
+				onPutBack={actions.putBack}
+				onDelete={actions.deleteHeld}
+				busy={heldBusy}
+			/>
+
+			<PurgedBooks />
 
 			<PurgeConfirmation
 				entries={purging}
 				isPending={actions.isPurging}
 				onConfirm={confirmPurge}
 				onClose={() => setPurging(null)}
-				{...quarantine}
 			/>
 			<EmptyConfirmation
 				isOpen={emptying}
@@ -292,7 +297,6 @@ export default function DeletedBooksScene() {
 				isPending={actions.isPurging}
 				onConfirm={confirmEmpty}
 				onClose={() => setEmptying(false)}
-				{...quarantine}
 			/>
 		</SceneContainer>
 	)

@@ -49,7 +49,7 @@ export const FIELD_LABELS: Record<Exclude<GroupField, 'pattern'>, string> = {
 
 export const GROUP_FIELDS = Object.keys(FIELD_LABELS) as Exclude<GroupField, 'pattern'>[]
 
-/** `Key: value` genres/tags. The key is short and has no `=` (skips `bcurator:age=...`) */
+/** `Key: value` genres/tags. The key is short and has no `=` (skips Stump's `bcurator:age=...` keyword fields) */
 const KEYED_VALUE = /^([^:=]{1,40}?)\s*:\s*([^=]+)$/
 const HIDDEN_PREFIXES = new Set(['bcurator'])
 

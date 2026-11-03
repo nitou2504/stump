@@ -63,8 +63,15 @@ export function formatBytes(bytes: number | null | undefined): string {
 /** "1 book", "3 books" */
 export const books = (count: number) => (count === 1 ? '1 book' : `${count} books`)
 
-/** The quarantine day folder a book deleted now goes to, as the server names it (UTC date) */
-export function todaysQuarantineFolder(quarantineDir: string, now: Date): string {
-	const day = now.toISOString().slice(0, 10)
-	return `${quarantineDir.replace(/\/+$/, '')}/deleted/${day}/`
+/** What a held file is, from why Stump took it out of the library */
+export function heldFileLabel(reason: string, steps?: string | null): string {
+	if (reason === 'GREY16') return 'Original before 16 greys'
+	if (reason === 'PUT_BACK') return 'Version replaced when its original was put back'
+	const parts = (steps ?? '').split('+').filter(Boolean)
+	const ocr = parts.includes('OCR')
+	const shrink = parts.includes('SHRINK')
+	if (ocr && shrink) return 'Original before OCR and shrinking'
+	if (ocr) return 'Original before OCR'
+	if (shrink) return 'Original before shrinking'
+	return 'Original before post-processing'
 }

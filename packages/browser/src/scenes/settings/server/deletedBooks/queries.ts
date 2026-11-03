@@ -28,13 +28,14 @@ export const deletedBooksQuery = graphql(`
 	}
 `)
 
-/** How long removed books are kept, the quarantine folder and the automatic purge */
+/** How long removed books are kept, the trash folder and the automatic purge */
 export const deletedBooksSettingsQuery = graphql(`
 	query DeletedBooksSettings {
 		deletedBooksSettings {
 			retentionDays
-			quarantineDir
-			quarantineReady
+			trashDir
+			heldFiles
+			heldBytes
 			nextPurgeAt
 			lastPurgeAt
 			lastPurge {
@@ -43,6 +44,7 @@ export const deletedBooksSettingsQuery = graphql(`
 				purged
 				missingFiles
 				failed
+				originals
 				errors {
 					mediaId
 					title
@@ -53,7 +55,7 @@ export const deletedBooksSettingsQuery = graphql(`
 	}
 `)
 
-/** The books deleted permanently, latest first */
+/** The books deleted permanently, latest first (a log: their files were deleted) */
 export const purgedBooksQuery = graphql(`
 	query PurgedBooks($limit: Int!) {
 		purgedBooks(limit: $limit) {
@@ -63,14 +65,64 @@ export const purgedBooksQuery = graphql(`
 			authors
 			libraryName
 			originalPath
-			quarantinePath
 			bytes
 			purgedBy
 			automatic
 			purgedAt
-			restoredAt
-			restoredBy
-			canRestore
+		}
+	}
+`)
+
+/** The files Stump holds for the retention: originals replaced by post-processing */
+export const heldFilesQuery = graphql(`
+	query HeldFiles($libraryId: ID) {
+		heldFiles(libraryId: $libraryId) {
+			id
+			reason
+			steps
+			title
+			libraryId
+			libraryName
+			relativePath
+			bytes
+			heldAt
+			heldBy
+			expiresAt
+			purgeAt
+			canPutBack
+			book {
+				id
+				resolvedName
+				thumbnail {
+					url
+				}
+			}
+		}
+	}
+`)
+
+export const putBackHeldFileMutation = graphql(`
+	mutation PutBackHeldFile($id: Int!) {
+		putBackHeldFile(id: $id) {
+			book {
+				id
+				resolvedName
+			}
+			replaced
+		}
+	}
+`)
+
+export const deleteHeldFilesMutation = graphql(`
+	mutation DeleteHeldFiles($ids: [Int!]!) {
+		deleteHeldFiles(ids: $ids) {
+			deleted
+			freedBytes
+			kept {
+				id
+				title
+				error
+			}
 		}
 	}
 `)
@@ -98,7 +150,7 @@ export const purgeDeletedBooksMutation = graphql(`
 		purgeDeletedBooks(ids: $ids) {
 			purged
 			missingFiles
-			quarantinedBytes
+			freedBytes
 			kept {
 				mediaId
 				title
@@ -113,7 +165,7 @@ export const emptyDeletedBooksMutation = graphql(`
 		emptyDeletedBooks(libraryId: $libraryId) {
 			purged
 			missingFiles
-			quarantinedBytes
+			freedBytes
 			kept {
 				mediaId
 				title
@@ -127,17 +179,6 @@ export const updateRetentionMutation = graphql(`
 	mutation UpdateDeletedBooksRetention($days: Int!) {
 		updateDeletedBooksRetention(days: $days) {
 			retentionDays
-		}
-	}
-`)
-
-export const restorePurgedBookMutation = graphql(`
-	mutation RestorePurgedBook($id: Int!) {
-		restorePurgedBook(id: $id) {
-			id
-			title
-			libraryName
-			restoredAt
 		}
 	}
 `)

@@ -1,7 +1,7 @@
 import { isMangaBook } from '../useBookPreferences'
 
 describe('isMangaBook', () => {
-	it('recognises manga by its genre (ComicInfo Genre or the curator tags)', () => {
+	it('recognises manga by its genre (ComicInfo Genre or the library tags)', () => {
 		expect(isMangaBook({ metadata: { genres: ['Manga & Comics', 'Manga & Comics: Manga'] } })).toBe(
 			true,
 		)

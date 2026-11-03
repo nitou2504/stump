@@ -135,7 +135,7 @@ export function hasOwnSettings(
 }
 
 /**
- * Whether a book is manga, from its genres: ComicInfo's `Genre` (and the curator's tags) name
+ * Whether a book is manga, from its genres: ComicInfo's `Genre` (and the library's tags) name
  * it `Manga` or `…: Manga`, e.g. `Manga & Comics: Manga`. Stump doesn't keep ComicInfo's
  * `Manga=YesAndRightToLeft` itself, so this stands in for it.
  */

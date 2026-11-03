@@ -132,7 +132,7 @@ export function defaultPicks(
 	return { add, remove }
 }
 
-/** The tags after applying picks: removed ones out, added ones in, in the curator's order */
+/** The tags after applying picks: removed ones out, added ones in, in the library's order */
 export function applyPicks(current: string[], remove: string[], add: string[]): string[] {
 	const removed = new Set(remove.map((r) => r.toLowerCase()))
 	return orderTags([...current.filter((c) => !removed.has(c.toLowerCase())), ...add])

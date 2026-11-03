@@ -6,10 +6,10 @@ import {
 	daysLeft,
 	formatBytes,
 	fuseTicks,
+	heldFileLabel,
 	isImminent,
 	retentionLabel,
 	retentionOptions,
-	todaysQuarantineFolder,
 } from '../countdown'
 
 describe('daysLeft', () => {
@@ -91,9 +91,11 @@ describe('formatting', () => {
 		expect(books(3)).toBe('3 books')
 	})
 
-	it('names the quarantine folder a book goes to today (UTC)', () => {
-		expect(todaysQuarantineFolder('/quarantine/', new Date('2026-11-04T03:00:00Z'))).toBe(
-			'/quarantine/deleted/2026-11-04/',
-		)
+	it('says what a held file is', () => {
+		expect(heldFileLabel('GREY16')).toBe('Original before 16 greys')
+		expect(heldFileLabel('PDF', 'OCR+SHRINK')).toBe('Original before OCR and shrinking')
+		expect(heldFileLabel('PDF', 'SHRINK')).toBe('Original before shrinking')
+		expect(heldFileLabel('PDF', null)).toBe('Original before post-processing')
+		expect(heldFileLabel('PUT_BACK', 'OCR')).toBe('Version replaced when its original was put back')
 	})
 })

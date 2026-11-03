@@ -40,7 +40,13 @@ const fragment = graphql(`
 			purgedBooks
 			missingBookFiles
 			keptBooks
-			quarantinedBytes
+			purgedHeldFiles
+			freedBytes
+		}
+		... on RescanBooksOutput {
+			rescannedBooks
+			updatedBooks
+			missingBooks
 		}
 	}
 `)
