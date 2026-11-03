@@ -610,7 +610,7 @@ async fn test_load_ignores_books_outside_the_trash() {
 	let mut active = book.clone().into_active_model();
 	active.deleted_at = Set(None);
 	active.update(&setup.conn).await.unwrap();
-	assert!(load_trashed(&setup.conn, &[book.id.clone()])
+	assert!(load_trashed(&setup.conn, std::slice::from_ref(&book.id))
 		.await
 		.unwrap()
 		.is_empty());
