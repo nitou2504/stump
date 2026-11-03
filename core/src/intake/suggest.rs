@@ -180,7 +180,8 @@ pub struct Inputs<'a> {
 }
 
 /// Merges online records into the file's metadata: the file wins, then Open Library, then
-/// Google Books. Subjects are pooled.
+/// Google Books, then Hardcover (its description and series fill what is missing). Subjects
+/// are pooled; one only a weighing source gives (Hardcover) keeps its weight.
 pub fn merge_online(meta: &mut IntakeMetadata, online: &[OnlineRecord]) {
 	let file_named = |m: &IntakeMetadata, field: &str| {
 		matches!(m.source_of(field), None | Some(IntakeSource::FileName))
@@ -229,9 +230,33 @@ pub fn merge_online(meta: &mut IntakeMetadata, online: &[OnlineRecord]) {
 				meta.set_source("isbn", source);
 			}
 		}
+		if meta.series.is_none() {
+			if let Some(series) = &record.series {
+				meta.series = Some(series.clone());
+				meta.set_source("series", source);
+				if let Some(index) =
+					record.series_index.filter(|_| meta.series_index.is_none())
+				{
+					meta.series_index = Some(index);
+					meta.set_source("seriesIndex", source);
+				}
+			}
+		}
 		for subject in &record.subjects {
+			let weight = record.subject_weights.get(subject).copied();
 			if !meta.subjects.contains(subject) {
 				meta.subjects.push(subject.clone());
+				if let Some(weight) = weight {
+					meta.subject_weights.insert(subject.clone(), weight);
+				}
+			} else if let Some(current) = meta.subject_weights.get(subject).copied() {
+				// given again: by a source that weighs it (the stronger weight), or fully
+				match weight {
+					Some(weight) => meta
+						.subject_weights
+						.insert(subject.clone(), current.max(weight)),
+					None => meta.subject_weights.remove(subject),
+				};
 			}
 		}
 	}
@@ -335,8 +360,14 @@ pub fn score_tags(
 	let mut scores: HashMap<u32, Score> = HashMap::new();
 	let file_subjects = meta.source_of("subjects") == Some(IntakeSource::File);
 
-	// 1. subjects, from the file and online catalogues
+	// 1. subjects, from the file and online catalogues (a weighed one by its weight)
 	for subject in &meta.subjects {
+		let weight = meta
+			.subject_weights
+			.get(subject)
+			.copied()
+			.unwrap_or(1.0)
+			.clamp(0.0, 1.0);
 		let whole = norm(subject);
 		if let Some(tag) = index.vocab_index(&whole) {
 			let (value, why) = if file_subjects {
@@ -344,19 +375,19 @@ pub fn score_tags(
 			} else {
 				(0.7, format!("subject '{subject}'"))
 			};
-			add(&mut scores, tag, value, why);
+			add(&mut scores, tag, value * weight, why);
 			continue;
 		}
 		for piece in subject_pieces(subject) {
 			if let Some(tag) = index.vocab_index(&piece) {
-				add(&mut scores, tag, 0.6, format!("subject '{subject}'"));
+				add(&mut scores, tag, 0.6 * weight, format!("subject '{subject}'"));
 			} else if let Some((_, canonical)) = SYNONYMS.iter().find(|(s, _)| *s == piece) {
 				if let Some(tag) = index.vocab_index(&norm(canonical)) {
-					add(&mut scores, tag, 0.5, format!("subject '{subject}'"));
+					add(&mut scores, tag, 0.5 * weight, format!("subject '{subject}'"));
 				}
 			} else {
 				for tag in index.small_tags(&piece) {
-					add(&mut scores, *tag, 0.5, format!("subject '{subject}'"));
+					add(&mut scores, *tag, 0.5 * weight, format!("subject '{subject}'"));
 				}
 			}
 		}
@@ -716,7 +747,9 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 	// confidence: the weakest of what filing needs
 	let title_confidence: f64 = match meta.source_of("title") {
 		Some(IntakeSource::File) | Some(IntakeSource::User) => 1.0,
-		Some(IntakeSource::OpenLibrary) | Some(IntakeSource::GoogleBooks) => 0.9,
+		Some(IntakeSource::OpenLibrary)
+		| Some(IntakeSource::GoogleBooks)
+		| Some(IntakeSource::Hardcover) => 0.9,
 		Some(_) => 0.7,
 		None => 0.0,
 	};
@@ -802,5 +835,143 @@ mod tests {
 		assert_eq!(meta.source_of("year"), Some(IntakeSource::OpenLibrary));
 		assert_eq!(meta.language.as_deref(), Some("it"));
 		assert_eq!(meta.subjects, vec!["Fiction"]);
+	}
+
+	#[test]
+	fn keeps_hardcover_weights_and_fills_a_missing_series() {
+		let mut meta = IntakeMetadata {
+			subjects: vec!["History".into()],
+			..Default::default()
+		};
+		meta.set_source("subjects", IntakeSource::File);
+		let online = vec![
+			OnlineRecord {
+				source: Some(IntakeSource::OpenLibrary),
+				subjects: vec!["Islam".into()],
+				..Default::default()
+			},
+			OnlineRecord {
+				source: Some(IntakeSource::Hardcover),
+				subjects: vec![
+					"Religion".into(),
+					"History".into(),
+					"Islam".into(),
+					"Theology".into(),
+				],
+				subject_weights: HashMap::from([
+					("History".to_string(), 0.75),
+					("Islam".to_string(), 0.8),
+					("Theology".to_string(), 0.6),
+				]),
+				description: Some(
+					"The sacred book of Islam, its history and how it is read.".into(),
+				),
+				series: Some("Very Short Introductions".into()),
+				series_index: Some(143.0),
+				..Default::default()
+			},
+		];
+		merge_online(&mut meta, &online);
+		assert_eq!(
+			meta.subjects,
+			vec!["History", "Islam", "Religion", "Theology"]
+		);
+		// the file's and Open Library's subjects count fully: only Hardcover's own keep a weight
+		assert_eq!(
+			meta.subject_weights,
+			HashMap::from([("Theology".to_string(), 0.6)])
+		);
+		assert_eq!(meta.series.as_deref(), Some("Very Short Introductions"));
+		assert_eq!(meta.series_index, Some(143.0));
+		assert_eq!(meta.source_of("series"), Some(IntakeSource::Hardcover));
+		assert_eq!(meta.source_of("description"), Some(IntakeSource::Hardcover));
+
+		// a book's own series stays
+		let mut meta = IntakeMetadata {
+			series: Some("Cambridge Concise Histories".into()),
+			..Default::default()
+		};
+		merge_online(&mut meta, &online);
+		assert_eq!(meta.series.as_deref(), Some("Cambridge Concise Histories"));
+		assert_eq!(meta.series_index, None);
+	}
+
+	/// A subject few of Hardcover's readers gave counts by its weight: suggested, not ticked
+	#[tokio::test]
+	async fn scores_a_weighed_subject_by_its_weight() {
+		use ::tests::fake_data;
+		use models::entity::media_metadata;
+		use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+		let conn = ::tests::db::test_database().await;
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("biblioteca");
+		std::fs::create_dir_all(root.join("Otros")).unwrap();
+		let library = fake_data::Library {
+			path: Some(root.to_string_lossy().into_owned()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		for (rel, genres) in [
+			("Otros/a.epub", "History, Fantasy"),
+			("Otros/b.epub", "Philosophy"),
+		] {
+			let book = fake_data::Media {
+				series_id: series.id.clone(),
+				path: Some(root.join(rel).to_string_lossy().into_owned()),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await;
+			media_metadata::ActiveModel {
+				media_id: Set(Some(book.id)),
+				title: Set(Some(rel.to_string())),
+				genres: Set(Some(genres.to_string())),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await
+			.unwrap();
+		}
+		let index = super::super::library_index::library_index(
+			&conn,
+			&library.id,
+			&root,
+			"_Manga",
+			"_Novela ligera",
+		)
+		.await
+		.unwrap();
+		let mut meta = IntakeMetadata {
+			subjects: vec!["History".into(), "Fantasy".into()],
+			..Default::default()
+		};
+		meta.subject_weights.insert("Fantasy".into(), 0.55);
+		let scores = score_tags(&index, &meta, None, &[], None, None);
+		let score = |tag: &str| {
+			index
+				.vocab_index(&norm(tag))
+				.and_then(|t| scores.get(&t))
+				.map(|s| s.value)
+				.unwrap_or(0.0)
+		};
+		assert!((score("History") - 0.7).abs() < 1e-9, "{scores:?}");
+		assert!((score("Fantasy") - 0.385).abs() < 1e-9, "{scores:?}");
+		let suggestions = rank_suggestions(&index, scores, None);
+		let selected = |value: &str| {
+			suggestions
+				.iter()
+				.find(|s| s.value == value)
+				.map(|s| s.selected)
+		};
+		assert_eq!(selected("History"), Some(true));
+		assert_eq!(selected("Fantasy"), Some(false));
 	}
 }

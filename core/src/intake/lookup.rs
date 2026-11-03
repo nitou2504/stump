@@ -1,9 +1,11 @@
-//! On-demand lookups on Open Library and Google Books. Short timeouts, a polite User-Agent
-//! and a small in-memory cache. Google Books answers keyless requests from a quota shared by
-//! every anonymous caller, which is often used up: an optional API key (a server setting, see
-//! [`google_books_key`]) gives the server its own. Each source's answer is reported
-//! ([`OnlineLookup`]: found with N subjects, no subjects, no match, rate-limited, error), so a
-//! lookup that failed is never taken for one that found nothing.
+//! On-demand lookups on Open Library, Google Books and Hardcover. Short timeouts, a polite
+//! User-Agent and a small in-memory cache. Google Books answers keyless requests from a quota
+//! shared by every anonymous caller, which is often used up: an optional API key (a server
+//! setting, see [`google_books_key`]) gives the server its own. Hardcover is asked only when its
+//! metadata provider (Settings → Metadata) is enabled with an API token, through that
+//! provider's client and within its rate limit. Each source's answer is reported
+//! ([`OnlineLookup`]: found with N subjects, no subjects, no match, rate-limited, error, not
+//! configured), so a lookup that failed is never taken for one that found nothing.
 //!
 //! Matching (at most 3 requests per source and book, all cached): the title is searched
 //! without its edition and format suffixes (`. Versión ilustrada`, `(Ed. Ilustrada)`,
@@ -13,21 +15,30 @@
 //! finds the work behind a translated edition (`El nombre de la rosa` → *Il nome della rosa*,
 //! matched through its edition titles); among the works that agree, the one whose author
 //! matches and with the most editions wins, and when it has no subjects in the search its work
-//! record (or one of its editions) is asked (subjects, people, places, times).
+//! record (or one of its editions) is asked (subjects, people, places, times). Hardcover is
+//! searched by ISBN, else by title and author; the book that agrees (its title or one of its
+//! alternative titles) with the most readers wins, and its record gives the genres and tags its
+//! readers gave it, weighted by their votes (see [`hardcover_subjects`]), its description and
+//! its series.
 
 use std::{
-	collections::HashMap,
-	sync::{LazyLock, Mutex},
+	collections::{hash_map::DefaultHasher, HashMap},
+	hash::{Hash, Hasher},
+	sync::{Arc, LazyLock, Mutex},
 	time::{Duration, Instant},
 };
 
+use metadata_integrations::{HardcoverClient, MetadataProviderError};
 use models::{
-	entity::server_config,
-	shared::intake::{IntakeSource, OnlineLookup, OnlineLookupStatus},
+	entity::{metadata_provider_config, server_config},
+	shared::{
+		enums::MetadataProvider,
+		intake::{IntakeSource, OnlineLookup, OnlineLookupStatus},
+	},
 };
 use regex::Regex;
 use sea_orm::{DatabaseConnection, EntityTrait};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::naming::{language_code, name_keys, name_tokens};
 use crate::utils::encryption::decrypt_string;
@@ -38,6 +49,12 @@ const TIMEOUT: Duration = Duration::from_secs(6);
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const ERROR_TTL: Duration = Duration::from_secs(10 * 60);
 const CACHE_MAX: usize = 256;
+/// How long Hardcover may take to answer a request, and the most a request may wait for the
+/// rate limiter and its answer together
+const HARDCOVER_TIMEOUT: Duration = Duration::from_secs(8);
+const HARDCOVER_DEADLINE: Duration = Duration::from_secs(20);
+/// After a refusal that doesn't say how long to wait, Hardcover isn't asked for a minute
+const HARDCOVER_DEFAULT_WAIT: Duration = Duration::from_secs(60);
 
 /// What an online source knows about a book
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -50,13 +67,23 @@ pub struct OnlineRecord {
 	pub publisher: Option<String>,
 	pub description: Option<String>,
 	pub subjects: Vec<String>,
+	/// How much a subject counts (0-1) when the source weighs it (Hardcover: by how many of
+	/// its readers gave it); the others count fully
+	pub subject_weights: HashMap<String, f64>,
 	pub isbn: Option<String>,
+	/// Hardcover: the book's series and its place in it
+	pub series: Option<String>,
+	pub series_index: Option<f64>,
 	/// Open Library: the work (`/works/OL...W`) and one edition (`OL...M`) the record came from
 	pub work_key: Option<String>,
 	pub edition_key: Option<String>,
-	/// Open Library: the titles of the work's editions that matched the search (a translated
-	/// edition's title, when the work is known by its original one)
+	/// Hardcover: the book's id
+	pub hardcover_id: Option<i64>,
+	/// The titles the book also goes by: Open Library's matched edition titles (a translated
+	/// edition's title, when the work is known by its original one), Hardcover's alternative
+	/// titles
 	pub edition_titles: Vec<String>,
+	/// Open Library: its editions; Hardcover: its readers (the canonical book has the most)
 	pub edition_count: i64,
 }
 
@@ -241,6 +268,7 @@ pub fn source_name(source: IntakeSource) -> &'static str {
 	match source {
 		IntakeSource::OpenLibrary => "Open Library",
 		IntakeSource::GoogleBooks => "Google Books",
+		IntakeSource::Hardcover => "Hardcover",
 		_ => "Online",
 	}
 }
@@ -255,10 +283,15 @@ pub enum Fetched {
 	Failed(String),
 }
 
-/// Something that GETs JSON: the real HTTP client, or canned answers in tests
+/// Something that GETs JSON and asks Hardcover: the real HTTP clients, or canned answers in
+/// tests
 #[async_trait::async_trait]
 pub trait Fetch: Send + Sync {
 	async fn get(&self, url: &str) -> Fetched;
+
+	/// Asks Hardcover's GraphQL API with the provider's token: the body when it answered
+	/// with data, else its refusal (HTTP status and body, GraphQL errors included)
+	async fn hardcover_graphql(&self, query: &str, variables: &Value) -> Fetched;
 }
 
 /// The URL without its API key, for logs
@@ -273,8 +306,20 @@ fn redacted(url: &str) -> String {
 	}
 }
 
-/// The HTTP client with the in-memory cache
-pub struct HttpFetch;
+/// The HTTP client with the in-memory cache, and the Hardcover provider's client when it is
+/// set up
+#[derive(Default)]
+pub struct HttpFetch {
+	hardcover: Option<HardcoverHandle>,
+}
+
+/// The Hardcover client for lookups and a fingerprint of its token, which keys its cached
+/// answers (an answer to one token is never reused for another)
+#[derive(Clone)]
+struct HardcoverHandle {
+	fingerprint: u64,
+	client: Arc<HardcoverClient>,
+}
 
 /// When an answer was kept, for how long, and the answer
 type Cached = (Instant, Duration, Fetched);
@@ -291,15 +336,61 @@ static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
 		.ok()
 });
 
+fn cached(key: &str) -> Option<Fetched> {
+	let cache = CACHE.lock().ok()?;
+	let (at, ttl, value) = cache.get(key)?;
+	(at.elapsed() < *ttl).then(|| value.clone())
+}
+
+fn keep(key: &str, ttl: Duration, fetched: &Fetched) {
+	if let Ok(mut cache) = CACHE.lock() {
+		if cache.len() >= CACHE_MAX {
+			if let Some(oldest) = cache
+				.iter()
+				.min_by_key(|(_, (at, _, _))| *at)
+				.map(|(k, _)| k.clone())
+			{
+				cache.remove(&oldest);
+			}
+		}
+		cache.insert(key.to_string(), (Instant::now(), ttl, fetched.clone()));
+	}
+}
+
+/// Until when Hardcover asked not to be called with a token (its `Retry-After` on a
+/// refusal): lookups until then report the refusal without asking
+static HARDCOVER_WAIT: Mutex<Option<(u64, Instant)>> = Mutex::new(None);
+
+fn hardcover_wait(fingerprint: u64) -> Option<Duration> {
+	let (token, until) = (*HARDCOVER_WAIT.lock().ok()?)?;
+	(token == fingerprint)
+		.then(|| until.checked_duration_since(Instant::now()))
+		.flatten()
+		.filter(|wait| !wait.is_zero())
+}
+
+fn wait_for_hardcover(fingerprint: u64, wait: Duration) {
+	if let Ok(mut until) = HARDCOVER_WAIT.lock() {
+		*until = Some((fingerprint, Instant::now() + wait.min(CACHE_TTL)));
+	}
+}
+
+/// Hardcover's refusal, in its words, for a request not sent while it asks to wait
+fn wait_answer(wait: Duration) -> Fetched {
+	Fetched::Status(
+		429,
+		Some(json!({
+			"error": "Too Many Requests",
+			"message": format!("Try again in {} seconds.", wait.as_secs().max(1)),
+		})),
+	)
+}
+
 #[async_trait::async_trait]
 impl Fetch for HttpFetch {
 	async fn get(&self, url: &str) -> Fetched {
-		if let Ok(cache) = CACHE.lock() {
-			if let Some((at, ttl, value)) = cache.get(url) {
-				if at.elapsed() < *ttl {
-					return value.clone();
-				}
-			}
+		if let Some(answer) = cached(url) {
+			return answer;
 		}
 		let Some(client) = CLIENT.as_ref() else {
 			return Fetched::Failed("no HTTP client".to_string());
@@ -326,25 +417,164 @@ impl Fetch for HttpFetch {
 				})
 			},
 		};
-		let ttl = match &fetched {
-			Fetched::Json(_) => Some(CACHE_TTL),
-			Fetched::Status(..) => Some(ERROR_TTL),
+		match &fetched {
+			Fetched::Json(_) => keep(url, CACHE_TTL, &fetched),
+			Fetched::Status(..) => keep(url, ERROR_TTL, &fetched),
 			// a network failure is tried again next time
-			Fetched::Failed(_) => None,
-		};
-		if let (Some(ttl), Ok(mut cache)) = (ttl, CACHE.lock()) {
-			if cache.len() >= CACHE_MAX {
-				if let Some(oldest) = cache
-					.iter()
-					.min_by_key(|(_, (at, _, _))| *at)
-					.map(|(k, _)| k.clone())
-				{
-					cache.remove(&oldest);
-				}
-			}
-			cache.insert(url.to_string(), (Instant::now(), ttl, fetched.clone()));
+			Fetched::Failed(_) => {},
 		}
 		fetched
+	}
+
+	async fn hardcover_graphql(&self, query: &str, variables: &Value) -> Fetched {
+		let Some(handle) = &self.hardcover else {
+			return Fetched::Failed("no HTTP client".to_string());
+		};
+		let key = format!("hardcover:{:x}\n{query}\n{variables}", handle.fingerprint);
+		if let Some(answer) = cached(&key) {
+			return answer;
+		}
+		if let Some(wait) = hardcover_wait(handle.fingerprint) {
+			return wait_answer(wait);
+		}
+		let reply = tokio::time::timeout(
+			HARDCOVER_DEADLINE,
+			handle.client.post_graphql(query, variables.clone()),
+		)
+		.await;
+		let fetched = match reply {
+			Err(_) => Fetched::Failed("no answer in time".to_string()),
+			Ok(Err(error)) => {
+				tracing::debug!(%error, "Hardcover lookup failed");
+				let timeout = matches!(
+					&error,
+					MetadataProviderError::MiddlewareReqwestError(e) if e.is_timeout()
+				);
+				Fetched::Failed(
+					if timeout {
+						"no answer in time"
+					} else {
+						"unreachable"
+					}
+					.to_string(),
+				)
+			},
+			Ok(Ok(reply)) if reply.status == 429 => {
+				let wait = reply.retry_after.unwrap_or(HARDCOVER_DEFAULT_WAIT);
+				tracing::debug!(seconds = wait.as_secs(), "Hardcover asked to wait");
+				wait_for_hardcover(handle.fingerprint, wait);
+				wait_answer(wait)
+			},
+			Ok(Ok(reply)) => {
+				let success = (200..300).contains(&reply.status);
+				match reply.body {
+					Some(body)
+						if success
+							&& body.get("errors").is_none()
+							&& body.get("data").is_some_and(|d| !d.is_null()) =>
+					{
+						Fetched::Json(body)
+					},
+					None if success => Fetched::Failed("unreadable answer".to_string()),
+					// an HTTP error, or GraphQL errors instead of data
+					body => {
+						tracing::debug!(
+							status = reply.status,
+							"Hardcover answered with an error"
+						);
+						Fetched::Status(reply.status, body)
+					},
+				}
+			},
+		};
+		match &fetched {
+			Fetched::Json(_) => keep(&key, CACHE_TTL, &fetched),
+			// a rate limit is kept as the wait above, for every request
+			Fetched::Status(429, _) => {},
+			Fetched::Status(..) => keep(&key, ERROR_TTL, &fetched),
+			Fetched::Failed(_) => {},
+		}
+		fetched
+	}
+}
+
+/// Whether Hardcover can be asked: its metadata provider (Settings → Metadata) is enabled
+/// with an API token
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HardcoverAccess {
+	Ready,
+	/// No Hardcover provider, or it is turned off
+	NotConfigured,
+	/// Enabled, without an API token (or with one that can't be decrypted)
+	TokenMissing,
+}
+
+/// The Hardcover provider's client for lookups when it is enabled with an API token (decrypted
+/// with the server's key, as the provider's own client does), else why not. One client per
+/// token, so its rate limiter sees every lookup
+async fn hardcover_client(
+	conn: &DatabaseConnection,
+) -> (HardcoverAccess, Option<HardcoverHandle>) {
+	static LOOKUP_CLIENT: Mutex<Option<HardcoverHandle>> = Mutex::new(None);
+	let config = metadata_provider_config::Entity::find()
+		.all(conn)
+		.await
+		.unwrap_or_default()
+		.into_iter()
+		.find(|config| config.provider_type == MetadataProvider::Hardcover);
+	let Some(config) = config.filter(|config| config.enabled) else {
+		return (HardcoverAccess::NotConfigured, None);
+	};
+	let Some(encrypted) = config
+		.encrypted_api_token
+		.filter(|token| !token.trim().is_empty())
+	else {
+		return (HardcoverAccess::TokenMissing, None);
+	};
+	let key = server_config::Entity::find()
+		.one(conn)
+		.await
+		.ok()
+		.flatten()
+		.and_then(|config| config.encryption_key);
+	let token = match key.map(|key| decrypt_string(&encrypted, &key)) {
+		Some(Ok(token)) => token,
+		Some(Err(error)) => {
+			tracing::warn!(?error, "The Hardcover API token couldn't be decrypted");
+			return (HardcoverAccess::TokenMissing, None);
+		},
+		None => return (HardcoverAccess::TokenMissing, None),
+	};
+	// a token pasted with its scheme works too
+	let token = token.trim();
+	let token = token.strip_prefix("Bearer ").unwrap_or(token).trim();
+	if token.is_empty() {
+		return (HardcoverAccess::TokenMissing, None);
+	}
+	let fingerprint = {
+		let mut hasher = DefaultHasher::new();
+		token.hash(&mut hasher);
+		hasher.finish()
+	};
+	let Ok(mut shared) = LOOKUP_CLIENT.lock() else {
+		return (HardcoverAccess::Ready, None);
+	};
+	if let Some(handle) = shared.as_ref().filter(|h| h.fingerprint == fingerprint) {
+		return (HardcoverAccess::Ready, Some(handle.clone()));
+	}
+	match HardcoverClient::for_lookups(token.to_string(), USER_AGENT, HARDCOVER_TIMEOUT) {
+		Ok(client) => {
+			let handle = HardcoverHandle {
+				fingerprint,
+				client: Arc::new(client),
+			};
+			*shared = Some(handle.clone());
+			(HardcoverAccess::Ready, Some(handle))
+		},
+		Err(error) => {
+			tracing::warn!(?error, "Failed to build the Hardcover lookup client");
+			(HardcoverAccess::Ready, None)
+		},
 	}
 }
 
@@ -482,6 +712,7 @@ pub fn parse_open_library_doc(doc: &Value) -> OnlineRecord {
 			.get("edition_count")
 			.and_then(Value::as_i64)
 			.unwrap_or(0),
+		..Default::default()
 	}
 }
 
@@ -556,6 +787,238 @@ pub(crate) fn strip_html(text: &str) -> String {
 		}
 	}
 	out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Reads one Hardcover search hit (`results.hits[].document`): its alternative titles match
+/// like Open Library's edition titles, its readers rank it like editions do, and its genres
+/// stand for its subjects until the book's own tags are read (how many readers gave each
+/// isn't in the search, so they count a little less)
+pub fn parse_hardcover_document(doc: &Value) -> OnlineRecord {
+	let genres: Vec<String> = str_list(doc, "genres").into_iter().take(12).collect();
+	OnlineRecord {
+		source: Some(IntakeSource::Hardcover),
+		title: str_field(doc, "title"),
+		authors: str_list(doc, "author_names"),
+		description: str_field(doc, "description")
+			.map(|d| strip_html(&d))
+			.filter(|d| !d.is_empty()),
+		subject_weights: genres.iter().map(|g| (g.clone(), 0.8)).collect(),
+		subjects: genres,
+		edition_titles: str_list(doc, "alternative_titles"),
+		edition_count: doc.get("users_count").and_then(Value::as_i64).unwrap_or(0),
+		hardcover_id: doc.get("id").and_then(|id| {
+			id.as_i64()
+				.or_else(|| id.as_str().and_then(|s| s.trim().parse().ok()))
+		}),
+		..Default::default()
+	}
+}
+
+/// Hardcover tags about where a reader keeps a book or how they read it, not what it is
+const HARDCOVER_SHELF_TAGS: &[&str] = &[
+	"owned",
+	"own",
+	"to read",
+	"tbr",
+	"want to read",
+	"currently reading",
+	"read",
+	"unread",
+	"reread",
+	"dnf",
+	"did not finish",
+	"favorite",
+	"favorites",
+	"favourites",
+	"wishlist",
+	"library",
+	"kindle",
+	"kindle unlimited",
+	"ebook",
+	"e book",
+	"audiobook",
+	"audiobooks",
+	"audible",
+	"paperback",
+	"hardcover",
+	"physical",
+	"book club",
+	"netgalley",
+	"arc",
+];
+
+/// The genres and tags Hardcover's readers gave a book (`cached_tags`), as subjects with a
+/// weight from their votes: the genres, then the other tags (moods and content warnings are
+/// left out, and so are shelf tags like `Owned` or `Kindle`). Each counts by its votes against
+/// the most voted of its kind, from 0.5 to 1 for a genre and 0.4 to 0.8 for a tag; a genre
+/// with under a tenth of the top genre's votes, or a tag with under a quarter of the top
+/// tag's, is left out
+pub fn hardcover_subjects(cached_tags: &Value) -> Vec<(String, f64)> {
+	// a jsonb column may come as text
+	let parsed;
+	let tags = match cached_tags {
+		Value::String(text) => {
+			parsed = serde_json::from_str::<Value>(text).unwrap_or(Value::Null);
+			&parsed
+		},
+		other => other,
+	};
+	let mut out: Vec<(String, f64)> = vec![];
+	for (category, floor, scale, most) in [("Genre", 0.1, 1.0, 12), ("Tag", 0.25, 0.8, 8)]
+	{
+		let mut items: Vec<(String, f64)> = tags
+			.get(category)
+			.and_then(Value::as_array)
+			.map(|items| {
+				items
+					.iter()
+					.filter_map(|item| {
+						let tag = item.get("tag").and_then(Value::as_str)?.trim();
+						let count =
+							item.get("count").and_then(Value::as_f64).unwrap_or(1.0);
+						(!tag.is_empty()).then(|| (tag.to_string(), count.max(1.0)))
+					})
+					.collect()
+			})
+			.unwrap_or_default();
+		if category == "Tag" {
+			items.retain(|(tag, _)| {
+				let tag = super::library_index::norm(tag);
+				!HARDCOVER_SHELF_TAGS.contains(&tag.as_str())
+					&& !tag.chars().all(|c| c.is_ascii_digit() || c == ' ')
+			});
+		}
+		// most votes first (ties keep Hardcover's order)
+		items.sort_by(|a, b| b.1.total_cmp(&a.1));
+		let top = items.first().map(|(_, count)| *count).unwrap_or(1.0);
+		for (tag, count) in items.into_iter().take(most) {
+			let share = count / top;
+			if share < floor {
+				break;
+			}
+			if !out.iter().any(|(t, _)| t.eq_ignore_ascii_case(&tag)) {
+				out.push((tag, scale * (0.5 + 0.5 * share)));
+			}
+		}
+	}
+	out
+}
+
+/// Reads Hardcover's book record (`books[0]`): its readers' weighted tags replace the search's
+/// genres, and it brings its description and featured series
+fn apply_hardcover_book(record: &mut OnlineRecord, book: &Value) {
+	let subjects = book
+		.get("cached_tags")
+		.map(hardcover_subjects)
+		.unwrap_or_default();
+	if !subjects.is_empty() {
+		record.subjects = subjects.iter().map(|(s, _)| s.clone()).collect();
+		record.subject_weights = subjects.into_iter().filter(|(_, w)| *w < 1.0).collect();
+	}
+	if let Some(description) = str_field(book, "description")
+		.map(|d| strip_html(&d))
+		.filter(|d| !d.is_empty())
+	{
+		record.description = Some(description);
+	}
+	if let Some(featured) = book.get("featured_book_series") {
+		record.series = featured
+			.get("series")
+			.and_then(|series| str_field(series, "name"));
+		record.series_index = record
+			.series
+			.as_ref()
+			.and(featured.get("position").and_then(Value::as_f64));
+	}
+}
+
+/// Why Hardcover refused: its rate limit (and how long it asks to wait), a refused token, or a
+/// GraphQL error
+fn hardcover_refusal(status: u16, body: Option<&Value>) -> (OnlineLookupStatus, String) {
+	static WAIT: LazyLock<Regex> = LazyLock::new(|| {
+		Regex::new(r"(?i)try again in (\d+) seconds?").expect("valid regex")
+	});
+	let text = |key: &str| {
+		body.and_then(|b| b.get(key))
+			.and_then(Value::as_str)
+			.unwrap_or_default()
+			.to_string()
+	};
+	let errors: Vec<String> = body
+		.and_then(|b| b.get("errors"))
+		.and_then(Value::as_array)
+		.map(|errors| {
+			errors
+				.iter()
+				.filter_map(|e| e.get("message").and_then(Value::as_str))
+				.map(str::to_string)
+				.collect()
+		})
+		.unwrap_or_default();
+	let said = format!(
+		"{} {} {} {}",
+		text("error"),
+		text("message"),
+		text("error_description"),
+		errors.join(" ")
+	)
+	.to_lowercase();
+	if status == 429
+		|| said.contains("rate limit")
+		|| said.contains("too many requests")
+		|| said.contains("throttl")
+	{
+		let wait = WAIT
+			.captures(&said)
+			.and_then(|caps| caps[1].parse::<u64>().ok());
+		let message = match wait {
+			Some(seconds) if seconds >= 60 * 60 => format!(
+				"daily limit reached: try again in about {} h",
+				(seconds + 30 * 60) / (60 * 60)
+			),
+			Some(seconds) if seconds > 90 => format!(
+				"rate limit reached: try again in {} min",
+				seconds.div_ceil(60)
+			),
+			_ => "too many requests: try again in a minute".to_string(),
+		};
+		return (OnlineLookupStatus::RateLimited, message);
+	}
+	if status == 401
+		|| status == 403
+		|| said.contains("invalid_token")
+		|| said.contains("jwt")
+		|| said.contains("unauthorized")
+		|| said.contains("not associated with a user")
+	{
+		return (
+			OnlineLookupStatus::Error,
+			"the API token was refused: check it in Settings → Metadata".to_string(),
+		);
+	}
+	if let Some(first) = errors.first() {
+		return (
+			OnlineLookupStatus::Error,
+			format!(
+				"unexpected answer: {}",
+				first.chars().take(80).collect::<String>()
+			),
+		);
+	}
+	(
+		OnlineLookupStatus::Error,
+		format!("answered with HTTP {status}"),
+	)
+}
+
+/// A source that isn't set up
+fn not_configured(source: IntakeSource, message: &str) -> OnlineLookup {
+	OnlineLookup {
+		source,
+		status: OnlineLookupStatus::NotConfigured,
+		subjects: 0,
+		message: message.to_string(),
+	}
 }
 
 /// The best candidate for a book: its title (or one of its matching edition titles) agrees
@@ -688,6 +1151,9 @@ fn answered(source: IntakeSource, record: Option<&OnlineRecord>) -> OnlineLookup
 
 fn failed(source: IntakeSource, fetched: &Fetched) -> OnlineLookup {
 	let (status, message) = match fetched {
+		Fetched::Status(code, body) if source == IntakeSource::Hardcover => {
+			hardcover_refusal(*code, body.as_ref())
+		},
 		Fetched::Status(code, body) => refusal(source, *code, body.as_ref()),
 		Fetched::Failed(why) => (OnlineLookupStatus::Error, why.clone()),
 		Fetched::Json(_) => (OnlineLookupStatus::Error, "unexpected answer".to_string()),
@@ -853,10 +1319,127 @@ async fn google_books(
 	(None, last.unwrap_or_else(|| answered(source, None)))
 }
 
-/// Looks a book up on Open Library and Google Books at the same time
+/// Hardcover's book search; `$q` is an ISBN or a title with its author
+const HARDCOVER_SEARCH: &str = r#"query StumpLookupSearch($q: String!) { search(query: $q, query_type: "Book", per_page: 10, page: 1) { results } }"#;
+
+/// A Hardcover book's record: its readers' tags with their votes, description and series
+fn hardcover_book_query(id: i64) -> String {
+	format!(
+		"query StumpLookupBook {{ books(where: {{id: {{_eq: {id}}}}}, limit: 1) {{ id title description cached_tags featured_book_series {{ position series {{ name }} }} }} }}"
+	)
+}
+
+/// Hardcover, when its provider is set up: the search (the ISBN, else the title with the
+/// author; with nothing at all, the title alone, else the next title), the agreeing book with
+/// the most readers, then its record for the tags with their votes (at most 3 requests)
+async fn hardcover(
+	fetch: &dyn Fetch,
+	access: HardcoverAccess,
+	query: &LookupQuery,
+) -> (Option<OnlineRecord>, OnlineLookup) {
+	let source = IntakeSource::Hardcover;
+	match access {
+		HardcoverAccess::Ready => {},
+		HardcoverAccess::NotConfigured => {
+			return (None, not_configured(source, "not configured"));
+		},
+		HardcoverAccess::TokenMissing => {
+			return (
+				None,
+				not_configured(source, "token missing: add it in Settings → Metadata"),
+			);
+		},
+	}
+	let titles = query_titles(query);
+	let author = query
+		.authors
+		.first()
+		.map(|a| a.trim())
+		.filter(|a| !a.is_empty());
+	// (what to search, the title it must agree with, whether it is the ISBN)
+	let mut searches: Vec<(String, Option<String>, bool)> = vec![];
+	if let Some(isbn) = &query.isbn {
+		searches.push((isbn.clone(), titles.first().cloned(), true));
+	}
+	for title in &titles {
+		let q = match author {
+			Some(author) => format!("{title} {author}"),
+			None => title.clone(),
+		};
+		searches.push((q, Some(title.clone()), false));
+	}
+	let mut budget = REQUESTS_PER_SOURCE;
+	let mut record = None;
+	let mut next = 0;
+	while record.is_none() && next < searches.len() {
+		// keep a request for the book's record
+		if budget <= 1 {
+			break;
+		}
+		budget -= 1;
+		let (q, title, by_isbn) = searches[next].clone();
+		next += 1;
+		let documents: Vec<Value> = match fetch
+			.hardcover_graphql(HARDCOVER_SEARCH, &json!({ "q": q }))
+			.await
+		{
+			Fetched::Json(json) => json
+				.pointer("/data/search/results/hits")
+				.and_then(Value::as_array)
+				.map(|hits| {
+					hits.iter()
+						.filter_map(|h| h.get("document"))
+						.cloned()
+						.collect()
+				})
+				.unwrap_or_default(),
+			// a refusal (the rate limit, the token) won't change with another search
+			failure => return (None, failed(source, &failure)),
+		};
+		record = pick(
+			documents.iter(),
+			parse_hardcover_document,
+			title.as_deref(),
+			&query.authors,
+			by_isbn,
+		);
+		// nothing at all for the title with its author: the title alone next
+		if documents.is_empty() && !by_isbn {
+			if let Some(title) = title.filter(|t| *t != q) {
+				if !searches.iter().any(|(s, _, _)| *s == title) {
+					searches.insert(next, (title.clone(), Some(title), false));
+				}
+			}
+		}
+	}
+	let Some(mut record) = record else {
+		return (None, answered(source, None));
+	};
+	if let Some(id) = record.hardcover_id {
+		match fetch
+			.hardcover_graphql(&hardcover_book_query(id), &json!({}))
+			.await
+		{
+			Fetched::Json(json) => {
+				if let Some(book) = json.pointer("/data/books/0") {
+					apply_hardcover_book(&mut record, book);
+				}
+			},
+			// the search's genres stay
+			failure => {
+				tracing::debug!(?failure, "Hardcover's book record could not be read");
+			},
+		}
+	}
+	let lookup = answered(source, Some(&record));
+	(Some(record), lookup)
+}
+
+/// Looks a book up on Open Library, Google Books and Hardcover at the same time
 pub async fn lookup_with(
 	fetch: &dyn Fetch,
 	google_api_key: Option<&str>,
+	hardcover_access: HardcoverAccess,
 	query: &LookupQuery,
 ) -> LookupOutcome {
 	let mut query = query.clone();
@@ -864,20 +1447,23 @@ pub async fn lookup_with(
 		.isbn
 		.map(|i| i.replace(['-', ' '], ""))
 		.filter(|i| i.len() >= 10);
-	let ((ol, ol_status), (gb, gb_status)) = tokio::join!(
+	let ((ol, ol_status), (gb, gb_status), (hc, hc_status)) = tokio::join!(
 		open_library(fetch, &query),
-		google_books(fetch, google_api_key, &query)
+		google_books(fetch, google_api_key, &query),
+		hardcover(fetch, hardcover_access, &query)
 	);
 	LookupOutcome {
-		records: [ol, gb].into_iter().flatten().collect(),
-		sources: vec![ol_status, gb_status],
+		records: [ol, gb, hc].into_iter().flatten().collect(),
+		sources: vec![ol_status, gb_status, hc_status],
 	}
 }
 
-/// Looks a book up online with the server's settings (its Google Books API key, if any)
+/// Looks a book up online with the server's settings: its Google Books API key, if any, and
+/// the Hardcover metadata provider, when it is enabled with a token
 pub async fn lookup(conn: &DatabaseConnection, query: &LookupQuery) -> LookupOutcome {
 	let key = google_books_key(conn).await;
-	lookup_with(&HttpFetch, key.as_deref(), query).await
+	let (access, hardcover) = hardcover_client(conn).await;
+	lookup_with(&HttpFetch { hardcover }, key.as_deref(), access, query).await
 }
 
 #[cfg(test)]
@@ -969,21 +1555,44 @@ mod tests {
 		));
 	}
 
-	/// Canned answers by URL fragment; every request is recorded
+	/// Canned answers by URL fragment (for Hardcover, by a fragment of `hardcover <query>
+	/// <variables>`); every request is recorded
 	struct Canned {
 		answers: Vec<(&'static str, Fetched)>,
 		asked: Mutex<Vec<String>>,
 	}
 
+	impl Canned {
+		fn answer(&self, asked: String) -> Fetched {
+			let answer = self
+				.answers
+				.iter()
+				.find(|(fragment, _)| asked.contains(fragment))
+				.map(|(_, answer)| answer.clone())
+				.unwrap_or_else(|| Fetched::Status(404, None));
+			self.asked.lock().unwrap().push(asked);
+			answer
+		}
+
+		fn asked_hardcover(&self) -> Vec<String> {
+			self.asked
+				.lock()
+				.unwrap()
+				.iter()
+				.filter(|a| a.starts_with("hardcover "))
+				.cloned()
+				.collect()
+		}
+	}
+
 	#[async_trait::async_trait]
 	impl Fetch for Canned {
 		async fn get(&self, url: &str) -> Fetched {
-			self.asked.lock().unwrap().push(url.to_string());
-			self.answers
-				.iter()
-				.find(|(fragment, _)| url.contains(fragment))
-				.map(|(_, answer)| answer.clone())
-				.unwrap_or_else(|| Fetched::Status(404, None))
+			self.answer(url.to_string())
+		}
+
+		async fn hardcover_graphql(&self, query: &str, variables: &Value) -> Fetched {
+			self.answer(format!("hardcover {query} {variables}"))
 		}
 	}
 
@@ -1054,6 +1663,7 @@ mod tests {
 		let outcome = lookup_with(
 			&canned,
 			None,
+			HardcoverAccess::NotConfigured,
 			&query("Notes from the End of Everything", pantano()),
 		)
 		.await;
@@ -1116,6 +1726,7 @@ mod tests {
 		let outcome = lookup_with(
 			&canned,
 			None,
+			HardcoverAccess::NotConfigured,
 			&query("Notes from the End of Everything", pantano()),
 		)
 		.await;
@@ -1133,7 +1744,13 @@ mod tests {
 			answers: vec![("googleapis.com", quota_error())],
 			asked: Mutex::new(vec![]),
 		};
-		let outcome = lookup_with(&canned, None, &query("Anything", vec![])).await;
+		let outcome = lookup_with(
+			&canned,
+			None,
+			HardcoverAccess::NotConfigured,
+			&query("Anything", vec![]),
+		)
+		.await;
 		assert_eq!(
 			outcome.sources[0].status,
 			OnlineLookupStatus::Error,
@@ -1154,11 +1771,17 @@ mod tests {
 			],
 			asked: Mutex::new(vec![]),
 		};
-		let outcome = lookup_with(&canned, None, &query("Anything", vec![])).await;
-		assert!(outcome
-			.sources
+		let outcome = lookup_with(
+			&canned,
+			None,
+			HardcoverAccess::NotConfigured,
+			&query("Anything", vec![]),
+		)
+		.await;
+		assert!(outcome.sources[..2]
 			.iter()
 			.all(|s| s.status == OnlineLookupStatus::NoMatch));
+		assert_eq!(outcome.sources[2].status, OnlineLookupStatus::NotConfigured);
 		assert!(!outcome.found());
 	}
 
@@ -1178,6 +1801,7 @@ mod tests {
 		let outcome = lookup_with(
 			&canned,
 			Some("AIza-secret"),
+			HardcoverAccess::NotConfigured,
 			&query("Notes from the End of Everything", pantano()),
 		)
 		.await;
@@ -1316,6 +1940,7 @@ mod tests {
 		let outcome = lookup_with(
 			&canned,
 			None,
+			HardcoverAccess::NotConfigured,
 			&query("El nombre de la rosa", vec!["Umberto Eco".to_string()]),
 		)
 		.await;
@@ -1351,6 +1976,7 @@ mod tests {
 		let outcome = lookup_with(
 			&canned,
 			None,
+			HardcoverAccess::NotConfigured,
 			&LookupQuery {
 				title: Some("Dune: House Harkonnen (Ed. Ilustrada)".into()),
 				authors: vec!["Brian Herbert".into()],
@@ -1359,8 +1985,7 @@ mod tests {
 			},
 		)
 		.await;
-		assert!(outcome
-			.sources
+		assert!(outcome.sources[..2]
 			.iter()
 			.all(|s| s.status == OnlineLookupStatus::NoMatch));
 		let asked = canned.asked.lock().unwrap().clone();
@@ -1368,5 +1993,362 @@ mod tests {
 		let gb = asked.iter().filter(|u| u.contains("googleapis")).count();
 		assert!(ol <= 3 && gb <= 3, "{asked:#?}");
 		assert_eq!(ol, 2);
+	}
+
+	/// A Hardcover search answer with these documents
+	fn hardcover_hits(documents: Value) -> Fetched {
+		let hits: Vec<Value> = documents
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|document| json!({ "document": document, "text_match": 1 }))
+			.collect();
+		Fetched::Json(json!({ "data": { "search": { "results": {
+			"found": hits.len(), "hits": hits, "page": 1
+		}}}}))
+	}
+
+	fn koran() -> LookupQuery {
+		LookupQuery {
+			title: Some("The Koran: A Very Short Introduction".into()),
+			authors: vec!["Michael Cook".into()],
+			..Default::default()
+		}
+	}
+
+	/// The book (searched by title and author) is the agreeing hit with most readers; its
+	/// record's genres and tags become subjects weighted by their votes, with its description
+	/// and series
+	#[tokio::test]
+	async fn hardcover_finds_a_book_and_weighs_its_readers_tags() {
+		let canned = Canned {
+			answers: vec![
+				("googleapis.com", Fetched::Json(json!({"items": []}))),
+				(
+					"openlibrary.org/search.json",
+					Fetched::Json(json!({"docs": []})),
+				),
+				(
+					"StumpLookupSearch",
+					hardcover_hits(json!([
+						{"id": "11", "title": "The Koran", "author_names": ["Anonymous"], "users_count": 900, "genres": ["Religion"]},
+						{"id": "435107", "title": "The Koran: A Very Short Introduction", "author_names": ["Michael Cook"],
+						 "alternative_titles": ["El Corán: una breve introducción"], "users_count": 52,
+						 "genres": ["Religion", "History"], "description": "From the search"},
+						{"id": 999, "title": "The Koran: A Very Short Introduction", "author_names": ["Michael Cook"], "users_count": 1}
+					])),
+				),
+				(
+					"StumpLookupBook { books(where: {id: {_eq: 435107}}",
+					Fetched::Json(json!({ "data": { "books": [{
+						"id": 435107,
+						"title": "The Koran: A Very Short Introduction",
+						"description": "<p>The Koran is the <b>sacred</b> book of Islam.</p>",
+						"cached_tags": {
+							"Genre": [
+								{"tag": "Religion", "count": 20, "category": "Genre"},
+								{"tag": "History", "count": 10},
+								{"tag": "Nonfiction", "count": 20},
+								{"tag": "Philosophy", "count": 1}
+							],
+							"Mood": [{"tag": "informative", "count": 15}],
+							"Content Warning": [{"tag": "Violence", "count": 3}],
+							"Tag": [
+								{"tag": "Owned", "count": 9},
+								{"tag": "Islam", "count": 6},
+								{"tag": "2023", "count": 5},
+								{"tag": "Theology", "count": 1}
+							]
+						},
+						"featured_book_series": {"position": 143, "series": {"name": "Very Short Introductions"}}
+					}]}})),
+				),
+			],
+			asked: Mutex::new(vec![]),
+		};
+		let outcome = lookup_with(&canned, None, HardcoverAccess::Ready, &koran()).await;
+		let hc = &outcome.sources[2];
+		assert_eq!(
+			(hc.source, hc.status, hc.subjects, hc.message.as_str()),
+			(
+				IntakeSource::Hardcover,
+				OnlineLookupStatus::Ok,
+				4,
+				"found, 4 subjects"
+			)
+		);
+		let record = outcome
+			.records
+			.iter()
+			.find(|r| r.source == Some(IntakeSource::Hardcover))
+			.unwrap();
+		assert_eq!(record.hardcover_id, Some(435107));
+		// most votes first; Philosophy (1 of 20) is the long tail, moods, content warnings,
+		// shelf tags and years are left out, a tag needs a quarter of the top tag's votes
+		assert_eq!(
+			record.subjects,
+			vec!["Religion", "Nonfiction", "History", "Islam"]
+		);
+		assert_eq!(record.subject_weights.get("Religion"), None, "counts fully");
+		assert_eq!(record.subject_weights.get("History"), Some(&0.75));
+		assert_eq!(record.subject_weights.get("Islam"), Some(&0.8));
+		assert_eq!(
+			record.description.as_deref(),
+			Some("The Koran is the sacred book of Islam.")
+		);
+		assert_eq!(record.series.as_deref(), Some("Very Short Introductions"));
+		assert_eq!(record.series_index, Some(143.0));
+		// one search (title and author), then the book: 2 requests
+		let asked = canned.asked_hardcover();
+		assert_eq!(asked.len(), 2, "{asked:#?}");
+		assert!(
+			asked[0]
+				.contains(r#""q":"The Koran: A Very Short Introduction Michael Cook""#),
+			"{}",
+			asked[0]
+		);
+		assert!(outcome.found());
+		assert!(outcome.notes().is_empty(), "{:?}", outcome.notes());
+	}
+
+	/// A translated edition is found through the alternative titles, and an ISBN search comes
+	/// first
+	#[tokio::test]
+	async fn hardcover_searches_the_isbn_first_and_reads_alternative_titles() {
+		let canned = Canned {
+			answers: vec![
+				(
+					"9788426418999",
+					hardcover_hits(json!([{
+						"id": 77, "title": "Ur-Fascism", "author_names": ["Umberto Eco"],
+						"alternative_titles": ["Il fascismo eterno", "Contra el fascismo"],
+						"genres": ["Politics", "Essays"]
+					}])),
+				),
+				(
+					"StumpLookupBook",
+					Fetched::Json(
+						json!({ "data": { "books": [{ "id": 77, "cached_tags": [] }] }}),
+					),
+				),
+			],
+			asked: Mutex::new(vec![]),
+		};
+		let query = LookupQuery {
+			isbn: Some("978-84-264-1899-9".into()),
+			title: Some("Contra el fascismo".into()),
+			authors: vec!["Umberto Eco".into()],
+			..Default::default()
+		};
+		let outcome = lookup_with(&canned, None, HardcoverAccess::Ready, &query).await;
+		let hc = &outcome.sources[2];
+		assert_eq!(hc.status, OnlineLookupStatus::Ok);
+		let record = outcome.records.last().unwrap();
+		// no tags in the record: the search's genres stay, a little weaker
+		assert_eq!(record.subjects, vec!["Politics", "Essays"]);
+		assert_eq!(record.subject_weights.get("Politics"), Some(&0.8));
+		let asked = canned.asked_hardcover();
+		assert_eq!(asked.len(), 2, "{asked:#?}");
+		assert!(asked[0].contains(r#""q":"9788426418999""#), "{}", asked[0]);
+	}
+
+	/// Nothing agrees: no match, and never more than 3 requests (here: the title with its
+	/// author finds nothing at all, so the title alone; no book record)
+	#[tokio::test]
+	async fn hardcover_reports_no_match() {
+		let canned = Canned {
+			answers: vec![
+				(
+					r#""q":"Notes from the End of Everything Robert Pantano""#,
+					hardcover_hits(json!([])),
+				),
+				(
+					r#""q":"Notes from the End of Everything""#,
+					hardcover_hits(json!([
+						{"id": 5, "title": "Notes from the End of the World", "author_names": ["Someone Else"]}
+					])),
+				),
+			],
+			asked: Mutex::new(vec![]),
+		};
+		let outcome = lookup_with(
+			&canned,
+			None,
+			HardcoverAccess::Ready,
+			&query("Notes from the End of Everything", pantano()),
+		)
+		.await;
+		let hc = &outcome.sources[2];
+		assert_eq!(
+			(hc.status, hc.message.as_str()),
+			(OnlineLookupStatus::NoMatch, "no matching book")
+		);
+		let asked = canned.asked_hardcover();
+		assert_eq!(asked.len(), 2, "{asked:#?}");
+		assert!(asked.iter().all(|a| a.contains("StumpLookupSearch")));
+		assert!(outcome
+			.records
+			.iter()
+			.all(|r| r.source != Some(IntakeSource::Hardcover)));
+	}
+
+	/// A 429 is reported with how long Hardcover asks to wait, and no other search is tried
+	#[tokio::test]
+	async fn hardcover_reports_its_rate_limit() {
+		let canned = Canned {
+			answers: vec![(
+				"StumpLookupSearch",
+				Fetched::Status(
+					429,
+					Some(json!({
+						"error": "Too Many Requests",
+						"message": "API rate limit exceeded for tier 'Free'. Try again in 6856 seconds."
+					})),
+				),
+			)],
+			asked: Mutex::new(vec![]),
+		};
+		let outcome = lookup_with(&canned, None, HardcoverAccess::Ready, &koran()).await;
+		let hc = &outcome.sources[2];
+		assert_eq!(
+			(hc.status, hc.message.as_str()),
+			(
+				OnlineLookupStatus::RateLimited,
+				"daily limit reached: try again in about 2 h"
+			)
+		);
+		assert_eq!(canned.asked_hardcover().len(), 1);
+		assert!(outcome.notes().contains(
+			&"Hardcover: daily limit reached: try again in about 2 h".to_string()
+		));
+
+		assert_eq!(
+			hardcover_refusal(429, Some(&json!({"message": "Try again in 20 seconds."}))),
+			(
+				OnlineLookupStatus::RateLimited,
+				"too many requests: try again in a minute".to_string()
+			)
+		);
+		assert_eq!(
+			hardcover_refusal(
+				429,
+				Some(&json!({"message": "Try again in 600 seconds."}))
+			)
+			.1,
+			"rate limit reached: try again in 10 min"
+		);
+		assert_eq!(
+			hardcover_refusal(429, None).0,
+			OnlineLookupStatus::RateLimited
+		);
+	}
+
+	/// A refused token (Hardcover's 401) and GraphQL errors are errors that say so
+	#[tokio::test]
+	async fn hardcover_reports_a_refused_token() {
+		let canned = Canned {
+			answers: vec![(
+				"StumpLookupSearch",
+				Fetched::Status(
+					401,
+					Some(json!({
+						"error": "invalid_token",
+						"error_description": "Token is not associated with a user"
+					})),
+				),
+			)],
+			asked: Mutex::new(vec![]),
+		};
+		let outcome = lookup_with(&canned, None, HardcoverAccess::Ready, &koran()).await;
+		let hc = &outcome.sources[2];
+		assert_eq!(
+			(hc.status, hc.message.as_str()),
+			(
+				OnlineLookupStatus::Error,
+				"the API token was refused: check it in Settings → Metadata"
+			)
+		);
+		assert_eq!(canned.asked_hardcover().len(), 1);
+		assert!(!outcome.found());
+
+		let (status, message) = hardcover_refusal(
+			200,
+			Some(
+				&json!({"errors": [{"message": "field 'nope' not found in type: 'books'"}]}),
+			),
+		);
+		assert_eq!(status, OnlineLookupStatus::Error);
+		assert_eq!(
+			message,
+			"unexpected answer: field 'nope' not found in type: 'books'"
+		);
+	}
+
+	/// Without an enabled provider and a token, Hardcover isn't asked and says why, without a
+	/// warning
+	#[tokio::test]
+	async fn hardcover_not_configured_is_not_asked() {
+		for (access, message) in [
+			(HardcoverAccess::NotConfigured, "not configured"),
+			(
+				HardcoverAccess::TokenMissing,
+				"token missing: add it in Settings → Metadata",
+			),
+		] {
+			let canned = Canned {
+				answers: vec![],
+				asked: Mutex::new(vec![]),
+			};
+			let outcome = lookup_with(&canned, None, access, &koran()).await;
+			let hc = &outcome.sources[2];
+			assert_eq!(
+				(hc.source, hc.status, hc.message.as_str()),
+				(
+					IntakeSource::Hardcover,
+					OnlineLookupStatus::NotConfigured,
+					message
+				)
+			);
+			assert!(canned.asked_hardcover().is_empty());
+			assert!(outcome.notes().iter().all(|n| !n.starts_with("Hardcover")));
+		}
+	}
+
+	#[test]
+	fn hardcover_tags_weigh_by_votes() {
+		// no counts: every genre counts fully, in Hardcover's order
+		let subjects = hardcover_subjects(&json!({
+			"Genre": [{"tag": "Manga"}, {"tag": "Comedy"}]
+		}));
+		assert_eq!(
+			subjects,
+			vec![("Manga".to_string(), 1.0), ("Comedy".to_string(), 1.0)]
+		);
+		// a jsonb column given as text
+		let subjects = hardcover_subjects(&json!(
+			r#"{"Genre": [{"tag": "Fantasy", "count": 40}, {"tag": "Romance", "count": 4}, {"tag": "Horror", "count": 3}]}"#
+		));
+		let tags: Vec<&str> = subjects.iter().map(|(t, _)| t.as_str()).collect();
+		assert_eq!(tags, vec!["Fantasy", "Romance"], "Horror is the long tail");
+		assert_eq!(subjects[0].1, 1.0);
+		assert!((subjects[1].1 - 0.55).abs() < 1e-9, "{subjects:?}");
+		assert!(hardcover_subjects(&Value::Null).is_empty());
+	}
+
+	#[test]
+	fn a_hardcover_refusal_holds_further_requests_for_its_token() {
+		let (token, other) = (0x5eed_u64, 0x0dd_u64);
+		assert_eq!(hardcover_wait(token), None);
+		wait_for_hardcover(token, Duration::from_secs(120));
+		let wait = hardcover_wait(token).unwrap();
+		assert!(wait > Duration::from_secs(100), "{wait:?}");
+		assert_eq!(hardcover_wait(other), None);
+		match wait_answer(wait) {
+			Fetched::Status(429, body) => assert_eq!(
+				hardcover_refusal(429, body.as_ref()).1,
+				"rate limit reached: try again in 2 min"
+			),
+			other => panic!("{other:?}"),
+		}
 	}
 }
