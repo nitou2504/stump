@@ -206,16 +206,11 @@ mod tests {
 		let db = Database::connect("sqlite::memory:")
 			.await
 			.expect("should connect to in-memory sqlite");
-		let total = Migrator::migrations().len() as u32;
-		assert_eq!(
-			Migrator::migrations()
-				.last()
-				.map(|m| m.name().to_string())
-				.as_deref(),
-			Some("m20261104_000000_deleted_books_trash"),
-			"this migration should be the last one"
-		);
-		Migrator::up(&db, Some(total - 1))
+		let position = Migrator::migrations()
+			.iter()
+			.position(|m| m.name() == "m20261104_000000_deleted_books_trash")
+			.expect("the migration should be registered") as u32;
+		Migrator::up(&db, Some(position))
 			.await
 			.expect("earlier migrations should apply");
 

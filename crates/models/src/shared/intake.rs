@@ -87,6 +87,40 @@ pub enum IntakeSeriesKind {
 	LightNovel,
 }
 
+/// How an online source answered a lookup
+#[derive(
+	Eq, Copy, Hash, Debug, Clone, PartialEq, Serialize, Deserialize, Enum, EnumString, Display,
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+pub enum OnlineLookupStatus {
+	/// The book was found, with subjects
+	Ok,
+	/// The book was found, but the source has no subjects for it
+	NoSubjects,
+	/// The source answered, but has no matching book
+	NoMatch,
+	/// The source refused for now: its request quota (Google Books' shared daily quota
+	/// without an API key) is used up
+	RateLimited,
+	/// The source failed (network, timeout, an unexpected answer, a refused API key)
+	Error,
+}
+
+/// One online source's answer to a lookup, for the review screens
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SimpleObject)]
+#[graphql(name = "OnlineLookup")]
+pub struct OnlineLookup {
+	/// `OPEN_LIBRARY` or `GOOGLE_BOOKS`
+	pub source: IntakeSource,
+	pub status: OnlineLookupStatus,
+	/// How many subjects it gave
+	pub subjects: i32,
+	/// What happened, in a few words (e.g. "daily limit reached: add an API key in
+	/// Settings")
+	pub message: String,
+}
+
 /// Where a metadata value came from, so the review screen can say so
 #[derive(
 	Eq, Copy, Hash, Debug, Clone, PartialEq, Serialize, Deserialize, Enum, EnumString, Display,
@@ -268,8 +302,10 @@ pub struct IntakeProposal {
 	pub warnings: Vec<String>,
 	/// Overall confidence, 0-1; under the threshold the item needs review
 	pub confidence: f64,
-	/// Whether online lookups were used
+	/// Whether an online source found the book (a failed or empty lookup isn't one)
 	pub looked_up_online: bool,
+	/// How each online source answered, when they were asked
+	pub online_lookups: Vec<OnlineLookup>,
 }
 
 /// The values that will be filed: the proposal's defaults, then the uploader's edits
@@ -319,8 +355,6 @@ pub struct IntakeDestination {
 pub struct IntakeResult {
 	/// Absolute paths of the filed files
 	pub paths: Vec<String>,
-	/// The intake CSV the rows were appended to
-	pub csv_path: Option<String>,
 	/// Notes, e.g. a metadata field that could not be written into a PDF
 	pub notes: Vec<String>,
 }

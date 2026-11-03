@@ -1,6 +1,6 @@
 //! Post-processing of library files after they are scanned: manga CBZ pages reduced to 16 grey
-//! levels (inside Stump), and OCR / size reduction of scanned PDFs (queued for an on-demand host
-//! runner, see `scripts/fork/workers/`)
+//! levels (inside Stump), and OCR / size reduction of scanned PDFs (queued for the PDF worker
+//! container, see `scripts/fork/workers/`)
 
 use async_graphql::{Enum, InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
@@ -34,7 +34,7 @@ pub enum PostProcessMode {
 }
 
 /// The library series excluded from the 16-grey step by default: Berserk's pages are already
-/// compact JPEGs, which grow as 16-grey PNGs (book-curator research/comics-size.md)
+/// compact JPEGs, which grow as 16-grey PNGs
 pub const DEFAULT_GREY16_EXCLUDE: &[&str] = &["/Berserk/"];
 
 /// A library's post-processing settings (stored as JSON in `library_configs`)
@@ -187,7 +187,8 @@ pub enum PostProcessStatus {
 	Pending,
 	/// Being processed
 	Running,
-	/// The smaller (or OCRed) file replaced the original, which went to quarantine
+	/// The smaller (or OCRed) file replaced the original, which is held in *Deleted books*
+	/// for the retention (it can be put back from there)
 	Done,
 	/// Processed, but the result was not used (saves too little, or a quality check failed)
 	Rejected,
@@ -197,6 +198,8 @@ pub enum PostProcessStatus {
 	Failed,
 	/// A dry run's estimate (nothing was changed)
 	Estimated,
+	/// The original was put back from *Deleted books*: the book is left as it is
+	Reverted,
 }
 
 impl PostProcessStatus {
@@ -204,7 +207,11 @@ impl PostProcessStatus {
 	pub fn settles(self) -> bool {
 		matches!(
 			self,
-			Self::Pending | Self::Running | Self::Done | Self::Rejected | Self::Skipped
+			Self::Pending
+				| Self::Running
+				| Self::Done | Self::Rejected
+				| Self::Skipped
+				| Self::Reverted
 		)
 	}
 }

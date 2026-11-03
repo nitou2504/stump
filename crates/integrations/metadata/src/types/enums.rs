@@ -51,6 +51,8 @@ pub enum MetadataField {
 	MetaType,
 	ComicImage,
 	DescriptionFormatted,
+	/// The 0-5 rating (a book's own, from its file or set by hand)
+	Rating,
 }
 
 /// Types of media that can be handled by metadata providers

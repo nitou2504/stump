@@ -34,6 +34,12 @@ pub struct Model {
 	#[sea_orm(column_type = "Json", nullable)]
 	#[graphql(skip)]
 	pub trash_last_purge: Option<TrashPurgeSummary>,
+	/// The Google Books API key for the online lookups of *Add books* and *Suggest genres*,
+	/// encrypted with the server's key (never sent to clients). Without one, lookups use
+	/// Google's shared anonymous quota, which is often exhausted
+	#[sea_orm(column_type = "Text", nullable)]
+	#[graphql(skip)]
+	pub google_books_api_key: Option<String>,
 }
 
 #[derive(FromQueryResult)]
