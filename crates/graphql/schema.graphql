@@ -1443,6 +1443,7 @@ enum IntakeSource {
 	FILE_NAME
 	OPEN_LIBRARY
 	GOOGLE_BOOKS
+	HARDCOVER
 	"Inferred from books already in the library (same author, series, similar text)"
 	LIBRARY
 	"Set by the uploader"
@@ -3262,7 +3263,7 @@ input OnDeckBooksInput {
 
 "One online source's answer to a lookup, for the review screens"
 type OnlineLookup {
-	"`OPEN_LIBRARY` or `GOOGLE_BOOKS`"
+	"`OPEN_LIBRARY`, `GOOGLE_BOOKS` or `HARDCOVER`"
 	source: IntakeSource!
 	status: OnlineLookupStatus!
 	"How many subjects it gave"
@@ -3298,6 +3299,8 @@ enum OnlineLookupStatus {
 	RATE_LIMITED
 	"The source failed (network, timeout, an unexpected answer, a refused API key)"
 	ERROR
+	"The source isn't set up: Hardcover's metadata provider is off or has no API token"
+	NOT_CONFIGURED
 }
 
 enum OrderDirection {
