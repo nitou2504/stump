@@ -24,6 +24,7 @@ pub mod pdf_reader;
 pub mod postproc;
 pub mod readium;
 pub mod scan;
+pub mod trash;
 pub mod utils;
 
 use config::logging::STUMP_SHADOW_TEXT;

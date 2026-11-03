@@ -80,9 +80,11 @@ impl MediaMutation {
 		Err("Not implemented".into())
 	}
 
-	/// Removes a book from its library (soft delete: the file stays on disk). Requires the
-	/// `REMOVE_BOOK` permission, which an admin grants per user; library managers can bring
-	/// the book back with `restoreMedia`
+	/// Removes a book from its library: it goes to *Deleted books* (soft delete: hidden
+	/// everywhere, the file stays on disk) until a library manager restores it
+	/// (`restoreDeletedBooks`) or it is deleted permanently, by hand or by the daily purge once
+	/// the retention is over. Requires the `REMOVE_BOOK` permission, which an admin grants per
+	/// user
 	#[graphql(guard = "PermissionGuard::one(UserPermission::RemoveBook)")]
 	async fn delete_media(&self, ctx: &Context<'_>, id: ID) -> Result<Media> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
@@ -97,6 +99,7 @@ impl MediaMutation {
 			.ok_or("Media not found")?;
 		let mut active_model = model.media.clone().into_active_model();
 		active_model.deleted_at = Set(Some(Utc::now().into()));
+		active_model.deleted_by = Set(Some(user.id.clone()));
 		let deleted_book = active_model.update(conn).await?;
 
 		Ok(Media::from(media::ModelWithMetadata {
@@ -124,6 +127,7 @@ impl MediaMutation {
 
 		let mut active_model = book.into_active_model();
 		active_model.deleted_at = Set(None);
+		active_model.deleted_by = Set(None);
 		active_model.update(conn).await?;
 
 		Ok(true)

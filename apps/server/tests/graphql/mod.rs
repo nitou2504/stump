@@ -1,5 +1,6 @@
 mod annotations;
 mod book_removal;
+mod deleted_books;
 mod home_arrangement;
 mod image_upload;
 mod intake;

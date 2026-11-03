@@ -67,6 +67,17 @@ pub(crate) async fn remember_coverless(
 	}
 }
 
+/// Forgets a book's marker, once the book itself is gone
+pub(crate) async fn forget_coverless(config: &StumpConfig, book_id: &str) {
+	match fs::remove_file(marker_path(config, book_id)).await {
+		Ok(()) => {},
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+		Err(error) => {
+			tracing::warn!(?error, book_id, "Failed to remove a no-cover marker");
+		},
+	}
+}
+
 async fn write_marker(path: &Path, signature: String) -> std::io::Result<()> {
 	if let Some(dir) = path.parent() {
 		fs::create_dir_all(dir).await?;

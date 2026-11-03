@@ -19,3 +19,5 @@ pub use placeholder_job::{
 	PlaceholderGenerationJobScope, PlaceholderGenerationOutput,
 };
 pub use utils::*;
+
+pub(crate) use no_cover::forget_coverless;

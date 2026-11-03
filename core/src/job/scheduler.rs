@@ -9,7 +9,7 @@ use sea_orm::{prelude::*, EntityTrait, QueryFilter};
 
 use crate::job::StumpJob;
 use crate::metadata::provider::MetadataFetchJobParams;
-use crate::{CoreError, CoreResult, Ctx};
+use crate::{trash, CoreError, CoreResult, Ctx};
 
 /// A scheduler that loads cron-based jobs and spawns them accordingly
 #[must_use = "dropping the JobScheduler aborts all scheduled job loops"]
@@ -54,6 +54,11 @@ impl JobScheduler {
 				},
 			}
 		}
+
+		// built in, not a scheduled_jobs row: the retention in Deleted books is the setting
+		scheduler
+			.handles
+			.push(tokio::spawn(trash_purge_loop(Arc::clone(&ctx))));
 
 		tracing::info!(job_count = scheduler.handles.len(), "Scheduler initialized");
 
@@ -121,6 +126,38 @@ async fn cron_loop(job: scheduled_job::Model, cron: Cron, ctx: Arc<Ctx>) {
 				?error,
 				"Failed to update last_run_at"
 			);
+		}
+	}
+}
+
+/// The daily purge of the books kept long enough in Deleted books (see [`crate::trash`]),
+/// started once at startup too when the last one is more than a day old
+async fn trash_purge_loop(ctx: Arc<Ctx>) {
+	match trash::purge_is_overdue(ctx.conn.as_ref(), Utc::now()).await {
+		Ok(true) => {
+			tracing::info!("The purge of deleted books is overdue, starting it");
+			if let Err(error) = trash::start_automatic_purge(&ctx).await {
+				tracing::error!(?error, "Failed to start the purge of deleted books");
+			}
+		},
+		Ok(false) => {},
+		Err(error) => {
+			tracing::error!(
+				?error,
+				"Failed to check when deleted books were last purged"
+			);
+		},
+	}
+
+	loop {
+		let now = Utc::now();
+		let Some(next) = trash::next_purge_run(now, false) else {
+			tracing::warn!("No upcoming time for the purge of deleted books, stopping");
+			return;
+		};
+		tokio::time::sleep((next - now).to_std().unwrap_or_default()).await;
+		if let Err(error) = trash::start_automatic_purge(&ctx).await {
+			tracing::error!(?error, "Failed to start the purge of deleted books");
 		}
 	}
 }

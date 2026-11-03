@@ -661,6 +661,20 @@ fn generate_cache_key(
 	Ok(format!("pdf_{}_{}", hasher.finish(), page))
 }
 
+/// The name of a page's file in the page cache (`<config>/cache/pdf_pages`) for this version of
+/// the PDF and the current render settings, while the file is still there
+pub(crate) fn page_cache_file_name(
+	pdf_path: &Path,
+	page: i32,
+	config: &StumpConfig,
+) -> Option<String> {
+	let key = generate_cache_key(pdf_path, page, config).ok()?;
+	Some(format!(
+		"{key}.{}",
+		config.get_pdf_render_format().extension()
+	))
+}
+
 /// Check if a cached page exists and return its content
 async fn get_cached_page(
 	pdf_path: &Path,

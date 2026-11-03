@@ -9,6 +9,7 @@ pub mod book_club_invitation;
 pub mod book_club_member;
 pub mod bookmark;
 pub mod custom_emoji;
+pub mod deleted_book;
 pub mod directory_listing;
 pub mod email_device;
 pub mod emailer;

@@ -359,6 +359,7 @@ mod tests {
 				created_at: Utc::now().into(),
 				updated_at: Some(Utc::now().into()),
 				deleted_at: None,
+				deleted_by: None,
 				extension: "epub".to_string(),
 				path: get_test_epub_path(),
 				status: FileStatus::Ready,

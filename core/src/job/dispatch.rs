@@ -28,6 +28,7 @@ use crate::{
 		options::ScanOptions,
 		series::{SeriesScanJob, SeriesScanOutput},
 	},
+	trash::job::{TrashPurgeJob, TrashPurgeOutput},
 	CoreEvent,
 };
 
@@ -39,6 +40,7 @@ pub enum CoreJobOutput {
 	// before the outputs whose fields all have defaults (untagged: the first match wins), so a
 	// stored post-processing output is not read back as a thumbnail generation output
 	PostProcess(PostProcessOutput),
+	TrashPurge(TrashPurgeOutput),
 	ThumbnailGeneration(ThumbnailGenerationOutput),
 	PlaceholderGeneration(PlaceholderGenerationOutput),
 	MetadataFetch(MetadataFetchJobOutput),
@@ -101,6 +103,8 @@ pub enum StumpJob {
 	PostProcess {
 		config: PostProcessJobConfig,
 	},
+	/// The automatic purge of the expired books in Deleted books
+	TrashPurge,
 }
 
 impl StumpJob {
@@ -114,6 +118,7 @@ impl StumpJob {
 			StumpJob::MetadataFetch { .. } => "metadata_fetch",
 			StumpJob::AnalyzeMedia { .. } => "analyze_media",
 			StumpJob::PostProcess { .. } => "post_processing",
+			StumpJob::TrashPurge => TrashPurgeJob::NAME,
 		}
 	}
 
@@ -136,6 +141,7 @@ impl StumpJob {
 				Some(format!("Analyze media: {:?}", config.scope))
 			},
 			StumpJob::PostProcess { config } => Some(config.describe()),
+			StumpJob::TrashPurge => TrashPurgeJob.description(),
 		}
 	}
 
@@ -299,6 +305,7 @@ pub async fn dispatch_job(
 		StumpJob::PostProcess { config } => {
 			run_job(&job_ctx, &mut PostProcessJob { config }).await
 		},
+		StumpJob::TrashPurge => run_job(&job_ctx, &mut TrashPurgeJob).await,
 	};
 
 	if let Err(e) = result {

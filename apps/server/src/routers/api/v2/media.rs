@@ -8,10 +8,10 @@ use axum::{
 };
 use graphql::data::AuthContext;
 use models::{
-	entity::{library_config, media, user::AuthUser},
-	shared::image_processor_options::SupportedImageFormat,
+	entity::{library, library_config, media, user::AuthUser},
+	shared::{enums::UserPermission, image_processor_options::SupportedImageFormat},
 };
-use sea_orm::{prelude::*, QuerySelect};
+use sea_orm::{prelude::*, QuerySelect, QueryTrait};
 use stump_core::{
 	config::StumpConfig,
 	fs_utils::ContentType,
@@ -93,6 +93,13 @@ pub(crate) async fn get_media_thumbnail_by_id(
 		.await?
 		.ok_or(APIError::NotFound("Book not found".to_string()))?;
 
+	thumbnail_of(ctx, &book).await
+}
+
+async fn thumbnail_of(
+	ctx: &Ctx,
+	book: &media::MediaThumbSelect,
+) -> APIResult<ImageResponse> {
 	// Note: This doesn't hard-fail because if the saved thumbnail is missing or corrupt, we want
 	// to just pull something else instead of erroring out entirely.
 	if let Some(path) = &book.thumbnail_path {
@@ -110,9 +117,34 @@ pub(crate) async fn get_media_thumbnail_by_id(
 		.await?;
 	let image_format = library_config.and_then(|o| o.thumbnail_config.map(|c| c.format));
 
-	get_media_thumbnail(&book, image_format, ctx.config.as_ref())
+	get_media_thumbnail(book, image_format, ctx.config.as_ref())
 		.await
 		.map(ImageResponse::from)
+}
+
+/// A book in *Deleted books*, which only library managers see (its cover, on the Deleted
+/// books page); it is hidden everywhere else, OPDS included
+async fn deleted_book_thumbnail_ident(
+	ctx: &Ctx,
+	user: &AuthUser,
+	book_id: String,
+) -> APIResult<Option<media::MediaThumbSelect>> {
+	if !user.has_permission(UserPermission::ManageLibrary) || user.is_locked {
+		return Ok(None);
+	}
+	let visible_libraries = library::Entity::find_for_user(user)
+		.select_only()
+		.column(library::Column::Id)
+		.into_query();
+	Ok(media::Entity::find()
+		.select_only()
+		.columns(media::MediaThumbSelect::columns())
+		.filter(media::Column::Id.eq(book_id))
+		.filter(media::Column::DeletedAt.is_not_null())
+		.filter(media::Column::LibraryId.in_subquery(visible_libraries))
+		.into_model::<media::MediaThumbSelect>()
+		.one(ctx.conn.as_ref())
+		.await?)
 }
 
 pub(crate) async fn get_media_thumbnail_handler(
@@ -120,7 +152,16 @@ pub(crate) async fn get_media_thumbnail_handler(
 	State(ctx): State<AppState>,
 	Extension(req): Extension<AuthContext>,
 ) -> APIResult<ImageResponse> {
-	get_media_thumbnail_by_id(&ctx, &req.user(), id).await
+	let user = req.user();
+	match get_media_thumbnail_by_id(&ctx, &user, id.clone()).await {
+		Err(APIError::NotFound(message)) => {
+			match deleted_book_thumbnail_ident(&ctx, &user, id).await? {
+				Some(book) => thumbnail_of(&ctx, &book).await,
+				None => Err(APIError::NotFound(message)),
+			}
+		},
+		result => result,
+	}
 }
 
 async fn get_media_page(

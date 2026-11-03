@@ -421,6 +421,7 @@ mod tests {
 			series_id: None,
 			library_id: "library-1".to_string(),
 			deleted_at: None,
+			deleted_by: None,
 			thumbnail_meta: None,
 			thumbnail_path: None,
 			is_oneshot: false,

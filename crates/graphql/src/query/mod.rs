@@ -32,6 +32,7 @@ mod smart_list_view;
 mod smart_lists;
 pub mod smart_lists_builder;
 mod tag;
+pub(crate) mod trash;
 pub(crate) mod user;
 
 use api_key::APIKeyQuery;
@@ -67,6 +68,7 @@ use server_config::ServerConfigQuery;
 use smart_list_view::SmartListViewQuery;
 use smart_lists::SmartListsQuery;
 use tag::TagQuery;
+use trash::TrashQuery;
 use user::UserQuery;
 
 // Note: I had to split the Query/Mutation root types into chunks to avoid a compiler
@@ -111,6 +113,7 @@ struct SystemQueries(
 	ServerConfigQuery,
 	FilesystemQuery,
 	PostProcessingQuery,
+	TrashQuery,
 );
 
 #[derive(async_graphql::MergedObject, Default)]

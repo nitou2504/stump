@@ -30,6 +30,7 @@ mod server_config;
 mod smart_list_view;
 mod smart_lists;
 mod tag;
+mod trash;
 pub(crate) mod upload;
 mod user;
 
@@ -65,6 +66,7 @@ use server_config::ServerConfigMutation;
 use smart_list_view::SmartListViewMutation;
 use smart_lists::SmartListMutation;
 use tag::TagMutation;
+use trash::TrashMutation;
 use upload::UploadMutation;
 use user::UserMutation;
 
@@ -103,6 +105,7 @@ struct SystemMutations(
 	ScheduledJobConfigMutation,
 	MetadataProviderMutation,
 	PostProcessingMutation,
+	TrashMutation,
 );
 
 #[derive(async_graphql::MergedObject, Default)]
