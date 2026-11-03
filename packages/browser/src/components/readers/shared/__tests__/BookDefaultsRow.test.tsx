@@ -35,7 +35,9 @@ describe('BookDefaultsRow', () => {
 
 	it('says the book follows the defaults, with nothing to do', () => {
 		renderRow(false)
-		expect(screen.getByTestId('reader-defaults-state')).toHaveTextContent(/using your PDF defaults/i)
+		expect(screen.getByTestId('reader-defaults-state')).toHaveTextContent(
+			/using your PDF defaults/i,
+		)
 		expect(screen.getByRole('button', { name: /make default for all PDFs/i })).toBeDisabled()
 		expect(screen.getByRole('button', { name: /reset this book/i })).toBeDisabled()
 	})
