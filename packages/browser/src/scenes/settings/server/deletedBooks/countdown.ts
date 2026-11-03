@@ -1,3 +1,4 @@
+import { HeldFileReason } from '@stump/graphql'
 import { differenceInCalendarDays } from 'date-fns'
 
 /** The retention presets offered in the settings; 0 keeps books until they are deleted by hand */
@@ -64,9 +65,9 @@ export function formatBytes(bytes: number | null | undefined): string {
 export const books = (count: number) => (count === 1 ? '1 book' : `${count} books`)
 
 /** What a held file is, from why Stump took it out of the library */
-export function heldFileLabel(reason: string, steps?: string | null): string {
-	if (reason === 'GREY16') return 'Original before 16 greys'
-	if (reason === 'PUT_BACK') return 'Version replaced when its original was put back'
+export function heldFileLabel(reason: HeldFileReason, steps?: string | null): string {
+	if (reason === HeldFileReason.Grey_16) return 'Original before 16 greys'
+	if (reason === HeldFileReason.PutBack) return 'Version replaced when its original was put back'
 	const parts = (steps ?? '').split('+').filter(Boolean)
 	const ocr = parts.includes('OCR')
 	const shrink = parts.includes('SHRINK')

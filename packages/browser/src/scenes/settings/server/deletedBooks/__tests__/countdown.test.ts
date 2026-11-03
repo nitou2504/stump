@@ -1,3 +1,4 @@
+import { HeldFileReason } from '@stump/graphql'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -92,10 +93,14 @@ describe('formatting', () => {
 	})
 
 	it('says what a held file is', () => {
-		expect(heldFileLabel('GREY16')).toBe('Original before 16 greys')
-		expect(heldFileLabel('PDF', 'OCR+SHRINK')).toBe('Original before OCR and shrinking')
-		expect(heldFileLabel('PDF', 'SHRINK')).toBe('Original before shrinking')
-		expect(heldFileLabel('PDF', null)).toBe('Original before post-processing')
-		expect(heldFileLabel('PUT_BACK', 'OCR')).toBe('Version replaced when its original was put back')
+		expect(heldFileLabel(HeldFileReason.Grey_16)).toBe('Original before 16 greys')
+		expect(heldFileLabel(HeldFileReason.Pdf, 'OCR+SHRINK')).toBe(
+			'Original before OCR and shrinking',
+		)
+		expect(heldFileLabel(HeldFileReason.Pdf, 'SHRINK')).toBe('Original before shrinking')
+		expect(heldFileLabel(HeldFileReason.Pdf, null)).toBe('Original before post-processing')
+		expect(heldFileLabel(HeldFileReason.PutBack, 'OCR')).toBe(
+			'Version replaced when its original was put back',
+		)
 	})
 })
