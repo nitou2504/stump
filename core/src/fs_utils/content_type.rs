@@ -44,6 +44,10 @@ pub enum ContentType {
 	GIF,
 	#[strum(serialize = "text/plain")]
 	TXT,
+	/// An EPUB's stylesheets. Without it they were served as `unknown`, which Chromium
+	/// browsers refuse to apply (Firefox applies them anyway)
+	#[strum(serialize = "text/css")]
+	CSS,
 	#[default]
 	#[strum(serialize = "unknown")]
 	UNKNOWN,
@@ -104,6 +108,7 @@ impl ContentType {
 			"webp" => ContentType::WEBP,
 			"gif" => ContentType::GIF,
 			"txt" => ContentType::TXT,
+			"css" => ContentType::CSS,
 			"opf" | "ncx" => ContentType::XML,
 			_ => ContentType::UNKNOWN,
 		}
@@ -364,6 +369,7 @@ impl ContentType {
 			ContentType::AVIF => "avif",
 			ContentType::GIF => "gif",
 			ContentType::TXT => "txt",
+			ContentType::CSS => "css",
 			ContentType::UNKNOWN => "",
 		}
 	}
@@ -413,6 +419,7 @@ impl TryFrom<ContentType> for image::ImageFormat {
 			ContentType::RAR => Err(unsupported_error("ContentType::RAR")),
 			ContentType::COMIC_RAR => Err(unsupported_error("ContentType::COMIC_RAR")),
 			ContentType::TXT => Err(unsupported_error("ContentType::TXT")),
+			ContentType::CSS => Err(unsupported_error("ContentType::CSS")),
 			ContentType::UNKNOWN => Err(unsupported_error("ContentType::UNKNOWN")),
 		}
 	}
@@ -440,6 +447,7 @@ mod tests {
 		assert_eq!(ContentType::from_extension("avif"), ContentType::AVIF);
 		assert_eq!(ContentType::from_extension("gif"), ContentType::GIF);
 		assert_eq!(ContentType::from_extension("txt"), ContentType::TXT);
+		assert_eq!(ContentType::from_extension("css"), ContentType::CSS);
 		assert_eq!(ContentType::from_extension("opf"), ContentType::XML);
 		assert_eq!(ContentType::from_extension("ncx"), ContentType::XML);
 		assert_eq!(ContentType::from_extension("unknown"), ContentType::UNKNOWN);

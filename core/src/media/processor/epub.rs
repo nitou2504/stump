@@ -1053,6 +1053,21 @@ mod tests {
 	}
 
 	#[test]
+	fn test_get_resource_by_path_serves_stylesheets_as_css() {
+		let path_str = get_test_epub_path();
+		let (content_type, contents) = get_resource_by_path(
+			Path::new(&path_str),
+			"OEBPS",
+			PathBuf::from("pgepub.css"),
+		)
+		.expect("the stylesheet should be found");
+		// browsers only apply a stylesheet served as text/css (Chromium refused `unknown`)
+		assert_eq!(content_type, ContentType::CSS);
+		assert_eq!(content_type.mime_type(), "text/css");
+		assert!(!contents.is_empty());
+	}
+
+	#[test]
 	fn test_get_resource_by_id() {
 		let path_str = get_test_epub_path();
 		let path = Path::new(&path_str);
