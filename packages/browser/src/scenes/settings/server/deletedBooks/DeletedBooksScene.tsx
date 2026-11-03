@@ -154,91 +154,96 @@ export default function DeletedBooksScene() {
 
 			<section aria-label="Books in Deleted books" className="gap-3 flex flex-col">
 				{(visible.length > 0 || libraryFilter) && (
-					<div
-						className={cn(
-							'top-0 gap-x-3 gap-y-2 px-3 py-2 min-h-12 sticky z-10 flex flex-wrap items-center rounded-lg border',
-							selectedEntries.length > 0
-								? 'shadow-sm backdrop-blur border-primary/40 bg-background/95'
-								: 'backdrop-blur border-transparent bg-background/95',
-						)}
-						data-testid="deleted-books-toolbar"
-					>
-						<CheckBox
-							checked={allSelected ? true : selectedEntries.length > 0 ? 'indeterminate' : false}
-							onCheckedChange={(checked) => toggleAll(checked === true)}
-							disabled={visible.length === 0}
-							aria-label={allSelected ? 'Select none' : `Select all ${visible.length}`}
-						/>
-						{selectedEntries.length > 0 ? (
-							<>
-								<span className="text-sm font-medium tabular-nums">
-									{selectedEntries.length} of {visible.length} selected
-								</span>
-								<Button
-									size="icon"
-									variant="ghost"
-									className="md:order-3 md:ml-0 order-1 ml-auto"
-									aria-label="Clear the selection"
-									onClick={() => toggleAll(false)}
-								>
-									<X aria-hidden />
-								</Button>
-								<div className="gap-2 md:order-1 md:ml-auto md:w-auto order-2 flex w-full">
+					// stuck under the page header, on an opaque strip so rows don't show at its corners
+					<div className="top-12 pb-1 -mb-1 sticky z-10 bg-background">
+						<div
+							className={cn(
+								'gap-x-3 gap-y-2 px-3 py-2 min-h-12 flex flex-wrap items-center rounded-lg border',
+								selectedEntries.length > 0
+									? 'shadow-sm border-primary/40 bg-background'
+									: 'border-transparent bg-background',
+							)}
+							data-testid="deleted-books-toolbar"
+						>
+							<CheckBox
+								checked={allSelected ? true : selectedEntries.length > 0 ? 'indeterminate' : false}
+								onCheckedChange={(checked) => toggleAll(checked === true)}
+								disabled={visible.length === 0}
+								aria-label={allSelected ? 'Select none' : `Select all ${visible.length}`}
+							/>
+							{selectedEntries.length > 0 ? (
+								<>
+									<span className="text-sm font-medium tabular-nums">
+										{selectedEntries.length} of {visible.length} selected
+									</span>
 									<Button
-										size="sm"
-										variant="outline"
-										className="md:flex-none flex-1"
-										disabled={busy}
-										onClick={() => restore(selectedEntries)}
+										size="icon"
+										variant="ghost"
+										className="md:order-3 md:ml-0 order-1 ml-auto"
+										aria-label="Clear the selection"
+										onClick={() => toggleAll(false)}
 									>
-										<RotateCcw aria-hidden />
-										Restore {selectedEntries.length}
+										<X aria-hidden />
 									</Button>
+									<div className="gap-2 md:order-1 md:ml-auto md:w-auto order-2 flex w-full">
+										<Button
+											size="sm"
+											variant="outline"
+											className="md:flex-none flex-1"
+											disabled={busy}
+											onClick={() => restore(selectedEntries)}
+										>
+											<RotateCcw aria-hidden />
+											Restore {selectedEntries.length}
+										</Button>
+										<Button
+											size="sm"
+											variant="destructive"
+											className="md:flex-none flex-1"
+											disabled={busy}
+											onClick={() => setPurging(selectedEntries)}
+										>
+											<Trash2 aria-hidden />
+											Delete {selectedEntries.length} permanently
+										</Button>
+									</div>
+								</>
+							) : (
+								<>
+									<span className="text-sm text-muted-foreground tabular-nums">
+										{isLoading ? 'Loading…' : books(visible.length)}
+									</span>
+									{libraryOptions.length > 2 || libraryFilter ? (
+										<NativeSelect
+											size="sm"
+											className="text-base md:text-sm w-auto max-w-[14rem]"
+											value={libraryFilter}
+											options={libraryOptions}
+											aria-label="Filter by library"
+											onChange={(event) => setLibraryFilter(event.target.value)}
+										/>
+									) : null}
 									<Button
 										size="sm"
-										variant="destructive"
-										className="md:flex-none flex-1"
-										disabled={busy}
-										onClick={() => setPurging(selectedEntries)}
+										variant="ghost"
+										className="ml-auto text-destructive hover:text-destructive"
+										disabled={visible.length === 0 || busy}
+										aria-label={
+											filteredLibraryName ? 'Delete all permanently' : 'Empty Deleted books'
+										}
+										onClick={() => setEmptying(true)}
 									>
 										<Trash2 aria-hidden />
-										Delete {selectedEntries.length} permanently
+										<span className="sm:hidden">
+											{filteredLibraryName ? 'Delete all' : 'Empty'}
+										</span>
+										<span className="sm:inline hidden">
+											{filteredLibraryName ? 'Delete all permanently' : 'Empty Deleted books'}
+										</span>
 									</Button>
-								</div>
-							</>
-						) : (
-							<>
-								<span className="text-sm text-muted-foreground tabular-nums">
-									{isLoading ? 'Loading…' : books(visible.length)}
-								</span>
-								{libraryOptions.length > 2 || libraryFilter ? (
-									<NativeSelect
-										size="sm"
-										className="text-base md:text-sm w-auto max-w-[14rem]"
-										value={libraryFilter}
-										options={libraryOptions}
-										aria-label="Filter by library"
-										onChange={(event) => setLibraryFilter(event.target.value)}
-									/>
-								) : null}
-								<Button
-									size="sm"
-									variant="ghost"
-									className="ml-auto text-destructive hover:text-destructive"
-									disabled={visible.length === 0 || busy}
-									aria-label={
-										filteredLibraryName ? 'Delete all permanently' : 'Empty Deleted books'
-									}
-									onClick={() => setEmptying(true)}
-								>
-									<Trash2 aria-hidden />
-									<span className="sm:hidden">{filteredLibraryName ? 'Delete all' : 'Empty'}</span>
-									<span className="sm:inline hidden">
-										{filteredLibraryName ? 'Delete all permanently' : 'Empty Deleted books'}
-									</span>
-								</Button>
-							</>
-						)}
+								</>
+							)}
+						</div>
 					</div>
 				)}
 
