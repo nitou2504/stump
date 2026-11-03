@@ -447,7 +447,9 @@ async fn test_held_original_put_back_and_deleted() {
 	assert_eq!(files_under(&setup.library_path).len(), 1);
 
 	// putting the processed version back holds the original again, as an original
-	let again = held::put_back(&ctx, replaced.id, &setup.user_id).await.unwrap();
+	let again = held::put_back(&ctx, replaced.id, &setup.user_id)
+		.await
+		.unwrap();
 	assert_eq!(fs::read(&book.path).unwrap(), b"16 greys");
 	let original_again = again.replaced.expect("the original should be held again");
 	assert_eq!(original_again.reason, HeldFileReason::Grey16);

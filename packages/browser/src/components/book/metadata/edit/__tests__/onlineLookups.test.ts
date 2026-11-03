@@ -11,10 +11,10 @@ describe('online lookups', () => {
 				status: OnlineLookupStatus.RateLimited,
 				subjects: 0,
 				message:
-					'daily limit reached: add a Google Books API key in Settings → Metadata Integrations',
+					'daily limit reached: add a Google Books API key in Settings → Metadata',
 			}),
 		).toBe(
-			'Google Books: daily limit reached: add a Google Books API key in Settings → Metadata Integrations',
+			'Google Books: daily limit reached: add a Google Books API key in Settings → Metadata',
 		)
 		expect(
 			lookupLine({

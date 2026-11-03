@@ -397,8 +397,8 @@ fn str_list(value: &Value, key: &str) -> Vec<String> {
 /// Words a title comparison skips: articles and conjunctions (`El crimen y el castigo` is
 /// `Crimen y castigo`)
 const TITLE_STOPWORDS: &[&str] = &[
-	"a", "an", "and", "the", "of", "el", "la", "los", "las", "lo", "un", "una", "y", "e", "de",
-	"del", "le", "les", "il", "l", "et", "der", "die", "das", "und",
+	"a", "an", "and", "the", "of", "el", "la", "los", "las", "lo", "un", "una", "y", "e",
+	"de", "del", "le", "les", "il", "l", "et", "der", "die", "das", "und",
 ];
 
 /// Whether an online title is the same book as ours: main titles compared (subtitles off),
@@ -631,7 +631,7 @@ fn refusal(
 	if quota {
 		let text = match source {
 			IntakeSource::GoogleBooks => {
-				"daily limit reached: add a Google Books API key in Settings → Metadata Integrations"
+				"daily limit reached: add a Google Books API key in Settings → Metadata"
 			},
 			_ => "too many requests: try again later",
 		};
@@ -642,8 +642,7 @@ fn refusal(
 	{
 		return (
 			OnlineLookupStatus::Error,
-			"the API key was refused: check it in Settings → Metadata Integrations"
-				.to_string(),
+			"the API key was refused: check it in Settings → Metadata".to_string(),
 		);
 	}
 	(
@@ -926,15 +925,27 @@ mod tests {
 	#[test]
 	fn compares_translated_and_bilingual_titles_and_initials() {
 		assert!(titles_agree("Crimen y castigo", "El crimen y el castigo"));
-		assert!(titles_agree("El principito", "El Principito / The Little Prince"));
+		assert!(titles_agree(
+			"El principito",
+			"El Principito / The Little Prince"
+		));
 		assert!(!titles_agree("Dune", "Dune Messiah"));
-		assert!(authors_agree(&["Michael Cook".into()], &["M. A. Cook".into()]));
-		assert!(authors_agree(&["Michael Cook".into()], &["Michael A. Cook".into()]));
+		assert!(authors_agree(
+			&["Michael Cook".into()],
+			&["M. A. Cook".into()]
+		));
+		assert!(authors_agree(
+			&["Michael Cook".into()],
+			&["Michael A. Cook".into()]
+		));
 		assert!(authors_agree(
 			&["Fiódor Dostoyevski".into()],
 			&["Fiódor Dostoievski".into()]
 		));
-		assert!(!authors_agree(&["Brian Herbert".into()], &["Frank Herbert".into()]));
+		assert!(!authors_agree(
+			&["Brian Herbert".into()],
+			&["Frank Herbert".into()]
+		));
 		assert!(!authors_agree(&["Ana Cook".into()], &["M. A. Cook".into()]));
 	}
 
@@ -1067,7 +1078,7 @@ mod tests {
 		assert!(outcome.found());
 		assert_eq!(
 			outcome.notes(),
-			vec!["Google Books: daily limit reached: add a Google Books API key in Settings → Metadata Integrations"]
+			vec!["Google Books: daily limit reached: add a Google Books API key in Settings → Metadata"]
 		);
 		// no key: none sent
 		assert!(canned

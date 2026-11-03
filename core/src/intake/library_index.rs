@@ -801,8 +801,14 @@ mod tests {
 		.insert(&conn)
 		.await;
 		for (rel, writer) in [
-			("Fiodor_Dostoyevski/Crimen_y_castigo.epub", "Fiódor M. Dostoievski"),
-			("Fiodor_Dostoyevski/El_jugador.epub", "Fiódor M. Dostoievski"),
+			(
+				"Fiodor_Dostoyevski/Crimen_y_castigo.epub",
+				"Fiódor M. Dostoievski",
+			),
+			(
+				"Fiodor_Dostoyevski/El_jugador.epub",
+				"Fiódor M. Dostoievski",
+			),
 			("Otros/Antologia.epub", "Fiódor M. Dostoievski"),
 		] {
 			let book = fake_data::Media {

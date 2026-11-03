@@ -107,7 +107,7 @@ export default function AddBooksSettingsScene() {
 			<SettingsSection title="Online lookups">
 				<WideSwitch
 					label="Look books up on Open Library and Google Books"
-					description="Fills in missing authors, series, year and subjects while analysing an upload. Google Books works best with an API key (Settings → Metadata Integrations)"
+					description="Fills in missing authors, series, year and subjects while analysing an upload. Google Books works best with an API key (Settings → Metadata)"
 					checked={draft.onlineLookup}
 					onCheckedChange={(onlineLookup) => setDraft({ ...draft, onlineLookup })}
 				/>
