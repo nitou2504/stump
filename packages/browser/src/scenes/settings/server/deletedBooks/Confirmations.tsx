@@ -54,9 +54,12 @@ function Consequences({
 				<Alert variant="warning">
 					<ShieldAlert />
 					<AlertDescription>
-						No quarantine folder is set (<code>STUMP_QUARANTINE_DIR</code>), and Stump never deletes
-						book files: {withFile === 1 ? 'the book' : `the ${withFile} books`} with a file will
-						stay in Deleted books.
+						<p>
+							No quarantine folder is ready (<code className="font-mono">STUMP_QUARANTINE_DIR</code>
+							), and Stump never deletes book files:{' '}
+							{withFile === 1 ? 'the book' : `the ${withFile} books`} with a file will stay in
+							Deleted books.
+						</p>
 					</AlertDescription>
 				</Alert>
 			)}

@@ -44,20 +44,19 @@ export default function DeletedBookRow({
 	return (
 		<li
 			className={cn(
-				'gap-3 px-3 py-3 sm:px-4 flex items-start transition-colors',
+				'gap-3 px-3 py-3 sm:px-4 md:flex-row md:items-start md:gap-6 flex flex-col transition-colors',
 				selected ? 'bg-primary/5' : 'hover:bg-muted/40',
 			)}
 			data-testid="deleted-book"
 		>
-			<CheckBox
-				className="mt-1"
-				checked={selected}
-				onCheckedChange={(checked) => onSelect(checked === true)}
-				aria-label={`Select “${title}”`}
-			/>
-			<Cover url={book.thumbnail.url} title={title} />
-
-			<div className="min-w-0 gap-2 md:flex-row md:items-start md:gap-6 flex flex-1 flex-col">
+			<div className="min-w-0 gap-3 flex flex-1 items-start">
+				<CheckBox
+					className="mt-1"
+					checked={selected}
+					onCheckedChange={(checked) => onSelect(checked === true)}
+					aria-label={`Select “${title}”`}
+				/>
+				<Cover url={book.thumbnail.url} title={title} />
 				<div className="min-w-0 gap-0.5 flex flex-1 flex-col">
 					<p className="font-medium leading-snug line-clamp-2" title={title}>
 						{title}
@@ -79,33 +78,40 @@ export default function DeletedBookRow({
 						</Badge>
 					)}
 				</div>
+			</div>
 
-				<div className="gap-1.5 md:w-72 md:items-end flex shrink-0 flex-col">
+			<div className="gap-1.5 md:w-72 md:items-end flex shrink-0 flex-col">
+				<div className="gap-x-3 gap-y-1 md:flex-col md:items-end flex flex-wrap items-center justify-between">
 					<span className="text-xs text-muted-foreground" title={entry.deletedAt}>
 						Removed {entry.deletedBy ? `by ${entry.deletedBy} ` : ''}
 						{removed}
 					</span>
 					<RetentionFuse purgeAt={entry.purgeAt} retentionDays={retentionDays} now={now} />
-					<div className="gap-2 mt-1 flex flex-wrap">
-						<Button size="sm" variant="outline" onClick={onRestore} disabled={busy}>
-							<RotateCcw aria-hidden />
-							Restore
-						</Button>
-						<Button
-							size="sm"
-							variant="destructive"
-							onClick={onPurge}
-							disabled={busy || purgeBlocked}
-							title={
-								purgeBlocked
-									? 'No quarantine folder is set: book files are never deleted'
-									: undefined
-							}
-						>
-							<Trash2 aria-hidden />
-							Delete permanently
-						</Button>
-					</div>
+				</div>
+				<div className="gap-2 mt-1 flex">
+					<Button
+						size="sm"
+						variant="outline"
+						className="md:flex-none flex-1"
+						onClick={onRestore}
+						disabled={busy}
+					>
+						<RotateCcw aria-hidden />
+						Restore
+					</Button>
+					<Button
+						size="sm"
+						variant="destructive"
+						className="md:flex-none flex-1"
+						onClick={onPurge}
+						disabled={busy || purgeBlocked}
+						title={
+							purgeBlocked ? 'No quarantine folder is set: book files are never deleted' : undefined
+						}
+					>
+						<Trash2 aria-hidden />
+						Delete permanently
+					</Button>
 				</div>
 			</div>
 		</li>

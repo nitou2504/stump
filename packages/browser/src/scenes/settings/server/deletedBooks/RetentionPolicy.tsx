@@ -51,13 +51,12 @@ export default function RetentionPolicy({
 					<>Removed books wait here until you delete them permanently. </>
 				) : (
 					<>
-						Removed books wait here <strong>{retentionLabel(retentionDays)}</strong>, then the daily
-						purge deletes them permanently.{' '}
+						Removed books wait here <strong>{retentionLabel(retentionDays)}</strong>, then they are
+						deleted permanently.{' '}
 					</>
 				)}
-				Restoring brings a book back exactly as it was: reading progress, annotations, bookmarks,
-				tags and smart lists included. Deleting one permanently moves its file to the quarantine
-				folder and erases it from Stump.
+				Restore brings a book back as it was, with its progress, notes and tags. Delete permanently
+				moves its file to the quarantine folder and erases the book from Stump.
 			</p>
 
 			<div className="gap-x-8 gap-y-3 sm:flex-row sm:flex-wrap sm:items-center flex flex-col">
@@ -131,17 +130,21 @@ export default function RetentionPolicy({
 					<ShieldAlert />
 					<AlertTitle>Permanent deletion can’t move files</AlertTitle>
 					<AlertDescription>
-						{quarantineDir ? (
-							<>
-								The quarantine folder <code>{quarantineDir}</code> doesn’t exist (is it mounted?).
-							</>
-						) : (
-							<>
-								No quarantine folder is set (<code>STUMP_QUARANTINE_DIR</code>).
-							</>
-						)}{' '}
-						Stump never deletes book files, so books stay here until you restore them; only books
-						whose file is already gone can be deleted permanently.
+						<p>
+							{quarantineDir ? (
+								<>
+									The quarantine folder <code className="font-mono">{quarantineDir}</code> doesn’t
+									exist (is it mounted?).
+								</>
+							) : (
+								<>
+									No quarantine folder is set (
+									<code className="font-mono">STUMP_QUARANTINE_DIR</code>).
+								</>
+							)}{' '}
+							Stump never deletes book files, so books stay here until you restore them; only books
+							whose file is already gone can be deleted permanently.
+						</p>
 					</AlertDescription>
 				</Alert>
 			)}
@@ -160,9 +163,9 @@ function lastPurgeResult(summary: NonNullable<Settings['lastPurge']>): string {
 
 function Fact({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
 	return (
-		<div className="gap-2 text-sm flex items-center">
-			<span className="[&_svg]:size-4 text-muted-foreground">{icon}</span>
-			<span className="text-muted-foreground">{label}</span>
+		<div className="gap-2 text-sm flex items-start">
+			<span className="[&_svg]:size-4 mt-0.5 text-muted-foreground">{icon}</span>
+			<span className="whitespace-nowrap text-muted-foreground">{label}</span>
 			<span className="font-medium">{children}</span>
 		</div>
 	)
