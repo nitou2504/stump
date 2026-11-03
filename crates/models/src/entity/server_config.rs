@@ -2,6 +2,8 @@ use async_graphql::SimpleObject;
 use async_trait::async_trait;
 use sea_orm::{entity::prelude::*, ActiveValue::Set, FromQueryResult};
 
+use crate::shared::trash::TrashPurgeSummary;
+
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, SimpleObject)]
 #[sea_orm(table_name = "server_config")]
@@ -21,6 +23,17 @@ pub struct Model {
 	#[sea_orm(column_type = "Text", nullable)]
 	#[graphql(skip)]
 	pub jwt_refresh_secret: Option<String>,
+	/// How many days removed books stay in *Deleted books* before they are deleted
+	/// permanently (0 = never)
+	#[graphql(skip)]
+	pub trash_retention_days: i32,
+	/// When the automatic purge of expired deleted books last ran
+	#[graphql(skip)]
+	pub trash_last_purge_at: Option<DateTimeUtc>,
+	/// What the last automatic purge did
+	#[sea_orm(column_type = "Json", nullable)]
+	#[graphql(skip)]
+	pub trash_last_purge: Option<TrashPurgeSummary>,
 }
 
 #[derive(FromQueryResult)]
@@ -42,6 +55,10 @@ impl ActiveModelBehavior for ActiveModel {
 	{
 		if insert {
 			self.initial_wal_setup_complete = Set(false);
+			if self.trash_retention_days.is_not_set() {
+				self.trash_retention_days =
+					Set(crate::shared::trash::DEFAULT_RETENTION_DAYS);
+			}
 		}
 		Ok(self)
 	}

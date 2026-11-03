@@ -85,6 +85,11 @@ pub struct Model {
 	/// The timestamp of when the media was **soft** deleted. This will act like a trash bin.
 	#[sea_orm(column_type = "custom(\"DATETIME\")", nullable)]
 	pub deleted_at: Option<DateTimeWithTimeZone>,
+	/// The user who removed the book (see `deleted_at`), when known
+	#[sea_orm(column_type = "Text", nullable)]
+	#[graphql(skip)]
+	#[ordering(skip)]
+	pub deleted_by: Option<String>,
 	#[sea_orm(has_many)]
 	#[graphql(skip)]
 	pub book_club_book_suggestions: HasMany<book_club_book_suggestion::Entity>,

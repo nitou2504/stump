@@ -48,6 +48,7 @@ mod m20261102_000000_annotation_style;
 mod m20261102_000000_post_processing;
 mod m20261102_000000_book_intake;
 mod m20261103_000000_media_metadata_edits;
+mod m20261104_000000_deleted_books_trash;
 
 pub struct Migrator;
 
@@ -102,6 +103,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261102_000000_post_processing::Migration),
 			Box::new(m20261102_000000_book_intake::Migration),
 			Box::new(m20261103_000000_media_metadata_edits::Migration),
+			Box::new(m20261104_000000_deleted_books_trash::Migration),
 		]
 	}
 }

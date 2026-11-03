@@ -13,3 +13,4 @@ pub mod permission_set;
 pub mod post_processing;
 pub mod readium;
 pub mod series_metadata;
+pub mod trash;
