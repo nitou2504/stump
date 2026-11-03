@@ -279,7 +279,9 @@ function SuggestionRow({
 					{isOn && <Check className="size-3" />}
 				</span>
 				<span className="min-w-0 flex flex-col">
-					<span className={cn('text-sm truncate text-foreground', guessed && 'italic')}>
+					<span
+						className={cn('text-sm line-clamp-2 break-words text-foreground', guessed && 'italic')}
+					>
 						{s.value}
 						{tagGroup(s.value) === 'facet' && (
 							<span className="text-xs ml-1.5 text-muted-foreground not-italic">facet</span>
