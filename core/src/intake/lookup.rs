@@ -814,6 +814,14 @@ pub fn parse_hardcover_document(doc: &Value) -> OnlineRecord {
 	}
 }
 
+/// Reads one Hardcover search hit for a comic or manga volume, which Hardcover lists as a
+/// book per volume (`Yotsuba&!, Vol. 3`): its series also names it
+pub fn parse_hardcover_volume(doc: &Value) -> OnlineRecord {
+	let mut record = parse_hardcover_document(doc);
+	record.edition_titles.extend(str_list(doc, "series_names"));
+	record
+}
+
 /// Hardcover tags about where a reader keeps a book or how they read it, not what it is
 const HARDCOVER_SHELF_TAGS: &[&str] = &[
 	"owned",
@@ -1398,7 +1406,11 @@ async fn hardcover(
 		};
 		record = pick(
 			documents.iter(),
-			parse_hardcover_document,
+			if query.by_series {
+				parse_hardcover_volume
+			} else {
+				parse_hardcover_document
+			},
 			title.as_deref(),
 			&query.authors,
 			by_isbn,
@@ -2312,6 +2324,58 @@ mod tests {
 			assert!(canned.asked_hardcover().is_empty());
 			assert!(outcome.notes().iter().all(|n| !n.starts_with("Hardcover")));
 		}
+	}
+
+	/// A manga volume is searched by its series and matched by the volume's series name
+	#[tokio::test]
+	async fn hardcover_matches_a_volume_by_its_series() {
+		let canned = Canned {
+			answers: vec![
+				(
+					"StumpLookupSearch",
+					hardcover_hits(json!([{
+						"id": 12, "title": "Yotsuba&!, Vol. 3", "author_names": ["Kiyohiko Azuma"],
+						"series_names": ["Yotsuba&!"], "genres": ["Manga", "Comedy"]
+					}])),
+				),
+				(
+					"StumpLookupBook",
+					Fetched::Json(json!({ "data": { "books": [] }})),
+				),
+			],
+			asked: Mutex::new(vec![]),
+		};
+		let volume = LookupQuery {
+			title: Some("Yotsuba&! v03".into()),
+			authors: vec!["Kiyohiko Azuma".into()],
+			series: Some("Yotsuba&!".into()),
+			by_series: true,
+			..Default::default()
+		};
+		let outcome = lookup_with(&canned, None, HardcoverAccess::Ready, &volume).await;
+		assert_eq!(outcome.sources[2].status, OnlineLookupStatus::Ok);
+		assert_eq!(outcome.records.last().unwrap().hardcover_id, Some(12));
+		assert!(canned.asked_hardcover()[0].contains(r#""q":"Yotsuba&! Kiyohiko Azuma""#));
+
+		// a book isn't matched by its series' name
+		let canned = Canned {
+			answers: vec![(
+				"StumpLookupSearch",
+				hardcover_hits(json!([{
+					"id": 13, "title": "Dune Messiah", "author_names": ["Frank Herbert"],
+					"series_names": ["Dune"]
+				}])),
+			)],
+			asked: Mutex::new(vec![]),
+		};
+		let outcome = lookup_with(
+			&canned,
+			None,
+			HardcoverAccess::Ready,
+			&query("Dune", vec!["Frank Herbert".into()]),
+		)
+		.await;
+		assert_eq!(outcome.sources[2].status, OnlineLookupStatus::NoMatch);
 	}
 
 	#[test]
