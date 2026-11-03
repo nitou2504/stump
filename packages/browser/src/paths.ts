@@ -26,6 +26,7 @@ type SettingsPage =
 	| 'email/new'
 	| 'notifications'
 	| 'recently-added'
+	| 'deleted-books'
 type DocTopic = 'access-control' | 'features/book-clubs'
 type BookClubTab = 'overview' | 'members' | 'discussion' | 'settings'
 export type BrowseIndex = 'genres' | 'authors'
@@ -90,6 +91,9 @@ const pathsInternal = {
 		return `/books?${params.toString()}`
 	},
 	createEmailer: () => pathsInternal.settings('email/new'),
+	deletedBooks: (libraryId?: string) =>
+		pathsInternal.settings('deleted-books') +
+		(libraryId ? `?library=${encodeURIComponent(libraryId)}` : ''),
 	docs: (topic?: DocTopic, section?: string) =>
 		`https://www.stumpapp.dev/docs/guides/${topic || ''}${section ? `#${section}` : ''}`,
 	editEmailer: (id: number) => pathsInternal.settings('email') + `/${id}/edit`,
@@ -166,6 +170,7 @@ export function usePaths() {
 		bookSearchWithFilter: (filters: MediaFilterInput) =>
 			`${basePath}${pathsInternal.bookSearchWithFilter(filters)}`,
 		createEmailer: () => `${basePath}${pathsInternal.createEmailer()}`,
+		deletedBooks: (libraryId?: string) => `${basePath}${pathsInternal.deletedBooks(libraryId)}`,
 		docs: pathsInternal.docs, // Don't prefix external URLs
 		editEmailer: (id: number) => `${basePath}${pathsInternal.editEmailer(id)}`,
 		home: () => `${basePath}${pathsInternal.home()}`,

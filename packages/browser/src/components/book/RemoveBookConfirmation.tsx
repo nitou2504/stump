@@ -1,5 +1,5 @@
-import { useGraphQLMutation } from '@stump/client'
-import { Alert, AlertDescription, ConfirmationModal } from '@stump/components'
+import { useGraphQL, useGraphQLMutation } from '@stump/client'
+import { Alert, AlertDescription, ConfirmationModal, Link } from '@stump/components'
 import { graphql, UserPermission } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { Info } from 'lucide-react'
@@ -18,6 +18,14 @@ const mutation = graphql(`
 	}
 `)
 
+const retentionQuery = graphql(`
+	query RemoveBookRetention {
+		deletedBooksSettings {
+			retentionDays
+		}
+	}
+`)
+
 type Props = {
 	bookId: string
 	name: string
@@ -31,9 +39,10 @@ type Props = {
 }
 
 /**
- * Confirms removing a book from its library. Stump soft-deletes it: the file stays on
- * disk, rescans keep it hidden, and it can be restored from the library's settings.
- * Afterwards the user is taken back to the page they opened the book from.
+ * Confirms removing a book from its library. Stump soft-deletes it: it goes to Deleted books
+ * (Settings), hidden everywhere with its file still on disk, until a library manager restores it
+ * or it is deleted permanently once the retention is over. Afterwards the user is taken back to
+ * the page they opened the book from.
  */
 export default function RemoveBookConfirmation({
 	bookId,
@@ -70,6 +79,24 @@ export default function RemoveBookConfirmation({
 	})
 
 	const canRestore = checkPermission(UserPermission.ManageLibrary)
+	const { data } = useGraphQL(retentionQuery, ['deletedBooksSettings', 'retention'], undefined, {
+		enabled: isOpen,
+	})
+	const days = data?.deletedBooksSettings.retentionDays
+
+	const stay =
+		days === undefined
+			? 'It stays in Deleted books'
+			: days === 0
+				? 'It stays in Deleted books until it is deleted permanently by hand'
+				: `It stays in Deleted books for ${days === 1 ? '1 day' : `${days} days`}, then it is deleted permanently (its file moves to the quarantine folder)`
+	const deletedBooks = canRestore ? (
+		<Link to={paths.deletedBooks()} onClick={onClose} className="underline">
+			Settings → Deleted books
+		</Link>
+	) : (
+		'Settings → Deleted books'
+	)
 
 	return (
 		<ConfirmationModal
@@ -85,9 +112,14 @@ export default function RemoveBookConfirmation({
 			<Alert>
 				<Info />
 				<AlertDescription>
-					The file is not deleted from disk. The book disappears from Stump (including OPDS and
-					smart lists) and {canRestore ? 'can be restored' : 'a library manager can restore it'}{' '}
-					from the library&apos;s settings → Danger zone → Deletion.
+					<p>
+						{stay}. Until then {canRestore ? 'you' : 'a library manager'} can restore it, with its
+						reading progress and notes, from {deletedBooks}.
+					</p>
+					<p className="mt-1.5">
+						It disappears from Stump right away, OPDS and smart lists included. Its file stays on
+						disk.
+					</p>
 				</AlertDescription>
 			</Alert>
 		</ConfirmationModal>

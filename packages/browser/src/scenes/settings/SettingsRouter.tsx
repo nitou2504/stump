@@ -24,6 +24,7 @@ const ServerLogsScene = lazy(() => import('./server/logs/ServerLogsScene.tsx'))
 const JobSettingsScene = lazy(() => import('./server/jobs/JobSettingsScene.tsx'))
 const TagSettingsScene = lazy(() => import('./server/tags'))
 const RecentlyAddedScene = lazy(() => import('./server/recentlyAdded'))
+const DeletedBooksScene = lazy(() => import('./server/deletedBooks'))
 
 /**
  * The main router for the settings scene(s). Mostly just a collection of nested routers
@@ -62,6 +63,7 @@ export default function SettingsRouter() {
 				)}
 				{canManageLibrary && <Route path="tags" element={<TagSettingsScene />} />}
 				{canReadUsers && <Route path="recently-added" element={<RecentlyAddedScene />} />}
+				{canManageLibrary && <Route path="deleted-books" element={<DeletedBooksScene />} />}
 
 				<Route path="*" element={<Navigate to={paths.settings('account')} replace />} />
 			</Route>

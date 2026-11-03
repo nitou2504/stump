@@ -36,6 +36,12 @@ const fragment = graphql(`
 			generatedThumbnails
 			removedThumbnails
 		}
+		... on TrashPurgeOutput {
+			purgedBooks
+			missingBookFiles
+			keptBooks
+			quarantinedBytes
+		}
 	}
 `)
 

@@ -13,6 +13,7 @@ import {
 	ScrollText,
 	Server,
 	Tag,
+	Trash2,
 	UserCircle,
 	Users,
 } from 'lucide-react'
@@ -173,6 +174,13 @@ export const createRouteGroups = (client: QueryClient, api: Api): RouteGroup[] =
 				localeKey: 'server/recentlyAdded',
 				permissions: [UserPermission.ReadUsers],
 				to: '/settings/recently-added',
+			},
+			{
+				icon: Trash2,
+				label: 'Deleted books',
+				localeKey: 'server/deletedBooks',
+				permissions: [UserPermission.ManageLibrary],
+				to: '/settings/deleted-books',
 			},
 		],
 		label: 'Management',

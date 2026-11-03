@@ -1701,7 +1701,8 @@
           "notifications": "Notifications",
           "tags": "Tags",
           "label": "Management",
-          "recently added": "Recently added"
+          "recently added": "Recently added",
+          "deleted books": "Deleted books"
         }
       },
       "app/account": {
@@ -2750,6 +2751,10 @@
       "server/recentlyAdded": {
         "title": "Recently added",
         "description": "Books added through \"Add books\": who added what, when and where"
+      },
+      "server/deletedBooks": {
+        "title": "Deleted books",
+        "description": "Books removed from their library, waiting to be restored or deleted permanently"
       }
     },
     "jobOverlay": {

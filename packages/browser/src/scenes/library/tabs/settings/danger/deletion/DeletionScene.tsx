@@ -1,12 +1,12 @@
 import CleanLibrary from './CleanLibrary'
+import DeletedBooksLink from './DeletedBooksLink'
 import DeleteLibrary from './DeleteLibrary'
-import RemovedBooks from './RemovedBooks'
 
 export default function DeletionScene() {
 	return (
 		<div className="gap-12 flex flex-col">
 			<CleanLibrary />
-			<RemovedBooks />
+			<DeletedBooksLink />
 			<DeleteLibrary />
 		</div>
 	)
