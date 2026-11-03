@@ -2310,6 +2310,18 @@ export enum MergeStrategy {
   PreferExternalAndMergeLists = 'PREFER_EXTERNAL_AND_MERGE_LISTS'
 }
 
+/** One field changed by a save */
+export type MetadataEditChange = {
+  __typename?: 'MetadataEditChange';
+  /** The field's camelCase name (`genres`, `writers`, ...) */
+  field: Scalars['String']['output'];
+  newValue?: Maybe<Scalars['String']['output']>;
+  /** The value before (lists comma-separated) */
+  oldValue?: Maybe<Scalars['String']['output']>;
+  /** Whether the book file carries the new value (else it was kept in Stump only) */
+  writtenToFile: Scalars['Boolean']['output'];
+};
+
 /** Where the changes of a metadata edit went */
 export type MetadataEditFile = {
   __typename?: 'MetadataEditFile';
@@ -2317,14 +2329,12 @@ export type MetadataEditFile = {
   csvPath?: Maybe<Scalars['String']['output']>;
   /** The changed fields (camelCase) now in the book file */
   fileFields: Array<Scalars['String']['output']>;
-  /** The locks added for them */
+  /** The locks that keep the edited fields through rescans */
   locked: Array<MetadataField>;
   /** Why the file was not written, or a note about it */
   message?: Maybe<Scalars['String']['output']>;
-  /** Where the original file was kept */
-  quarantinePath?: Maybe<Scalars['String']['output']>;
   status: MetadataFileWriteStatus;
-  /** The changed fields kept in Stump only, locked so rescans keep them */
+  /** The changed fields kept in Stump only */
   stumpOnlyFields: Array<Scalars['String']['output']>;
 };
 
@@ -2333,6 +2343,24 @@ export type MetadataEditResult = {
   __typename?: 'MetadataEditResult';
   file: MetadataEditFile;
   media: Media;
+  /** The save in the book's edit history (none when nothing changed) */
+  saveId?: Maybe<Scalars['String']['output']>;
+  /** For a revert: the fields left as they are because they changed again since */
+  skippedFields: Array<Scalars['String']['output']>;
+};
+
+/** One save of a book's metadata edit history */
+export type MetadataEditSave = {
+  __typename?: 'MetadataEditSave';
+  changes: Array<MetadataEditChange>;
+  editedAt: Scalars['DateTime']['output'];
+  /** The username of who saved it */
+  editedBy?: Maybe<Scalars['String']['output']>;
+  /** The save that reverted this one */
+  revertedBy?: Maybe<Scalars['String']['output']>;
+  /** The save this one reverted */
+  revertsSaveId?: Maybe<Scalars['String']['output']>;
+  saveId: Scalars['String']['output'];
 };
 
 /** The metadata fields which can be listed with their book counts */
@@ -2708,10 +2736,11 @@ export type Mutation = {
   deleteUserSessions: Scalars['Int']['output'];
   /**
    * Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
-   * files carry title, authors, series, genres, summary and more), so they survive
-   * rescans and the library's curator sees them. The original file is kept in the
-   * quarantine folder when one is set. Changes a file cannot carry stay in Stump and are
-   * locked so rescans keep them. Every change is logged in `stump_edits.csv`.
+   * files carry title, authors, series, genres, summary and more): the edited copy is
+   * read back before it replaces the book, so a failed write leaves the file untouched
+   * and the changes in Stump only. Every edited field is locked so rescans keep it, and
+   * the save is recorded in the book's edit history (see `revertMediaMetadataEdit`) and
+   * in `stump_edits.csv`.
    */
   editMediaMetadata: MetadataEditResult;
   /** Edit your own message */
@@ -2795,6 +2824,12 @@ export type Mutation = {
   respondToBookClubInvitation: BookClubInvitation;
   /** Brings back a book removed with `deleteMedia` */
   restoreMedia: Scalars['Boolean']['output'];
+  /**
+   * Revert a save of the book's edit history: the fields it changed get their old values
+   * back (in the book file and in Stump), except the ones changed again since, which
+   * are left as they are (`skippedFields`). The revert is recorded as a new save.
+   */
+  revertMediaMetadataEdit: MetadataEditResult;
   /**
    * Run post-processing on the whole library now: the 16-grey step (or its dry-run
    * estimate) and/or the PDF steps (queued for the PDF worker)
@@ -3498,6 +3533,12 @@ export type MutationRespondToBookClubInvitationArgs = {
 
 export type MutationRestoreMediaArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationRevertMediaMetadataEditArgs = {
+  mediaId: Scalars['ID']['input'];
+  saveId: Scalars['String']['input'];
 };
 
 
@@ -4415,6 +4456,8 @@ export type Query = {
    * the same evidence
    */
   mediaGenreSuggestions: MediaGenreSuggestions;
+  /** The latest saves of a book's metadata edit history, newest first (20 by default) */
+  mediaMetadataEdits: Array<MetadataEditSave>;
   /**
    * The distinct metadata values (genres, writers, ...) of the books visible to the
    * user, optionally restricted to a series or to the books of a smart list
@@ -4719,6 +4762,12 @@ export type QueryMediaByPathArgs = {
 export type QueryMediaGenreSuggestionsArgs = {
   id: Scalars['ID']['input'];
   online?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryMediaMetadataEditsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  mediaId: Scalars['ID']['input'];
 };
 
 
@@ -7173,14 +7222,6 @@ export type SimpleBookCardFragment = { __typename?: 'Media', id: string, resolve
 
 export type MediaMetadataEditorFragment = { __typename?: 'MediaMetadata', ageRating?: number | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, day?: number | null, editors: Array<string>, format?: string | null, identifierAmazon?: string | null, identifierCalibre?: string | null, identifierGoogle?: string | null, identifierIsbn?: string | null, identifierMobiAsin?: string | null, identifierUuid?: string | null, genres: Array<string>, inkers: Array<string>, language?: string | null, letterers: Array<string>, links: Array<string>, month?: number | null, notes?: string | null, number?: any | null, pageCount?: number | null, pencillers: Array<string>, publisher?: string | null, series?: string | null, seriesGroup?: string | null, storyArc?: string | null, storyArcNumber?: any | null, summary?: string | null, teams: Array<string>, title?: string | null, titleSort?: string | null, volume?: number | null, writers: Array<string>, year?: number | null, lockedFields: Array<MetadataField> } & { ' $fragmentName'?: 'MediaMetadataEditorFragment' };
 
-export type UpdateMediaMetadataMutationVariables = Exact<{
-  id: Scalars['ID']['input'];
-  input: MediaMetadataInput;
-}>;
-
-
-export type UpdateMediaMetadataMutation = { __typename?: 'Mutation', updateMediaMetadata: { __typename?: 'Media', id: string } };
-
 export type MediaEditorSetLockedFieldsMutationVariables = Exact<{
   mediaId: Scalars['ID']['input'];
   lockedFields: Array<MetadataField> | MetadataField;
@@ -7188,6 +7229,54 @@ export type MediaEditorSetLockedFieldsMutationVariables = Exact<{
 
 
 export type MediaEditorSetLockedFieldsMutation = { __typename?: 'Mutation', setMediaLockedFields: { __typename?: 'Media', id: string } };
+
+export type MetadataVocabularyQueryVariables = Exact<{
+  field: MetadataFacetField;
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type MetadataVocabularyQuery = { __typename?: 'Query', metadataValueCounts: Array<{ __typename?: 'MetadataValueCount', value: string, count: number }> };
+
+export type MediaGenreSuggestionsQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+  online?: InputMaybe<Scalars['Boolean']['input']>;
+}>;
+
+
+export type MediaGenreSuggestionsQuery = { __typename?: 'Query', mediaGenreSuggestions: { __typename?: 'MediaGenreSuggestions', subjects: Array<string>, lookedUpOnline: boolean, suggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, current: Array<{ __typename?: 'CurrentGenreFit', value: string, kind: string, confidence: number, fits: boolean, reasons: Array<string>, libraryCount: number }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }> } };
+
+export type EditMediaMetadataMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  input: MediaMetadataInput;
+}>;
+
+
+export type EditMediaMetadataMutation = { __typename?: 'Mutation', editMediaMetadata: { __typename?: 'MetadataEditResult', saveId?: string | null, media: { __typename?: 'Media', id: string }, file: { __typename?: 'MetadataEditFile', status: MetadataFileWriteStatus, fileFields: Array<string>, stumpOnlyFields: Array<string>, message?: string | null } } };
+
+export type RevertMediaMetadataEditMutationVariables = Exact<{
+  mediaId: Scalars['ID']['input'];
+  saveId: Scalars['String']['input'];
+}>;
+
+
+export type RevertMediaMetadataEditMutation = { __typename?: 'Mutation', revertMediaMetadataEdit: { __typename?: 'MetadataEditResult', saveId?: string | null, skippedFields: Array<string>, media: { __typename?: 'Media', id: string }, file: { __typename?: 'MetadataEditFile', status: MetadataFileWriteStatus, fileFields: Array<string>, stumpOnlyFields: Array<string>, message?: string | null } } };
+
+export type MediaMetadataEditsQueryVariables = Exact<{
+  mediaId: Scalars['ID']['input'];
+  limit?: InputMaybe<Scalars['Int']['input']>;
+}>;
+
+
+export type MediaMetadataEditsQuery = { __typename?: 'Query', mediaMetadataEdits: Array<{ __typename?: 'MetadataEditSave', saveId: string, editedAt: any, editedBy?: string | null, revertsSaveId?: string | null, revertedBy?: string | null, changes: Array<{ __typename?: 'MetadataEditChange', field: string, oldValue?: string | null, newValue?: string | null, writtenToFile: boolean }> }> };
+
+export type EditBookDetailsQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type EditBookDetailsQuery = { __typename?: 'Query', mediaById?: { __typename?: 'Media', id: string, resolvedName: string, extension: string, library: { __typename?: 'Library', id: string }, metadata?: { __typename?: 'MediaMetadata', title?: string | null, writers: Array<string>, series?: string | null, number?: any | null, genres: Array<string>, summary?: string | null, publisher?: string | null, year?: number | null, month?: number | null, day?: number | null, language?: string | null, ageRating?: number | null } | null } | null };
 
 export type BookOverviewSceneQueryVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -13270,13 +13359,6 @@ export const RemoveBookFromLibraryDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<RemoveBookFromLibraryMutation, RemoveBookFromLibraryMutationVariables>;
-export const UpdateMediaMetadataDocument = new TypedDocumentString(`
-    mutation UpdateMediaMetadata($id: ID!, $input: MediaMetadataInput!) {
-  updateMediaMetadata(id: $id, input: $input) {
-    id
-  }
-}
-    `) as unknown as TypedDocumentString<UpdateMediaMetadataMutation, UpdateMediaMetadataMutationVariables>;
 export const MediaEditorSetLockedFieldsDocument = new TypedDocumentString(`
     mutation MediaEditorSetLockedFields($mediaId: ID!, $lockedFields: [MetadataField!]!) {
   setMediaLockedFields(mediaId: $mediaId, lockedFields: $lockedFields) {
@@ -13284,6 +13366,121 @@ export const MediaEditorSetLockedFieldsDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<MediaEditorSetLockedFieldsMutation, MediaEditorSetLockedFieldsMutationVariables>;
+export const MetadataVocabularyDocument = new TypedDocumentString(`
+    query MetadataVocabulary($field: MetadataFacetField!, $libraryId: ID, $search: String) {
+  metadataValueCounts(field: $field, libraryId: $libraryId, search: $search) {
+    value
+    count
+  }
+}
+    `) as unknown as TypedDocumentString<MetadataVocabularyQuery, MetadataVocabularyQueryVariables>;
+export const MediaGenreSuggestionsDocument = new TypedDocumentString(`
+    query MediaGenreSuggestions($id: ID!, $online: Boolean) {
+  mediaGenreSuggestions(id: $id, online: $online) {
+    suggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    current {
+      value
+      kind
+      confidence
+      fits
+      reasons
+      libraryCount
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    subjects
+    lookedUpOnline
+  }
+}
+    `) as unknown as TypedDocumentString<MediaGenreSuggestionsQuery, MediaGenreSuggestionsQueryVariables>;
+export const EditMediaMetadataDocument = new TypedDocumentString(`
+    mutation EditMediaMetadata($id: ID!, $input: MediaMetadataInput!) {
+  editMediaMetadata(id: $id, input: $input) {
+    media {
+      id
+    }
+    file {
+      status
+      fileFields
+      stumpOnlyFields
+      message
+    }
+    saveId
+  }
+}
+    `) as unknown as TypedDocumentString<EditMediaMetadataMutation, EditMediaMetadataMutationVariables>;
+export const RevertMediaMetadataEditDocument = new TypedDocumentString(`
+    mutation RevertMediaMetadataEdit($mediaId: ID!, $saveId: String!) {
+  revertMediaMetadataEdit(mediaId: $mediaId, saveId: $saveId) {
+    media {
+      id
+    }
+    file {
+      status
+      fileFields
+      stumpOnlyFields
+      message
+    }
+    saveId
+    skippedFields
+  }
+}
+    `) as unknown as TypedDocumentString<RevertMediaMetadataEditMutation, RevertMediaMetadataEditMutationVariables>;
+export const MediaMetadataEditsDocument = new TypedDocumentString(`
+    query MediaMetadataEdits($mediaId: ID!, $limit: Int) {
+  mediaMetadataEdits(mediaId: $mediaId, limit: $limit) {
+    saveId
+    editedAt
+    editedBy
+    revertsSaveId
+    revertedBy
+    changes {
+      field
+      oldValue
+      newValue
+      writtenToFile
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<MediaMetadataEditsQuery, MediaMetadataEditsQueryVariables>;
+export const EditBookDetailsDocument = new TypedDocumentString(`
+    query EditBookDetails($id: ID!) {
+  mediaById(id: $id) {
+    id
+    resolvedName
+    extension
+    library {
+      id
+    }
+    metadata {
+      title
+      writers
+      series
+      number
+      genres
+      summary
+      publisher
+      year
+      month
+      day
+      language
+      ageRating
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<EditBookDetailsQuery, EditBookDetailsQueryVariables>;
 export const BookOverviewSceneDocument = new TypedDocumentString(`
     query BookOverviewScene($id: ID!) {
   mediaById(id: $id) {

@@ -7,6 +7,7 @@ import { useNavigate, useParams } from 'react-router'
 
 import { BookHeader } from '@/components/book/BookHeader'
 import { MediaMetadataEditor } from '@/components/book/metadata'
+import { EditBookDialog } from '@/components/book/metadata/edit'
 import { SceneContainer } from '@/components/container'
 import { MatchReviewDialog } from '@/components/metadata/metadataMatching'
 import { SettingsSection } from '@/components/sharedLayout'
@@ -51,6 +52,7 @@ export default function BookSettingsScene() {
 	})
 
 	const [isSearchingMetadata, setIsSearchingMetadata] = useState(false)
+	const [isEditingDetails, setIsEditingDetails] = useState(false)
 
 	useEffect(() => {
 		if (!book) {
@@ -83,11 +85,18 @@ export default function BookSettingsScene() {
 						title="Metadata"
 						description="Extra information about this book"
 						actions={
-							checkPermission(UserPermission.MetadataFetchRecordManage) && (
-								<Button variant="outline" size="sm" onClick={() => setIsSearchingMetadata(true)}>
-									{t(getKey('openButton'))}
-								</Button>
-							)
+							<div className="gap-2 flex flex-wrap items-center">
+								{checkPermission(UserPermission.EditMetadata) && (
+									<Button variant="outline" size="sm" onClick={() => setIsEditingDetails(true)}>
+										Edit details
+									</Button>
+								)}
+								{checkPermission(UserPermission.MetadataFetchRecordManage) && (
+									<Button variant="outline" size="sm" onClick={() => setIsSearchingMetadata(true)}>
+										{t(getKey('openButton'))}
+									</Button>
+								)}
+							</div>
 						}
 					>
 						{checkPermission(UserPermission.MetadataFetchRecordManage) && (
@@ -102,7 +111,14 @@ export default function BookSettingsScene() {
 							</>
 						)}
 						{checkPermission(UserPermission.EditMetadata) && (
-							<MediaMetadataEditor mediaId={book.id} data={book.metadata} />
+							<>
+								<MediaMetadataEditor mediaId={book.id} data={book.metadata} />
+								<EditBookDialog
+									mediaId={book.id}
+									isOpen={isEditingDetails}
+									onClose={() => setIsEditingDetails(false)}
+								/>
+							</>
 						)}
 					</SettingsSection>
 				)}

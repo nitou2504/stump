@@ -10,6 +10,7 @@ import {
 	Image,
 	ImagePlus,
 	ImageUp,
+	PencilLine,
 	Send,
 	Trash2,
 } from 'lucide-react'
@@ -24,6 +25,7 @@ import { usePaths } from '@/paths'
 
 import DeleteHistoryConfirmation from './DeleteHistoryConfirmation'
 import EmailBookDialog from './EmailBookDialog'
+import { EditBookDialog } from './metadata/edit'
 import RemoveBookConfirmation from './RemoveBookConfirmation'
 import { useBookReadingActions } from './useBookReadingActions'
 import { useBookThumbnailActions } from './useBookThumbnailActions'
@@ -98,11 +100,13 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 	const [showEmailDialog, setShowEmailDialog] = useState(false)
 	const [showDeleteHistoryConfirmation, setShowDeleteHistoryConfirmation] = useState(false)
 	const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false)
+	const [showEditDetails, setShowEditDetails] = useState(false)
 
 	const canManage = MANAGE_PERMISSIONS.some((permission) => checkPermission(permission))
 	const canDownload = checkPermission(UserPermission.DownloadFile)
 	const canAnalyze = checkPermission(UserPermission.ManageLibrary)
 	const canEditThumbnail = checkPermission(UserPermission.EditThumbnails)
+	const canEditMetadata = checkPermission(UserPermission.EditMetadata)
 	const canUpload = thumbnail.canUpload
 	// granted per user by an admin (the user's permissions in Settings → Users)
 	const canRemove = checkPermission(UserPermission.RemoveBook)
@@ -176,6 +180,15 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 		},
 		{
 			items: [
+				...(canEditMetadata
+					? [
+							{
+								label: 'Edit details',
+								leftIcon: <PencilLine />,
+								onClick: () => setShowEditDetails(true),
+							},
+						]
+					: []),
 				...(canAnalyze
 					? [
 							{
@@ -254,6 +267,14 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 			)}
 
 			{canEditThumbnail && thumbnail.dialogs}
+
+			{canEditMetadata && (
+				<EditBookDialog
+					mediaId={book.id}
+					isOpen={showEditDetails}
+					onClose={() => setShowEditDetails(false)}
+				/>
+			)}
 
 			{canRemove && (
 				<RemoveBookConfirmation

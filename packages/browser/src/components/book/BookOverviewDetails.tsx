@@ -1,15 +1,17 @@
 import { parseGraphQLPercentageDecimal } from '@stump/client'
 import { Badge, Heading, Link } from '@stump/components'
-import { FragmentType, graphql, Tag, useFragment } from '@stump/graphql'
-import { ExternalLink, X } from 'lucide-react'
-import { Fragment } from 'react'
+import { FragmentType, graphql, Tag, useFragment, UserPermission } from '@stump/graphql'
+import { ExternalLink, PencilLine, Plus, X } from 'lucide-react'
+import { Fragment, useState } from 'react'
 
 import ReadMore from '@/components/ReadMore'
 import TagList from '@/components/tags/TagList'
+import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import BookStatRow from './BookStatRow'
+import { EditBookDialog } from './metadata/edit'
 import { getBookPresentation } from './presentation'
 import { useBookProgressMutations } from './useBookReadingActions'
 
@@ -77,6 +79,10 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 	const percentage = parseGraphQLPercentageDecimal(media.readProgress?.percentageCompleted)
 
 	const presentation = getBookPresentation(media.library.config.libraryType)
+
+	const { checkPermission } = useAppContext()
+	const canEdit = checkPermission(UserPermission.EditMetadata)
+	const [editingGenres, setEditingGenres] = useState(false)
 
 	const creatorLink = (name: string, field: 'writers' | 'pencillers') => (
 		<Link
@@ -158,7 +164,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 
 			<BookStatRow fragment={media} />
 
-			{(genres.length > 0 || tags.length > 0) && (
+			{(genres.length > 0 || tags.length > 0 || canEdit) && (
 				<div className="gap-1.5 flex flex-wrap items-center">
 					{genres.map((genre) => (
 						<Link
@@ -173,6 +179,23 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 							</Badge>
 						</Link>
 					))}
+					{canEdit && (
+						<button
+							type="button"
+							onClick={() => setEditingGenres(true)}
+							aria-label={genres.length ? 'Edit genres' : 'Add genres'}
+							title={genres.length ? 'Edit genres' : 'Add genres'}
+							className="gap-1 px-2 text-xs h-6 pointer-coarse:min-h-10 inline-flex items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+						>
+							{genres.length ? (
+								<PencilLine className="size-3.5" />
+							) : (
+								<>
+									<Plus className="size-3.5" /> Add genres
+								</>
+							)}
+						</button>
+					)}
 					{tags.length > 0 && (
 						<TagList
 							tags={tags}
@@ -199,6 +222,15 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 						</Link>
 					))}
 				</div>
+			)}
+
+			{canEdit && (
+				<EditBookDialog
+					mediaId={media.id}
+					isOpen={editingGenres}
+					onClose={() => setEditingGenres(false)}
+					focus="genres"
+				/>
 			)}
 
 			{!!metadata?.summary && (

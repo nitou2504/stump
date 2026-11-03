@@ -29,6 +29,9 @@ import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 import { invalidateThumbnailQueries } from '@/utils/query'
 
+import { notifySaved } from './edit'
+import { editMediaMetadataMutation } from './edit/queries'
+import GenreListCell from './GenreListCell'
 import { getEditorDefaultValues, MetadataEditorValues, schema } from './schema'
 
 const fragment = graphql(`
@@ -69,14 +72,6 @@ const fragment = graphql(`
 		writers
 		year
 		lockedFields
-	}
-`)
-
-const mutation = graphql(`
-	mutation UpdateMediaMetadata($id: ID!, $input: MediaMetadataInput!) {
-		updateMediaMetadata(id: $id, input: $input) {
-			id
-		}
 	}
 `)
 
@@ -147,9 +142,19 @@ export default function MediaMetadataEditor({ mediaId, data }: Props) {
 				header: () => null,
 				cell: (info) =>
 					match(info.getValue())
+						.with(P.union('genres', 'writers'), (field) => (
+							<GenreListCell
+								field={field}
+								values={getProperty(metadata, field) ?? []}
+								itemUrl={(item) =>
+									paths.bookSearchWithFilter({
+										metadata: { [field]: { hasAnyOf: [item] } },
+									})
+								}
+							/>
+						))
 						.with(
 							P.union(
-								'genres',
 								'characters',
 								'colorists',
 								'coverArtists',
@@ -158,7 +163,6 @@ export default function MediaMetadataEditor({ mediaId, data }: Props) {
 								'letterers',
 								'pencillers',
 								'teams',
-								'writers',
 							),
 							(field) => {
 								const values = getProperty(metadata, field) ?? []
@@ -289,10 +293,12 @@ export default function MediaMetadataEditor({ mediaId, data }: Props) {
 
 	const client = useQueryClient()
 
-	const { mutate: updateMetadata } = useGraphQLMutation(mutation, {
-		onSuccess: () => {
+	const { mutate: updateMetadata } = useGraphQLMutation(editMediaMetadataMutation, {
+		onSuccess: ({ editMediaMetadata: { file } }) => {
 			setState(MetadataEditorState.Display)
 			invalidateThumbnailQueries(client)
+			client.invalidateQueries({ queryKey: ['metadataVocabulary'] })
+			notifySaved(file)
 		},
 		onError: (error) => {
 			console.error('Failed to update metadata', error)
@@ -323,14 +329,20 @@ export default function MediaMetadataEditor({ mediaId, data }: Props) {
 
 	const onSaveMetadata = useCallback(
 		(values: MetadataEditorValues) => {
-			if (mediaId) {
-				updateMetadata({
-					id: mediaId,
-					input: values,
-				})
+			if (!mediaId) return
+			// only what was edited: a save writes the changed fields into the book file and
+			// locks them, so untouched fields must not count as changes
+			const dirty = form.formState.dirtyFields as Record<string, unknown>
+			const input = Object.fromEntries(
+				Object.entries(values).filter(([key]) => Boolean(dirty[key])),
+			)
+			if (!Object.keys(input).length) {
+				setState(MetadataEditorState.Display)
+				return
 			}
+			updateMetadata({ id: mediaId, input })
 		},
-		[mediaId, updateMetadata],
+		[mediaId, updateMetadata, form],
 	)
 
 	const onCancelEdits = useCallback(() => {
