@@ -16,6 +16,7 @@ import { forwardFrameKeyEvents } from '../../annotations/shortcuts'
 import { forwardFramePointerMoves } from '../../shared/useReaderChrome'
 import { clearFramesSelection, resyncFramesPage } from '../annotations/clearSelection'
 import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
+import { fitDropCaps } from './fitDropCaps'
 import { EPUB_FRAME_LAYOUT_EVENT, fitFrameMedia } from './fitFrameMedia'
 import { locatorToHref, navigableLocator, resolvePublicationLinkLocator } from './locator'
 import {
@@ -252,6 +253,9 @@ export function useReadiumNavigator({
 				// and images that fit the page at any text size (Readium's text size zooms them too):
 				// a cover larger than the page left the chapter's first page blank
 				fitFrameMedia(doc, () => window.dispatchEvent(new Event(EPUB_FRAME_LAYOUT_EVENT)))
+				// and drop caps that span whole lines beside their paragraph (a publisher's float
+				// sized for another line height overlapped the next line), on the same page
+				fitDropCaps(doc, () => window.dispatchEvent(new Event(EPUB_FRAME_LAYOUT_EVENT)))
 				forwardFrameKeyEvents(doc, document)
 				// and its mouse moves, so the top bar shows when the mouse nears the top
 				forwardFramePointerMoves(doc)
