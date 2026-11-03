@@ -16,6 +16,8 @@ import {
 	useReadingProgress,
 } from './readingProgress'
 import {
+	type BookDefaultsProps,
+	BookDefaultsRow,
 	FOCUS,
 	PanelSubheading,
 	Segmented,
@@ -44,6 +46,11 @@ type Props = {
 	shortcuts?: ShortcutRow[]
 	/** Last under More, e.g. other ways to open the book */
 	footer?: React.ReactNode
+	/**
+	 * The book's settings against its kind's defaults: under More, with "Make default" and
+	 * "Reset this book"; a dot by More shows when the book has settings of its own
+	 */
+	bookDefaults?: BookDefaultsProps
 }
 
 /** A drag down the phone sheet past this share of its height (or a flick) closes it */
@@ -75,6 +82,7 @@ export default function ReaderSettingsDialog({
 	more,
 	shortcuts,
 	footer,
+	bookDefaults,
 }: Props) {
 	const { translate } = useTranslate()
 	const [moreOpen, setMoreOpen] = useState(false)
@@ -167,6 +175,13 @@ export default function ReaderSettingsDialog({
 							data-testid="reader-settings-more"
 						>
 							{translate(moreOpen ? 'shared.reader.settings.less' : 'shared.reader.settings.more')}
+							{bookDefaults?.differs && !moreOpen && (
+								<span
+									aria-hidden
+									className="size-1.5 rounded-full bg-foreground/70"
+									data-testid="reader-settings-more-dot"
+								/>
+							)}
 							<ChevronDown
 								aria-hidden
 								className={cn(
@@ -198,6 +213,7 @@ export default function ReaderSettingsDialog({
 						>
 							{more}
 							<ReadingProgressSettings reader={reader} />
+							{bookDefaults && <BookDefaultsRow {...bookDefaults} />}
 							{footer}
 						</div>
 					)}

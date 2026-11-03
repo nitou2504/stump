@@ -374,6 +374,9 @@ function EpubSettings({
 	const {
 		bookPreferences: { readingMode, columnCount },
 		setBookPreferences,
+		differsFromDefaults,
+		makeDefault,
+		resetToDefaults,
 	} = useBookPreferences({ book })
 
 	const layout = useMemo(() => epubLayout(readingMode, columnCount), [readingMode, columnCount])
@@ -435,6 +438,12 @@ function EpubSettings({
 			layoutDisabledReason={disabledReason}
 			more={<EpubReadingDirection />}
 			shortcuts={shortcuts}
+			bookDefaults={{
+				kind: 'epub',
+				differs: differsFromDefaults,
+				onMakeDefault: makeDefault,
+				onReset: resetToDefaults,
+			}}
 		>
 			<TextSettings />
 		</ReaderSettingsDialog>

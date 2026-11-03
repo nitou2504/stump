@@ -3920,7 +3920,24 @@
         "more": "More",
         "less": "Less",
         "shortcuts": "Shortcuts",
-        "bookFontName": "Book's own"
+        "bookFontName": "Book's own",
+        "defaults": {
+          "label": "Defaults",
+          "own": "This book has its own settings",
+          "following": "Using your {{kind}} defaults",
+          "makeDefault": "Make Default for All {{kinds}}",
+          "reset": "Reset This Book",
+          "kind": {
+            "epub": "EPUB",
+            "pdf": "PDF",
+            "comic": "comic"
+          },
+          "kinds": {
+            "epub": "EPUBs",
+            "pdf": "PDFs",
+            "comic": "comics"
+          }
+        }
       },
       "layout": {
         "label": "Page Layout",

@@ -1,27 +1,19 @@
 import { DEFAULT_EPUB_FONT_SIZE } from '@stump/client'
 import { Input } from '@stump/components'
 import React from 'react'
-import { useShallow } from 'zustand/react/shallow'
 
 import { useTranslate } from '@/hooks/useTranslate'
-import { useReaderStore } from '@/stores'
+
+import { useEpubDefault } from './useEpubDefault'
 
 export default function DefaultFontSize() {
 	const { translate } = useTranslate()
-	const {
-		settings: { fontSize },
-		setSettings,
-	} = useReaderStore(
-		useShallow((state) => ({
-			setSettings: state.setSettings,
-			settings: state.settings,
-		})),
-	)
+	const [fontSize, setFontSize] = useEpubDefault('fontSize')
 
 	const onValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const value = parseInt(e.target.value)
 		if (!isNaN(value) && value > 0) {
-			setSettings({ fontSize: value })
+			setFontSize(value)
 		}
 	}
 

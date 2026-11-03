@@ -1,26 +1,18 @@
 import { Input } from '@stump/components'
 import React from 'react'
-import { useShallow } from 'zustand/react/shallow'
 
 import { useTranslate } from '@/hooks/useTranslate'
-import { useReaderStore } from '@/stores'
+
+import { useEpubDefault } from './useEpubDefault'
 
 export default function DefaultLineHeight() {
 	const { translate } = useTranslate()
-	const {
-		settings: { lineHeight },
-		setSettings,
-	} = useReaderStore(
-		useShallow((state) => ({
-			setSettings: state.setSettings,
-			settings: state.settings,
-		})),
-	)
+	const [lineHeight, setLineHeight] = useEpubDefault('lineHeight')
 
 	const onValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const value = parseFloat(e.target.value)
 		if (!isNaN(value) && value >= 1.0 && value <= 3.0) {
-			setSettings({ lineHeight: value })
+			setLineHeight(value)
 		}
 	}
 

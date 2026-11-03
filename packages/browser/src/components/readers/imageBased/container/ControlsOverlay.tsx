@@ -50,6 +50,9 @@ export default function ControlsOverlay() {
 		bookPreferences: { readingMode, readingDirection, doublePageBehavior, coverAlone },
 		setBookPreferences,
 		setSettings,
+		differsFromDefaults,
+		makeDefault,
+		resetToDefaults,
 	} = useBookPreferences({ book })
 	const theme = useReaderStore((state) => state.settings.theme ?? 'auto')
 	useReaderChromeTheme(theme)
@@ -255,6 +258,12 @@ export default function ControlsOverlay() {
 					</>
 				}
 				shortcuts={shortcuts}
+				bookDefaults={{
+					kind: 'comic',
+					differs: differsFromDefaults,
+					onMakeDefault: makeDefault,
+					onReset: resetToDefaults,
+				}}
 				footer={
 					isPdf ? (
 						<button

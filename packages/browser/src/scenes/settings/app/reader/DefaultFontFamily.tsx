@@ -1,33 +1,26 @@
 import { ComboBox, Label } from '@stump/components'
 import { isSupportedFont } from '@stump/sdk'
 import { useCallback } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { SUPPORTED_FONT_OPTIONS } from '@/scenes/settings/app/preferences/FontSelect'
-import { useReaderStore } from '@/stores'
+
+import { useEpubDefault } from './useEpubDefault'
 
 export default function DefaultFontFamily() {
 	const { translate } = useTranslate()
-	const {
-		settings: { fontFamily },
-		setSettings,
-	} = useReaderStore(
-		useShallow((state) => ({
-			setSettings: state.setSettings,
-			settings: state.settings,
-		})),
-	)
+	const [fontFamily, setFontFamily] = useEpubDefault('fontFamily')
 
 	const changeFont = useCallback(
 		(font?: string) => {
 			if (!font) {
-				setSettings({ fontFamily: undefined })
+				// the book's own font: '' (not unset), so it wins over the reader's own setting
+				setFontFamily('')
 			} else if (isSupportedFont(font) || isSupportedFont(font.toUpperCase())) {
-				setSettings({ fontFamily: font.toUpperCase() })
+				setFontFamily(font.toUpperCase())
 			}
 		},
-		[setSettings],
+		[setFontFamily],
 	)
 
 	return (

@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	BOOK_RESET_KEYS,
+	createReaderStore,
 	DEFAULT_EPUB_FONT_SIZE,
+	FORMAT_DEFAULT_KEYS,
+	formatKindOf,
 	migrateReaderStore,
+	promoteToFormatDefaults,
 	type ReaderStore,
+	resetBookToDefaults,
 	withoutFrozenDefaults,
 } from '../reader'
 
@@ -155,5 +161,99 @@ describe('migrateReaderStore', () => {
 		)
 		expect(migrated.bookPreferences.book).toEqual(book)
 		expect(withoutFrozenDefaults({ cropBorders: true })).toEqual({ cropBorders: true })
+	})
+})
+
+describe('format defaults (version 10)', () => {
+	it('keeps a version 9 store as it was: no defaults until "Make default"', () => {
+		const book = { fontSize: 26 }
+		const migrated = migrateReaderStore(
+			{ settings: { fontSize: 22 }, bookPreferences: { book } } as unknown as ReaderStore,
+			9,
+		)
+		expect(migrated.bookPreferences.book).toEqual(book)
+		expect(migrated.formatDefaults).toBeUndefined()
+		// a malformed value is replaced
+		const broken = migrateReaderStore(
+			{ formatDefaults: 'oops', bookPreferences: {} } as unknown as ReaderStore,
+			9,
+		)
+		expect(broken.formatDefaults).toEqual({})
+	})
+
+	it('tells an EPUB from the books the image reader opens', () => {
+		expect(formatKindOf({ extension: 'epub' })).toBe('epub')
+		expect(formatKindOf({ extension: 'EPUB' })).toBe('epub')
+		expect(formatKindOf({ extension: 'cbz' })).toBe('comic')
+		expect(formatKindOf({ extension: 'pdf' })).toBe('comic')
+		expect(formatKindOf({})).toBe('comic')
+	})
+
+	it("makes a book's settings the defaults of its kind and leaves its reading direction", () => {
+		const state = {
+			formatDefaults: { epub: { lineHeight: 1.8 } },
+			bookPreferences: {
+				a: { fontSize: 26, fontFamily: 'LITERATA', readingDirection: 'RTL' },
+				b: { fontSize: 18 },
+			},
+		} as unknown as Pick<ReaderStore, 'formatDefaults' | 'bookPreferences'>
+		const next = promoteToFormatDefaults(state, 'epub', 'a')
+		expect(next.formatDefaults.epub).toEqual({
+			lineHeight: 1.8,
+			fontSize: 26,
+			fontFamily: 'LITERATA',
+		})
+		// the book reads them from the defaults now; its direction is its own
+		expect(next.bookPreferences.a).toEqual({ readingDirection: 'RTL' })
+		// other books keep their own settings
+		expect(next.bookPreferences.b).toEqual({ fontSize: 18 })
+		// comics keep theirs
+		expect(next.formatDefaults.comic).toBeUndefined()
+	})
+
+	it('drops a book left without settings, and ignores a book without any', () => {
+		const state = {
+			formatDefaults: {},
+			bookPreferences: { a: { imageScaling: { scaleToFit: 'WIDTH' } } },
+		} as unknown as Pick<ReaderStore, 'formatDefaults' | 'bookPreferences'>
+		const next = promoteToFormatDefaults(state, 'comic', 'a')
+		expect(next.formatDefaults.comic).toEqual({ imageScaling: { scaleToFit: 'WIDTH' } })
+		expect(next.bookPreferences).toEqual({})
+		expect(promoteToFormatDefaults(state, 'comic', 'nothing')).toBe(state)
+	})
+
+	it("resets a book to its kind's defaults, reading direction included", () => {
+		const books = {
+			a: { fontSize: 26, readingDirection: 'RTL', brightness: 0.5 },
+			b: { fontSize: 18 },
+		} as unknown as ReaderStore['bookPreferences']
+		// an EPUB keeps what isn't an EPUB setting (a comic's brightness)
+		expect(resetBookToDefaults(books, 'epub', 'a')).toEqual({
+			a: { brightness: 0.5 },
+			b: { fontSize: 18 },
+		})
+		expect(resetBookToDefaults(books, 'epub', 'b')).toEqual({ a: books.a })
+		expect(BOOK_RESET_KEYS.comic).toEqual([...FORMAT_DEFAULT_KEYS.comic, 'readingDirection'])
+	})
+
+	it('does both from the store', () => {
+		const memory = new Map<string, string>()
+		const store = createReaderStore({
+			getItem: (key) => memory.get(key) ?? null,
+			setItem: (key, value) => void memory.set(key, value),
+			removeItem: (key) => void memory.delete(key),
+		})
+		store.getState().setBookPreferences('a', { fontSize: 30 } as never)
+		store.getState().setBookPreferences('b', { fontSize: 18 } as never)
+		store.getState().makeFormatDefault('epub', 'a')
+		expect(store.getState().formatDefaults.epub).toEqual({ fontSize: 30 })
+		expect(store.getState().bookPreferences.a).toBeUndefined()
+		store.getState().resetBookPreferences('epub', 'b')
+		expect(store.getState().bookPreferences).toEqual({})
+		// kept in the browser with the rest of the reader settings
+		expect(JSON.parse(memory.get('stump-new-reader-store')!)).toMatchObject({
+			version: 10,
+			state: { formatDefaults: { epub: { fontSize: 30 } } },
+		})
 	})
 })

@@ -1,4 +1,11 @@
-import { BookPreferences, ReaderSettings, ReaderStore } from '@stump/client'
+import {
+	BOOK_RESET_KEYS,
+	BookPreferences,
+	type FormatKind,
+	formatKindOf,
+	ReaderSettings,
+	ReaderStore,
+} from '@stump/client'
 import { PickSelect } from '@stump/components'
 import { BookReaderSceneQuery, ReadingDirection, ReadingImageScaleFit } from '@stump/graphql'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -11,26 +18,40 @@ type Params = {
 	book: ImageReaderBookRef
 }
 
-type Return = Omit<
-	ReaderStore,
-	'bookPreferences' | 'setBookPreferences' | 'clearStore' | 'bookTimers' | 'setBookTimer'
-> & {
+type Return = Pick<ReaderStore, 'settings' | 'setSettings'> & {
 	bookPreferences: BookPreferences
 	setBookPreferences: (preferences: Partial<BookPreferences>) => void
+	/** The reader the book opens in, whose defaults it follows: an EPUB's or the image reader's */
+	kind: FormatKind
+	/** What the book would use without its own settings */
+	defaults: BookPreferences
+	/** Whether the book has settings of its own (that "Reset this book" would undo) */
+	differsFromDefaults: boolean
+	/** "Make default": the book's settings become the defaults of every book of its kind */
+	makeDefault: () => void
+	/** "Reset this book": its settings go back to the defaults */
+	resetToDefaults: () => void
 }
 
 export function useBookPreferences({ book }: Params): Return {
+	const kind = formatKindOf(book)
 	const {
 		bookPreferences: allPreferences,
 		setBookPreferences: storedSetBookPreferences,
 		settings,
 		setSettings,
+		formatDefaults,
+		makeFormatDefault,
+		resetBookPreferences,
 	} = useReaderStore(
 		useShallow((state) => ({
 			bookPreferences: state.bookPreferences,
 			setBookPreferences: state.setBookPreferences,
 			setSettings: state.setSettings,
 			settings: state.settings,
+			formatDefaults: state.formatDefaults?.[kind],
+			makeFormatDefault: state.makeFormatDefault,
+			resetBookPreferences: state.resetBookPreferences,
 		})),
 	)
 
@@ -49,9 +70,17 @@ export function useBookPreferences({ book }: Params): Return {
 		[libraryConfig, isManga, screen],
 	)
 
+	const defaults = useMemo(
+		() => buildPreferences({}, settings, libraryDefaults, formatDefaults),
+		[libraryDefaults, settings, formatDefaults],
+	)
 	const bookPreferences = useMemo(
-		() => buildPreferences(storedBookPreferences ?? {}, settings, libraryDefaults),
-		[storedBookPreferences, libraryDefaults, settings],
+		() => buildPreferences(storedBookPreferences ?? {}, settings, libraryDefaults, formatDefaults),
+		[storedBookPreferences, libraryDefaults, settings, formatDefaults],
+	)
+	const differsFromDefaults = useMemo(
+		() => hasOwnSettings(kind, storedBookPreferences, defaults),
+		[kind, storedBookPreferences, defaults],
 	)
 
 	// Only what was changed is kept for the book: the rest stays a default, which may depend on
@@ -63,12 +92,46 @@ export function useBookPreferences({ book }: Params): Return {
 		[book.id, storedSetBookPreferences],
 	)
 
+	const makeDefault = useCallback(
+		() => makeFormatDefault(kind, book.id),
+		[makeFormatDefault, kind, book.id],
+	)
+	const resetToDefaults = useCallback(
+		() => resetBookPreferences(kind, book.id),
+		[resetBookPreferences, kind, book.id],
+	)
+
 	return {
 		bookPreferences,
 		setBookPreferences,
 		setSettings,
 		settings,
+		kind,
+		defaults,
+		differsFromDefaults,
+		makeDefault,
+		resetToDefaults,
 	}
+}
+
+/**
+ * Whether a book has settings of its own: one of its kind's settings stored for it, with a
+ * value its defaults don't have (a book whose size was turned up and back down doesn't).
+ * The EPUB's columns `auto` (the old default) shows one page, like `1`.
+ */
+export function hasOwnSettings(
+	kind: FormatKind,
+	stored: Partial<BookPreferences> | undefined,
+	defaults: Partial<BookPreferences>,
+): boolean {
+	if (!stored) return false
+	const normalize = (key: string, value: unknown) =>
+		key === 'columnCount' && (value === 'auto' || value === undefined) ? 1 : value
+	return BOOK_RESET_KEYS[kind].some(
+		(key) =>
+			key in stored &&
+			JSON.stringify(normalize(key, stored[key])) !== JSON.stringify(normalize(key, defaults[key])),
+	)
 }
 
 /**
@@ -187,12 +250,19 @@ const settingsAsBookPreferences = (settings: ReaderSettings): BookPreferences =>
 	pageMargins: settings.pageMargins,
 })
 
+/**
+ * A book's settings, from the least to the most specific: the reader's settings, the
+ * library's defaults (its fit, reading mode and direction; manga read right to left), the
+ * defaults picked for every book of its kind ("Make default"), then the book's own.
+ */
 const buildPreferences = (
 	preferences: Partial<BookPreferences>,
 	settings: ReaderSettings,
 	libraryDefaults: Partial<BookPreferences>,
+	formatDefaults: Partial<BookPreferences> | undefined,
 ): BookPreferences => ({
 	...settingsAsBookPreferences(settings),
 	...libraryDefaults,
+	...formatDefaults,
 	...preferences,
 })

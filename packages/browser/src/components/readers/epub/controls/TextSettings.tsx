@@ -78,7 +78,9 @@ export default function TextSettings() {
 		<>
 			<FontChips
 				value={fontFamily}
-				onChange={(font) => setBookPreferences({ fontFamily: font })}
+				// the book's own font is stored as '' (not left unset), so it stays this book's
+				// choice over a default font
+				onChange={(font) => setBookPreferences({ fontFamily: font ?? '' })}
 				label={t('font')}
 				bookLabel={t('bookFont')}
 				bookName={t('bookFontName')}

@@ -1,10 +1,10 @@
-import { ReadingDirection, ReadingImageScaleFit } from '@stump/graphql'
+import { ReadingDirection, ReadingImageScaleFit, ReadingMode } from '@stump/graphql'
 import { act, renderHook } from '@testing-library/react'
 
 import type { ImageReaderBookRef } from '@/components/readers/imageBased/context'
 import { useReaderStore } from '@/stores'
 
-import { useBookPreferences } from '../useBookPreferences'
+import { hasOwnSettings, useBookPreferences } from '../useBookPreferences'
 
 const manga = {
 	id: 'manga-1',
@@ -73,5 +73,91 @@ describe('useBookPreferences: per-device defaults', () => {
 			}),
 		)
 		expect(result.current.bookPreferences.imageScaling.scaleToFit).toBe(ReadingImageScaleFit.Height)
+	})
+})
+
+const epubA = {
+	id: 'epub-a',
+	extension: 'epub',
+	libraryConfig: { defaultReadingMode: ReadingMode.Paged },
+} as unknown as ImageReaderBookRef
+const epubB = { ...epubA, id: 'epub-b' } as ImageReaderBookRef
+const comic = { ...manga, id: 'comic-1', extension: 'cbz', metadata: null } as ImageReaderBookRef
+
+describe('useBookPreferences: defaults for every EPUB or comic', () => {
+	beforeEach(() => {
+		setScreen(1440, 900)
+		act(() => useReaderStore.setState({ bookPreferences: {}, formatDefaults: {} }))
+	})
+
+	it("makes one book's settings every EPUB's, and resets a book to them", () => {
+		const a = renderHook(() => useBookPreferences({ book: epubA }))
+		expect(a.result.current.kind).toBe('epub')
+		expect(a.result.current.differsFromDefaults).toBe(false)
+
+		act(() => a.result.current.setBookPreferences({ fontSize: 28, fontFamily: 'LITERATA' }))
+		expect(a.result.current.differsFromDefaults).toBe(true)
+		act(() => a.result.current.makeDefault())
+		// the book now follows the defaults, which are its settings
+		expect(a.result.current.differsFromDefaults).toBe(false)
+		expect(a.result.current.bookPreferences.fontSize).toBe(28)
+		expect(useReaderStore.getState().bookPreferences[epubA.id]).toBeUndefined()
+
+		// another EPUB opens with them
+		const b = renderHook(() => useBookPreferences({ book: epubB }))
+		expect(b.result.current.bookPreferences.fontSize).toBe(28)
+		expect(b.result.current.bookPreferences.fontFamily).toBe('LITERATA')
+		// and a comic doesn't
+		const c = renderHook(() => useBookPreferences({ book: comic }))
+		expect(c.result.current.kind).toBe('comic')
+		expect(c.result.current.bookPreferences.fontFamily).toBeUndefined()
+
+		// a book's own choice wins, the book's font included, and a reset brings the defaults back
+		act(() => b.result.current.setBookPreferences({ fontSize: 18, fontFamily: '' }))
+		expect(b.result.current.bookPreferences.fontFamily).toBe('')
+		expect(b.result.current.differsFromDefaults).toBe(true)
+		act(() => b.result.current.resetToDefaults())
+		expect(b.result.current.bookPreferences.fontSize).toBe(28)
+		expect(b.result.current.differsFromDefaults).toBe(false)
+	})
+
+	it("puts a comic's defaults over the library's", () => {
+		const c = renderHook(() => useBookPreferences({ book: comic }))
+		expect(c.result.current.bookPreferences.imageScaling.scaleToFit).toBe(
+			ReadingImageScaleFit.Height,
+		)
+		act(() =>
+			c.result.current.setBookPreferences({
+				imageScaling: { scaleToFit: ReadingImageScaleFit.Width },
+			}),
+		)
+		act(() => c.result.current.makeDefault())
+		const other = renderHook(() =>
+			useBookPreferences({ book: { ...comic, id: 'comic-2' } as ImageReaderBookRef }),
+		)
+		expect(other.result.current.bookPreferences.imageScaling.scaleToFit).toBe(
+			ReadingImageScaleFit.Width,
+		)
+	})
+})
+
+describe('hasOwnSettings', () => {
+	const defaults = {
+		fontSize: 22,
+		columnCount: 'auto' as const,
+		readingDirection: ReadingDirection.Ltr,
+	}
+
+	it('counts only settings that differ from the defaults', () => {
+		expect(hasOwnSettings('epub', undefined, defaults)).toBe(false)
+		expect(hasOwnSettings('epub', { fontSize: 22 }, defaults)).toBe(false)
+		expect(hasOwnSettings('epub', { fontSize: 24 }, defaults)).toBe(true)
+		// one page is the old 'auto'
+		expect(hasOwnSettings('epub', { columnCount: 1 }, defaults)).toBe(false)
+		expect(hasOwnSettings('epub', { columnCount: 2 }, defaults)).toBe(true)
+		// the reading direction counts: a reset takes it back too
+		expect(hasOwnSettings('epub', { readingDirection: ReadingDirection.Rtl }, defaults)).toBe(true)
+		// a comic's settings aren't an EPUB's
+		expect(hasOwnSettings('epub', { brightness: 0.4 }, defaults)).toBe(false)
 	})
 })

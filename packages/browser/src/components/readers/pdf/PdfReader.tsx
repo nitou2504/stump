@@ -99,7 +99,12 @@ import {
 	visibleRange,
 } from './scrollLayout'
 import { PAGE_ATTRIBUTE, readPdfSelection, selectionToLocator, totalProgression } from './selection'
-import { type PdfBookPreferences, usePdfBookPreferences, usePdfReaderStore } from './store'
+import {
+	type PdfBookPreferences,
+	pdfHasOwnSettings,
+	usePdfBookPreferences,
+	usePdfReaderStore,
+} from './store'
 import { buildPageString, pagePreview } from './textLayout'
 import { useElementSize } from './useElementSize'
 import {
@@ -207,6 +212,11 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		(changes: Partial<PdfBookPreferences>) => storeSetPreferences(mediaId, changes),
 		[mediaId, storeSetPreferences],
 	)
+	// the book's own settings against every PDF's defaults ("Make default", "Reset this book")
+	const ownPreferences = usePdfReaderStore((state) => state.books[mediaId])
+	const pdfDefaults = usePdfReaderStore((state) => state.defaults)
+	const makePdfDefault = usePdfReaderStore((state) => state.makeDefault)
+	const resetPdfBook = usePdfReaderStore((state) => state.resetBook)
 	const themeSetting = useReaderStore((state) => state.settings.theme ?? 'auto')
 	const setReaderSettings = useReaderStore((state) => state.setSettings)
 	const { isDarkVariant } = useTheme()
@@ -1608,6 +1618,12 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					) : null
 				}
 				shortcuts={shortcutRows}
+				bookDefaults={{
+					kind: 'pdf',
+					differs: pdfHasOwnSettings(ownPreferences, pdfDefaults ?? {}, isPhone),
+					onMakeDefault: () => makePdfDefault(mediaId),
+					onReset: () => resetPdfBook(mediaId),
+				}}
 				footer={<PdfOpenAs bookId={mediaId} onChange={setPreferences} />}
 			>
 				<PdfPageSettings

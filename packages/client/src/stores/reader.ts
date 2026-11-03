@@ -149,6 +149,88 @@ export type ReadingProgressPreferences = {
  */
 type BookID = string
 
+/** The readers whose books this store keeps the settings of (the PDF reader keeps its own) */
+export type FormatKind = 'epub' | 'comic'
+
+/**
+ * The settings "Make default" carries from a book to every book of its kind: how its pages
+ * look and turn, not what the book is (its reading direction stays the book's own)
+ */
+export const FORMAT_DEFAULT_KEYS: Record<FormatKind, readonly (keyof BookPreferences)[]> = {
+	epub: ['fontFamily', 'fontSize', 'lineHeight', 'pageMargins', 'readingMode', 'columnCount'],
+	comic: [
+		'imageScaling',
+		'brightness',
+		'cropBorders',
+		'widePages',
+		'coverAlone',
+		'readingMode',
+		'doublePageBehavior',
+	],
+}
+
+/** What "Reset this book" clears: those settings, and the book's reading direction */
+export const BOOK_RESET_KEYS: Record<FormatKind, readonly (keyof BookPreferences)[]> = {
+	epub: [...FORMAT_DEFAULT_KEYS.epub, 'readingDirection'],
+	comic: [...FORMAT_DEFAULT_KEYS.comic, 'readingDirection'],
+}
+
+/** Which kind of reader a book opens in: an EPUB's, or the image reader's (comics, manga) */
+export function formatKindOf(book: { extension?: string | null }): FormatKind {
+	return book.extension?.toLowerCase() === 'epub' ? 'epub' : 'comic'
+}
+
+/** A copy of `preferences` without `keys` */
+function withoutKeys<T extends object>(preferences: T, keys: readonly PropertyKey[]): T {
+	return Object.fromEntries(Object.entries(preferences).filter(([key]) => !keys.includes(key))) as T
+}
+
+/**
+ * "Make default": the book's own settings of its kind's default keys become the defaults of
+ * every book of that kind, and leave the book (which now reads them from the defaults). The
+ * book's other settings (its reading direction) stay; other books keep their own settings.
+ */
+export function promoteToFormatDefaults(
+	state: Pick<ReaderStore, 'formatDefaults' | 'bookPreferences'>,
+	kind: FormatKind,
+	bookId: BookID,
+): Pick<ReaderStore, 'formatDefaults' | 'bookPreferences'> {
+	const book = state.bookPreferences[bookId]
+	if (!book) return state
+	const keys = FORMAT_DEFAULT_KEYS[kind]
+	const promoted = Object.fromEntries(
+		Object.entries(book).filter(([key]) => keys.includes(key as keyof BookPreferences)),
+	)
+	return {
+		formatDefaults: {
+			...state.formatDefaults,
+			[kind]: { ...state.formatDefaults[kind], ...promoted },
+		},
+		bookPreferences: withBook(state.bookPreferences, bookId, withoutKeys(book, keys)),
+	}
+}
+
+/** "Reset this book": its settings of its kind go back to the defaults */
+export function resetBookToDefaults(
+	bookPreferences: ReaderStore['bookPreferences'],
+	kind: FormatKind,
+	bookId: BookID,
+): ReaderStore['bookPreferences'] {
+	const book = bookPreferences[bookId]
+	if (!book) return bookPreferences
+	return withBook(bookPreferences, bookId, withoutKeys(book, BOOK_RESET_KEYS[kind]))
+}
+
+/** The books' settings with one book's replaced (dropped when nothing is left) */
+function withBook(
+	bookPreferences: ReaderStore['bookPreferences'],
+	bookId: BookID,
+	book: BookPreferences,
+): ReaderStore['bookPreferences'] {
+	const rest = withoutKeys(bookPreferences, [bookId])
+	return Object.keys(book).length ? { ...rest, [bookId]: book } : rest
+}
+
 /**
  * The store for the reader itself, less specific to a single book and more about the reader
  */
@@ -199,6 +281,17 @@ export type ReaderStore = {
 	 * The preferences for each book, if they have been overridden from the default preferences
 	 */
 	bookPreferences: Record<BookID, BookPreferences>
+	/**
+	 * The defaults the reader picked for every EPUB or every comic ("Make default"), over the
+	 * library's defaults and under a book's own settings
+	 */
+	formatDefaults: Partial<Record<FormatKind, Partial<BookPreferences>>>
+	/** Sets some of a kind's defaults (e.g. from the app's reader settings) */
+	setFormatDefaults: (kind: FormatKind, preferences: Partial<BookPreferences>) => void
+	/** "Make default": a book's settings become the defaults of every book of its kind */
+	makeFormatDefault: (kind: FormatKind, id: BookID) => void
+	/** "Reset this book": its settings go back to its kind's defaults */
+	resetBookPreferences: (kind: FormatKind, id: BookID) => void
 
 	bookTimers: Record<BookID, ElapsedSeconds>
 	setBookTimer: (id: string, timer: ElapsedSeconds) => void
@@ -256,6 +349,18 @@ export const createReaderStore = (storage?: StateStorage) =>
 							})
 						},
 
+						formatDefaults: {},
+						setFormatDefaults: (kind, preferences) =>
+							set({
+								formatDefaults: {
+									...get().formatDefaults,
+									[kind]: { ...get().formatDefaults[kind], ...preferences },
+								},
+							}),
+						makeFormatDefault: (kind, id) => set(promoteToFormatDefaults(get(), kind, id)),
+						resetBookPreferences: (kind, id) =>
+							set({ bookPreferences: resetBookToDefaults(get().bookPreferences, kind, id) }),
+
 						bookTimers: {},
 						setBookTimer: (id, elapsedSeconds) =>
 							set({ bookTimers: { ...get().bookTimers, [id]: elapsedSeconds } }),
@@ -277,7 +382,7 @@ export const createReaderStore = (storage?: StateStorage) =>
 				{
 					name: 'stump-new-reader-store',
 					storage: storage ? createJSONStorage(() => storage) : undefined,
-					version: 9,
+					version: 10,
 					migrate: migrateReaderStore,
 				},
 			),
@@ -293,8 +398,9 @@ export const createReaderStore = (storage?: StateStorage) =>
  * settings: the reading bar's 'show' (always or with the controls: each reader now has its
  * own place for the bar) and the comic's page background (the reader theme colours the
  * pages' surround); the reading progress kept is the display (off, number or bar) and the
- * bar's items. Version 9 thawed books' frozen defaults (see `withoutFrozenDefaults`). Stores
- * older than version 5 are dropped, as before migrations existed.
+ * bar's items. Version 9 thawed books' frozen defaults (see `withoutFrozenDefaults`). Version
+ * 10 added each kind's defaults (`formatDefaults`, empty until "Make default"): a malformed
+ * value is replaced. Stores older than version 5 are dropped, as before migrations existed.
  */
 export function migrateReaderStore(persisted: unknown, version: number): ReaderStore {
 	const state = persisted as Partial<ReaderStore> | undefined
@@ -344,8 +450,15 @@ export function migrateReaderStore(persisted: unknown, version: number): ReaderS
 	const thaw = <T extends object>(preferences: T): T =>
 		version < 9 ? withoutFrozenDefaults(preferences) : preferences
 
+	// Version 10: each kind's defaults, an object of objects
+	const formatDefaults =
+		state.formatDefaults === undefined || isPlainObject(state.formatDefaults)
+			? state.formatDefaults
+			: {}
+
 	return {
 		...state,
+		...(formatDefaults !== state.formatDefaults ? { formatDefaults } : {}),
 		...(state.settings
 			? {
 					settings: withoutBarShow(
@@ -404,3 +517,6 @@ export function withoutFrozenDefaults<T extends object>(preferences: T): T {
 		),
 	) as T
 }
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value)

@@ -381,6 +381,74 @@ export function ToggleChips<T extends string>({
 	)
 }
 
+/** The kind of book a reader's defaults cover: every EPUB, every PDF or every comic */
+export type DefaultsKind = 'epub' | 'pdf' | 'comic'
+
+export type BookDefaultsProps = {
+	kind: DefaultsKind
+	/** Whether the book has settings of its own (its kind's defaults otherwise) */
+	differs: boolean
+	/** "Make default": the book's settings become every book of its kind's */
+	onMakeDefault: () => void
+	/** "Reset this book": its settings go back to the defaults */
+	onReset: () => void
+}
+
+/**
+ * Whether the book follows its kind's defaults or has its own settings, with the two ways
+ * back to one set: make this book's settings the default for every book of its kind, or
+ * reset the book to the defaults. Both do nothing while the book follows the defaults.
+ */
+export function BookDefaultsRow({ kind, differs, onMakeDefault, onReset }: BookDefaultsProps) {
+	const { translate } = useTranslate()
+	const t = (key: string, options?: Record<string, unknown>) =>
+		translate(`shared.reader.settings.defaults.${key}`, options)
+	const action = cn(
+		'h-7 px-2.5 pointer-coarse:h-10 font-medium inline-flex items-center rounded-md text-[12px] transition-colors duration-100',
+		'disabled:pointer-events-none disabled:opacity-45',
+		TRACK,
+		CELL,
+		FOCUS,
+	)
+	return (
+		<div className="gap-1.5 pt-1 flex flex-col" data-testid="reader-defaults">
+			<div className="gap-2 flex items-center justify-between">
+				<span className={LABEL}>{t('label')}</span>
+				<span
+					className="gap-1.5 min-w-0 inline-flex items-center truncate text-[12px] text-muted-foreground"
+					data-testid="reader-defaults-state"
+					data-differs={differs}
+				>
+					{differs && (
+						<span aria-hidden className="size-1.5 shrink-0 rounded-full bg-foreground/70" />
+					)}
+					{differs ? t('own') : t('following', { kind: t(`kind.${kind}`) })}
+				</span>
+			</div>
+			<div className="gap-1.5 flex flex-wrap">
+				<button
+					type="button"
+					className={action}
+					disabled={!differs}
+					onClick={onMakeDefault}
+					data-testid="reader-make-default"
+				>
+					{t('makeDefault', { kinds: t(`kinds.${kind}`) })}
+				</button>
+				<button
+					type="button"
+					className={action}
+					disabled={!differs}
+					onClick={onReset}
+					data-testid="reader-reset-book"
+				>
+					{t('reset')}
+				</button>
+			</div>
+		</div>
+	)
+}
+
 /** A small heading inside the panel (e.g. "The bar shows") */
 export function PanelSubheading({ children }: { children: React.ReactNode }) {
 	return <p className={cn(LABEL, 'mt-1 text-[11px]')}>{children}</p>
