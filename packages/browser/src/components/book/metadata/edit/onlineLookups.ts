@@ -10,6 +10,7 @@ type Lookup = {
 const SOURCE_NAME: Partial<Record<IntakeSource, string>> = {
 	[IntakeSource.OpenLibrary]: 'Open Library',
 	[IntakeSource.GoogleBooks]: 'Google Books',
+	[IntakeSource.Hardcover]: 'Hardcover',
 }
 
 /** "Open Library: found, 3 subjects", "Google Books: daily limit reached: add …" */

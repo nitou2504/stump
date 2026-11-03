@@ -24,6 +24,14 @@ describe('online lookups', () => {
 				message: 'found, but it has no subjects for this book',
 			}),
 		).toBe('Open Library: found, but it has no subjects for this book')
+		expect(
+			lookupLine({
+				source: IntakeSource.Hardcover,
+				status: OnlineLookupStatus.NotConfigured,
+				subjects: 0,
+				message: 'not configured',
+			}),
+		).toBe('Hardcover: not configured')
 	})
 
 	it('flags failures, not empty answers', () => {
@@ -32,5 +40,6 @@ describe('online lookups', () => {
 		expect(lookupNeedsAttention(OnlineLookupStatus.NoSubjects)).toBe(false)
 		expect(lookupNeedsAttention(OnlineLookupStatus.NoMatch)).toBe(false)
 		expect(lookupNeedsAttention(OnlineLookupStatus.Ok)).toBe(false)
+		expect(lookupNeedsAttention(OnlineLookupStatus.NotConfigured)).toBe(false)
 	})
 })

@@ -93,6 +93,7 @@ const item = (overrides: Partial<IntakeItemData> = {}): IntakeItemData => ({
 describe('intake review state', () => {
 	it('labels sources and finds a field source', () => {
 		expect(sourceLabel(IntakeSource.OpenLibrary)).toBe('Open Library')
+		expect(sourceLabel(IntakeSource.Hardcover)).toBe('Hardcover')
 		expect(sourceLabel(IntakeSource.User)).toBe('You')
 		expect(sourceLabel(undefined)).toBeUndefined()
 		expect(fieldSource(item().decision?.metadata, 'title')).toBe(IntakeSource.File)

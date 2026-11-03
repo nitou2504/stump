@@ -14,7 +14,9 @@ export function SourceBadge({ source }: { source?: IntakeSource }) {
 				'px-1.5 rounded leading-4 font-medium py-px text-[10px] whitespace-nowrap',
 				source === IntakeSource.User
 					? 'bg-primary/15 text-primary'
-					: source === IntakeSource.OpenLibrary || source === IntakeSource.GoogleBooks
+					: source === IntakeSource.OpenLibrary ||
+						  source === IntakeSource.GoogleBooks ||
+						  source === IntakeSource.Hardcover
 						? 'bg-sky-500/15 text-sky-600 dark:text-sky-400'
 						: 'bg-muted text-muted-foreground',
 			)}
