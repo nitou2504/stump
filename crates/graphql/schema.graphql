@@ -532,6 +532,20 @@ type CreatedOrUpdatedManyMedia {
 	libraryId: String!
 }
 
+"How well one of a book's current tags fits it"
+type CurrentGenreFit {
+	value: String!
+	"`GENRE` or `FACET`"
+	kind: String!
+	"The evidence for it besides the book itself, 0-1"
+	confidence: Float!
+	"Whether anything besides the book supports it (facets always fit)"
+	fits: Boolean!
+	reasons: [String!]!
+	"How many books of the library carry it"
+	libraryCount: Int!
+}
+
 type CursorPaginatedBookClubDiscussionMessageResponse {
 	nodes: [BookClubDiscussionMessage!]!
 	cursorInfo: CursorPaginationInfo!
@@ -1875,6 +1889,22 @@ input MediaFilterInput {
 	_or: [MediaFilterInput!] = null
 }
 
+"Tags proposed for a book already in the library, and how its current ones fit"
+type MediaGenreSuggestions {
+	"""
+	The library's tags that fit the book, best first (`selected` marks the default
+	choice)
+	"""
+	suggestions: [IntakeGenreSuggestion!]!
+	"The book's current tags, judged against the same evidence"
+	current: [CurrentGenreFit!]!
+	"Books of the library it was compared with"
+	similarBooks: [IntakeSimilarBook!]!
+	"Subjects found online"
+	subjects: [String!]!
+	lookedUpOnline: Boolean!
+}
+
 type MediaMetadata {
 	id: Int!
 	mediaId: String
@@ -2137,6 +2167,29 @@ enum MergeStrategy {
 	FILL_AND_MERGE_LISTS
 }
 
+"Where the changes of a metadata edit went"
+type MetadataEditFile {
+	status: MetadataFileWriteStatus!
+	"The changed fields (camelCase) now in the book file"
+	fileFields: [String!]!
+	"The changed fields kept in Stump only, locked so rescans keep them"
+	stumpOnlyFields: [String!]!
+	"The locks added for them"
+	locked: [MetadataField!]!
+	"Why the file was not written, or a note about it"
+	message: String
+	"Where the original file was kept"
+	quarantinePath: String
+	"The edits log the change was appended to"
+	csvPath: String
+}
+
+"The result of saving a book's metadata"
+type MetadataEditResult {
+	media: Media!
+	file: MetadataEditFile!
+}
+
 "The metadata fields which can be listed with their book counts"
 enum MetadataFacetField {
 	GENRES
@@ -2262,6 +2315,16 @@ input MetadataFieldOverride {
 	field: MetadataField!
 	"The value to set, using Json because I am lazy"
 	value: JSON!
+}
+
+"Whether an edit reached the book file"
+enum MetadataFileWriteStatus {
+	"The book file now carries the changed values"
+	WRITTEN
+	"None of the changes is something the file carries"
+	NOT_NEEDED
+	"The file could not take the changes: they are kept in Stump only (and locked)"
+	FAILED
 }
 
 "The supported external metadata providers"
@@ -2396,6 +2459,14 @@ type Mutation {
 	"""
 	updateMediaThumbnail(id: ID!, input: PageBasedThumbnailInput!): Media!
 	updateMediaMetadata(id: ID!, input: MediaMetadataInput!): Media!
+	"""
+	Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
+	files carry title, authors, series, genres, summary and more), so they survive
+	rescans and the library's curator sees them. The original file is kept in the
+	quarantine folder when one is set. Changes a file cannot carry stay in Stump and are
+	locked so rescans keep them. Every change is logged in `stump_edits.csv`.
+	"""
+	editMediaMetadata(id: ID!, input: MediaMetadataInput!): MetadataEditResult!
 	"""
 	Search external metadata providers for a media item and return the resulting fetch
 	record with its match candidates. When `search` is provided, the caller's fields
@@ -3290,6 +3361,13 @@ type Query {
 	user, optionally restricted to a series or to the books of a smart list
 	"""
 	mediaMetadataOverview(seriesId: ID, smartListId: ID): MediaMetadataOverview!
+	"""
+	Tags for a book already in the library: from its author's and series' other books,
+	books with a similar description and (when `online`, else the library's intake
+	setting) Open Library / Google Books subjects, with its current tags judged against
+	the same evidence
+	"""
+	mediaGenreSuggestions(id: ID!, online: Boolean): MediaGenreSuggestions!
 	"""
 	List the distinct values of a metadata field with their book counts, e.g. every
 	genre and how many books have it

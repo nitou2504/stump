@@ -593,6 +593,21 @@ export type CreatedOrUpdatedManyMedia = {
   seriesId?: Maybe<Scalars['String']['output']>;
 };
 
+/** How well one of a book's current tags fits it */
+export type CurrentGenreFit = {
+  __typename?: 'CurrentGenreFit';
+  /** The evidence for it besides the book itself, 0-1 */
+  confidence: Scalars['Float']['output'];
+  /** Whether anything besides the book supports it (facets always fit) */
+  fits: Scalars['Boolean']['output'];
+  /** `GENRE` or `FACET` */
+  kind: Scalars['String']['output'];
+  /** How many books of the library carry it */
+  libraryCount: Scalars['Int']['output'];
+  reasons: Array<Scalars['String']['output']>;
+  value: Scalars['String']['output'];
+};
+
 export type CursorPaginatedBookClubDiscussionMessageResponse = {
   __typename?: 'CursorPaginatedBookClubDiscussionMessageResponse';
   cursorInfo: CursorPaginationInfo;
@@ -2016,6 +2031,23 @@ export type MediaFilterInput = {
   updatedAt?: InputMaybe<NumericFilterDateTime>;
 };
 
+/** Tags proposed for a book already in the library, and how its current ones fit */
+export type MediaGenreSuggestions = {
+  __typename?: 'MediaGenreSuggestions';
+  /** The book's current tags, judged against the same evidence */
+  current: Array<CurrentGenreFit>;
+  lookedUpOnline: Scalars['Boolean']['output'];
+  /** Books of the library it was compared with */
+  similarBooks: Array<IntakeSimilarBook>;
+  /** Subjects found online */
+  subjects: Array<Scalars['String']['output']>;
+  /**
+   * The library's tags that fit the book, best first (`selected` marks the default
+   * choice)
+   */
+  suggestions: Array<IntakeGenreSuggestion>;
+};
+
 export type MediaMetadata = {
   __typename?: 'MediaMetadata';
   ageRating?: Maybe<Scalars['Int']['output']>;
@@ -2278,6 +2310,31 @@ export enum MergeStrategy {
   PreferExternalAndMergeLists = 'PREFER_EXTERNAL_AND_MERGE_LISTS'
 }
 
+/** Where the changes of a metadata edit went */
+export type MetadataEditFile = {
+  __typename?: 'MetadataEditFile';
+  /** The edits log the change was appended to */
+  csvPath?: Maybe<Scalars['String']['output']>;
+  /** The changed fields (camelCase) now in the book file */
+  fileFields: Array<Scalars['String']['output']>;
+  /** The locks added for them */
+  locked: Array<MetadataField>;
+  /** Why the file was not written, or a note about it */
+  message?: Maybe<Scalars['String']['output']>;
+  /** Where the original file was kept */
+  quarantinePath?: Maybe<Scalars['String']['output']>;
+  status: MetadataFileWriteStatus;
+  /** The changed fields kept in Stump only, locked so rescans keep them */
+  stumpOnlyFields: Array<Scalars['String']['output']>;
+};
+
+/** The result of saving a book's metadata */
+export type MetadataEditResult = {
+  __typename?: 'MetadataEditResult';
+  file: MetadataEditFile;
+  media: Media;
+};
+
 /** The metadata fields which can be listed with their book counts */
 export enum MetadataFacetField {
   Genres = 'GENRES',
@@ -2405,6 +2462,16 @@ export type MetadataFieldOverride = {
   /** The value to set, using Json because I am lazy */
   value: Scalars['JSON']['input'];
 };
+
+/** Whether an edit reached the book file */
+export enum MetadataFileWriteStatus {
+  /** The file could not take the changes: they are kept in Stump only (and locked) */
+  Failed = 'FAILED',
+  /** None of the changes is something the file carries */
+  NotNeeded = 'NOT_NEEDED',
+  /** The book file now carries the changed values */
+  Written = 'WRITTEN'
+}
 
 /** The supported external metadata providers */
 export enum MetadataProvider {
@@ -2639,6 +2706,14 @@ export type Mutation = {
    */
   deleteUserAvatar: User;
   deleteUserSessions: Scalars['Int']['output'];
+  /**
+   * Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
+   * files carry title, authors, series, genres, summary and more), so they survive
+   * rescans and the library's curator sees them. The original file is kept in the
+   * quarantine folder when one is set. Changes a file cannot carry stay in Stump and are
+   * locked so rescans keep them. Every change is logged in `stump_edits.csv`.
+   */
+  editMediaMetadata: MetadataEditResult;
   /** Edit your own message */
   editMessage: BookClubDiscussionMessage;
   extendReadingSession: ReadingSession;
@@ -3220,6 +3295,12 @@ export type MutationDeleteUserAvatarArgs = {
 
 export type MutationDeleteUserSessionsArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationEditMediaMetadataArgs = {
+  id: Scalars['ID']['input'];
+  input: MediaMetadataInput;
 };
 
 
@@ -4328,6 +4409,13 @@ export type Query = {
   mediaCount: Scalars['Int']['output'];
   mediaDiskUsage: Scalars['Int']['output'];
   /**
+   * Tags for a book already in the library: from its author's and series' other books,
+   * books with a similar description and (when `online`, else the library's intake
+   * setting) Open Library / Google Books subjects, with its current tags judged against
+   * the same evidence
+   */
+  mediaGenreSuggestions: MediaGenreSuggestions;
+  /**
    * The distinct metadata values (genres, writers, ...) of the books visible to the
    * user, optionally restricted to a series or to the books of a smart list
    */
@@ -4625,6 +4713,12 @@ export type QueryMediaByIdArgs = {
 
 export type QueryMediaByPathArgs = {
   path: Scalars['String']['input'];
+};
+
+
+export type QueryMediaGenreSuggestionsArgs = {
+  id: Scalars['ID']['input'];
+  online?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 
