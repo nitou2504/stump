@@ -4,6 +4,7 @@ use chrono::Datelike;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::Deserialize;
 
+use super::hardcover_traffic::{Held, RequestPriority, TRAFFIC};
 use crate::{
 	client::{build_client_with_retry, RetryClientConfig},
 	error::MetadataProviderError,
@@ -18,11 +19,6 @@ use crate::{
 
 const HARDCOVER_DEFAULT_RATE_LIMIT: u32 = 5;
 
-/// Hardcover allows 60 requests a minute in bursts of 10 (and 5,000 a day) per token, see its
-/// `RateLimit-Policy` header: lookups send a burst of 5 at most, then one every 1.1 s
-const LOOKUP_BURST: u32 = 5;
-const LOOKUP_PERIOD: Duration = Duration::from_millis(1100);
-
 /// A GraphQL answer as it came: the HTTP status, how long Hardcover asks to wait before the
 /// next request (`Retry-After`, on a refusal) and the body, when it is JSON
 #[derive(Debug, Clone, PartialEq)]
@@ -32,10 +28,13 @@ pub struct GraphQLReply {
 	pub body: Option<serde_json::Value>,
 }
 
+/// Every request also keeps to the process's Hardcover traffic (see [`super::hardcover_traffic`]):
+/// one shared rate limit, a background budget, and a hold after a refusal
 pub struct HardcoverClient {
 	client: ClientWithMiddleware,
 	api_token: Option<String>,
 	rate_limiter: RateLimiter,
+	priority: RequestPriority,
 }
 
 /// Object types supported by Hardcover's search API
@@ -60,15 +59,27 @@ impl HardcoverClient {
 
 	pub fn new(api_token: String, rate_limit: Option<u32>) -> Self {
 		Self {
+			// a 429 comes back at once: the traffic hold waits as long as Hardcover asks
 			client: build_client_with_retry(
 				reqwest::Client::new(),
-				RetryClientConfig::default(),
+				RetryClientConfig {
+					retry_rate_limited: false,
+					..Default::default()
+				},
 			),
 			api_token: Some(api_token),
 			rate_limiter: RateLimiter::new(
 				rate_limit.unwrap_or(HARDCOVER_DEFAULT_RATE_LIMIT),
 			),
+			priority: RequestPriority::Interactive,
 		}
+	}
+
+	/// Who this client's requests are for: background work keeps to its daily budget, waits
+	/// behind people's lookups and stops for the day on a refusal
+	pub fn with_priority(mut self, priority: RequestPriority) -> Self {
+		self.priority = priority;
+		self
 	}
 
 	/// A client for quick interactive lookups (Add books, Suggest genres): it gives up after
@@ -85,9 +96,16 @@ impl HardcoverClient {
 			.timeout(timeout)
 			.build()?;
 		Ok(Self {
-			client: build_client_with_retry(inner, RetryClientConfig { max_retries: 0 }),
+			client: build_client_with_retry(
+				inner,
+				RetryClientConfig {
+					max_retries: 0,
+					retry_rate_limited: false,
+				},
+			),
 			api_token: Some(api_token),
-			rate_limiter: RateLimiter::with_period(LOOKUP_PERIOD, LOOKUP_BURST),
+			rate_limiter: RateLimiter::new(HARDCOVER_DEFAULT_RATE_LIMIT),
+			priority: RequestPriority::Interactive,
 		})
 	}
 
@@ -100,6 +118,18 @@ impl HardcoverClient {
 		variables: serde_json::Value,
 	) -> Result<GraphQLReply, MetadataProviderError> {
 		let token = self.token()?;
+		match TRAFFIC.admit(self.priority).await {
+			Ok(()) => {},
+			// not sent: answered as Hardcover would
+			Err(Held::Wait(wait)) => {
+				return Ok(GraphQLReply {
+					status: 429,
+					retry_after: Some(wait),
+					body: None,
+				})
+			},
+			Err(Held::Background) => return Err(MetadataProviderError::RateLimited),
+		}
 		self.rate_limiter.until_ready().await;
 
 		let body = serde_json::json!({ "query": query, "variables": variables });
@@ -117,6 +147,9 @@ impl HardcoverClient {
 			.and_then(|value| value.to_str().ok())
 			.and_then(|value| value.trim().parse::<u64>().ok())
 			.map(Duration::from_secs);
+		if status == 429 {
+			TRAFFIC.refused(retry_after);
+		}
 		let body = response.json::<serde_json::Value>().await.ok();
 		Ok(GraphQLReply {
 			status,
@@ -136,6 +169,9 @@ impl HardcoverClient {
 		query: &str,
 	) -> Result<T, MetadataProviderError> {
 		let token = self.token()?;
+		if TRAFFIC.admit(self.priority).await.is_err() {
+			return Err(MetadataProviderError::RateLimited);
+		}
 		self.rate_limiter.until_ready().await;
 
 		let body = serde_json::json!({ "query": query });
@@ -146,7 +182,19 @@ impl HardcoverClient {
 			.bearer_auth(token)
 			.json(&body)
 			.send()
-			.await?
+			.await?;
+		if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+			TRAFFIC.refused(
+				response
+					.headers()
+					.get(reqwest::header::RETRY_AFTER)
+					.and_then(|value| value.to_str().ok())
+					.and_then(|value| value.trim().parse::<u64>().ok())
+					.map(Duration::from_secs),
+			);
+			return Err(MetadataProviderError::RateLimited);
+		}
+		let response = response
 			.error_for_status()?
 			.json::<GraphQLResponse<T>>()
 			.await?;
@@ -300,6 +348,11 @@ impl MetadataProvider for HardcoverClient {
 						confidence_factors: Vec::new(),
 					})
 				},
+				// the rest would be refused too
+				Err(e) if e.is_rate_limited() => {
+					tracing::warn!(external_id, "Rate limited: no more series fetched");
+					break;
+				},
 				Err(e) => {
 					// TODO: Maybe if fetch fails, use naive meta from search?
 					// A full skip failure feels wasteful? Idk, it's a complicated feature
@@ -358,6 +411,11 @@ impl MetadataProvider for HardcoverClient {
 						confidence: 0.0,
 						confidence_factors: Vec::new(),
 					});
+				},
+				// the rest would be refused too
+				Err(e) if e.is_rate_limited() => {
+					tracing::warn!(external_id, "Rate limited: no more books fetched");
+					break;
 				},
 				Err(e) => {
 					// TODO: Maybe if fetch fails, use naive meta from search?

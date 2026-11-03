@@ -6,8 +6,10 @@ use reqwest_retry::{
 
 const DEFAULT_MAX_RETRIES: u32 = 3;
 
-/// A retry strategy that retries on 5xx, 429, timeouts, etc
-struct RetryOn429And5xx;
+/// A retry strategy that retries on 5xx, timeouts, etc, and 429 unless told not to
+struct RetryOn429And5xx {
+	retry_rate_limited: bool,
+}
 
 impl RetryableStrategy for RetryOn429And5xx {
 	fn handle(
@@ -17,7 +19,8 @@ impl RetryableStrategy for RetryOn429And5xx {
 		match res {
 			Ok(response) => {
 				let status = response.status();
-				if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+				if (status == reqwest::StatusCode::TOO_MANY_REQUESTS
+					&& self.retry_rate_limited)
 					|| status.is_server_error()
 				{
 					Some(Retryable::Transient)
@@ -34,12 +37,16 @@ impl RetryableStrategy for RetryOn429And5xx {
 
 pub struct RetryClientConfig {
 	pub max_retries: u32,
+	/// Whether a 429 is retried after a backoff, or handed back at once (for a client that
+	/// keeps to the provider's limits and waits as long as it is asked)
+	pub retry_rate_limited: bool,
 }
 
 impl Default for RetryClientConfig {
 	fn default() -> Self {
 		Self {
 			max_retries: DEFAULT_MAX_RETRIES,
+			retry_rate_limited: true,
 		}
 	}
 }
@@ -54,7 +61,9 @@ pub fn build_client_with_retry(
 		ExponentialBackoff::builder().build_with_max_retries(config.max_retries);
 	let retry_middleware = RetryTransientMiddleware::new_with_policy_and_strategy(
 		retry_policy,
-		RetryOn429And5xx,
+		RetryOn429And5xx {
+			retry_rate_limited: config.retry_rate_limited,
+		},
 	);
 
 	ClientBuilder::new(inner).with(retry_middleware).build()
