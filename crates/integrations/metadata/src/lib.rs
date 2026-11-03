@@ -20,7 +20,8 @@ pub use types::{
 	SearchQuery,
 };
 
-use providers::{ComicVineClient, HardcoverClient};
+use providers::ComicVineClient;
+pub use providers::{GraphQLReply, HardcoverClient};
 
 pub fn create_provider(
 	provider_type: &str,

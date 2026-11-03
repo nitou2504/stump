@@ -2,4 +2,4 @@ mod comic_vine;
 mod hardcover;
 
 pub use comic_vine::ComicVineClient;
-pub use hardcover::HardcoverClient;
+pub use hardcover::{GraphQLReply, HardcoverClient};

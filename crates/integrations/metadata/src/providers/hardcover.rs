@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use chrono::Datelike;
 use reqwest_middleware::ClientWithMiddleware;
 use serde::Deserialize;
@@ -15,6 +17,20 @@ use crate::{
 };
 
 const HARDCOVER_DEFAULT_RATE_LIMIT: u32 = 5;
+
+/// Hardcover allows 60 requests a minute in bursts of 10 (and 5,000 a day) per token, see its
+/// `RateLimit-Policy` header: lookups send a burst of 5 at most, then one every 1.1 s
+const LOOKUP_BURST: u32 = 5;
+const LOOKUP_PERIOD: Duration = Duration::from_millis(1100);
+
+/// A GraphQL answer as it came: the HTTP status, how long Hardcover asks to wait before the
+/// next request (`Retry-After`, on a refusal) and the body, when it is JSON
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphQLReply {
+	pub status: u16,
+	pub retry_after: Option<Duration>,
+	pub body: Option<serde_json::Value>,
+}
 
 pub struct HardcoverClient {
 	client: ClientWithMiddleware,
@@ -53,6 +69,60 @@ impl HardcoverClient {
 				rate_limit.unwrap_or(HARDCOVER_DEFAULT_RATE_LIMIT),
 			),
 		}
+	}
+
+	/// A client for quick interactive lookups (Add books, Suggest genres): it gives up after
+	/// `timeout`, never retries (a refusal goes back to the caller, who waits as asked) and
+	/// keeps under Hardcover's rate limit. Share one per token, so its limiter sees every
+	/// request
+	pub fn for_lookups(
+		api_token: String,
+		user_agent: &str,
+		timeout: Duration,
+	) -> Result<Self, MetadataProviderError> {
+		let inner = reqwest::Client::builder()
+			.user_agent(user_agent)
+			.timeout(timeout)
+			.build()?;
+		Ok(Self {
+			client: build_client_with_retry(inner, RetryClientConfig { max_retries: 0 }),
+			api_token: Some(api_token),
+			rate_limiter: RateLimiter::with_period(LOOKUP_PERIOD, LOOKUP_BURST),
+		})
+	}
+
+	/// Posts a GraphQL query with its variables, once the rate limiter allows it, and returns
+	/// the answer as it came (HTTP and GraphQL errors included) for callers that read them
+	/// themselves. Only a request that got no answer is an `Err`
+	pub async fn post_graphql(
+		&self,
+		query: &str,
+		variables: serde_json::Value,
+	) -> Result<GraphQLReply, MetadataProviderError> {
+		let token = self.token()?;
+		self.rate_limiter.until_ready().await;
+
+		let body = serde_json::json!({ "query": query, "variables": variables });
+		let response = self
+			.client
+			.post(Self::API_URL)
+			.bearer_auth(token)
+			.json(&body)
+			.send()
+			.await?;
+		let status = response.status().as_u16();
+		let retry_after = response
+			.headers()
+			.get(reqwest::header::RETRY_AFTER)
+			.and_then(|value| value.to_str().ok())
+			.and_then(|value| value.trim().parse::<u64>().ok())
+			.map(Duration::from_secs);
+		let body = response.json::<serde_json::Value>().await.ok();
+		Ok(GraphQLReply {
+			status,
+			retry_after,
+			body,
+		})
 	}
 
 	pub fn token(&self) -> Result<String, MetadataProviderError> {
