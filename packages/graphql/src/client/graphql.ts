@@ -1542,6 +1542,7 @@ export enum IntakeSource {
   /** Parsed from the file or folder name */
   FileName = 'FILE_NAME',
   GoogleBooks = 'GOOGLE_BOOKS',
+  Hardcover = 'HARDCOVER',
   /** Inferred from books already in the library (same author, series, similar text) */
   Library = 'LIBRARY',
   OpenLibrary = 'OPEN_LIBRARY',
@@ -4356,7 +4357,7 @@ export type OnlineLookup = {
    * Settings")
    */
   message: Scalars['String']['output'];
-  /** `OPEN_LIBRARY` or `GOOGLE_BOOKS` */
+  /** `OPEN_LIBRARY`, `GOOGLE_BOOKS` or `HARDCOVER` */
   source: IntakeSource;
   status: OnlineLookupStatus;
   /** How many subjects it gave */
@@ -4377,6 +4378,8 @@ export type OnlineLookupSettings = {
 export enum OnlineLookupStatus {
   /** The source failed (network, timeout, an unexpected answer, a refused API key) */
   Error = 'ERROR',
+  /** The source isn't set up: Hardcover's metadata provider is off or has no API token */
+  NotConfigured = 'NOT_CONFIGURED',
   /** The source answered, but has no matching book */
   NoMatch = 'NO_MATCH',
   /** The book was found, but the source has no subjects for it */
