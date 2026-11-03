@@ -1,25 +1,28 @@
-//! Editing an existing book's metadata from the web.
+//! Editing an existing book's metadata (the web editor, the edit history's Revert and the
+//! batch API).
 //!
-//! A rescan rebuilds a book's metadata from its file whenever the file changes (book-curator
-//! rewrites files), and "Rebuild metadata" always does, so an edit kept only in Stump's
-//! database does not last. Here the changed values are written into the book file the way
-//! the intake and book-curator write them (EPUB OPF, PDF Info dictionary and Keywords, CBZ
-//! ComicInfo.xml). Only the fields that changed are touched, everything else in the file is
-//! kept as it is. The new file is prepared next to the book under a hidden name, read back
-//! with Stump's own readers, and only then renamed over the book (an atomic swap: the
-//! original stays untouched on any failure). Changes a file cannot carry (other fields, CBR
-//! files, a failed write) stay in the database. Every edited field is locked, so rescans
-//! keep it even if another tool rewrites the file.
+//! A rescan rebuilds a book's metadata from its file whenever the file changes (another tool
+//! may rewrite files), and "Rebuild metadata" always does, so an edit kept only in Stump's
+//! database does not last. Here the changed values are written into the book file the way the
+//! intake writes them (EPUB OPF, PDF Info dictionary and Keywords, CBZ ComicInfo.xml). Only
+//! the fields that changed are touched, everything else in the file is kept as it is. The new
+//! file is prepared next to the book under a hidden name, read back with Stump's own readers,
+//! and only then renamed over the book (an atomic swap: the original stays untouched on any
+//! failure). Changes a file cannot carry (other fields, CBR files, a failed write) stay in the
+//! database. Every edited field is locked, so rescans keep it even if another tool rewrites
+//! the file. Stump's own write doesn't set the library watcher off (see
+//! [`crate::scan::own_writes`]): the save already updated the book in the database.
 //!
 //! Every save is recorded in `media_metadata_edits` (one row per changed field, old and new
-//! value), which is what "Revert" works from, and appended to `stump_edits.csv`, next to the
-//! intake CSV, so the curator can pick the owner's corrections up.
+//! value, who and when, whether the file has it): that is the record of edits, and what
+//! "Revert" works from.
 
 use std::{
 	collections::{BTreeSet, HashMap},
 	fs::File,
 	io::{Read, Write},
 	path::{Path, PathBuf},
+	sync::LazyLock,
 };
 
 use metadata_integrations::MetadataField;
@@ -41,7 +44,6 @@ use sea_orm::{
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive};
 
 use super::{
-	csv_path_for,
 	library_index::{is_facet, library_index, norm, LibraryIndex},
 	lookup::{self, strip_html},
 	naming::display_name,
@@ -54,7 +56,7 @@ use super::{
 };
 use crate::{
 	media::processor::{
-		pdf::{read_info_values, PdfInfoValues},
+		pdf::{read_info_values, PdfInfoValues, KEYWORD_FIELD_PREFIX},
 		process_metadata,
 	},
 	metadata::{
@@ -62,21 +64,9 @@ use crate::{
 		membership::{remove_series_thumbnails, sync_media_membership},
 	},
 	postproc::refresh_media_after_swap,
+	scan::own_writes,
 	CoreError, CoreResult, Ctx,
 };
-
-/// The edits log, next to the intake CSV
-pub const EDITS_CSV_NAME: &str = "stump_edits.csv";
-
-const EDITS_CSV_HEADER: &[&str] = &[
-	"path",
-	"field",
-	"old",
-	"new",
-	"written_to",
-	"edited_by",
-	"edited_at",
-];
 
 /// The book formats whose files carry the edited metadata
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,9 +106,11 @@ impl EditableFormat {
 				"publisher",
 				"genres",
 				"ageRating",
+				"rating",
 			],
 			// PDFs have no language, publisher or date of their own (CreationDate is when the
-			// file was made); series, number and age live in the curator's Keywords entries
+			// file was made); series, number, age and rating are Stump's Keywords fields
+			// (see [`crate::media::processor::pdf::KEYWORD_FIELD_PREFIX`])
 			Self::Pdf => &[
 				"title",
 				"writers",
@@ -127,6 +119,7 @@ impl EditableFormat {
 				"summary",
 				"genres",
 				"ageRating",
+				"rating",
 			],
 			// Stump reads no ComicInfo language (LanguageISO)
 			Self::Cbz => &[
@@ -141,6 +134,7 @@ impl EditableFormat {
 				"publisher",
 				"genres",
 				"ageRating",
+				"rating",
 			],
 		};
 		fields.contains(&field)
@@ -148,7 +142,7 @@ impl EditableFormat {
 }
 
 /// One changed field: its camelCase name, the lock that keeps it in the database, and
-/// the old and new values as text (for the edits log)
+/// the old and new values as text (for the edit history)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangedField {
 	pub field: &'static str,
@@ -171,6 +165,8 @@ pub struct FileChanges {
 	pub publisher: Option<Option<String>>,
 	pub genres: Option<Vec<String>>,
 	pub age_rating: Option<Option<i32>>,
+	/// The 0-5 rating
+	pub rating: Option<Option<f64>>,
 }
 
 impl FileChanges {
@@ -238,6 +234,7 @@ pub const EDIT_FIELDS: &[(&str, Option<MetadataField>)] = &[
 	("teams", Some(MetadataField::Teams)),
 	("pageCount", Some(MetadataField::PageCount)),
 	("ageRating", Some(MetadataField::AgeRating)),
+	("rating", Some(MetadataField::Rating)),
 	("identifierAmazon", Some(MetadataField::IdentifierAmazon)),
 	("identifierCalibre", Some(MetadataField::IdentifierCalibre)),
 	("identifierGoogle", Some(MetadataField::IdentifierGoogle)),
@@ -282,6 +279,7 @@ pub fn field_text(meta: &media_metadata::Model, field: &str) -> String {
 		"teams" => text(&meta.teams),
 		"pageCount" => int_text(&meta.page_count),
 		"ageRating" => int_text(&meta.age_rating),
+		"rating" => decimal_text(&meta.rating),
 		"identifierAmazon" => text(&meta.identifier_amazon),
 		"identifierCalibre" => text(&meta.identifier_calibre),
 		"identifierGoogle" => text(&meta.identifier_google),
@@ -344,14 +342,14 @@ pub fn set_field_from_text(
 		"identifierMobiAsin" => active.identifier_mobi_asin = Set(string()),
 		"identifierUuid" => active.identifier_uuid = Set(string()),
 		"language" => active.language = Set(string()),
-		"number" | "storyArcNumber" => {
+		"number" | "storyArcNumber" | "rating" => {
 			let Some(number) = decimal() else {
 				return false;
 			};
-			if field == "number" {
-				active.number = Set(number);
-			} else {
-				active.story_arc_number = Set(number);
+			match field {
+				"number" => active.number = Set(number),
+				"rating" => active.rating = Set(number),
+				_ => active.story_arc_number = Set(number),
 			}
 		},
 		"volume" | "year" | "month" | "day" | "pageCount" | "ageRating" => {
@@ -442,6 +440,9 @@ pub fn file_changes(
 	if has("ageRating") {
 		out.age_rating = Some(new.age_rating);
 	}
+	if has("rating") {
+		out.rating = Some(decimal_f64(&new.rating));
+	}
 	out
 }
 
@@ -462,6 +463,7 @@ pub fn fields_written(
 			"publisher" => changes.publisher.is_some(),
 			"genres" => changes.genres.is_some(),
 			"ageRating" => changes.age_rating.is_some(),
+			"rating" => changes.rating.is_some(),
 			_ => false,
 		})
 		.map(|c| c.field)
@@ -469,7 +471,7 @@ pub fn fields_written(
 }
 
 /// Cleans genres typed or picked in the editor: one tag per comma or semicolon, trimmed,
-/// de-duplicated, in the curator's order (big tags, `Big: Small` tags, facets)
+/// de-duplicated, in the library's order (big tags, `Big: Small` tags, facets)
 pub fn clean_genres(values: &[String]) -> Vec<String> {
 	let split: Vec<String> = values
 		.iter()
@@ -731,6 +733,25 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 		}
 	}
 
+	if let Some(rating) = &changes.rating {
+		// calibre's half stars (0-10) for other readers, and Stump's precise 0-5 value,
+		// which Stump reads first
+		remove(
+			&mut body,
+			r#"\s*<meta\b[^>]*name=["'](?:calibre|bcurator):rating["'][^>]*/>"#,
+		);
+		if let Some(rating) = rating {
+			add.push(format!(
+				"<meta name=\"calibre:rating\" content=\"{}\"/>",
+				(rating * 2.0).round() as i64
+			));
+			add.push(format!(
+				"<meta name=\"{KEYWORD_FIELD_PREFIX}rating\" content=\"{}\"/>",
+				rating_value(*rating)
+			));
+		}
+	}
+
 	let body = if add.is_empty() {
 		body
 	} else {
@@ -831,6 +852,9 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 		if let Some(age) = &changes.age_rating {
 			meta.age_rating = *age;
 		}
+		if let Some(rating) = &changes.rating {
+			meta.rating = *rating;
+		}
 		let mut xml = comic_info(&meta);
 		// comic_info() writes a language; with no ComicInfo before there was none
 		xml = Regex::new(r"<LanguageISO>[^<]*</LanguageISO>")
@@ -897,6 +921,10 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 			}
 		});
 		set_comic_element(&mut xml, "AgeRating", value);
+	}
+	if let Some(rating) = &changes.rating {
+		let value = rating.map(rating_value);
+		set_comic_element(&mut xml, "CommunityRating", value.as_deref());
 	}
 	xml
 }
@@ -966,12 +994,12 @@ fn keyword_item(value: &str) -> String {
 		.replace(';', " ·")
 }
 
-/// The Keywords after the changes: the tags replaced when genres changed, the curator's
-/// `bcurator:` entries for series, number and age replaced when those changed, and every
-/// other entry (e.g. `bcurator:rating=`) kept
+/// The Keywords after the changes: the tags replaced when genres changed, Stump's keyword
+/// fields (`bcurator:series=`, `series_index=`, `age=`, `rating=`) replaced when those
+/// changed, and every other entry kept
 pub fn pdf_keywords_after(existing: Option<&str>, changes: &FileChanges) -> String {
 	let mut tags: Vec<String> = vec![];
-	let mut curator: Vec<(String, String)> = vec![];
+	let mut fields: Vec<(String, String)> = vec![];
 	for item in existing
 		.unwrap_or("")
 		.split([',', ';'])
@@ -979,11 +1007,11 @@ pub fn pdf_keywords_after(existing: Option<&str>, changes: &FileChanges) -> Stri
 		.filter(|s| !s.is_empty())
 	{
 		match item
-			.strip_prefix("bcurator:")
+			.strip_prefix(KEYWORD_FIELD_PREFIX)
 			.and_then(|rest| rest.split_once('='))
 		{
 			Some((key, value)) => {
-				curator.push((key.trim().to_string(), value.trim().to_string()))
+				fields.push((key.trim().to_string(), value.trim().to_string()))
 			},
 			None => tags.push(item.to_string()),
 		}
@@ -991,23 +1019,23 @@ pub fn pdf_keywords_after(existing: Option<&str>, changes: &FileChanges) -> Stri
 	if let Some(genres) = &changes.genres {
 		tags = genres.iter().map(|g| keyword_item(g)).collect();
 	}
-	let mut set_curator = |key: &str, value: Option<String>| {
-		let at = curator.iter().position(|(k, _)| k == key);
+	let mut set_field = |key: &str, value: Option<String>| {
+		let at = fields.iter().position(|(k, _)| k == key);
 		match (at, value) {
-			(Some(i), Some(v)) => curator[i].1 = v,
+			(Some(i), Some(v)) => fields[i].1 = v,
 			(Some(i), None) => {
-				curator.remove(i);
+				fields.remove(i);
 			},
-			(None, Some(v)) => curator.push((key.to_string(), v)),
+			(None, Some(v)) => fields.push((key.to_string(), v)),
 			(None, None) => {},
 		}
 	};
 	if let Some((series, number)) = &changes.series {
-		set_curator("series", series.as_deref().map(keyword_item));
-		set_curator("series_index", series.as_ref().and(number.map(num)));
+		set_field("series", series.as_deref().map(keyword_item));
+		set_field("series_index", series.as_ref().and(number.map(num)));
 	}
 	if let Some(age) = &changes.age_rating {
-		set_curator(
+		set_field(
 			"age",
 			age.map(|a| {
 				if a >= 18 {
@@ -1018,16 +1046,25 @@ pub fn pdf_keywords_after(existing: Option<&str>, changes: &FileChanges) -> Stri
 			}),
 		);
 	}
+	if let Some(rating) = &changes.rating {
+		set_field("rating", rating.map(rating_value));
+	}
 	let mut seen = BTreeSet::new();
 	tags.into_iter()
 		.chain(
-			curator
+			fields
 				.into_iter()
-				.map(|(k, v)| format!("bcurator:{k}={v}")),
+				.map(|(k, v)| format!("{KEYWORD_FIELD_PREFIX}{k}={v}")),
 		)
 		.filter(|k| seen.insert(k.clone()))
 		.collect::<Vec<_>>()
 		.join(", ")
+}
+
+/// A 0-5 rating as written into files: two decimals at most (`4.25`, `4`)
+fn rating_value(rating: f64) -> String {
+	let text = format!("{:.2}", rating.clamp(0.0, 5.0));
+	text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 /// The PDF Info entries after the changes, keeping what did not change
@@ -1081,6 +1118,8 @@ pub enum FileWriteStatus {
 	NotNeeded,
 	/// The file could not take the changes: they are kept in Stump only (and locked)
 	Failed,
+	/// The save asked to keep the changes in Stump only: the file was left alone
+	Skipped,
 }
 
 /// The outcome of writing an edit into its book file
@@ -1095,7 +1134,6 @@ pub struct FileEditOutcome {
 	pub locks: Vec<MetadataField>,
 	/// Why the file was not written, or a note about it
 	pub message: Option<String>,
-	pub csv_path: Option<String>,
 }
 
 impl FileEditOutcome {
@@ -1106,7 +1144,6 @@ impl FileEditOutcome {
 			db_only_fields: vec![],
 			locks: vec![],
 			message: None,
-			csv_path: None,
 		}
 	}
 }
@@ -1205,6 +1242,16 @@ fn verify_read_back(
 			}
 		}
 	}
+	if let Some(rating) = &changes.rating {
+		let same = match (written.rating, rating) {
+			(Some(a), Some(b)) => (a - b).abs() < 0.006,
+			(None, None) => true,
+			_ => false,
+		};
+		if !same {
+			wrong.push("rating");
+		}
+	}
 	if wrong.is_empty() {
 		Ok(())
 	} else {
@@ -1287,7 +1334,8 @@ async fn prepare_edited_copy(
 
 /// Puts the edited copy in the book's place: the copy is flushed to disk and renamed over
 /// the book (same folder, so the swap is atomic). Refused when the book changed since the
-/// copy was taken (another tool rewrote it); the book is then left as it is.
+/// copy was taken (another tool rewrote it); the book is then left as it is. The library
+/// watcher knows the change is Stump's own (it needs no scan: the save updates the book)
 fn replace_book(
 	path: &Path,
 	work: &Path,
@@ -1299,7 +1347,12 @@ fn replace_book(
 		));
 	}
 	File::open(work)?.sync_all()?;
-	std::fs::rename(work, path)?;
+	own_writes::expect(path);
+	if let Err(error) = std::fs::rename(work, path) {
+		own_writes::forget(path);
+		return Err(error);
+	}
+	own_writes::wrote(path);
 	if let Some(dir) = path.parent() {
 		// the rename itself, on disk (best effort: not every filesystem allows it)
 		let _ = File::open(dir).and_then(|d| d.sync_all());
@@ -1307,9 +1360,26 @@ fn replace_book(
 	Ok(())
 }
 
-/// Writes the changed fields of an edit into the book file and logs them in the edits CSV:
-/// the book's metadata now is `new`. Returns which changed fields the file now carries and
-/// which stay in Stump only.
+/// The changed fields a save would write into the book file, and the ones it would keep in
+/// Stump only (a dry run's answer: nothing is written)
+pub fn preview_file_fields(
+	book: &media::Model,
+	changed: &[ChangedField],
+	new: &media_metadata::Model,
+) -> (Vec<&'static str>, Vec<&'static str>) {
+	let changes = EditableFormat::of(Path::new(&book.path))
+		.map(|f| file_changes(f, changed, new))
+		.unwrap_or_default();
+	let written = fields_written(changed, &changes);
+	changed
+		.iter()
+		.map(|c| c.field)
+		.partition(|field| written.contains(field))
+}
+
+/// Writes the changed fields of an edit into the book file: the book's metadata now is
+/// `new`. Returns which changed fields the file now carries and which stay in Stump only.
+/// With `to_file` off the file is left alone and every change stays in Stump.
 pub async fn write_edit(
 	ctx: &Ctx,
 	book: &media::Model,
@@ -1317,7 +1387,7 @@ pub async fn write_edit(
 	library_config: &library_config::Model,
 	changed: &[ChangedField],
 	new: &media_metadata::Model,
-	username: &str,
+	to_file: bool,
 ) -> FileEditOutcome {
 	let path = PathBuf::from(&book.path);
 	let format = EditableFormat::of(&path);
@@ -1327,7 +1397,12 @@ pub async fn write_edit(
 		.map(|f| file_changes(f, changed, new))
 		.unwrap_or_default();
 	let mut written: Vec<&'static str> = vec![];
-	if let (Some(format), false) = (format, changes.is_empty()) {
+	if !to_file && !changes.is_empty() {
+		outcome.status = FileWriteStatus::Skipped;
+		outcome.message = Some(
+			"Kept in Stump only, as asked: the book file was not changed".to_string(),
+		);
+	} else if let (Some(format), false) = (format, changes.is_empty()) {
 		let stamp = {
 			let p = path.clone();
 			tokio::task::spawn_blocking(move || file_stamp(&p)).await
@@ -1401,53 +1476,14 @@ pub async fn write_edit(
 		tracing::warn!(path = %book.path, message = ?outcome.message, "A metadata edit stayed in Stump only");
 	}
 
-	// the edits log, for the curator
-	if !changed.is_empty() {
-		if let Ok(settings) = settings_for(ctx.conn.as_ref(), &library.id).await {
-			let root = PathBuf::from(&library.path);
-			let csv = csv_path_for(&root, &settings).with_file_name(EDITS_CSV_NAME);
-			let csv_dir = csv.parent().map(Path::to_path_buf).unwrap_or(root);
-			let rel = path
-				.strip_prefix(&csv_dir)
-				.unwrap_or(&path)
-				.to_string_lossy()
-				.into_owned();
-			let now =
-				chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-			let rows = changed
-				.iter()
-				.map(|c| {
-					vec![
-						rel.clone(),
-						c.field.to_string(),
-						c.old.clone(),
-						c.new.clone(),
-						if written.contains(&c.field) {
-							"file"
-						} else {
-							"stump"
-						}
-						.to_string(),
-						username.to_string(),
-						now.clone(),
-					]
-				})
-				.collect();
-			match super::append_csv_with_header(&csv, EDITS_CSV_HEADER, rows).await {
-				Ok(()) => outcome.csv_path = Some(csv.to_string_lossy().into_owned()),
-				Err(error) => tracing::warn!(?error, "Could not write the edits CSV"),
-			}
-		}
-	}
 	super::library_index::invalidate_index(&library.id);
 	outcome
 }
 
 // ------------------------------------------------------------------ saving and history
 
-/// The locks that keep changed fields through rescans: every field edited by hand is
-/// locked, so a rescan after another tool rewrote the file (book-curator replaces
-/// subjects) keeps what was set
+/// The locks that keep changed fields through rescans: every edited field is locked, so a
+/// rescan after another tool rewrote the file keeps what was set
 pub fn locks_for(changed: &[ChangedField]) -> Vec<MetadataField> {
 	let mut locks = vec![];
 	for lock in changed.iter().filter_map(|c| c.lock) {
@@ -1471,6 +1507,8 @@ pub struct SavedEdit {
 	/// The save's id in the edit history (`None` when nothing changed)
 	pub save_id: Option<String>,
 	pub outcome: FileEditOutcome,
+	/// The fields the save changed (or, for a dry run, would change)
+	pub changed: Vec<ChangedField>,
 	/// The book after the save
 	pub book: media::Model,
 	/// For a revert: the fields left as they are because they changed again since
@@ -1481,6 +1519,56 @@ fn non_empty(value: &str) -> Option<String> {
 	(!value.is_empty()).then(|| value.to_string())
 }
 
+/// How a save is made
+#[derive(Debug, Clone, Copy)]
+pub struct SaveOptions {
+	/// Write the changed fields into the book file (else they stay in Stump only, locked)
+	pub write_to_file: bool,
+	/// Only report what would change: nothing is saved or written
+	pub dry_run: bool,
+}
+
+impl Default for SaveOptions {
+	fn default() -> Self {
+		Self {
+			write_to_file: true,
+			dry_run: false,
+		}
+	}
+}
+
+/// One save at a time per book (the web editor, a revert, the batch API): each one starts
+/// from what the previous one left
+static BOOK_LOCKS: LazyLock<
+	std::sync::Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
+> = LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+pub(crate) async fn lock_book(media_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+	let lock = {
+		let mut locks = BOOK_LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+		locks.retain(|_, lock| lock.strong_count() > 0);
+		match locks.get(media_id).and_then(std::sync::Weak::upgrade) {
+			Some(lock) => lock,
+			None => {
+				let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+				locks.insert(media_id.to_string(), std::sync::Arc::downgrade(&lock));
+				lock
+			},
+		}
+	};
+	lock.lock_owned().await
+}
+
+async fn current_metadata(
+	conn: &sea_orm::DatabaseConnection,
+	media_id: &str,
+) -> CoreResult<Option<media_metadata::Model>> {
+	Ok(media_metadata::Entity::find()
+		.filter(media_metadata::Column::MediaId.eq(media_id))
+		.one(conn)
+		.await?)
+}
+
 /// Saves an edit of a book's metadata: the database row first (with the book's series
 /// membership), then the book file ([`write_edit`]), the locks for the edited fields and
 /// a row per changed field in the edit history. `active` holds the edited values (fields
@@ -1488,10 +1576,27 @@ fn non_empty(value: &str) -> Option<String> {
 pub async fn save_edit(
 	ctx: &Ctx,
 	book: media::Model,
+	active: media_metadata::ActiveModel,
+	editor: Editor<'_>,
+	reverts: Option<&str>,
+	options: SaveOptions,
+) -> CoreResult<SavedEdit> {
+	let _guard = lock_book(&book.id).await;
+	let existing = current_metadata(ctx.conn.as_ref(), &book.id).await?;
+	Box::pin(save_edit_locked(
+		ctx, book, existing, active, editor, reverts, options,
+	))
+	.await
+}
+
+async fn save_edit_locked(
+	ctx: &Ctx,
+	book: media::Model,
 	existing: Option<media_metadata::Model>,
 	mut active: media_metadata::ActiveModel,
 	editor: Editor<'_>,
 	reverts: Option<&str>,
+	options: SaveOptions,
 ) -> CoreResult<SavedEdit> {
 	let conn = ctx.conn.as_ref();
 	let (library, library_config) = library::Entity::find_by_id(book.library_id.clone())
@@ -1514,10 +1619,39 @@ pub async fn save_edit(
 		active.insert(&txn).await?
 	};
 	let changed = changed_fields(&old, &updated);
-	// the edited fields are locked along with their values, before the file changes: a
-	// scan that the file change sets off (the library watcher) then keeps them, even the
-	// ones the file can't carry
 	let locks = locks_for(&changed);
+	if options.dry_run {
+		// the same update, undone: what would change, and what the file would get
+		txn.rollback().await?;
+		let (file_fields, db_only_fields) =
+			preview_file_fields(&book, &changed, &updated);
+		let to_file = options.write_to_file && !file_fields.is_empty();
+		return Ok(SavedEdit {
+			save_id: None,
+			outcome: FileEditOutcome {
+				status: if to_file {
+					FileWriteStatus::Written
+				} else if file_fields.is_empty() {
+					FileWriteStatus::NotNeeded
+				} else {
+					FileWriteStatus::Skipped
+				},
+				file_fields: if to_file { file_fields.clone() } else { vec![] },
+				db_only_fields: if to_file {
+					db_only_fields
+				} else {
+					changed.iter().map(|c| c.field).collect()
+				},
+				locks,
+				message: Some("Dry run: nothing was saved".to_string()),
+			},
+			changed,
+			book,
+			skipped: vec![],
+		});
+	}
+	// the edited fields are locked along with their values, before the file changes, so a
+	// rescan keeps them, even the ones the file can't carry
 	let mut locked = locked_fields_of(&updated.locked_fields);
 	let before = locked.len();
 	for lock in &locks {
@@ -1542,7 +1676,7 @@ pub async fn save_edit(
 		&library_config,
 		&changed,
 		&updated,
-		editor.username,
+		options.write_to_file,
 	))
 	.await;
 	outcome.locks = locks;
@@ -1577,6 +1711,7 @@ pub async fn save_edit(
 	Ok(SavedEdit {
 		save_id,
 		outcome,
+		changed,
 		book,
 		skipped: vec![],
 	})
@@ -1615,10 +1750,10 @@ pub fn revert_changes(
 pub async fn revert_save(
 	ctx: &Ctx,
 	book: media::Model,
-	existing: Option<media_metadata::Model>,
 	save_id: &str,
 	editor: Editor<'_>,
 ) -> CoreResult<SavedEdit> {
+	let _guard = lock_book(&book.id).await;
 	let rows = media_metadata_edit::Entity::find()
 		.filter(media_metadata_edit::Column::MediaId.eq(book.id.clone()))
 		.filter(media_metadata_edit::Column::SaveId.eq(save_id))
@@ -1630,6 +1765,7 @@ pub async fn revert_save(
 			"This edit is not in the book's history".to_string(),
 		));
 	}
+	let existing = current_metadata(ctx.conn.as_ref(), &book.id).await?;
 	let current = existing
 		.clone()
 		.ok_or_else(|| CoreError::NotFound("The book has no metadata".to_string()))?;
@@ -1640,13 +1776,14 @@ pub async fn revert_save(
 				.to_string(),
 		));
 	}
-	let mut saved = Box::pin(save_edit(
+	let mut saved = Box::pin(save_edit_locked(
 		ctx,
 		book,
 		existing,
 		active,
 		editor,
 		Some(save_id),
+		SaveOptions::default(),
 	))
 	.await?;
 	saved.skipped = skipped;
@@ -1762,7 +1899,10 @@ pub struct ExistingBookSuggestions {
 	pub similar_books: Vec<IntakeSimilarBook>,
 	/// Subjects found online
 	pub subjects: Vec<String>,
+	/// Whether an online source found the book
 	pub looked_up_online: bool,
+	/// How each online source answered (empty when they weren't asked)
+	pub online_lookups: Vec<models::shared::intake::OnlineLookup>,
 }
 
 /// Under this evidence a current genre does not fit the book
@@ -1857,17 +1997,34 @@ pub async fn suggest_for_book(
 	let format = EditableFormat::of(Path::new(&book.path));
 	let is_comic = matches!(format, Some(EditableFormat::Cbz))
 		|| book.extension.eq_ignore_ascii_case("cbr");
-	let records = if wants_online && !is_comic {
+	let lookup = if wants_online {
+		// a translated EPUB may name its original title, which finds the work behind it
+		let original_title = if format == Some(EditableFormat::Epub) {
+			let path = PathBuf::from(&book.path);
+			tokio::task::spawn_blocking(move || lookup::original_title_of(&path))
+				.await
+				.ok()
+				.flatten()
+		} else {
+			None
+		};
 		lookup::lookup(
-			intake_meta.isbn.as_deref(),
-			intake_meta.title.as_deref(),
-			&intake_meta.authors,
+			conn,
+			&lookup::LookupQuery {
+				isbn: intake_meta.isbn.clone(),
+				title: intake_meta.title.clone(),
+				authors: intake_meta.authors.clone(),
+				original_title,
+				series: intake_meta.series.clone(),
+				// a comic or manga volume is looked up by its series
+				by_series: is_comic,
+			},
 		)
 		.await
 	} else {
-		vec![]
+		lookup::LookupOutcome::default()
 	};
-	merge_online(&mut intake_meta, &records);
+	merge_online(&mut intake_meta, &lookup.records);
 
 	let description = intake_meta.description.clone().unwrap_or_default();
 	let similar: Vec<(u32, f32)> = index
@@ -1945,7 +2102,8 @@ pub async fn suggest_for_book(
 		current: fits,
 		similar_books,
 		subjects: intake_meta.subjects.clone(),
-		looked_up_online: !records.is_empty(),
+		looked_up_online: lookup.found(),
+		online_lookups: lookup.sources,
 	})
 }
 
@@ -2095,6 +2253,7 @@ mod tests {
 			age_rating: Some(Some(18)),
 			language: Some(Some("es".into())),
 			genres: Some(vec![]),
+			rating: Some(Some(4.25)),
 		};
 		let new = apply_opf_changes(OPF3, &changes).unwrap();
 		check_xml(&new).unwrap();
@@ -2172,7 +2331,7 @@ mod tests {
 	}
 
 	#[test]
-	fn rewrites_pdf_keywords_keeping_curator_entries() {
+	fn rewrites_pdf_keywords_keeping_other_keyword_fields() {
 		let existing = "Physics & Astronomy, Level: General Reader, bcurator:series=Saga · One, bcurator:series_index=2, bcurator:rating=4.12";
 		let changes = FileChanges {
 			genres: Some(vec!["Philosophy".into(), "Memoir, Essays".into()]),
@@ -2272,7 +2431,7 @@ mod tests {
 			.read_to_string(&mut chapter)
 			.unwrap();
 		assert_eq!(chapter, "<html><body><p>Hello</p></body></html>");
-		// the intake's writer and this one agree on what a curated file looks like
+		// the intake's writer and this one agree on what a written file looks like
 		let again = dir.path().join("again.epub");
 		std::fs::copy(&epub, &again).unwrap();
 		write_epub(
@@ -2382,6 +2541,7 @@ mod tests {
 			teams: Some("te".into()),
 			page_count: Some(300),
 			age_rating: Some(18),
+			rating: Some(Decimal::new(425, 2)),
 			identifier_amazon: Some("am".into()),
 			identifier_calibre: Some("cal".into()),
 			identifier_google: Some("go".into()),
@@ -2599,7 +2759,7 @@ mod tests {
 		.insert(&db)
 		.await;
 		let editor = fake_data::User::new("g3").insert(&db).await;
-		let meta = media_metadata::ActiveModel {
+		media_metadata::ActiveModel {
 			media_id: Set(Some(book.id.clone())),
 			title: Set(Some("Notes from the End of Everything".into())),
 			writers: Set(Some("Robert Pantano".into())),
@@ -2624,9 +2784,16 @@ mod tests {
 			notes: Set(None),
 			..Default::default()
 		};
-		let saved = save_edit(&ctx, book.clone(), Some(meta.clone()), edit, editor, None)
-			.await
-			.unwrap();
+		let saved = save_edit(
+			&ctx,
+			book.clone(),
+			edit,
+			editor,
+			None,
+			SaveOptions::default(),
+		)
+		.await
+		.unwrap();
 		assert_eq!(
 			saved.outcome.status,
 			FileWriteStatus::Written,
@@ -2651,7 +2818,11 @@ mod tests {
 			let mode = std::fs::metadata(&book_path).unwrap().permissions().mode();
 			assert_eq!(mode & 0o777, 0o640, "the book keeps its permissions");
 		}
-		assert!(dir.path().join("biblioteca/stump_edits.csv").exists());
+		// no log file anywhere: the database is the record
+		assert!(!dir.path().join("stump_edits.csv").exists());
+		assert!(!root.join("stump_edits.csv").exists());
+		// Stump's own write is not a reason for the library watcher to scan
+		assert!(crate::scan::own_writes::is_own(&root, &book_path));
 
 		let conn = ctx.conn.as_ref();
 		let stored = media_metadata::Entity::find()
@@ -2684,10 +2855,9 @@ mod tests {
 
 		// reverting the save puts the old values back in the file and in Stump
 		let save_id = saved.save_id.clone().unwrap();
-		let reverted =
-			revert_save(&ctx, book.clone(), Some(stored.clone()), &save_id, editor)
-				.await
-				.unwrap();
+		let reverted = revert_save(&ctx, book.clone(), &save_id, editor)
+			.await
+			.unwrap();
 		assert_eq!(reverted.outcome.status, FileWriteStatus::Written);
 		assert!(reverted.skipped.is_empty());
 		let opf = opf_of(&book_path);
@@ -2718,11 +2888,9 @@ mod tests {
 		assert_eq!(history[1].edited_by.as_deref(), Some("g3"));
 
 		// a second revert of the same save has nothing left to put back
-		assert!(
-			revert_save(&ctx, book.clone(), Some(stored), &save_id, editor)
-				.await
-				.is_err()
-		);
+		assert!(revert_save(&ctx, book.clone(), &save_id, editor)
+			.await
+			.is_err());
 
 		// the history goes with its book
 		media::Entity::delete_by_id(book.id.clone())
@@ -2734,5 +2902,299 @@ mod tests {
 			.await
 			.unwrap()
 			.is_empty());
+	}
+
+	/// A library with a readable EPUB per name, in the real migrated database
+	async fn batch_setup(
+		names: &[&str],
+	) -> (Ctx, tempfile::TempDir, Vec<(media::Model, PathBuf)>, String) {
+		use ::tests::fake_data;
+		let db = crate::database::connect_at("sqlite::memory:")
+			.await
+			.unwrap();
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("biblioteca");
+		let library = fake_data::Library {
+			path: Some(root.to_string_lossy().into_owned()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&db)
+		.await;
+		let mut books = vec![];
+		for name in names {
+			let path = root.join(format!("Author/{name}.epub"));
+			std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+			readable_epub(&path);
+			let book = fake_data::Media {
+				series_id: series.id.clone(),
+				path: Some(path.to_string_lossy().into_owned()),
+				..Default::default()
+			}
+			.insert(&db)
+			.await;
+			media_metadata::ActiveModel {
+				media_id: Set(Some(book.id.clone())),
+				title: Set(Some("Notes from the End of Everything".into())),
+				writers: Set(Some("Robert Pantano".into())),
+				genres: Set(Some("Physics & Astronomy, Level: General Reader".into())),
+				..Default::default()
+			}
+			.insert(&db)
+			.await
+			.unwrap();
+			books.push((book, path));
+		}
+		let user = fake_data::User::new("api").insert(&db).await;
+		(Ctx::for_testing(db), dir, books, user.id)
+	}
+
+	fn sha(path: &Path) -> Vec<u8> {
+		std::fs::read(path).unwrap()
+	}
+
+	#[tokio::test]
+	async fn batch_saves_each_book_through_the_editor_save_and_queues_one_rescan() {
+		use super::super::batch::{save_batch, BatchItem, BatchItemStatus};
+		use sea_orm::prelude::Decimal;
+		let (ctx, _dir, books, user_id) = batch_setup(&["One", "Two", "Three"]).await;
+		let editor = Editor {
+			id: &user_id,
+			username: "api",
+		};
+		let item = |i: usize, active: media_metadata::ActiveModel| BatchItem {
+			book: Some(books[i].0.clone()),
+			active,
+			problems: vec![],
+		};
+		let items = vec![
+			item(
+				0,
+				media_metadata::ActiveModel {
+					rating: Set(Some(Decimal::new(425, 2))),
+					genres: Set(Some("Philosophy".into())),
+					..Default::default()
+				},
+			),
+			// already so: unchanged, nothing written
+			item(
+				1,
+				media_metadata::ActiveModel {
+					title: Set(Some("Notes from the End of Everything".into())),
+					..Default::default()
+				},
+			),
+			// a bad item doesn't stop the others
+			BatchItem {
+				book: Some(books[2].0.clone()),
+				active: Default::default(),
+				problems: vec!["rating must be between 0 and 5".into()],
+			},
+			BatchItem {
+				book: None,
+				active: Default::default(),
+				problems: vec!["No book at this path".into()],
+			},
+			item(
+				2,
+				media_metadata::ActiveModel {
+					age_rating: Set(Some(18)),
+					..Default::default()
+				},
+			),
+		];
+		let before_two = sha(&books[1].1);
+		let result = save_batch(&ctx, items, editor, SaveOptions::default())
+			.await
+			.unwrap();
+		let statuses: Vec<BatchItemStatus> =
+			result.items.iter().map(|i| i.status).collect();
+		assert_eq!(
+			statuses,
+			vec![
+				BatchItemStatus::Saved,
+				BatchItemStatus::Unchanged,
+				BatchItemStatus::Failed,
+				BatchItemStatus::NotFound,
+				BatchItemStatus::Saved,
+			]
+		);
+		assert_eq!(
+			result.items[2].errors,
+			vec!["rating must be between 0 and 5"]
+		);
+		// the rating went into the file (calibre's half stars and the precise value) and
+		// reads back
+		let opf = opf_of(&books[0].1);
+		assert!(
+			opf.contains(r#"<meta name="calibre:rating" content="9"/>"#),
+			"{opf}"
+		);
+		assert!(
+			opf.contains(r#"<meta name="bcurator:rating" content="4.25"/>"#),
+			"{opf}"
+		);
+		assert!(opf.contains("<dc:subject>Philosophy</dc:subject>"));
+		let first = &result.items[0];
+		let outcome = first.outcome.as_ref().unwrap();
+		assert_eq!(outcome.status, FileWriteStatus::Written);
+		let mut fields = outcome.file_fields.clone();
+		fields.sort();
+		assert_eq!(fields, vec!["genres", "rating"]);
+		assert!(outcome.locks.contains(&MetadataField::Rating));
+		assert!(first.save_id.is_some());
+		assert_eq!(
+			sha(&books[1].1),
+			before_two,
+			"an unchanged book's file is untouched"
+		);
+		assert!(result.items[1].save_id.is_none());
+
+		// one rescan for the two books whose files were rewritten, not a scan per book
+		assert_eq!(result.rescan_books, 2);
+		let conn = ctx.conn.as_ref();
+		let stored = media_metadata::Entity::find()
+			.filter(media_metadata::Column::MediaId.eq(books[0].0.id.clone()))
+			.one(conn)
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(stored.rating, Some(Decimal::new(425, 2)));
+		assert_eq!(
+			sea_orm::PaginatorTrait::count(
+				media_metadata_edit::Entity::find().filter(
+					media_metadata_edit::Column::MediaId.eq(books[0].0.id.clone())
+				),
+				conn
+			)
+			.await
+			.unwrap(),
+			2
+		);
+	}
+
+	#[tokio::test]
+	async fn batch_dry_run_and_stump_only_saves() {
+		use super::super::batch::{save_batch, BatchItem, BatchItemStatus};
+		let (ctx, _dir, books, user_id) = batch_setup(&["One", "Two"]).await;
+		let editor = Editor {
+			id: &user_id,
+			username: "api",
+		};
+		let edit = || media_metadata::ActiveModel {
+			genres: Set(Some("Philosophy".into())),
+			notes: Set(Some("checked".into())),
+			..Default::default()
+		};
+		let before = sha(&books[0].1);
+
+		// a dry run says what would change and changes nothing
+		let result = save_batch(
+			&ctx,
+			vec![BatchItem {
+				book: Some(books[0].0.clone()),
+				active: edit(),
+				problems: vec![],
+			}],
+			editor,
+			SaveOptions {
+				dry_run: true,
+				write_to_file: true,
+			},
+		)
+		.await
+		.unwrap();
+		let item = &result.items[0];
+		assert_eq!(item.status, BatchItemStatus::WouldSave);
+		let fields: Vec<&str> = item.changed.iter().map(|c| c.field).collect();
+		assert_eq!(fields, vec!["notes", "genres"]);
+		let outcome = item.outcome.as_ref().unwrap();
+		assert_eq!(outcome.file_fields, vec!["genres"]);
+		assert_eq!(outcome.db_only_fields, vec!["notes"]);
+		assert!(item.save_id.is_none());
+		assert_eq!(result.rescan_books, 0);
+		assert_eq!(sha(&books[0].1), before);
+		let conn = ctx.conn.as_ref();
+		let stored = media_metadata::Entity::find()
+			.filter(media_metadata::Column::MediaId.eq(books[0].0.id.clone()))
+			.one(conn)
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(stored.notes, None);
+		assert!(stored.locked_fields.is_none());
+		assert!(media_metadata_edit::Entity::find()
+			.all(conn)
+			.await
+			.unwrap()
+			.is_empty());
+
+		// writeToFile off: saved, locked and in the history, the file untouched
+		let result = save_batch(
+			&ctx,
+			vec![BatchItem {
+				book: Some(books[1].0.clone()),
+				active: edit(),
+				problems: vec![],
+			}],
+			editor,
+			SaveOptions {
+				dry_run: false,
+				write_to_file: false,
+			},
+		)
+		.await
+		.unwrap();
+		let item = &result.items[0];
+		assert_eq!(item.status, BatchItemStatus::Saved);
+		let outcome = item.outcome.as_ref().unwrap();
+		assert_eq!(outcome.status, FileWriteStatus::Skipped);
+		assert!(outcome.file_fields.is_empty());
+		assert_eq!(result.rescan_books, 0, "no file changed: nothing to rescan");
+		assert!(opf_of(&books[1].1).contains("Physics &amp; Astronomy"));
+		let rows = media_metadata_edit::Entity::find().all(conn).await.unwrap();
+		assert_eq!(rows.len(), 2);
+		assert!(rows.iter().all(|r| !r.written_to_file));
+	}
+
+	#[test]
+	fn rating_goes_into_pdf_keywords_and_comic_info() {
+		let keywords = pdf_keywords_after(
+			Some("Physics, bcurator:series=Saga, bcurator:rating=3.5"),
+			&FileChanges {
+				rating: Some(Some(4.0)),
+				..Default::default()
+			},
+		);
+		assert_eq!(keywords, "Physics, bcurator:series=Saga, bcurator:rating=4");
+		let removed = pdf_keywords_after(
+			Some("Physics, bcurator:rating=3.5"),
+			&FileChanges {
+				rating: Some(None),
+				..Default::default()
+			},
+		);
+		assert_eq!(removed, "Physics");
+		let xml = apply_comic_info_changes(
+			Some(
+				"<?xml version=\"1.0\"?>\n<ComicInfo>\n  <Title>T</Title>\n</ComicInfo>",
+			),
+			&FileChanges {
+				rating: Some(Some(3.75)),
+				..Default::default()
+			},
+		);
+		assert!(
+			xml.contains("<CommunityRating>3.75</CommunityRating>"),
+			"{xml}"
+		);
+		assert_eq!(rating_value(4.0), "4");
+		assert_eq!(rating_value(4.126), "4.13");
+		assert_eq!(rating_value(7.0), "5");
 	}
 }

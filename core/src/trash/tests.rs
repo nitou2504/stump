@@ -5,10 +5,13 @@ use apalis::prelude::{Data, MemoryStorage};
 use chrono::{DateTime, Duration, Utc};
 use models::{
 	entity::{
-		bookmark, media, media_metadata, media_purge, media_tag, reading_session,
-		server_config, tag,
+		bookmark, held_file, media, media_metadata, media_purge, media_tag,
+		post_processing_task, reading_session, server_config, tag,
 	},
-	shared::trash::TrashPurgeSummary,
+	shared::{
+		post_processing::{PostProcessKind, PostProcessStatus},
+		trash::{HeldFileReason, TrashPurgeSummary},
+	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, DatabaseConnection, IntoActiveModel};
 use tempfile::TempDir;
@@ -21,22 +24,18 @@ struct Setup {
 	conn: DatabaseConnection,
 	config: StumpConfig,
 	library_path: PathBuf,
-	quarantine: PathBuf,
 	user_id: String,
 	series_id: String,
 }
 
-/// A library folder, a quarantine folder and Stump's config folder in a temporary folder,
-/// and a database with a library, a series, a user and the server config
+/// A library folder and Stump's config folder in a temporary folder, and a database with a
+/// library, a series, a user and the server config
 async fn setup() -> Setup {
 	let dir = tempfile::tempdir().unwrap();
 	let library_path = dir.path().join("lib");
-	let quarantine = dir.path().join("quarantine");
 	fs::create_dir_all(&library_path).unwrap();
-	fs::create_dir_all(&quarantine).unwrap();
 	let config = StumpConfig {
 		config_dir: dir.path().join("config").to_string_lossy().into_owned(),
-		quarantine_dir: Some(quarantine.to_string_lossy().into_owned()),
 		..StumpConfig::debug()
 	};
 	fs::create_dir_all(config.thumbnails_directory()).unwrap();
@@ -67,7 +66,6 @@ async fn setup() -> Setup {
 		conn,
 		config,
 		library_path,
-		quarantine,
 		user_id: user.id,
 		series_id: series.id,
 	}
@@ -113,9 +111,92 @@ impl Setup {
 		media::Entity::find_by_id(id).one(&self.conn).await.unwrap()
 	}
 
-	fn today_dir(&self) -> PathBuf {
-		quarantine::day_dir(&self.quarantine, Utc::now())
+	/// A book in its library (not removed), with its file
+	async fn live_book(&self, rel: &str, bytes: &[u8]) -> media::Model {
+		let path = self.library_path.join(rel);
+		fs::create_dir_all(path.parent().unwrap()).unwrap();
+		fs::write(&path, bytes).unwrap();
+		fake_data::Media {
+			series_id: self.series_id.clone(),
+			path: Some(path.to_string_lossy().into_owned()),
+			size: Some(bytes.len() as i64),
+			..Default::default()
+		}
+		.insert(&self.conn)
+		.await
 	}
+
+	/// What post-processing does to a book: its original held in the trash folder `days_ago`,
+	/// the processed bytes in the library, a task saying so
+	async fn processed(
+		&self,
+		book: &media::Model,
+		processed: &[u8],
+		days_ago: i64,
+	) -> held_file::Model {
+		let library_path = self.library_path.clone();
+		let (absolute, relative) = held::destination(
+			&self.config,
+			&library_path,
+			Path::new(&book.path),
+			Utc::now(),
+		);
+		let bytes = files::copy_new(Path::new(&book.path), &absolute).unwrap();
+		fs::write(&book.path, processed).unwrap();
+		post_processing_task::ActiveModel {
+			id: Set(format!("task-{}", book.id)),
+			library_id: Set(book.library_id.clone()),
+			media_id: Set(Some(book.id.clone())),
+			kind: Set(PostProcessKind::Grey16),
+			status: Set(PostProcessStatus::Done),
+			path: Set(book.path.clone()),
+			bytes_before: Set(Some(bytes as i64)),
+			bytes_after: Set(Some(processed.len() as i64)),
+			..Default::default()
+		}
+		.insert(&self.conn)
+		.await
+		.unwrap();
+		let row = held::record(
+			&self.conn,
+			book,
+			"A manga".to_string(),
+			&relative,
+			bytes,
+			held::HeldFileInfo {
+				reason: HeldFileReason::Grey16,
+				steps: None,
+				task_id: Some(format!("task-{}", book.id)),
+				held_by: None,
+			},
+		)
+		.await
+		.unwrap();
+		let mut active = row.into_active_model();
+		active.held_at = Set(Utc::now() - Duration::days(days_ago));
+		active.update(&self.conn).await.unwrap()
+	}
+
+	fn ctx(&self) -> Ctx {
+		let mut ctx = Ctx::for_testing(self.conn.clone());
+		ctx.config = Arc::new(self.config.clone());
+		ctx
+	}
+}
+
+/// Every file under `dir`, hidden ones included
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+	let mut out = vec![];
+	for entry in walkdir::WalkDir::new(dir)
+		.into_iter()
+		.filter_map(Result::ok)
+	{
+		if entry.file_type().is_file() {
+			out.push(entry.path().to_path_buf());
+		}
+	}
+	out.sort();
+	out
 }
 
 fn ids(books: &[&media::Model]) -> Vec<String> {
@@ -123,7 +204,7 @@ fn ids(books: &[&media::Model]) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn test_purge_moves_the_file_to_quarantine_and_deletes_the_data() {
+async fn test_purge_deletes_the_file_and_the_data() {
 	let setup = setup().await;
 	let book = setup
 		.trashed_book("Umberto_Eco/El_nombre.epub", 3, true)
@@ -183,35 +264,13 @@ async fn test_purge_moves_the_file_to_quarantine_and_deletes_the_data() {
 		.await
 		.unwrap();
 
-	let quarantined = setup.today_dir().join("Umberto_Eco/El_nombre.epub");
-	assert_eq!(
-		report.items[0].outcome,
-		PurgeOutcome::Quarantined {
-			path: quarantined.clone(),
-			bytes: "the bytes of Umberto_Eco/El_nombre.epub".len() as u64,
-		}
-	);
+	let bytes = "the bytes of Umberto_Eco/El_nombre.epub".len() as u64;
+	assert_eq!(report.items[0].outcome, PurgeOutcome::Deleted { bytes });
 	assert_eq!((report.purged(), report.kept()), (1, 0));
-	// the file moved, nothing was destroyed
-	assert!(!setup
-		.library_path
-		.join("Umberto_Eco/El_nombre.epub")
-		.exists());
-	assert_eq!(
-		fs::read_to_string(&quarantined).unwrap(),
-		"the bytes of Umberto_Eco/El_nombre.epub"
-	);
-	let log = fs::read_to_string(setup.today_dir().join("restore_log.csv")).unwrap();
-	let lines: Vec<_> = log.lines().collect();
-	assert_eq!(lines[0], quarantine::RESTORE_LOG_HEADER);
-	assert!(lines[1].starts_with(&format!(
-		"{},{},{},remover,",
-		book.path,
-		quarantined.display(),
-		"the bytes of Umberto_Eco/El_nombre.epub".len()
-	)));
-	assert!(lines[1]
-		.ends_with(",Title of Umberto_Eco/El_nombre.epub,\"Umberto Eco, Someone Else\""));
+	assert_eq!(report.freed_bytes(), bytes);
+	// the file is gone for good: no hidden copy left next to it, nothing anywhere else
+	assert!(files_under(&setup.library_path).is_empty());
+	assert!(!setup.config.trash_directory().exists());
 
 	// the data is gone, cascading to what depended on the book
 	assert!(setup.book(&book.id).await.is_none());
@@ -242,70 +301,52 @@ async fn test_purge_moves_the_file_to_quarantine_and_deletes_the_data() {
 		.unwrap();
 	assert_eq!(purge.media_id, book.id);
 	assert_eq!(purge.title, "Title of Umberto_Eco/El_nombre.epub");
-	assert_eq!(
-		purge.quarantine_path.as_deref(),
-		Some(quarantined.to_string_lossy().as_ref())
-	);
+	assert_eq!(purge.quarantine_path, None);
+	assert_eq!(purge.bytes, Some(bytes as i64));
+	assert_eq!(purge.original_path, book.path);
 	assert_eq!(purge.deleted_by.as_deref(), Some(setup.user_id.as_str()));
 	assert_eq!(purge.purged_by.as_deref(), Some(setup.user_id.as_str()));
 }
 
+/// When the book's data can't be deleted, its file goes back where it was and the book stays
 #[tokio::test]
-async fn test_purge_without_a_quarantine_folder_keeps_the_book() {
+async fn test_purge_keeps_the_book_and_its_file_when_the_data_cant_go() {
 	let setup = setup().await;
 	let book = setup.trashed_book("A/Book.pdf", 30, true).await;
-	for config in [
-		StumpConfig {
-			quarantine_dir: None,
-			..setup.config.clone()
-		},
-		// set, but not mounted
-		StumpConfig {
-			quarantine_dir: Some(
-				setup
-					.quarantine
-					.join("missing")
-					.to_string_lossy()
-					.into_owned(),
-			),
-			..setup.config.clone()
-		},
-	] {
-		let report = purge_books(&setup.conn, &config, &ids(&[&book]), None)
-			.await
-			.unwrap();
-		let PurgeOutcome::Kept(reason) = &report.items[0].outcome else {
-			panic!("the book should have been kept: {report:?}");
-		};
-		assert!(
-			reason.contains("quarantine folder"),
-			"the reason should name the quarantine folder: {reason}"
-		);
-		assert_eq!(report.errors().len(), 1);
-		assert!(setup.library_path.join("A/Book.pdf").exists());
-		let kept = setup.book(&book.id).await.expect("the book should be kept");
-		assert!(kept.deleted_at.is_some());
-	}
+	// the deletion log can't be written: the transaction fails
+	setup
+		.conn
+		.execute_unprepared("DROP TABLE media_purges")
+		.await
+		.unwrap();
+
+	let report = purge_books(&setup.conn, &setup.config, &ids(&[&book]), None)
+		.await
+		.unwrap();
+	let PurgeOutcome::Kept(reason) = &report.items[0].outcome else {
+		panic!("the book should have been kept: {report:?}");
+	};
+	assert!(reason.contains("data couldn't be deleted"), "{reason}");
+	assert_eq!(report.errors().len(), 1);
 	assert_eq!(
-		media_purge::Entity::find()
-			.count(&setup.conn)
-			.await
-			.unwrap(),
-		0
+		fs::read_to_string(setup.library_path.join("A/Book.pdf")).unwrap(),
+		"the bytes of A/Book.pdf"
 	);
+	assert_eq!(
+		files_under(&setup.library_path).len(),
+		1,
+		"no hidden copy left"
+	);
+	let kept = setup.book(&book.id).await.expect("the book should be kept");
+	assert!(kept.deleted_at.is_some());
 }
 
 #[tokio::test]
 async fn test_purge_of_a_missing_file_deletes_only_the_data() {
 	let setup = setup().await;
 	let book = setup.trashed_book("Gone/Book.epub", 30, false).await;
-	// no quarantine folder is needed when there is no file
-	let config = StumpConfig {
-		quarantine_dir: None,
-		..setup.config.clone()
-	};
 
-	let report = purge_books(&setup.conn, &config, &ids(&[&book]), None)
+	let report = purge_books(&setup.conn, &setup.config, &ids(&[&book]), None)
 		.await
 		.unwrap();
 
@@ -317,7 +358,7 @@ async fn test_purge_of_a_missing_file_deletes_only_the_data() {
 		.await
 		.unwrap()
 		.unwrap();
-	assert_eq!(purge.quarantine_path, None);
+	assert_eq!(purge.bytes, None);
 	assert_eq!(purge.purged_by, None, "the automatic purge has no user");
 }
 
@@ -356,113 +397,89 @@ async fn test_purge_only_takes_books_in_the_trash() {
 	assert!(setup.library_path.join("Live.epub").exists());
 }
 
+/// A post-processed book's original is held; putting it back swaps the files (the processed
+/// version is held in turn) and marks the task reverted; deleting a held file deletes it
 #[tokio::test]
-async fn test_purge_never_overwrites_a_quarantined_file() {
+async fn test_held_original_put_back_and_deleted() {
 	let setup = setup().await;
-	let first = setup.trashed_book("A/Book.epub", 30, true).await;
-	purge_books(&setup.conn, &setup.config, &ids(&[&first]), None)
-		.await
-		.unwrap();
-	// the same path again, deleted the same day
-	let second = setup.trashed_book("A/Book.epub", 30, true).await;
-	let report = purge_books(&setup.conn, &setup.config, &ids(&[&second]), None)
-		.await
-		.unwrap();
-
-	assert_eq!(
-		report.items[0].outcome,
-		PurgeOutcome::Quarantined {
-			path: setup.today_dir().join("A/Book.prev1.epub"),
-			bytes: "the bytes of A/Book.epub".len() as u64,
-		}
-	);
-	assert!(setup.today_dir().join("A/Book.epub").exists());
-	let log = fs::read_to_string(setup.today_dir().join("restore_log.csv")).unwrap();
-	assert_eq!(log.lines().count(), 3, "one header and a row per book");
-}
-
-#[tokio::test]
-async fn test_quarantine_inside_the_library_is_refused() {
-	let setup = setup().await;
-	let book = setup.trashed_book("A/Book.epub", 30, true).await;
-	let inside = setup.library_path.join(".quarantine");
-	fs::create_dir_all(&inside).unwrap();
-	let config = StumpConfig {
-		quarantine_dir: Some(inside.to_string_lossy().into_owned()),
-		..setup.config.clone()
-	};
-
-	let report = purge_books(&setup.conn, &config, &ids(&[&book]), None)
-		.await
-		.unwrap();
-
+	let book = setup
+		.live_book("_Manga/S/S v01.cbz", b"original bytes")
+		.await;
+	let original = setup.processed(&book, b"16 greys", 0).await;
+	assert_eq!(original.reason, HeldFileReason::Grey16);
+	assert_eq!(original.bytes, 14);
+	let held_path = held::held_file_path(&setup.config, &original);
 	assert!(
-		matches!(&report.items[0].outcome, PurgeOutcome::Kept(reason) if reason.contains("inside a library"))
+		held_path.ends_with("_Manga/S/S v01.cbz"),
+		"{}",
+		held_path.display()
 	);
-	assert!(setup.library_path.join("A/Book.epub").exists());
-	assert!(setup.book(&book.id).await.is_some());
-}
+	assert!(held_path.starts_with(setup.config.trash_directory()));
+	assert_eq!(fs::read(&held_path).unwrap(), b"original bytes");
 
-#[tokio::test]
-async fn test_restore_from_quarantine_puts_the_file_back() {
-	let setup = setup().await;
-	let book = setup.trashed_book("A/Book.epub", 30, true).await;
-	purge_books(&setup.conn, &setup.config, &ids(&[&book]), None)
+	let ctx = setup.ctx();
+	let put = held::put_back(&ctx, original.id, &setup.user_id)
 		.await
 		.unwrap();
-	let purge = media_purge::Entity::find()
+	assert_eq!(fs::read(&book.path).unwrap(), b"original bytes");
+	assert_eq!(put.book.size, 14, "the book follows its file");
+	// the processed version is held now, the original's row and copy are gone
+	let replaced = put.replaced.expect("the processed version should be held");
+	assert_eq!(replaced.reason, HeldFileReason::PutBack);
+	assert_eq!(replaced.held_by.as_deref(), Some(setup.user_id.as_str()));
+	assert_eq!(
+		fs::read(held::held_file_path(&setup.config, &replaced)).unwrap(),
+		b"16 greys"
+	);
+	assert!(held_file::Entity::find_by_id(original.id)
+		.one(&setup.conn)
+		.await
+		.unwrap()
+		.is_none());
+	assert!(!held_path.exists());
+	let task = post_processing_task::Entity::find_by_id(format!("task-{}", book.id))
 		.one(&setup.conn)
 		.await
 		.unwrap()
 		.unwrap();
-	let ctx = Ctx::for_testing(setup.conn.clone());
+	assert_eq!(task.status, PostProcessStatus::Reverted);
+	// no hidden leftovers next to the book
+	assert_eq!(files_under(&setup.library_path).len(), 1);
 
-	let restored = restore_purged(&ctx, purge.id, &setup.user_id)
+	// the held processed version is deleted by hand: gone from disk and from the list
+	let purge = held::purge_held(&setup.conn, &setup.config, &[replaced.id])
 		.await
 		.unwrap();
-
-	assert!(restored.restored_at.is_some());
+	assert_eq!((purge.deleted, purge.bytes), (1, 8));
+	assert!(files_under(&setup.config.trash_directory()).is_empty());
 	assert_eq!(
-		restored.restored_by.as_deref(),
-		Some(setup.user_id.as_str())
+		held_file::Entity::find().count(&setup.conn).await.unwrap(),
+		0
 	);
-	assert_eq!(
-		fs::read_to_string(setup.library_path.join("A/Book.epub")).unwrap(),
-		"the bytes of A/Book.epub"
-	);
-	assert!(!setup.today_dir().join("A/Book.epub").exists());
-	// once only
-	assert!(restore_purged(&ctx, purge.id, &setup.user_id)
-		.await
-		.is_err());
+	assert_eq!(fs::read(&book.path).unwrap(), b"original bytes");
 }
 
+/// A book deleted permanently takes its held originals with it
 #[tokio::test]
-async fn test_restore_from_quarantine_never_replaces_a_file() {
+async fn test_purging_a_book_deletes_its_held_files() {
 	let setup = setup().await;
-	let book = setup.trashed_book("A/Book.epub", 30, true).await;
-	purge_books(&setup.conn, &setup.config, &ids(&[&book]), None)
+	let book = setup.live_book("_Manga/S/S v02.cbz", b"original").await;
+	let original = setup.processed(&book, b"grey", 0).await;
+	let mut active = book.clone().into_active_model();
+	active.deleted_at = Set(Some((Utc::now() - Duration::days(30)).into()));
+	active.update(&setup.conn).await.unwrap();
+
+	let report = purge_books(&setup.conn, &setup.config, &ids(&[&book]), None)
 		.await
 		.unwrap();
-	let purge = media_purge::Entity::find()
+	assert_eq!(report.purged(), 1);
+	assert!(held_file::Entity::find_by_id(original.id)
 		.one(&setup.conn)
 		.await
 		.unwrap()
-		.unwrap();
-	// a new file took its place
-	fs::write(setup.library_path.join("A/Book.epub"), b"newer").unwrap();
-	let ctx = Ctx::for_testing(setup.conn.clone());
-
-	let error = restore_purged(&ctx, purge.id, &setup.user_id)
-		.await
-		.unwrap_err();
-
-	assert!(error.to_string().contains("already"), "{error}");
-	assert_eq!(
-		fs::read(setup.library_path.join("A/Book.epub")).unwrap(),
-		b"newer"
-	);
-	assert!(setup.today_dir().join("A/Book.epub").exists());
+		.is_none());
+	assert!(files_under(&setup.config.trash_directory()).is_empty());
+	assert!(files_under(&setup.library_path).is_empty());
 }
 
 #[test]
@@ -563,9 +580,20 @@ async fn test_automatic_purge_job() {
 			.unwrap()
 	);
 
-	// one expired with its file, one expired without a file, one kept by its retention
+	// one expired with its file, one expired without a file, one kept by its retention, and
+	// held originals: one expired, one recent
 	let expired = setup.trashed_book("A/Expired.epub", 15, true).await;
 	let missing = setup.trashed_book("A/Missing.epub", 15, false).await;
+	let old_manga = setup.live_book("_Manga/S/S v01.cbz", b"old original").await;
+	let old_original = setup.processed(&old_manga, b"grey", 15).await;
+	let new_manga = setup.live_book("_Manga/S/S v02.cbz", b"new original").await;
+	let new_original = setup.processed(&new_manga, b"grey", 1).await;
+	assert_eq!(
+		held::expired_held_ids(conn.as_ref(), 14, Utc::now())
+			.await
+			.unwrap(),
+		vec![old_original.id]
+	);
 	let state = Arc::new(ApalisWorkerState::new(
 		conn.clone(),
 		Arc::new(setup.config.clone()),
@@ -579,7 +607,20 @@ async fn test_automatic_purge_job() {
 	assert!(setup.book(&expired.id).await.is_none());
 	assert!(setup.book(&missing.id).await.is_none());
 	assert!(setup.book(&recent.id).await.is_some(), "not expired yet");
-	assert!(setup.today_dir().join("A/Expired.epub").exists());
+	assert!(!setup.library_path.join("A/Expired.epub").exists());
+	assert!(setup.library_path.join("Recent.epub").exists());
+	assert!(!held::held_file_path(&setup.config, &old_original).exists());
+	assert!(held::held_file_path(&setup.config, &new_original).exists());
+	assert_eq!(
+		held_file::Entity::find()
+			.all(conn.as_ref())
+			.await
+			.unwrap()
+			.into_iter()
+			.map(|row| row.id)
+			.collect::<Vec<_>>(),
+		vec![new_original.id]
+	);
 	let config = server_config::Entity::find()
 		.one(conn.as_ref())
 		.await
@@ -589,10 +630,11 @@ async fn test_automatic_purge_job() {
 		purged,
 		missing_files,
 		failed,
+		originals,
 		job_id,
 		..
 	} = config.trash_last_purge.unwrap();
-	assert_eq!((purged, missing_files, failed), (1, 1, 0));
+	assert_eq!((purged, missing_files, failed, originals), (1, 1, 0, 1));
 	assert!(job_id.is_some());
 	let job = models::entity::job::Entity::find()
 		.one(conn.as_ref())

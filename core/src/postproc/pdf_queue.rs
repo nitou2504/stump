@@ -11,8 +11,10 @@
 //! - `archive/<id>.json`: results Stump has applied;
 //! - `worker.json`: the worker's heartbeat (see [`worker_status`]).
 //!
-//! Stump checks `done/` every minute: it swaps a new file in (the original goes to quarantine,
-//! never deleted) only if the library file is still the one it queued (same size and mtime).
+//! Stump checks `done/` every minute: it swaps a new file in (the original is held in *Deleted
+//! books* for the retention, where it can be put back) only if the library file is still the
+//! one it queued (same size and mtime). The worker never writes into a library: it reads the
+//! libraries read-only and writes its results into the queue folder.
 
 use std::{
 	collections::HashSet,
@@ -286,10 +288,6 @@ async fn apply_result(
 	let Some(book) = media::Entity::find_by_id(book_id).one(conn).await? else {
 		return Ok(fail("the book is gone".to_string()));
 	};
-	let quarantine = match super::quarantine_root(config) {
-		Ok(root) => root,
-		Err(reason) => return Ok(fail(reason)),
-	};
 	let new_file = result_file(root, &row.id);
 	let new_bytes = match fs::metadata(&new_file) {
 		Ok(meta) => meta.len(),
@@ -326,18 +324,32 @@ async fn apply_result(
 	else {
 		return Ok(fail("the library config is gone".to_string()));
 	};
-	let batch = swap::batch_dir(&quarantine, "pdf", Utc::now());
-	let rel = swap::quarantine_rel(Path::new(&library.path), &original);
+	let (held_absolute, held_relative) = crate::trash::held::destination(
+		config,
+		Path::new(&library.path),
+		&original,
+		Utc::now(),
+	);
 	let swapped = {
 		let (original, new_file) = (original.clone(), new_file.clone());
 		tokio::task::spawn_blocking(move || {
-			swap::swap_into_place(&original, &new_file, &batch, &rel)
+			swap::swap_into_place(&original, &new_file, &held_absolute)
 		})
 		.await
 		.map_err(|e| crate::CoreError::InternalError(e.to_string()))?
 	};
 	match swapped {
 		Ok(out) => {
+			super::record_held_original(
+				conn,
+				&book,
+				&held_relative,
+				out.bytes_before,
+				models::shared::trash::HeldFileReason::Pdf,
+				row.steps.clone(),
+				&row.id,
+			)
+			.await;
 			if let Err(error) =
 				refresh_media_after_swap(conn, config, &library_config, &book).await
 			{

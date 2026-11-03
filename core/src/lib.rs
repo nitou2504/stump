@@ -308,6 +308,16 @@ impl StumpCore {
 	/// Start applying the PDF worker's results (a directory listing a minute). Keep the
 	/// handle alive for as long as the server runs
 	pub fn init_post_processing(&self) -> tokio::task::JoinHandle<()> {
+		if let Some(old) = self.ctx.config.legacy_quarantine_directory() {
+			tracing::warn!(
+				quarantine_dir = %old.display(),
+				trash_dir = %self.ctx.config.trash_directory().display(),
+				"quarantine_dir / STUMP_QUARANTINE_DIR is no longer used: replaced originals are \
+				 kept in Stump's trash folder and listed in Deleted books, and books deleted \
+				 permanently are deleted. Files already in the old folder are left alone; the \
+				 setting (and the folder's mount) can be removed"
+			);
+		}
 		postproc::pdf_queue::spawn_collector(self.ctx.arced())
 	}
 }

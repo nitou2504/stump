@@ -72,6 +72,7 @@ pub fn keep_locked_fields(
 				active.identifier_mobi_asin = Set(e.identifier_mobi_asin.clone())
 			},
 			F::IdentifierUuid => active.identifier_uuid = Set(e.identifier_uuid.clone()),
+			F::Rating => active.rating = Set(e.rating),
 			// not stored on a book's metadata row
 			F::Tags
 			| F::Artists

@@ -1,7 +1,9 @@
 //! Post-processing of library files: manga CBZ pages reduced to 16 grey levels (in Stump, see
 //! [`grey16`]) and scanned PDFs sent to the PDF worker container for OCR and shrinking (see
-//! [`pdf_queue`], `docker/Dockerfile.pdf-worker` and `scripts/fork/workers/`). Originals are never deleted: they are copied to
-//! the quarantine folder before a processed file replaces them (see [`swap`]).
+//! [`pdf_queue`], `docker/Dockerfile.pdf-worker` and `scripts/fork/workers/`). Before a processed
+//! file replaces a book's file, the original is copied into Stump's trash folder, where
+//! *Deleted books* lists it for the retention period and it can be put back (see [`swap`] and
+//! [`crate::trash::held`]).
 //!
 //! Post-processing jobs run on their own worker (one at a time), so a long 16-grey pass never
 //! holds up scans, and every conversion thread runs at idle CPU and I/O priority.
@@ -31,6 +33,7 @@ use models::{
 		post_processing::{
 			PostProcessKind, PostProcessMode, PostProcessStatus, PostProcessingConfig,
 		},
+		trash::HeldFileReason,
 	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, QueryOrder};
@@ -43,6 +46,7 @@ use crate::{
 		JobProgress, JobTaskOutput, WorkingState,
 	},
 	media::processor::{generate_hashes, MediaProcessorOptions},
+	trash::held,
 	CoreResult,
 };
 
@@ -151,7 +155,7 @@ pub struct PostProcessJob {
 	pub config: PostProcessJobConfig,
 }
 
-/// A replacement is worth it from this saving on (book-curator's swap rule for comics)
+/// A replacement is worth it from this saving on (≥ 1 MB and ≥ 5 %)
 pub fn grey16_worth_it(bytes_in: u64, bytes_out: u64) -> bool {
 	let saved = bytes_in.saturating_sub(bytes_out) as f64;
 	saved >= (1_000_000f64).max(0.05 * bytes_in as f64)
@@ -419,13 +423,35 @@ pub async fn refresh_media_after_swap(
 	Ok(())
 }
 
-/// The quarantine root, or why post-processing cannot replace files
-pub fn quarantine_root(config: &StumpConfig) -> Result<PathBuf, String> {
-	config.quarantine_directory().ok_or_else(|| {
-		"No quarantine folder is set (STUMP_QUARANTINE_DIR or quarantine_dir in Stump.toml): \
-		 originals are never deleted, so nothing can be replaced"
-			.to_string()
-	})
+/// After a swap: the original held in the trash folder gets its row, so *Deleted books* lists
+/// it (and can put it back). A failure only leaves an unlisted file in the trash folder
+pub async fn record_held_original(
+	conn: &DatabaseConnection,
+	book: &media::Model,
+	held_relative: &Path,
+	bytes: u64,
+	reason: HeldFileReason,
+	steps: Option<String>,
+	task_id: &str,
+) {
+	let title = held::book_title(conn, book).await;
+	if let Err(error) = held::record(
+		conn,
+		book,
+		title,
+		held_relative,
+		bytes,
+		held::HeldFileInfo {
+			reason,
+			steps,
+			task_id: Some(task_id.to_string()),
+			held_by: None,
+		},
+	)
+	.await
+	{
+		tracing::error!(?error, path = %book.path, held = %held_relative.display(), "Could not list a replaced original in Deleted books");
+	}
 }
 
 impl PostProcessJob {
@@ -633,24 +659,6 @@ impl PostProcessJob {
 			return Ok(output);
 		}
 
-		let quarantine = match quarantine_root(ctx.config()) {
-			Ok(root) => root,
-			Err(reason) => {
-				update_task(
-					conn,
-					&task.task_id,
-					TaskUpdate {
-						status: Some(PostProcessStatus::Failed),
-						reason: Some(Some(reason)),
-						finished: true,
-						..Default::default()
-					},
-				)
-				.await?;
-				output.failed = 1;
-				return Ok(output);
-			},
-		};
 		update_task(
 			conn,
 			&task.task_id,
@@ -687,7 +695,7 @@ impl PostProcessJob {
 		watcher.abort();
 
 		let outcome = self
-			.finish_grey16(ctx, &book, &task, converted, before, &work, &quarantine)
+			.finish_grey16(ctx, &book, &task, converted, before, &work)
 			.await;
 		let _ = tokio::fs::remove_file(&work).await;
 		let (status, reason, bytes_after, details) = outcome?;
@@ -726,7 +734,6 @@ impl PostProcessJob {
 		converted: Result<grey16::VolumeReport, grey16::Grey16Error>,
 		before: Option<(u64, i64)>,
 		work: &Path,
-		quarantine: &Path,
 	) -> Result<
 		(
 			PostProcessStatus,
@@ -784,18 +791,28 @@ impl PostProcessJob {
 		}
 		let (library, library_config) =
 			load_library(ctx.conn(), &book.library_id).await?;
-		let batch = swap::batch_dir(quarantine, "grey16", Utc::now());
-		let rel = swap::quarantine_rel(Path::new(&library.path), &src);
+		let (held_absolute, held_relative) =
+			held::destination(ctx.config(), Path::new(&library.path), &src, Utc::now());
 		let swapped = {
 			let (src, work) = (src.clone(), work.to_path_buf());
 			tokio::task::spawn_blocking(move || {
-				swap::swap_into_place(&src, &work, &batch, &rel)
+				swap::swap_into_place(&src, &work, &held_absolute)
 			})
 			.await
 			.map_err(|e| JobError::TaskFailed(e.to_string()))?
 		};
 		match swapped {
 			Ok(swap) => {
+				record_held_original(
+					ctx.conn(),
+					book,
+					&held_relative,
+					swap.bytes_before,
+					HeldFileReason::Grey16,
+					None,
+					&task.task_id,
+				)
+				.await;
 				if let Err(error) = refresh_media_after_swap(
 					ctx.conn(),
 					ctx.config(),
@@ -823,8 +840,8 @@ impl PostProcessJob {
 					),
 					Some(swap.bytes_after as i64),
 					details.map(|mut d| {
-						d["quarantine_path"] =
-							serde_json::json!(swap.quarantine_path.to_string_lossy());
+						d["held_path"] =
+							serde_json::json!(held_relative.to_string_lossy());
 						d
 					}),
 				))
@@ -902,16 +919,6 @@ impl JobLifecycle for PostProcessJob {
 		}
 
 		if self.config.grey16 {
-			if !self.config.dry_run {
-				if let Err(reason) = quarantine_root(ctx.config()) {
-					logs.push(JobExecuteLog::error(reason));
-					return Ok(WorkingState {
-						output: Some(output),
-						tasks,
-						logs,
-					});
-				}
-			}
 			let since = match self.config.scope {
 				PostProcessScope::All => None,
 				PostProcessScope::New => match settings.grey16_since {
@@ -1046,7 +1053,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn worth_it_rule_matches_book_curator() {
+	fn worth_it_rule_needs_a_megabyte_and_five_percent() {
 		// at least 1 MB and 5 %
 		assert!(grey16_worth_it(100_000_000, 94_000_000));
 		assert!(!grey16_worth_it(100_000_000, 96_000_000));

@@ -1,6 +1,6 @@
-//! Writes the reviewed metadata into the book files, the way book-curator does
-//! (`src/metadata_pass.py`, `src/pdf_curator_meta.py`), so the library stays readable by
-//! KOReader and the curator and Stump read the same values back:
+//! Writes the reviewed metadata into the book files, with the conventions Stump reads back,
+//! so the library stays readable by KOReader and other readers and a rescan finds the same
+//! values:
 //!
 //! - EPUB: `dc:title`, `dc:creator` (with file-as), `dc:subject` = the tags plus
 //!   `bcurator:shelf` (the first big tag), `calibre:series` / `calibre:series_index` (and an
@@ -9,9 +9,10 @@
 //!   is rewritten with `mimetype` first and stored and every other entry copied unchanged.
 //! - CBZ: `ComicInfo.xml` (Series, Number, Title, Writer, Genre, AgeRating, LanguageISO,
 //!   Manga), every other entry copied unchanged.
-//! - PDF: the Info dictionary (Title, Author, Subject, Keywords with the tags and the
-//!   `bcurator:series=` / `bcurator:series_index=` / `bcurator:age=` / `bcurator:rating=`
-//!   entries), appended as an incremental update so the rest of the file is untouched.
+//! - PDF: the Info dictionary (Title, Author, Subject, Keywords with the tags and Stump's
+//!   keyword fields `bcurator:series=` / `series_index=` / `age=` / `rating=`, see
+//!   [`crate::media::processor::pdf::KEYWORD_FIELD_PREFIX`]), appended as an incremental
+//!   update so the rest of the file is untouched.
 
 use std::{
 	fs::File,
@@ -24,6 +25,7 @@ use regex::Regex;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use super::library_index::is_facet;
+use crate::media::processor::pdf::KEYWORD_FIELD_PREFIX;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WriteError {
@@ -37,7 +39,7 @@ pub enum WriteError {
 
 pub type WriteResult<T> = Result<T, WriteError>;
 
-/// The values book-curator writes, derived from the reviewed metadata
+/// The values written into a book file, derived from the reviewed metadata
 #[derive(Debug, Clone, Default)]
 pub struct FileMetadata {
 	pub title: Option<String>,
@@ -339,7 +341,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 		}
 	}
 
-	// tags own dc:subject (book-curator: English tags + bcurator:shelf)
+	// tags own dc:subject (plus the first big tag as bcurator:shelf)
 	if !meta.tags.is_empty() {
 		remove(&mut body, r"\s*<dc:subject\b[^>]*>[^<]*</dc:subject>");
 		remove(&mut body, r"\s*<dc:subject\b[^>]*/>");
@@ -457,7 +459,7 @@ pub(crate) fn html_unescape(s: &str) -> String {
 
 // ------------------------------------------------------------------ CBZ
 
-/// The ComicInfo.xml book-curator writes
+/// The ComicInfo.xml written for a book
 pub fn comic_info(meta: &FileMetadata) -> String {
 	let writer = meta.authors.first().cloned().unwrap_or_default();
 	let mut x = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ComicInfo>");
@@ -544,23 +546,23 @@ pub fn write_cbz(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 
 // ------------------------------------------------------------------ PDF
 
-/// The PDF Keywords book-curator writes: the tags, then the curator fields
+/// The PDF Keywords written for a book: the tags, then Stump's keyword fields
 pub fn pdf_keywords(meta: &FileMetadata) -> String {
 	let mut keywords: Vec<String> = meta.tags.clone();
 	if let Some(series) = &meta.series {
-		keywords.push(format!("bcurator:series={}", series.replace(';', " ·")));
+		keywords.push(format!("{KEYWORD_FIELD_PREFIX}series={}", series.replace(';', " ·")));
 		if let Some(index) = meta.series_index {
-			keywords.push(format!("bcurator:series_index={}", num(index)));
+			keywords.push(format!("{KEYWORD_FIELD_PREFIX}series_index={}", num(index)));
 		}
 	}
 	if let Some(age) = meta.age_rating {
 		keywords.push(format!(
-			"bcurator:age={}",
+			"{KEYWORD_FIELD_PREFIX}age={}",
 			if age >= 18 { "18+" } else { "All ages" }
 		));
 	}
 	if let Some(rating) = meta.rating {
-		keywords.push(format!("bcurator:rating={rating:.2}"));
+		keywords.push(format!("{KEYWORD_FIELD_PREFIX}rating={rating:.2}"));
 	}
 	// Stump splits Keywords on commas: a comma inside a value becomes " ·"
 	let mut seen = std::collections::HashSet::new();
@@ -668,8 +670,7 @@ pub struct KeptPdfInfo {
 	pub creation_date: Option<String>,
 }
 
-/// The Info dictionary entries book-curator writes for a book (values already encoded as PDF
-/// strings)
+/// The Info dictionary entries written for a book (values already encoded as PDF strings)
 pub fn pdf_info_entries(meta: &FileMetadata, kept: &KeptPdfInfo) -> Vec<(String, String)> {
 	let mut info: Vec<(String, String)> = vec![];
 	if let Some(title) = &meta.title {
@@ -884,7 +885,7 @@ mod tests {
 	}
 
 	#[test]
-	fn builds_pdf_keywords_like_the_curator() {
+	fn builds_pdf_keywords_with_the_keyword_fields() {
 		let mut m = meta();
 		m.tags.push("Viajes, deporte y juegos".into());
 		m.age_rating = Some(18);

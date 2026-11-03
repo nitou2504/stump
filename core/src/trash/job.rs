@@ -1,6 +1,6 @@
-//! The automatic purge of *Deleted books*: the books kept for the retention period are
-//! deleted permanently (see [`super`]), a few at a time, and what happened is recorded for the
-//! *Deleted books* page
+//! The automatic purge of *Deleted books*: the books and held files kept for the retention
+//! period are deleted permanently (see [`super`]), a few at a time, and what happened is
+//! recorded for the *Deleted books* page
 
 use async_graphql::SimpleObject;
 use chrono::Utc;
@@ -15,7 +15,9 @@ use crate::job::{
 	JobTaskOutput, WorkingState,
 };
 
-use super::{expired_book_ids, purge_books, record_purge, retention_days, PurgeOutcome};
+use super::{
+	expired_book_ids, held, purge_books, record_purge, retention_days, PurgeOutcome,
+};
 
 /// Books purged per task
 const BOOKS_PER_TASK: usize = 10;
@@ -26,14 +28,18 @@ const KEPT_ERRORS: usize = 20;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, SimpleObject)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashPurgeOutput {
-	/// Books whose file went to the quarantine folder and whose data was deleted
+	/// Books deleted permanently (their file and their data)
 	pub purged_books: u64,
 	/// Books whose file was already gone: only their data was deleted
 	pub missing_book_files: u64,
-	/// Books kept in Deleted books because their file couldn't be moved
+	/// Books kept in Deleted books because their file or data couldn't be deleted
 	pub kept_books: u64,
-	/// The size of the files moved to the quarantine folder
-	pub quarantined_bytes: u64,
+	/// Held files (originals replaced by post-processing) deleted
+	#[serde(default)]
+	pub purged_held_files: u64,
+	/// The disk space given back (deleted book files and held files)
+	#[serde(default, alias = "quarantinedBytes")]
+	pub freed_bytes: u64,
 	/// Why books were kept (the first few)
 	pub errors: Vec<TrashPurgeError>,
 }
@@ -43,15 +49,17 @@ impl JobOutputExt for TrashPurgeOutput {
 		self.purged_books += updated.purged_books;
 		self.missing_book_files += updated.missing_book_files;
 		self.kept_books += updated.kept_books;
-		self.quarantined_bytes += updated.quarantined_bytes;
+		self.purged_held_files += updated.purged_held_files;
+		self.freed_bytes += updated.freed_bytes;
 		let room = KEPT_ERRORS.saturating_sub(self.errors.len());
 		self.errors.extend(updated.errors.into_iter().take(room));
 	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrashPurgeTask {
-	pub media_ids: Vec<String>,
+pub enum TrashPurgeTask {
+	Books { media_ids: Vec<String> },
+	HeldFiles { ids: Vec<i32> },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -75,7 +83,9 @@ impl JobLifecycle for TrashPurgeJob {
 		let conn = ctx.conn();
 		let retention = retention_days(conn).await?;
 		// read again: books may have been restored since the job was queued
-		let ids = expired_book_ids(conn, retention, Utc::now()).await?;
+		let now = Utc::now();
+		let ids = expired_book_ids(conn, retention, now).await?;
+		let held_ids = held::expired_held_ids(conn, retention, now).await?;
 		let mut logs = Vec::new();
 		if retention <= 0 {
 			logs.push(JobExecuteLog::new(
@@ -83,14 +93,20 @@ impl JobLifecycle for TrashPurgeJob {
 				LogLevel::Info,
 			));
 		}
+		let mut tasks: std::collections::VecDeque<TrashPurgeTask> = ids
+			.chunks(BOOKS_PER_TASK)
+			.map(|chunk| TrashPurgeTask::Books {
+				media_ids: chunk.to_vec(),
+			})
+			.collect();
+		tasks.extend(held_ids.chunks(BOOKS_PER_TASK).map(|chunk| {
+			TrashPurgeTask::HeldFiles {
+				ids: chunk.to_vec(),
+			}
+		}));
 		Ok(WorkingState {
 			output: Some(TrashPurgeOutput::default()),
-			tasks: ids
-				.chunks(BOOKS_PER_TASK)
-				.map(|chunk| TrashPurgeTask {
-					media_ids: chunk.to_vec(),
-				})
-				.collect(),
+			tasks,
 			logs,
 		})
 	}
@@ -100,17 +116,48 @@ impl JobLifecycle for TrashPurgeJob {
 		ctx: &JobContext,
 		task: Self::Task,
 	) -> Result<JobTaskOutput<Self>, JobError> {
+		let media_ids = match task {
+			TrashPurgeTask::Books { media_ids } => media_ids,
+			TrashPurgeTask::HeldFiles { ids } => {
+				ctx.report_progress(JobProgress::msg("Deleting expired held files"));
+				let purge = held::purge_held(ctx.conn(), ctx.config(), &ids).await?;
+				let mut logs = vec![JobExecuteLog::new(
+					format!(
+						"Deleted {} held {} ({:.1} MB)",
+						purge.deleted,
+						if purge.deleted == 1 { "file" } else { "files" },
+						purge.bytes as f64 / 1e6
+					),
+					LogLevel::Info,
+				)];
+				logs.extend(purge.kept.iter().map(|(id, title, why)| {
+					JobExecuteLog::error(format!(
+						"Kept the held file of “{title}”: {why}"
+					))
+					.with_ctx(id.to_string())
+				}));
+				return Ok(JobTaskOutput {
+					output: TrashPurgeOutput {
+						purged_held_files: purge.deleted,
+						freed_bytes: purge.bytes,
+						..Default::default()
+					},
+					subtasks: vec![],
+					logs,
+				});
+			},
+		};
 		ctx.report_progress(JobProgress::msg("Deleting expired books permanently"));
-		let report = purge_books(ctx.conn(), ctx.config(), &task.media_ids, None).await?;
+		let report = purge_books(ctx.conn(), ctx.config(), &media_ids, None).await?;
 		let logs = report
 			.items
 			.iter()
 			.map(|item| match &item.outcome {
-				PurgeOutcome::Quarantined { path, .. } => JobExecuteLog::new(
+				PurgeOutcome::Deleted { bytes } => JobExecuteLog::new(
 					format!(
-						"Deleted “{}” permanently: its file is in {}",
+						"Deleted “{}” permanently ({:.1} MB)",
 						item.title,
-						path.display()
+						*bytes as f64 / 1e6
 					),
 					LogLevel::Info,
 				),
@@ -133,7 +180,8 @@ impl JobLifecycle for TrashPurgeJob {
 				purged_books: report.purged(),
 				missing_book_files: report.missing_files(),
 				kept_books: report.kept(),
-				quarantined_bytes: report.quarantined_bytes(),
+				purged_held_files: 0,
+				freed_bytes: report.freed_bytes(),
 				errors: report.errors().into_iter().take(KEPT_ERRORS).collect(),
 			},
 			subtasks: vec![],
@@ -154,6 +202,7 @@ impl JobLifecycle for TrashPurgeJob {
 				purged: output.purged_books,
 				missing_files: output.missing_book_files,
 				failed: output.kept_books,
+				originals: output.purged_held_files,
 				errors: output.errors.clone(),
 			},
 		)

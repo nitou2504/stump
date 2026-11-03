@@ -1,5 +1,4 @@
-//! The 16-grey step for manga CBZ files, the same rules as book-curator's
-//! `src/comics_grey16.py` (research/comics-size.md):
+//! The 16-grey step for manga CBZ files (Stump's rules, tuned on the library's manga):
 //!
 //! - only PNG pages are converted (JPEG pages stay: as 4-bit PNGs they mostly grow);
 //! - colour pages stay untouched: a page is colour when at least [`COLOUR_SHARE`] of its pixels,

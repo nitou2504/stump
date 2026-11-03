@@ -129,7 +129,10 @@ pub fn metadata_of(file: &ExtractedFile) -> IntakeMetadata {
 		}
 		let mut subjects: Vec<String> = e.genres.clone().unwrap_or_default();
 		subjects.extend(e.tags.clone().unwrap_or_default());
-		subjects.retain(|s| !s.trim().is_empty() && !s.starts_with("bcurator:"));
+		subjects.retain(|s| {
+			!s.trim().is_empty()
+				&& !s.starts_with(crate::media::processor::pdf::KEYWORD_FIELD_PREFIX)
+		});
 		if !subjects.is_empty() {
 			meta.subjects = subjects;
 			meta.set_source("subjects", IntakeSource::File);

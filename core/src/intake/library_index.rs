@@ -20,10 +20,19 @@ use crate::CoreResult;
 /// How long a built index is kept for the next analyses
 pub const INDEX_TTL: Duration = Duration::from_secs(10 * 60);
 
-/// Tag prefixes the curated library uses for facets (not genres)
+/// Tag prefixes the library uses for facets (not genres)
 pub const FACET_PREFIXES: &[&str] = &[
-	"Origin", "Era", "Level", "Audience", "Form", "Award", "Laureate", "Canon", "Course",
-	"Collection", "Source",
+	"Origin",
+	"Era",
+	"Level",
+	"Audience",
+	"Form",
+	"Award",
+	"Laureate",
+	"Canon",
+	"Course",
+	"Collection",
+	"Source",
 ];
 
 /// Whether a tag is a facet (`Origin: X`, `Illustrated`, ...) rather than a genre
@@ -83,7 +92,8 @@ pub struct LibraryIndex {
 	pub author_folders: Vec<FolderInfo>,
 	/// ordered/sorted name keys -> author folder index, from the folder names
 	folder_by_key: HashMap<String, usize>,
-	/// ordered name keys of authors written in the catalogue or the books -> folder index
+	/// ordered name keys of authors as the library's books write them -> the folder holding
+	/// most of their books (index) and the name as written
 	alias_by_key: HashMap<String, (usize, String)>,
 	pub manga_folders: Vec<FolderInfo>,
 	pub light_novel_folders: Vec<FolderInfo>,
@@ -143,9 +153,8 @@ pub async fn library_index(
 	if let Some(index) = CACHE.lock().ok().and_then(|c| c.get(library_id).cloned()) {
 		return Ok(index);
 	}
-	let index = Arc::new(
-		build_index(conn, library_id, root, manga_dir, light_novel_dir).await?,
-	);
+	let index =
+		Arc::new(build_index(conn, library_id, root, manga_dir, light_novel_dir).await?);
 	if let Ok(mut cache) = CACHE.lock() {
 		cache.insert(library_id.to_string(), index.clone());
 	}
@@ -205,7 +214,7 @@ async fn build_index(
 	let root_owned = root.to_path_buf();
 	let manga_root = root.join(manga_dir);
 	let light_novel_root = root.join(light_novel_dir);
-	let (folder_names, manga_names, light_novel_names, catalogue) =
+	let (folder_names, manga_names, light_novel_names) =
 		tokio::task::spawn_blocking(move || {
 			let folders: Vec<String> = list_folders(&root_owned)
 				.into_iter()
@@ -215,7 +224,6 @@ async fn build_index(
 				folders,
 				list_folders(&manga_root),
 				list_folders(&light_novel_root),
-				read_catalogue_aliases(&root_owned),
 			)
 		})
 		.await
@@ -244,7 +252,8 @@ async fn build_index(
 		if let Some(folder) = &folder {
 			*folder_book_counts.entry(folder.clone()).or_default() += 1;
 			// series folders: <manga_dir>/<Series>/<file>
-			if (folder == manga_dir || folder == light_novel_dir) && components.len() >= 2 {
+			if (folder == manga_dir || folder == light_novel_dir) && components.len() >= 2
+			{
 				*series_book_counts
 					.entry(format!("{folder}/{}", components[0]))
 					.or_default() += 1;
@@ -291,7 +300,9 @@ async fn build_index(
 		.collect();
 	let mut folder_by_key = HashMap::new();
 	for (i, folder) in author_folders.iter().enumerate() {
-		folder_by_key.entry(folder.keys.ordered.clone()).or_insert(i);
+		folder_by_key
+			.entry(folder.keys.ordered.clone())
+			.or_insert(i);
 		folder_by_key.entry(folder.keys.sorted.clone()).or_insert(i);
 	}
 	let folder_index_by_name: HashMap<&str, usize> = author_folders
@@ -300,15 +311,8 @@ async fn build_index(
 		.map(|(i, f)| (f.name.as_str(), i))
 		.collect();
 
-	// how authors are written in the catalogue and in the books -> their folder
-	let mut alias_by_key: HashMap<String, (usize, String)> = HashMap::new();
-	for (author, folder) in catalogue {
-		if let Some(&i) = folder_index_by_name.get(folder.as_str()) {
-			alias_by_key
-				.entry(name_keys(&author).ordered)
-				.or_insert((i, author));
-		}
-	}
+	// how the books write their first author -> the author folders holding those books
+	let mut alias_votes: HashMap<String, HashMap<usize, (u32, String)>> = HashMap::new();
 	let mut books_by_writer: HashMap<String, Vec<u32>> = HashMap::new();
 	let mut books_by_folder: HashMap<String, Vec<u32>> = HashMap::new();
 	let mut books_by_series: HashMap<String, Vec<u32>> = HashMap::new();
@@ -320,20 +324,40 @@ async fn build_index(
 				.push(i as u32);
 		}
 		if let Some(folder) = &book.folder {
-			books_by_folder.entry(folder.clone()).or_default().push(i as u32);
+			books_by_folder
+				.entry(folder.clone())
+				.or_default()
+				.push(i as u32);
 			if let (Some(&fi), Some(first)) = (
 				folder_index_by_name.get(folder.as_str()),
 				book.writers.first(),
 			) {
-				alias_by_key
+				let vote = alias_votes
 					.entry(name_keys(first).ordered)
-					.or_insert((fi, first.clone()));
+					.or_default()
+					.entry(fi)
+					.or_insert((0, first.clone()));
+				vote.0 += 1;
 			}
 		}
 		if let Some(series) = &book.series_norm {
-			books_by_series.entry(series.clone()).or_default().push(i as u32);
+			books_by_series
+				.entry(series.clone())
+				.or_default()
+				.push(i as u32);
 		}
 	}
+
+	// an author whose books sit in several folders goes with the one holding most of them
+	let alias_by_key: HashMap<String, (usize, String)> = alias_votes
+		.into_iter()
+		.filter_map(|(key, folders)| {
+			folders
+				.into_iter()
+				.max_by(|(fa, (a, _)), (fb, (b, _))| a.cmp(b).then(fb.cmp(fa)))
+				.map(|(folder, (_, written))| (key, (folder, written)))
+		})
+		.collect();
 
 	let series_folders = |names: Vec<String>, dir: &str| -> Vec<FolderInfo> {
 		names
@@ -387,46 +411,6 @@ async fn build_index(
 		books_by_series,
 		descriptions: OnceLock::new(),
 	})
-}
-
-/// `(author as written, folder)` pairs from a `catalogo.csv` next to the library root
-fn read_catalogue_aliases(root: &Path) -> Vec<(String, String)> {
-	let Some(parent) = root.parent() else {
-		return vec![];
-	};
-	let Some(root_name) = root.file_name().map(|n| n.to_string_lossy().into_owned())
-	else {
-		return vec![];
-	};
-	let path = parent.join("catalogo.csv");
-	let Ok(mut reader) = csv::Reader::from_path(&path) else {
-		return vec![];
-	};
-	let headers = match reader.headers() {
-		Ok(h) => h.clone(),
-		Err(_) => return vec![],
-	};
-	let (Some(path_col), Some(authors_col)) = (
-		headers.iter().position(|h| h == "path"),
-		headers.iter().position(|h| h == "authors"),
-	) else {
-		return vec![];
-	};
-	let mut out = vec![];
-	for record in reader.records().filter_map(Result::ok) {
-		let (Some(rel), Some(authors)) = (record.get(path_col), record.get(authors_col))
-		else {
-			continue;
-		};
-		let parts: Vec<&str> = rel.split('/').collect();
-		if parts.len() != 3 || parts[0] != root_name || parts[1].starts_with('_') {
-			continue;
-		}
-		if let Some(first) = authors.split(" & ").next().filter(|a| !a.trim().is_empty()) {
-			out.push((first.trim().to_string(), parts[1].to_string()));
-		}
-	}
-	out
 }
 
 /// How an author name matched an existing folder
@@ -592,7 +576,9 @@ impl LibraryIndex {
 			.filter(|(_, b)| b.title_norm == title_norm)
 			.filter(|(_, b)| {
 				author_keys.is_empty()
-					|| b.writers.iter().any(|w| author_keys.contains(&name_keys(w).ordered))
+					|| b.writers
+						.iter()
+						.any(|w| author_keys.contains(&name_keys(w).ordered))
 			})
 			.map(|(i, _)| i as u32)
 			.collect()
@@ -627,13 +613,14 @@ impl LibraryIndex {
 }
 
 const STOPWORDS: &[&str] = &[
-	"the", "and", "for", "that", "with", "this", "from", "his", "her", "their", "they", "was",
-	"are", "but", "not", "have", "has", "had", "who", "which", "will", "into", "its", "one",
-	"all", "more", "about", "when", "what", "she", "him", "them", "there", "been", "were",
-	"than", "can", "also", "book", "books", "new", "los", "las", "del", "una", "uno", "con",
-	"por", "para", "que", "como", "sus", "mas", "pero", "sobre", "entre", "este", "esta",
-	"libro", "novela", "obra", "autor", "edition", "edicion", "your", "you", "our", "how",
-	"after", "before", "over", "out", "only", "most", "other", "such", "these", "those",
+	"the", "and", "for", "that", "with", "this", "from", "his", "her", "their", "they",
+	"was", "are", "but", "not", "have", "has", "had", "who", "which", "will", "into",
+	"its", "one", "all", "more", "about", "when", "what", "she", "him", "them", "there",
+	"been", "were", "than", "can", "also", "book", "books", "new", "los", "las", "del",
+	"una", "uno", "con", "por", "para", "que", "como", "sus", "mas", "pero", "sobre",
+	"entre", "este", "esta", "libro", "novela", "obra", "autor", "edition", "edicion",
+	"your", "you", "our", "how", "after", "before", "over", "out", "only", "most",
+	"other", "such", "these", "those",
 ];
 
 fn tokenize(text: &str) -> Vec<String> {
@@ -767,7 +754,10 @@ mod tests {
 	#[test]
 	fn ranks_descriptions_by_shared_rare_terms() {
 		let mut index = DescriptionIndex::default();
-		for (i, term) in ["dragon", "wizard", "galaxy", "starship"].iter().enumerate() {
+		for (i, term) in ["dragon", "wizard", "galaxy", "starship"]
+			.iter()
+			.enumerate()
+		{
 			index.terms.insert(term.to_string(), i as u32);
 			index.idf.push(1.0);
 			index.postings.push(vec![]);
@@ -779,6 +769,8 @@ mod tests {
 		index.postings[3].push((1, 0.7));
 		let ranked = index.query("A young wizard must slay the dragon of the north", 5);
 		assert_eq!(ranked.first().map(|r| r.0), Some(0));
-		assert!(index.query("nothing in common at all here really", 5).is_empty());
+		assert!(index
+			.query("nothing in common at all here really", 5)
+			.is_empty());
 	}
 }

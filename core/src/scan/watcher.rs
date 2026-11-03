@@ -1,4 +1,4 @@
-use crate::{job::StumpJob, CoreError, CoreResult};
+use crate::{job::StumpJob, scan::own_writes, CoreError, CoreResult};
 use apalis::prelude::MemoryStorage;
 use async_trait::async_trait;
 use models::entity::{library, library_config};
@@ -267,12 +267,28 @@ impl LibraryWatcher {
 		let libraries = library_provider.as_ref().get_libraries().await?;
 
 		let mut libraries_to_scan = HashMap::new();
+		let mut own = 0;
 		for library in libraries {
+			let root = std::path::Path::new(&library.path);
 			for path in &paths {
-				if path.starts_with(&library.path) {
-					libraries_to_scan.insert(library.id.clone(), library.path.clone());
+				if !path.starts_with(root) {
+					continue;
 				}
+				// Stump's own changes (edits, swaps, filed books, deletions) already
+				// updated the database: only another program's change needs a scan
+				if own_writes::is_own(root, path) {
+					own += 1;
+					continue;
+				}
+				libraries_to_scan.insert(library.id.clone(), library.path.clone());
 			}
+		}
+		if own > 0 {
+			tracing::debug!(
+				own,
+				scans = libraries_to_scan.len(),
+				"Changed paths that were Stump's own need no scan"
+			);
 		}
 
 		let results = libraries_to_scan
@@ -538,5 +554,48 @@ mod tests {
 			mock_objs.jobs_receiver.try_recv().unwrap_err(),
 			tokio::sync::mpsc::error::TryRecvError::Empty
 		);
+	}
+
+	#[tokio::test]
+	async fn test_start_jobs_skips_stumps_own_changes() {
+		let tmp_dir = tempfile::tempdir().unwrap();
+		let root = tmp_dir.path().to_path_buf();
+		let libraries = create_test_libraries(root.to_string_lossy().to_string());
+		let mut mock_objs = create_mock_library(libraries).await.unwrap();
+
+		// a hidden work copy, and a book Stump just rewrote
+		let book = root.join("Author/Book.epub");
+		std::fs::create_dir_all(book.parent().unwrap()).unwrap();
+		own_writes::expect(&book);
+		std::fs::write(&book, b"edited by stump").unwrap();
+		own_writes::wrote(&book);
+		let paths = HashSet::from_iter(vec![
+			root.join("Author/.stump-edit.Book.epub"),
+			book.clone(),
+		]);
+		assert!(LibraryWatcher::start_jobs(
+			&mock_objs.library_watcher.library_provider,
+			&mock_objs.library_watcher.job_submitter,
+			paths,
+		)
+		.await
+		.is_ok());
+		assert_eq!(
+			mock_objs.jobs_receiver.try_recv().unwrap_err(),
+			tokio::sync::mpsc::error::TryRecvError::Empty,
+			"Stump's own changes need no scan"
+		);
+
+		// another program changes the same book afterwards: the library is scanned
+		std::fs::write(&book, b"rewritten by another program").unwrap();
+		assert!(LibraryWatcher::start_jobs(
+			&mock_objs.library_watcher.library_provider,
+			&mock_objs.library_watcher.job_submitter,
+			HashSet::from_iter(vec![book]),
+		)
+		.await
+		.is_ok());
+		let (id, _) = mock_objs.jobs_receiver.try_recv().expect("Expected a job");
+		assert_eq!(id, "42");
 	}
 }

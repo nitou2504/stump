@@ -1,7 +1,7 @@
-//! Folder and file naming of the curated library, and matching of author names to the
+//! Folder and file naming of the library, and matching of author names to the
 //! folders that already exist.
 //!
-//! The curated library keeps `<Author_Folder>/<Title_File>.<ext>`, both ASCII-folded with
+//! The library keeps `<Author_Folder>/<Title_File>.<ext>`, both ASCII-folded with
 //! underscores: `A. C. Grayling` -> `A_C_Grayling`, `José Joaquín de Olmedo` ->
 //! `Jose_Joaquin_de_Olmedo`, `Russell: A Very Short Introduction` ->
 //! `Russell_A_Very_Short_Introduction`. Hyphens are kept (`Adam_Hart-Davis`), anything else
@@ -13,10 +13,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// The longest file or folder name the curated library uses
+/// The longest file or folder name the library uses
 pub const MAX_NAME_LEN: usize = 90;
 
-/// ASCII-folds a name the way the curated library names its folders and files
+/// ASCII-folds a name the way the library names its folders and files
 pub fn fold_name(name: &str) -> String {
 	let ascii = unidecode::unidecode(&name.replace(['’', '‘', '`'], ""));
 	let mut out = String::with_capacity(ascii.len());
@@ -312,9 +312,9 @@ pub fn is_plain_component(name: &str) -> bool {
 mod tests {
 	use super::*;
 
-	/// real rows of the curated library's catalogo.csv: (authors, folder) and (title, file stem)
+	/// real (authors, folder) and (title, file stem) pairs of the library
 	#[test]
-	fn folds_like_the_curated_library() {
+	fn folds_like_the_library() {
 		let authors = [
 			("A. A. Kotov", "A_A_Kotov"),
 			("A. C. Grayling", "A_C_Grayling"),

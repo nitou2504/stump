@@ -182,11 +182,11 @@ fn extract_metadata_from_open_document(
 			PdfDocumentMetadataTagType::Author => "author".to_string(),
 			PdfDocumentMetadataTagType::Subject => "summary".to_string(),
 			PdfDocumentMetadataTagType::Keywords => {
-				// PDFs have no series, age or rating fields: the book curator writes them as
-				// `bcurator:<field>=<value>` keywords (see split_curator_keywords). The other
+				// PDFs have no series, age or rating fields: Stump keeps them in the Keywords
+				// as `bcurator:<field>=<value>` entries (see split_keyword_fields). The other
 				// keywords are the book's genres/subjects, read like EPUB dc:subject, so PDFs
 				// share the Genres pages, genre filters and genre smart-list rules with EPUBs
-				let (tags, fields) = split_curator_keywords(&value);
+				let (tags, fields) = split_keyword_fields(&value);
 				for (field, field_value) in fields {
 					metadata_map.entry(field).or_default().push(field_value);
 				}
@@ -212,14 +212,21 @@ fn extract_metadata_from_open_document(
 	})
 }
 
-/// Splits a PDF Keywords string into plain tags and the book curator's structured fields.
+/// The prefix of Stump's metadata fields in files that have no place of their own for them.
 ///
-/// PDF has no standard place for a series, an age rating or a rating, so the curator writes
-/// them into Keywords as `bcurator:series=<name>`, `bcurator:series_index=<n>`,
-/// `bcurator:age=<18+|All ages>` and `bcurator:rating=<0-5>`. They are returned under the keys
-/// the EPUB path already understands (`series`, `series_index`, `typicalagerange`,
-/// `bcurator:rating`) and left out of the tags.
-fn split_curator_keywords(keywords: &str) -> (Vec<String>, Vec<(String, String)>) {
+/// PDF has no standard place for a series, an age rating or a rating, so Stump keeps them in
+/// the Keywords, next to the genres, as `bcurator:series=<name>`, `bcurator:series_index=<n>`,
+/// `bcurator:age=<18+|All ages>` and `bcurator:rating=<0-5>` (Add books and metadata edits
+/// write them, scans read them). EPUBs carry the precise rating and their main genre the same
+/// way, as `<meta name="bcurator:rating">` and `<meta name="bcurator:shelf">` in the OPF. The
+/// prefix is the one the library's files already carry, so it stays as it is.
+pub const KEYWORD_FIELD_PREFIX: &str = "bcurator:";
+
+/// Splits a PDF Keywords string into plain tags and Stump's keyword fields (see
+/// [`KEYWORD_FIELD_PREFIX`]). The fields are returned under the keys the EPUB path already
+/// understands (`series`, `series_index`, `typicalagerange`, `bcurator:rating`) and left out of
+/// the tags.
+fn split_keyword_fields(keywords: &str) -> (Vec<String>, Vec<(String, String)>) {
 	let mut tags = Vec::new();
 	let mut fields = Vec::new();
 	for item in keywords
@@ -228,7 +235,7 @@ fn split_curator_keywords(keywords: &str) -> (Vec<String>, Vec<(String, String)>
 		.filter(|s| !s.is_empty())
 	{
 		let field = item
-			.strip_prefix("bcurator:")
+			.strip_prefix(KEYWORD_FIELD_PREFIX)
 			.and_then(|rest| rest.split_once('='))
 			.and_then(|(name, value)| {
 				let key = match name.trim() {
@@ -813,8 +820,8 @@ mod tests {
 	}
 
 	#[test]
-	fn test_split_curator_keywords() {
-		let (tags, fields) = split_curator_keywords(
+	fn test_split_keyword_fields() {
+		let (tags, fields) = split_keyword_fields(
 			"Estante: Historia, Canon de referencia, bcurator:series=Cambridge Concise Histories, \
 			 bcurator:series_index=3, bcurator:age=All ages, bcurator:rating=3.98, bcurator:unknown=x",
 		);

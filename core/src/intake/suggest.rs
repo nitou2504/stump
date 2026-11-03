@@ -153,8 +153,8 @@ const SYNONYMS: &[(&str, &str)] = &[
 	("essays", "Form: Essays"),
 ];
 
-/// Facets only the curator assigns (awards, canons, courses, collections, sources)
-const CURATOR_FACETS: &[&str] = &["Award", "Laureate", "Canon", "Course", "Collection", "Source"];
+/// Facets only ever assigned by hand (awards, canons, courses, collections, sources)
+const HAND_PICKED_FACETS: &[&str] = &["Award", "Laureate", "Canon", "Course", "Collection", "Source"];
 
 /// Publishers whose EPUBs are light novels
 const LIGHT_NOVEL_PUBLISHERS: &[&str] = &[
@@ -431,7 +431,7 @@ pub fn score_tags(
 }
 
 /// The suggestions from scored tags, best first, with the default choice marked: at most
-/// three big and three small tags, one facet per prefix, never a curator-only facet
+/// three big and three small tags, one facet per prefix, never a hand-picked facet
 pub fn rank_suggestions(
 	index: &LibraryIndex,
 	scores: HashMap<u32, Score>,
@@ -459,8 +459,8 @@ pub fn rank_suggestions(
 		if selected {
 			if entry.facet {
 				let prefix = entry.value.split(':').next().unwrap_or("").trim().to_string();
-				if CURATOR_FACETS.contains(&prefix.as_str()) {
-					// awards, canons, courses, collections: the curator's call, never a default
+				if HAND_PICKED_FACETS.contains(&prefix.as_str()) {
+					// awards, canons, courses, collections: picked by hand, never a default
 					selected = false;
 				} else {
 					// one origin, one era, one level, ... at most
@@ -760,6 +760,7 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 		warnings,
 		confidence: (confidence * 100.0).round() / 100.0,
 		looked_up_online: !online.is_empty(),
+		online_lookups: vec![],
 	}
 }
 

@@ -185,9 +185,10 @@ pub struct StumpConfig {
 	#[setting(default = false)]
 	pub trust_proxy_headers: bool,
 
-	/// Where post-processing (16 greys for manga, PDF OCR and shrinking) keeps the originals it
-	/// replaces, in dated batch folders with a `restore_log.csv`. Nothing is ever deleted, so
-	/// post-processing replaces no file until this is set
+	/// No longer used (kept so an existing `Stump.toml` or `STUMP_QUARANTINE_DIR` still loads):
+	/// the originals post-processing replaces are kept in `<config_dir>/trash` and listed in
+	/// *Deleted books*, and books deleted permanently are deleted. Files already in that folder
+	/// are left alone
 	pub quarantine_dir: Option<String>,
 }
 
@@ -267,7 +268,14 @@ impl StumpConfig {
 		self.config_directory().join("workers").join("pdf")
 	}
 
-	pub fn quarantine_directory(&self) -> Option<PathBuf> {
+	/// Where Stump keeps the files it takes out of a library for the *Deleted books* retention
+	/// (originals replaced by post-processing), so they can be put back
+	pub fn trash_directory(&self) -> PathBuf {
+		self.config_directory().join("trash")
+	}
+
+	/// The old quarantine folder setting, if it is still set (only to say it is unused)
+	pub fn legacy_quarantine_directory(&self) -> Option<PathBuf> {
 		self.quarantine_dir
 			.as_deref()
 			.map(str::trim)

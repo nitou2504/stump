@@ -1,5 +1,5 @@
-//! Convert one CBZ with the 16-grey step and print the report as JSON (used to compare the
-//! Rust step with book-curator's comics_grey16.py on real volumes):
+//! Convert one CBZ with the 16-grey step and print the report as JSON (to try the step on real
+//! volumes):
 //!
 //!     cargo run -p stump_core --example grey16_convert -- <src.cbz> <dst.cbz> [threads]
 

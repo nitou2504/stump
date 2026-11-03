@@ -1,10 +1,12 @@
 //! The "Add books" intake: per-user uploads are staged under the config directory,
 //! analysed (embedded metadata, file name, Open Library / Google Books, matching against the
 //! library), reviewed by the uploader, then filed into the library with their metadata
-//! written into the files, a row appended to the intake CSV and a scan of just the new
-//! folders. Nothing runs between requests: analysis is a short task per upload, and the
-//! library index it uses is dropped minutes later.
+//! written into the files and a scan of just the new folders. The filed items (who added
+//! what, when, where) are the record: `recentlyAddedBooks` reads them from the database.
+//! Nothing runs between requests: analysis is a short task per upload, and the library index
+//! it uses is dropped minutes later.
 
+pub mod batch;
 pub mod edit;
 pub mod extract;
 pub mod library_index;
@@ -15,16 +17,12 @@ pub mod write;
 
 use std::{
 	collections::BTreeSet,
-	io::Write as _,
 	path::{Path, PathBuf},
-	sync::LazyLock,
 };
 
 use models::{
 	entity::{
-		intake_item, library, library_config,
-		library_intake_settings::{self, INTAKE_CSV_NAME},
-		media, user,
+		intake_item, library, library_config, library_intake_settings, media, user,
 	},
 	shared::{
 		enums::OrganizationMode,
@@ -36,9 +34,8 @@ use models::{
 	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel, QueryOrder};
-use tokio::sync::Mutex;
 
-use crate::{job::StumpJob, CoreError, CoreResult, Ctx};
+use crate::{job::StumpJob, scan::own_writes, CoreError, CoreResult, Ctx};
 
 use self::{
 	extract::{extract_file, metadata_of},
@@ -53,9 +50,6 @@ use self::{
 
 /// Book formats the intake accepts
 pub const BOOK_EXTENSIONS: &[&str] = &["epub", "pdf", "cbz", "cbr"];
-
-/// Serialises appends to the intake CSVs
-static CSV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// The root of all staged uploads
 pub fn staging_root(ctx: &Ctx) -> PathBuf {
@@ -72,10 +66,12 @@ pub async fn settings_for(
 	conn: &DatabaseConnection,
 	library_id: &str,
 ) -> CoreResult<library_intake_settings::Model> {
-	Ok(library_intake_settings::Entity::find_by_id(library_id.to_string())
-		.one(conn)
-		.await?
-		.unwrap_or_else(|| library_intake_settings::Model::defaults_for(library_id)))
+	Ok(
+		library_intake_settings::Entity::find_by_id(library_id.to_string())
+			.one(conn)
+			.await?
+			.unwrap_or_else(|| library_intake_settings::Model::defaults_for(library_id)),
+	)
 }
 
 pub(crate) async fn load_library(
@@ -140,8 +136,12 @@ async fn analyse_item(
 	let mut per_file: Vec<IntakeMetadata> = vec![];
 	let mut series_hint = None;
 	for file in files.iter_mut() {
-		let extracted =
-			extract_file(&staging.join(&file.staged_name), &file.original_name, &ctx.config).await;
+		let extracted = extract_file(
+			&staging.join(&file.staged_name),
+			&file.original_name,
+			&ctx.config,
+		)
+		.await;
 		file.hash = extracted.hash.clone();
 		let meta = metadata_of(&extracted);
 		file.title = meta.title.clone();
@@ -175,22 +175,34 @@ async fn analyse_item(
 		.subjects
 		.iter()
 		.filter(|s| index.vocab_index(&library_index::norm(s)).is_some())
-		.count() >= 2;
+		.count()
+		>= 2;
 	let is_comic = formats.iter().all(|f| f == "cbz" || f == "cbr");
-	let online_records = if wants_online
+	let lookup = if wants_online
 		&& item.kind == IntakeKind::Book
 		&& !is_comic
 		&& !(has_good_tags && !file_meta.authors.is_empty())
 	{
+		let original_title = files
+			.iter()
+			.find(|f| f.format == "epub")
+			.and_then(|f| lookup::original_title_of(&staging.join(&f.staged_name)));
 		lookup::lookup(
-			file_meta.isbn.as_deref(),
-			file_meta.title.as_deref(),
-			&file_meta.authors,
+			conn,
+			&lookup::LookupQuery {
+				isbn: file_meta.isbn.clone(),
+				title: file_meta.title.clone(),
+				authors: file_meta.authors.clone(),
+				original_title,
+				series: file_meta.series.clone(),
+				by_series: false,
+			},
 		)
 		.await
 	} else {
-		vec![]
+		lookup::LookupOutcome::default()
 	};
+	let online_records = lookup.records.clone();
 
 	let description = file_meta
 		.description
@@ -210,6 +222,9 @@ async fn analyse_item(
 		group_name,
 		similar,
 	});
+	proposal.looked_up_online = lookup.found();
+	proposal.warnings.extend(lookup.notes());
+	proposal.online_lookups = lookup.sources;
 
 	// duplicates: the same file, or the same author and title
 	for file in &files {
@@ -300,14 +315,15 @@ pub fn default_decision(
 			.map(|c| c.folder.clone())
 			.unwrap_or_default(),
 	};
-	let volumes: Vec<Option<f64>> = if kind == IntakeKind::Series || proposal.series_kind.is_some() {
-		files
-			.iter()
-			.map(|f| f.volume.or(metadata.series_index))
-			.collect()
-	} else {
-		files.iter().map(|_| None).collect()
-	};
+	let volumes: Vec<Option<f64>> =
+		if kind == IntakeKind::Series || proposal.series_kind.is_some() {
+			files
+				.iter()
+				.map(|f| f.volume.or(metadata.series_index))
+				.collect()
+		} else {
+			files.iter().map(|_| None).collect()
+		};
 	let mut decision = IntakeDecision {
 		metadata,
 		series_kind: proposal.series_kind,
@@ -320,13 +336,20 @@ pub fn default_decision(
 }
 
 /// The library-style file names for a decision
-pub fn default_file_names(files: &[IntakeFile], decision: &IntakeDecision) -> Vec<String> {
+pub fn default_file_names(
+	files: &[IntakeFile],
+	decision: &IntakeDecision,
+) -> Vec<String> {
 	files
 		.iter()
 		.enumerate()
 		.map(|(i, file)| match decision.series_kind {
 			Some(_) => series_volume_file_name(
-				decision.metadata.series.as_deref().unwrap_or(&decision.folder),
+				decision
+					.metadata
+					.series
+					.as_deref()
+					.unwrap_or(&decision.folder),
 				decision.volumes.get(i).copied().flatten(),
 				&file.format,
 			),
@@ -350,7 +373,9 @@ pub fn compute_destination(
 	decision: &IntakeDecision,
 ) -> IntakeDestination {
 	let relative_dir = match decision.series_kind {
-		Some(IntakeSeriesKind::Manga) => format!("{}/{}", settings.manga_dir, decision.folder),
+		Some(IntakeSeriesKind::Manga) => {
+			format!("{}/{}", settings.manga_dir, decision.folder)
+		},
 		Some(IntakeSeriesKind::LightNovel) => {
 			format!("{}/{}", settings.light_novel_dir, decision.folder)
 		},
@@ -398,13 +423,23 @@ pub fn decision_problems(
 		problems.push("Choose a folder".to_string());
 	}
 	if decision.series_kind.is_none() {
-		if decision.metadata.title.as_deref().is_none_or(|t| t.trim().is_empty()) {
+		if decision
+			.metadata
+			.title
+			.as_deref()
+			.is_none_or(|t| t.trim().is_empty())
+		{
 			problems.push("Add a title".to_string());
 		}
 		if decision.metadata.authors.is_empty() {
 			problems.push("Add an author".to_string());
 		}
-	} else if decision.metadata.series.as_deref().is_none_or(|s| s.trim().is_empty()) {
+	} else if decision
+		.metadata
+		.series
+		.as_deref()
+		.is_none_or(|s| s.trim().is_empty())
+	{
 		problems.push("Add the series name".to_string());
 	}
 	for name in &decision.file_names {
@@ -422,8 +457,14 @@ pub fn decision_problems(
 	problems
 }
 
-fn set_text(meta: &mut IntakeMetadata, field: &str, value: Option<String>) -> Option<String> {
-	let value = value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+fn set_text(
+	meta: &mut IntakeMetadata,
+	field: &str,
+	value: Option<String>,
+) -> Option<String> {
+	let value = value
+		.map(|v| v.trim().to_string())
+		.filter(|v| !v.is_empty());
 	meta.set_source(field, IntakeSource::User);
 	value
 }
@@ -435,7 +476,10 @@ pub async fn apply_review(
 	input: IntakeReviewInput,
 ) -> CoreResult<intake_item::Model> {
 	let conn = ctx.conn.as_ref();
-	if matches!(item.state, IntakeState::Filed | IntakeState::Discarded | IntakeState::Analysing) {
+	if matches!(
+		item.state,
+		IntakeState::Filed | IntakeState::Discarded | IntakeState::Analysing
+	) {
 		return Err(CoreError::BadRequest(format!(
 			"An item that is {} can't be changed",
 			item.state
@@ -537,13 +581,19 @@ pub async fn apply_review(
 		},
 	}
 	match input.file_names {
-		Some(names) => decision.file_names = names.into_iter().map(|n| n.trim().to_string()).collect(),
-		None if names_were_default => decision.file_names = default_file_names(&files, &decision),
+		Some(names) => {
+			decision.file_names =
+				names.into_iter().map(|n| n.trim().to_string()).collect()
+		},
+		None if names_were_default => {
+			decision.file_names = default_file_names(&files, &decision)
+		},
 		None => {},
 	}
 	decision.file_names.resize(files.len(), String::new());
 
-	let destination = compute_destination(Path::new(&library.path), &settings, &files, &decision);
+	let destination =
+		compute_destination(Path::new(&library.path), &settings, &files, &decision);
 	let state = if decision_problems(&decision, &destination).is_empty() {
 		IntakeState::Ready
 	} else {
@@ -556,124 +606,18 @@ pub async fn apply_review(
 	Ok(active.update(conn).await?)
 }
 
-/// The intake CSV of a library: its setting, else next to `catalogo.csv`, else the root
-pub fn csv_path_for(root: &Path, settings: &library_intake_settings::Model) -> PathBuf {
-	if let Some(path) = settings.csv_path.as_deref().filter(|p| !p.trim().is_empty()) {
-		return PathBuf::from(path);
-	}
-	match root.parent() {
-		Some(parent) if parent.join("catalogo.csv").is_file() => parent.join(INTAKE_CSV_NAME),
-		_ => root.join(INTAKE_CSV_NAME),
-	}
-}
-
-const CSV_HEADER: &[&str] = &[
-	"path", "title", "authors", "series", "series_index", "language", "format", "owned",
-	"estante", "estantes", "tags", "libid", "author_wikidata", "goodreads_work", "rating",
-	"rating_votes", "age", "shelf", "big", "small", "facets", "added_by", "added_at",
-];
-
-fn csv_row(
-	csv_dir: &Path,
-	file_path: &Path,
-	format: &str,
-	meta: &FileMetadata,
-	added_by: &str,
-) -> Vec<String> {
-	let path = file_path
-		.strip_prefix(csv_dir)
-		.unwrap_or(file_path)
-		.to_string_lossy()
-		.into_owned();
-	let big: Vec<&str> = meta
-		.tags
-		.iter()
-		.filter(|t| !library_index::is_facet(t) && !t.contains(':'))
-		.map(String::as_str)
-		.collect();
-	let small: Vec<&str> = meta
-		.tags
-		.iter()
-		.filter(|t| !library_index::is_facet(t) && t.contains(':'))
-		.map(String::as_str)
-		.collect();
-	let facets: Vec<&str> = meta
-		.tags
-		.iter()
-		.filter(|t| library_index::is_facet(t))
-		.map(String::as_str)
-		.collect();
-	vec![
-		path,
-		meta.title.clone().unwrap_or_default(),
-		meta.authors.join(" & "),
-		meta.series.clone().unwrap_or_default(),
-		meta.series_index.map(|i| i.to_string()).unwrap_or_default(),
-		meta.language.clone().unwrap_or_default(),
-		format.to_string(),
-		"False".to_string(),
-		String::new(),
-		String::new(),
-		String::new(),
-		String::new(),
-		String::new(),
-		String::new(),
-		meta.rating.map(|r| format!("{r:.2}")).unwrap_or_default(),
-		String::new(),
-		meta.age_rating.map(|a| a.to_string()).unwrap_or_default(),
-		meta.shelf().unwrap_or_default().to_string(),
-		big.join(" | "),
-		small.join(" | "),
-		facets.join(" | "),
-		added_by.to_string(),
-		chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-	]
-}
-
-/// Appends rows to an intake CSV in one write (header first when the file is new)
-pub async fn append_csv(path: &Path, rows: Vec<Vec<String>>) -> CoreResult<()> {
-	append_csv_with_header(path, CSV_HEADER, rows).await
-}
-
-/// Appends rows to a CSV in one write, with `header` first when the file is new
-pub async fn append_csv_with_header(
-	path: &Path,
-	header: &'static [&'static str],
-	rows: Vec<Vec<String>>,
-) -> CoreResult<()> {
-	let _guard = CSV_LOCK.lock().await;
-	let path = path.to_path_buf();
-	tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-		let is_new = std::fs::metadata(&path).map(|m| m.len() == 0).unwrap_or(true);
-		let mut writer = csv::WriterBuilder::new().from_writer(vec![]);
-		if is_new {
-			writer.write_record(header)?;
-		}
-		for row in rows {
-			writer.write_record(row)?;
-		}
-		let bytes = writer
-			.into_inner()
-			.map_err(|e| std::io::Error::other(e.to_string()))?;
-		let mut file = std::fs::OpenOptions::new()
-			.create(true)
-			.append(true)
-			.open(&path)?;
-		file.write_all(&bytes)?;
-		file.sync_data()
-	})
-	.await
-	.map_err(|e| CoreError::InternalError(e.to_string()))??;
-	Ok(())
-}
-
 /// Copies `source` to `target` without ever replacing an existing file: the copy goes to
 /// a temporary name in the target folder, then is hard-linked into place
 fn place_file(source: &Path, target: &Path) -> std::io::Result<()> {
-	let dir = target.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
+	let dir = target
+		.parent()
+		.ok_or_else(|| std::io::Error::other("no parent folder"))?;
 	let tmp = dir.join(format!(
 		".{}.intake",
-		target.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+		target
+			.file_name()
+			.map(|n| n.to_string_lossy())
+			.unwrap_or_default()
 	));
 	std::fs::copy(source, &tmp)?;
 	if let Ok(meta) = std::fs::metadata(dir) {
@@ -682,9 +626,37 @@ fn place_file(source: &Path, target: &Path) -> std::io::Result<()> {
 		let mode = meta.permissions().mode() & 0o666;
 		let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode));
 	}
+	// the scan this filing enqueues reads the new file: the library watcher needn't
+	own_writes::expect(target);
 	let linked = std::fs::hard_link(&tmp, target);
+	match &linked {
+		Ok(()) => own_writes::wrote(target),
+		Err(_) => own_writes::forget(target),
+	}
 	let _ = std::fs::remove_file(&tmp);
 	linked
+}
+
+/// Creates the folder a filing goes to, telling the library watcher the new folders are
+/// Stump's own (the filing's scan reads them)
+fn create_folders(root: &Path, dir: &Path) -> std::io::Result<()> {
+	let mut new: Vec<PathBuf> = vec![];
+	let mut current = dir.to_path_buf();
+	while current.starts_with(root) && current != root && !current.exists() {
+		new.push(current.clone());
+		match current.parent() {
+			Some(parent) => current = parent.to_path_buf(),
+			None => break,
+		}
+	}
+	for folder in &new {
+		own_writes::expect(folder);
+	}
+	let created = std::fs::create_dir_all(dir);
+	for folder in &new {
+		own_writes::wrote(folder);
+	}
+	created
 }
 
 /// A name with `_2`, `_3`, ... before the extension, for a clash at filing time
@@ -699,7 +671,6 @@ fn suffixed(name: &str, n: usize) -> String {
 pub async fn file_item(
 	ctx: &Ctx,
 	item: intake_item::Model,
-	username: &str,
 ) -> CoreResult<intake_item::Model> {
 	let conn = ctx.conn.as_ref();
 	if item.state != IntakeState::Ready {
@@ -728,13 +699,15 @@ pub async fn file_item(
 
 	let staging = PathBuf::from(&item.staging_dir);
 	let dir = root.join(&destination.relative_dir);
-	tokio::fs::create_dir_all(&dir).await?;
-	let csv_path = csv_path_for(&root, &settings);
-	let csv_dir = csv_path.parent().map(Path::to_path_buf).unwrap_or_else(|| root.clone());
+	{
+		let (root, dir) = (root.clone(), dir.clone());
+		tokio::task::spawn_blocking(move || create_folders(&root, &dir))
+			.await
+			.map_err(|e| CoreError::InternalError(e.to_string()))??;
+	}
 
 	let mut paths = vec![];
 	let mut notes = vec![];
-	let mut rows = vec![];
 	for (i, file) in files.iter().enumerate() {
 		let mut meta = FileMetadata::from_metadata(
 			&decision.metadata,
@@ -757,8 +730,11 @@ pub async fn file_item(
 		let written = tokio::task::spawn_blocking(move || match format.as_str() {
 			"epub" => write_epub(&staged_clone, &meta_clone).map(|_| None),
 			"cbz" => write_cbz(&staged_clone, &meta_clone).map(|_| None),
-			"pdf" => write_pdf(&staged_clone, &meta_clone, &KeptPdfInfo::default()).map(|_| None),
-			other => Ok(Some(format!("{other} files keep their metadata as uploaded"))),
+			"pdf" => write_pdf(&staged_clone, &meta_clone, &KeptPdfInfo::default())
+				.map(|_| None),
+			other => Ok(Some(format!(
+				"{other} files keep their metadata as uploaded"
+			))),
 		})
 		.await
 		.map_err(|e| CoreError::InternalError(e.to_string()))?;
@@ -767,7 +743,10 @@ pub async fn file_item(
 			Ok(None) => {},
 			Err(error) => {
 				// the book still goes in, with the metadata it came with
-				notes.push(format!("{}: metadata not written ({error})", file.original_name));
+				notes.push(format!(
+					"{}: metadata not written ({error})",
+					file.original_name
+				));
 			},
 		}
 
@@ -782,24 +761,13 @@ pub async fn file_item(
 		tokio::task::spawn_blocking(move || place_file(&from, &to))
 			.await
 			.map_err(|e| CoreError::InternalError(e.to_string()))??;
-		rows.push(csv_row(&csv_dir, &target, &file.format, &meta, username));
 		paths.push(target.to_string_lossy().into_owned());
-	}
-
-	let mut csv_written = None;
-	match append_csv(&csv_path, rows).await {
-		Ok(()) => csv_written = Some(csv_path.to_string_lossy().into_owned()),
-		Err(error) => notes.push(format!("The intake CSV could not be written: {error}")),
 	}
 
 	let mut active = item.clone().into_active_model();
 	active.state = Set(IntakeState::Filed);
 	active.destination = Set(Some(destination));
-	active.result = Set(Some(IntakeResult {
-		paths,
-		csv_path: csv_written,
-		notes,
-	}));
+	active.result = Set(Some(IntakeResult { paths, notes }));
 	active.filed_at = Set(Some(chrono::Utc::now().into()));
 	active.error = Set(None);
 	let updated = active.update(conn).await?;
@@ -811,7 +779,11 @@ pub async fn file_item(
 }
 
 /// A volume's own title, unless it is just the series name: then `<Series> vNN`
-pub fn volume_title(title: Option<&str>, series: Option<&str>, volume: Option<f64>) -> Option<String> {
+pub fn volume_title(
+	title: Option<&str>,
+	series: Option<&str>,
+	volume: Option<f64>,
+) -> Option<String> {
 	let own = title.filter(|t| {
 		series.is_none_or(|s| library_index::norm(t) != library_index::norm(s))
 	});
@@ -859,7 +831,9 @@ pub async fn enqueue_scan(
 /// Throws an item away with its staged files
 pub async fn discard(ctx: &Ctx, item: intake_item::Model) -> CoreResult<()> {
 	if item.state == IntakeState::Filed {
-		return Err(CoreError::BadRequest("A filed item can't be discarded".into()));
+		return Err(CoreError::BadRequest(
+			"A filed item can't be discarded".into(),
+		));
 	}
 	let _ = tokio::fs::remove_dir_all(&item.staging_dir).await;
 	let mut active = item.into_active_model();
@@ -881,12 +855,15 @@ pub async fn recently_filed(
 	if let Some(user_id) = user_id {
 		query = query.filter(intake_item::Column::UserId.eq(user_id));
 	}
-	let items = sea_orm::QuerySelect::offset(sea_orm::QuerySelect::limit(query, limit), offset)
-		.all(conn)
-		.await?;
+	let items =
+		sea_orm::QuerySelect::offset(sea_orm::QuerySelect::limit(query, limit), offset)
+			.all(conn)
+			.await?;
 	let mut out = vec![];
 	for item in items {
-		let user = user::Entity::find_by_id(item.user_id.clone()).one(conn).await?;
+		let user = user::Entity::find_by_id(item.user_id.clone())
+			.one(conn)
+			.await?;
 		out.push((item, user));
 	}
 	Ok(out)
@@ -914,7 +891,11 @@ mod tests {
 	fn places_books_under_their_author_and_volumes_under_their_series() {
 		let dir = tempfile::tempdir().unwrap();
 		std::fs::create_dir_all(dir.path().join("Umberto_Eco")).unwrap();
-		std::fs::write(dir.path().join("Umberto_Eco/El_nombre_de_la_rosa.epub"), b"x").unwrap();
+		std::fs::write(
+			dir.path().join("Umberto_Eco/El_nombre_de_la_rosa.epub"),
+			b"x",
+		)
+		.unwrap();
 
 		let files = vec![file("rosa.epub", "epub", None)];
 		let mut decision = IntakeDecision {
@@ -938,7 +919,10 @@ mod tests {
 		assert!(decision_problems(&decision, &destination)
 			.contains(&"A file with that name is already in the library".to_string()));
 
-		let files = vec![file("y15.cbz", "cbz", Some(15.0)), file("y16.cbz", "cbz", Some(16.0))];
+		let files = vec![
+			file("y15.cbz", "cbz", Some(15.0)),
+			file("y16.cbz", "cbz", Some(16.0)),
+		];
 		let mut decision = IntakeDecision {
 			metadata: IntakeMetadata {
 				series: Some("Yotsuba&!".into()),
@@ -952,7 +936,10 @@ mod tests {
 		decision.file_names = default_file_names(&files, &decision);
 		let destination = compute_destination(dir.path(), &settings(), &files, &decision);
 		assert_eq!(destination.relative_dir, "_Manga/Yotsuba&!");
-		assert_eq!(destination.files[1].relative_path, "_Manga/Yotsuba&!/Yotsuba&! v16.cbz");
+		assert_eq!(
+			destination.files[1].relative_path,
+			"_Manga/Yotsuba&!/Yotsuba&! v16.cbz"
+		);
 		assert!(decision_problems(&decision, &destination).is_empty());
 	}
 
@@ -963,47 +950,18 @@ mod tests {
 			Some("Yotsuba&! v03")
 		);
 		assert_eq!(
-			volume_title(Some("Spice and Wolf, Vol. 3"), Some("Spice and Wolf"), Some(3.0)).as_deref(),
+			volume_title(
+				Some("Spice and Wolf, Vol. 3"),
+				Some("Spice and Wolf"),
+				Some(3.0)
+			)
+			.as_deref(),
 			Some("Spice and Wolf, Vol. 3")
 		);
-		assert_eq!(volume_title(None, Some("Dr. Stone"), None).as_deref(), Some("Dr. Stone"));
-	}
-
-	#[test]
-	fn the_csv_goes_next_to_the_catalogue() {
-		let dir = tempfile::tempdir().unwrap();
-		let root = dir.path().join("biblioteca");
-		std::fs::create_dir_all(&root).unwrap();
-		assert_eq!(csv_path_for(&root, &settings()), root.join(INTAKE_CSV_NAME));
-		std::fs::write(dir.path().join("catalogo.csv"), b"path\n").unwrap();
-		assert_eq!(csv_path_for(&root, &settings()), dir.path().join(INTAKE_CSV_NAME));
-	}
-
-	#[tokio::test]
-	async fn appends_csv_rows_with_one_header() {
-		let dir = tempfile::tempdir().unwrap();
-		let csv = dir.path().join("stump_intake.csv");
-		let meta = FileMetadata {
-			title: Some("El nombre de la rosa".into()),
-			authors: vec!["Umberto Eco".into()],
-			tags: vec!["Historical Fiction".into(), "Origin: Italian".into()],
-			..Default::default()
-		};
-		let target = dir.path().join("biblioteca/Umberto_Eco/El_nombre_de_la_rosa.epub");
-		for _ in 0..2 {
-			append_csv(&csv, vec![csv_row(dir.path(), &target, "epub", &meta, "alice")])
-				.await
-				.unwrap();
-		}
-		let text = std::fs::read_to_string(&csv).unwrap();
-		let lines: Vec<&str> = text.lines().collect();
-		assert_eq!(lines.len(), 3);
-		assert!(lines[0].starts_with("path,title,authors,series"));
-		assert!(lines[0].ends_with("added_by,added_at"));
-		assert!(lines[1].starts_with(
-			"biblioteca/Umberto_Eco/El_nombre_de_la_rosa.epub,El nombre de la rosa,Umberto Eco,"
-		));
-		assert!(lines[1].contains(",Historical Fiction,Historical Fiction,,Origin: Italian,alice,"));
+		assert_eq!(
+			volume_title(None, Some("Dr. Stone"), None).as_deref(),
+			Some("Dr. Stone")
+		);
 	}
 
 	#[test]
@@ -1020,5 +978,15 @@ mod tests {
 		place_file(&source, &fresh).unwrap();
 		assert_eq!(std::fs::read(&fresh).unwrap(), b"new");
 		assert!(source.exists());
+		// the filing's own scan reads it: not a reason for the library watcher to scan
+		assert!(own_writes::is_own(dir.path(), &fresh));
+		let folder = dir.path().join("New_Author/Sub");
+		create_folders(dir.path(), &folder).unwrap();
+		assert!(folder.is_dir());
+		assert!(own_writes::is_own(dir.path(), &folder));
+		assert!(own_writes::is_own(
+			dir.path(),
+			&dir.path().join("New_Author")
+		));
 	}
 }

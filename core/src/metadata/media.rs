@@ -404,8 +404,8 @@ impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 						metadata.rating = parse_rating(&value).map(|r| r / 2.0);
 					}
 				},
-				// A more precise 0-5 rating written by the fork's book curator
-				// (`bcurator:rating`), preferred over the half-star calibre value
+				// Stump's precise 0-5 rating (`bcurator:rating`: an EPUB meta or a PDF
+				// keyword field), preferred over the half-star calibre value
 				"bcurator:rating" => {
 					if let Some(rating) = parse_rating(&value) {
 						metadata.rating = Some(rating);
@@ -451,7 +451,7 @@ mod tests {
 		let map = HashMap::from([("rating".to_string(), vec!["8".to_string()])]);
 		assert_eq!(ProcessedMediaMetadata::from(map).rating, Some(4.0));
 
-		// the precise curator rating wins over the calibre one, in any order
+		// the precise rating wins over the calibre one, in any order
 		let map = HashMap::from([
 			("rating".to_string(), vec!["8".to_string()]),
 			("bcurator:rating".to_string(), vec!["4.12".to_string()]),

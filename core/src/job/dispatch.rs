@@ -26,6 +26,7 @@ use crate::{
 	scan::{
 		library::{LibraryScanJob, LibraryScanOutput},
 		options::ScanOptions,
+		rescan::{RescanBooksJob, RescanBooksOutput},
 		series::{SeriesScanJob, SeriesScanOutput},
 	},
 	trash::job::{TrashPurgeJob, TrashPurgeOutput},
@@ -41,6 +42,7 @@ pub enum CoreJobOutput {
 	// stored post-processing output is not read back as a thumbnail generation output
 	PostProcess(PostProcessOutput),
 	TrashPurge(TrashPurgeOutput),
+	RescanBooks(RescanBooksOutput),
 	ThumbnailGeneration(ThumbnailGenerationOutput),
 	PlaceholderGeneration(PlaceholderGenerationOutput),
 	MetadataFetch(MetadataFetchJobOutput),
@@ -105,6 +107,11 @@ pub enum StumpJob {
 	},
 	/// The automatic purge of the expired books in Deleted books
 	TrashPurge,
+	/// A targeted rescan of some books (after the metadata batch API rewrote their files)
+	RescanBooks {
+		media_ids: Vec<String>,
+		reason: String,
+	},
 }
 
 impl StumpJob {
@@ -119,6 +126,7 @@ impl StumpJob {
 			StumpJob::AnalyzeMedia { .. } => "analyze_media",
 			StumpJob::PostProcess { .. } => "post_processing",
 			StumpJob::TrashPurge => TrashPurgeJob::NAME,
+			StumpJob::RescanBooks { .. } => RescanBooksJob::NAME,
 		}
 	}
 
@@ -142,6 +150,11 @@ impl StumpJob {
 			},
 			StumpJob::PostProcess { config } => Some(config.describe()),
 			StumpJob::TrashPurge => TrashPurgeJob.description(),
+			StumpJob::RescanBooks { media_ids, reason } => RescanBooksJob {
+				media_ids: media_ids.clone(),
+				reason: reason.clone(),
+			}
+			.description(),
 		}
 	}
 
@@ -306,6 +319,9 @@ pub async fn dispatch_job(
 			run_job(&job_ctx, &mut PostProcessJob { config }).await
 		},
 		StumpJob::TrashPurge => run_job(&job_ctx, &mut TrashPurgeJob).await,
+		StumpJob::RescanBooks { media_ids, reason } => {
+			run_job(&job_ctx, &mut RescanBooksJob { media_ids, reason }).await
+		},
 	};
 
 	if let Err(e) = result {
