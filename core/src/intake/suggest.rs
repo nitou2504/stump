@@ -288,10 +288,9 @@ pub struct Score {
 	pub online: f64,
 }
 
-/// An online catalogue's subjects alone, below this, never tick a tag by default:
-/// catalogue tags are often a single reader's vote and can be plainly wrong (Hardcover tags
-/// a novel 'Science Fiction'), so they need the file, the library or a second subject to agree
-const ONLINE_ONLY_SELECT: f64 = 0.9;
+// An online catalogue's subjects alone never tick a tag by default: catalogue tags are often
+// a single reader's vote and can be plainly wrong (Hardcover tags a novel 'Science
+// Fiction'), so the file or the library has to agree; otherwise they're only suggested
 
 fn add(scores: &mut HashMap<u32, Score>, tag: u32, value: f64, reason: String) {
 	let entry = scores.entry(tag).or_default();
@@ -559,10 +558,9 @@ pub fn rank_suggestions(
 	for (tag, score) in ranked.into_iter().take(16) {
 		let entry = &index.vocabulary[tag as usize];
 		let confidence = score.value.min(1.0);
-		// evidence from online subjects alone needs to be strong to be a default
+		// online subjects alone are only suggested, never a default (see `add_online`)
 		let online_only = score.online > 0.0 && score.value - score.online < 1e-9;
-		let mut selected =
-			confidence >= 0.5 && (!online_only || score.value >= ONLINE_ONLY_SELECT);
+		let mut selected = confidence >= 0.5 && !online_only;
 		if selected {
 			if entry.facet {
 				let prefix = entry
