@@ -154,12 +154,27 @@ const SYNONYMS: &[(&str, &str)] = &[
 ];
 
 /// Facets only ever assigned by hand (awards, canons, courses, collections, sources)
-const HAND_PICKED_FACETS: &[&str] = &["Award", "Laureate", "Canon", "Course", "Collection", "Source"];
+const HAND_PICKED_FACETS: &[&str] = &[
+	"Award",
+	"Laureate",
+	"Canon",
+	"Course",
+	"Collection",
+	"Source",
+];
 
 /// Publishers whose EPUBs are light novels
 const LIGHT_NOVEL_PUBLISHERS: &[&str] = &[
-	"yen press", "yen on", "j-novel club", "seven seas", "one peace books", "vertical",
-	"kadokawa", "dengeki", "fujimi", "ize press",
+	"yen press",
+	"yen on",
+	"j-novel club",
+	"seven seas",
+	"one peace books",
+	"vertical",
+	"kadokawa",
+	"dengeki",
+	"fujimi",
+	"ize press",
 ];
 
 /// Everything analysis found, ready to be scored
@@ -188,7 +203,9 @@ pub fn merge_online(meta: &mut IntakeMetadata, online: &[OnlineRecord]) {
 	};
 	for record in online {
 		let source = record.source.unwrap_or(IntakeSource::OpenLibrary);
-		if file_named(meta, "authors") && !record.authors.is_empty() && meta.authors.is_empty()
+		if file_named(meta, "authors")
+			&& !record.authors.is_empty()
+			&& meta.authors.is_empty()
 		{
 			meta.authors = record.authors.clone();
 			meta.set_source("authors", source);
@@ -201,8 +218,8 @@ pub fn merge_online(meta: &mut IntakeMetadata, online: &[OnlineRecord]) {
 		}
 		// Open Library's first publication year beats an edition year from the file
 		if let Some(year) = record.first_publish_year {
-			let better = source == IntakeSource::OpenLibrary
-				&& meta.year.is_none_or(|y| year < y);
+			let better =
+				source == IntakeSource::OpenLibrary && meta.year.is_none_or(|y| year < y);
 			if meta.year.is_none() || better {
 				meta.year = Some(year);
 				meta.set_source("year", source);
@@ -267,13 +284,28 @@ pub fn merge_online(meta: &mut IntakeMetadata, online: &[OnlineRecord]) {
 pub struct Score {
 	pub value: f64,
 	pub reasons: Vec<String>,
+	/// The part of `value` that comes from online catalogues' subjects alone
+	pub online: f64,
 }
+
+/// An online catalogue's subjects alone, below this, never tick a tag by default:
+/// catalogue tags are often a single reader's vote and can be plainly wrong (Hardcover tags
+/// a novel 'Science Fiction'), so they need the file, the library or a second subject to agree
+const ONLINE_ONLY_SELECT: f64 = 0.9;
 
 fn add(scores: &mut HashMap<u32, Score>, tag: u32, value: f64, reason: String) {
 	let entry = scores.entry(tag).or_default();
 	entry.value += value;
 	if !entry.reasons.contains(&reason) && entry.reasons.len() < 4 {
 		entry.reasons.push(reason);
+	}
+}
+
+/// `add` for evidence that comes only from an online catalogue's subjects
+fn add_online(scores: &mut HashMap<u32, Score>, tag: u32, value: f64, reason: String) {
+	add(scores, tag, value, reason);
+	if let Some(entry) = scores.get_mut(&tag) {
+		entry.online += value;
 	}
 }
 
@@ -301,7 +333,11 @@ fn tag_votes(
 	what: &str,
 	exclude: Option<u32>,
 ) {
-	let books: Vec<u32> = books.iter().copied().filter(|b| Some(*b) != exclude).collect();
+	let books: Vec<u32> = books
+		.iter()
+		.copied()
+		.filter(|b| Some(*b) != exclude)
+		.collect();
 	if books.is_empty() {
 		return;
 	}
@@ -375,19 +411,40 @@ pub fn score_tags(
 			} else {
 				(0.7, format!("subject '{subject}'"))
 			};
-			add(&mut scores, tag, value * weight, why);
+			if file_subjects {
+				add(&mut scores, tag, value * weight, why);
+			} else {
+				add_online(&mut scores, tag, value * weight, why);
+			}
 			continue;
 		}
 		for piece in subject_pieces(subject) {
 			if let Some(tag) = index.vocab_index(&piece) {
-				add(&mut scores, tag, 0.6 * weight, format!("subject '{subject}'"));
-			} else if let Some((_, canonical)) = SYNONYMS.iter().find(|(s, _)| *s == piece) {
+				(if file_subjects { add } else { add_online })(
+					&mut scores,
+					tag,
+					0.6 * weight,
+					format!("subject '{subject}'"),
+				);
+			} else if let Some((_, canonical)) =
+				SYNONYMS.iter().find(|(s, _)| *s == piece)
+			{
 				if let Some(tag) = index.vocab_index(&norm(canonical)) {
-					add(&mut scores, tag, 0.5 * weight, format!("subject '{subject}'"));
+					(if file_subjects { add } else { add_online })(
+						&mut scores,
+						tag,
+						0.5 * weight,
+						format!("subject '{subject}'"),
+					);
 				}
 			} else {
 				for tag in index.small_tags(&piece) {
-					add(&mut scores, *tag, 0.5 * weight, format!("subject '{subject}'"));
+					(if file_subjects { add } else { add_online })(
+						&mut scores,
+						*tag,
+						0.5 * weight,
+						format!("subject '{subject}'"),
+					);
 				}
 			}
 		}
@@ -405,10 +462,24 @@ pub fn score_tags(
 			}
 		}
 	}
-	tag_votes(&mut scores, index, &author_books, 0.8, "books by this author", exclude);
+	tag_votes(
+		&mut scores,
+		index,
+		&author_books,
+		0.8,
+		"books by this author",
+		exclude,
+	);
 	if let Some(series) = &meta.series {
 		let series_books = index.books_in_series(series);
-		tag_votes(&mut scores, index, series_books, 0.9, "books of this series", exclude);
+		tag_votes(
+			&mut scores,
+			index,
+			series_books,
+			0.9,
+			"books of this series",
+			exclude,
+		);
 	}
 
 	// 3. books with similar descriptions
@@ -470,9 +541,11 @@ pub fn rank_suggestions(
 ) -> Vec<IntakeGenreSuggestion> {
 	let mut ranked: Vec<(u32, Score)> = scores.into_iter().collect();
 	ranked.sort_by(|a, b| {
-		b.1.value
-			.total_cmp(&a.1.value)
-			.then(index.vocabulary[b.0 as usize].count.cmp(&index.vocabulary[a.0 as usize].count))
+		b.1.value.total_cmp(&a.1.value).then(
+			index.vocabulary[b.0 as usize]
+				.count
+				.cmp(&index.vocabulary[a.0 as usize].count),
+		)
 	});
 
 	let mut out: Vec<IntakeGenreSuggestion> = vec![];
@@ -486,10 +559,19 @@ pub fn rank_suggestions(
 	for (tag, score) in ranked.into_iter().take(16) {
 		let entry = &index.vocabulary[tag as usize];
 		let confidence = score.value.min(1.0);
-		let mut selected = confidence >= 0.5;
+		// evidence from online subjects alone needs to be strong to be a default
+		let online_only = score.online > 0.0 && score.value - score.online < 1e-9;
+		let mut selected =
+			confidence >= 0.5 && (!online_only || score.value >= ONLINE_ONLY_SELECT);
 		if selected {
 			if entry.facet {
-				let prefix = entry.value.split(':').next().unwrap_or("").trim().to_string();
+				let prefix = entry
+					.value
+					.split(':')
+					.next()
+					.unwrap_or("")
+					.trim()
+					.to_string();
 				if HAND_PICKED_FACETS.contains(&prefix.as_str()) {
 					// awards, canons, courses, collections: picked by hand, never a default
 					selected = false;
@@ -637,7 +719,11 @@ pub fn detect_series_kind(
 	if formats.iter().any(|f| f == "cbz" || f == "cbr") {
 		return Some(IntakeSeriesKind::Manga);
 	}
-	let publisher = meta.publisher.as_deref().map(str::to_lowercase).unwrap_or_default();
+	let publisher = meta
+		.publisher
+		.as_deref()
+		.map(str::to_lowercase)
+		.unwrap_or_default();
 	let ln_subject = meta.subjects.iter().any(|s| {
 		let n = norm(s);
 		n.contains("light novel") || n.contains("novela ligera")
@@ -650,7 +736,10 @@ pub fn detect_series_kind(
 	if ln_subject || known_ln_series || (ln_publisher && meta.series.is_some()) {
 		return Some(IntakeSeriesKind::LightNovel);
 	}
-	if kind == IntakeKind::Series && formats.iter().all(|f| f == "epub") && meta.series.is_some() {
+	if kind == IntakeKind::Series
+		&& formats.iter().all(|f| f == "epub")
+		&& meta.series.is_some()
+	{
 		// a folder of EPUB volumes from a manga/LN publisher reads as light novels
 		if ln_publisher {
 			return Some(IntakeSeriesKind::LightNovel);
@@ -696,7 +785,10 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 	let similar_books: Vec<IntakeSimilarBook> = {
 		let mut out = vec![];
 		let mut seen = std::collections::HashSet::new();
-		let author_folder = author_folders.first().filter(|c| !c.is_new).map(|c| c.folder.clone());
+		let author_folder = author_folders
+			.first()
+			.filter(|c| !c.is_new)
+			.map(|c| c.folder.clone());
 		let mut by_author: Vec<u32> = author_folder
 			.as_deref()
 			.map(|f| index.books_in_folder(f).to_vec())
@@ -779,8 +871,14 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 	if series_kind.is_none() && genre_confidence < 0.5 {
 		warnings.push("No confident genre: please choose the tags".to_string());
 	}
-	let title_part = if series_kind.is_some() { 1.0 } else { title_confidence };
-	let confidence = title_part.min(place_confidence).min(genre_confidence.max(0.0));
+	let title_part = if series_kind.is_some() {
+		1.0
+	} else {
+		title_confidence
+	};
+	let confidence = title_part
+		.min(place_confidence)
+		.min(genre_confidence.max(0.0));
 
 	IntakeProposal {
 		metadata: meta,
@@ -971,7 +1069,28 @@ mod tests {
 				.find(|s| s.value == value)
 				.map(|s| s.selected)
 		};
-		assert_eq!(selected("History"), Some(true));
+		// online subjects alone are suggested but not ticked: they need the file, the
+		// library or a stronger agreement
+		assert_eq!(selected("History"), Some(false));
 		assert_eq!(selected("Fantasy"), Some(false));
+
+		// the same subject read from the book's own file is a default choice
+		let mut from_file = IntakeMetadata {
+			subjects: vec!["History".into()],
+			..Default::default()
+		};
+		from_file.set_source("subjects", IntakeSource::File);
+		let suggestions = rank_suggestions(
+			&index,
+			score_tags(&index, &from_file, None, &[], None, None),
+			None,
+		);
+		assert_eq!(
+			suggestions
+				.iter()
+				.find(|s| s.value == "History")
+				.map(|s| s.selected),
+			Some(true)
+		);
 	}
 }
