@@ -882,9 +882,10 @@ pub fn hardcover_subjects(cached_tags: &Value) -> Vec<(String, f64)> {
 					.iter()
 					.filter_map(|item| {
 						let tag = item.get("tag").and_then(Value::as_str)?.trim();
+						// no count: one reader; a count of 0: none
 						let count =
 							item.get("count").and_then(Value::as_f64).unwrap_or(1.0);
-						(!tag.is_empty()).then(|| (tag.to_string(), count.max(1.0)))
+						(!tag.is_empty() && count > 0.0).then(|| (tag.to_string(), count))
 					})
 					.collect()
 			})
@@ -892,8 +893,13 @@ pub fn hardcover_subjects(cached_tags: &Value) -> Vec<(String, f64)> {
 		if category == "Tag" {
 			items.retain(|(tag, _)| {
 				let tag = super::library_index::norm(tag);
+				// shelves, years, and how a read felt (`Strong Character Development`,
+				// `A mix driven`, `Phase 4`) say nothing of what a book is about
 				!HARDCOVER_SHELF_TAGS.contains(&tag.as_str())
 					&& !tag.chars().all(|c| c.is_ascii_digit() || c == ' ')
+					&& !tag.contains("character")
+					&& !tag.ends_with("driven")
+					&& !tag.starts_with("phase ")
 			});
 		}
 		// most votes first (ties keep Hardcover's order)
@@ -2387,6 +2393,28 @@ mod tests {
 		assert_eq!(
 			subjects,
 			vec![("Manga".to_string(), 1.0), ("Comedy".to_string(), 1.0)]
+		);
+		// what Hardcover gives a much-read novel: one vote each, and reading-experience tags
+		let subjects = hardcover_subjects(&json!({
+			"Tag": [
+				{"tag": "Unloveable Characters", "count": 1},
+				{"tag": "Strong Character Development", "count": 1},
+				{"tag": "A mix driven", "count": 1},
+				{"tag": "Phase 4", "count": 1},
+				{"tag": "Space Opera", "count": 1}
+			],
+			"Mood": [{"tag": "challenging", "count": 1}],
+			"Genre": [
+				{"tag": "Classics", "count": 1},
+				{"tag": "Argentine fiction", "count": 0}
+			]
+		}));
+		assert_eq!(
+			subjects,
+			vec![
+				("Classics".to_string(), 1.0),
+				("Space Opera".to_string(), 0.8)
+			]
 		);
 		// a jsonb column given as text
 		let subjects = hardcover_subjects(&json!(
