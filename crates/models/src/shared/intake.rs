@@ -1,6 +1,8 @@
 //! Shared types of the book intake (the per-user "Add books" inbox). They are stored as JSON
 //! on `intake_items` rows and exposed as-is through GraphQL.
 
+use std::collections::HashMap;
+
 use async_graphql::{Enum, InputObject, SimpleObject};
 use sea_orm::{prelude::*, DeriveActiveEnum, EnumIter, FromJsonQueryResult};
 use serde::{Deserialize, Serialize};
@@ -105,13 +107,15 @@ pub enum OnlineLookupStatus {
 	RateLimited,
 	/// The source failed (network, timeout, an unexpected answer, a refused API key)
 	Error,
+	/// The source isn't set up: Hardcover's metadata provider is off or has no API token
+	NotConfigured,
 }
 
 /// One online source's answer to a lookup, for the review screens
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SimpleObject)]
 #[graphql(name = "OnlineLookup")]
 pub struct OnlineLookup {
-	/// `OPEN_LIBRARY` or `GOOGLE_BOOKS`
+	/// `OPEN_LIBRARY`, `GOOGLE_BOOKS` or `HARDCOVER`
 	pub source: IntakeSource,
 	pub status: OnlineLookupStatus,
 	/// How many subjects it gave
@@ -134,6 +138,7 @@ pub enum IntakeSource {
 	FileName,
 	OpenLibrary,
 	GoogleBooks,
+	Hardcover,
 	/// Inferred from books already in the library (same author, series, similar text)
 	Library,
 	/// Set by the uploader
@@ -167,6 +172,11 @@ pub struct IntakeMetadata {
 	pub isbn: Option<String>,
 	/// Raw subjects found in the file and online, before matching to the library's tags
 	pub subjects: Vec<String>,
+	/// How much a subject counts (0-1) when its only source weighs it (Hardcover: by how many
+	/// of its readers gave it); the others count fully
+	#[graphql(skip)]
+	#[serde(skip_serializing_if = "HashMap::is_empty")]
+	pub subject_weights: HashMap<String, f64>,
 	/// The tags that will be written: library genres (`Big`, `Big: Small`) and facets
 	/// (`Origin: X`, `Era: X`, ...)
 	pub genres: Vec<String>,

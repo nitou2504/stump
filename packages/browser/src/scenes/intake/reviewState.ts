@@ -10,6 +10,7 @@ const SOURCE_LABELS: Record<IntakeSource, string> = {
 	[IntakeSource.FileName]: 'File name',
 	[IntakeSource.OpenLibrary]: 'Open Library',
 	[IntakeSource.GoogleBooks]: 'Google Books',
+	[IntakeSource.Hardcover]: 'Hardcover',
 	[IntakeSource.Library]: 'Library',
 	[IntakeSource.User]: 'You',
 }

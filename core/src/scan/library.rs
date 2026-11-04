@@ -99,6 +99,8 @@ pub struct LibraryScanJob {
 	pending_dir_mtimes: Arc<Mutex<Vec<(String, u64)>>>,
 	/// A map of series paths to their ids, loaded during init and used to avoid db trips
 	series_id_by_path: Arc<Mutex<HashMap<String, String>>>,
+	/// When the scan started: the books it adds are the library's books created since
+	started_at: Option<DateTimeWithTimeZone>,
 }
 
 impl LibraryScanJob {
@@ -111,6 +113,7 @@ impl LibraryScanJob {
 			dir_mtimes: Arc::new(HashMap::new()),
 			pending_dir_mtimes: Arc::new(Mutex::new(vec![])),
 			series_id_by_path: Arc::new(Mutex::new(HashMap::new())),
+			started_at: None,
 		}
 	}
 
@@ -337,6 +340,7 @@ impl JobLifecycle for LibraryScanJob {
 		ctx: &JobContext,
 	) -> Result<WorkingState<Self::Output, Self::Task>, JobError> {
 		let mut output = Self::Output::default();
+		self.started_at = Some(chrono::Utc::now().into());
 		// Note: We ignore the potential self.config here in the event that it was
 		// updated since being queued. This is perhaps a bit overly cautious, but it's
 		// just one additional query.
@@ -565,16 +569,33 @@ impl JobLifecycle for LibraryScanJob {
 			.into_iter()
 			.any(|config| library_type.has_provider_overlap(&config.provider_type));
 
-		// Note: I figure we only care about new entities
-		if has_relevant_provider && did_create_media {
+		// only the books this scan added: never the whole library (a scan that added a few
+		// books used up Hardcover's daily quota on thousands of others)
+		let new_media = match (has_relevant_provider && did_create_media, self.started_at)
+		{
+			(true, Some(started_at)) => {
+				media_created_since(ctx.conn(), &self.id, started_at)
+					.await
+					.unwrap_or_else(|error| {
+						tracing::error!(
+							?error,
+							"Failed to find the books the scan added"
+						);
+						vec![]
+					})
+			},
+			_ => vec![],
+		};
+		if !new_media.is_empty() {
 			tracing::trace!(
 				?library_type,
+				count = new_media.len(),
 				"Metadata fetch job should be enqueued after library scan"
 			);
 			if let Err(e) = ctx
-				.enqueue(StumpJob::metadata_fetch(
-					MetadataFetchJobParams::media_in_library(self.id.clone()),
-				))
+				.enqueue(StumpJob::metadata_fetch(MetadataFetchJobParams::media(
+					new_media,
+				)))
 				.await
 			{
 				tracing::error!(?e, "Failed to enqueue metadata fetch follow-up");
@@ -1211,4 +1232,72 @@ async fn handle_scan_complete(
 	}
 
 	Ok(())
+}
+
+/// The library's books created since a moment (a scan's start), not removed
+pub(crate) async fn media_created_since(
+	conn: &DatabaseConnection,
+	library_id: &str,
+	since: DateTimeWithTimeZone,
+) -> Result<Vec<String>, DbErr> {
+	media::Entity::find()
+		.select_only()
+		.column(media::Column::Id)
+		.filter(media::Column::LibraryId.eq(library_id))
+		.filter(media::Column::CreatedAt.gte(since))
+		.filter(media::Column::DeletedAt.is_null())
+		.into_tuple::<String>()
+		.all(conn)
+		.await
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ::tests::fake_data;
+
+	/// The metadata fetch after a scan asks only for the books that scan added
+	#[tokio::test]
+	async fn the_fetch_after_a_scan_takes_only_the_books_it_added() {
+		let conn = ::tests::db::test_database().await;
+		let library = fake_data::Library::default().insert(&conn).await;
+		let other_library = fake_data::Library::default().insert(&conn).await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let other_series = fake_data::Series {
+			library_id: Some(other_library.id.clone()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let old = fake_data::Media {
+			series_id: series.id.clone(),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let started_at: DateTimeWithTimeZone = chrono::Utc::now().into();
+		let added = fake_data::Media {
+			series_id: series.id.clone(),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let elsewhere = fake_data::Media {
+			series_id: other_series.id.clone(),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+
+		let ids = media_created_since(&conn, &library.id, started_at)
+			.await
+			.unwrap();
+		assert_eq!(ids, vec![added.id.clone()]);
+		assert!(!ids.contains(&old.id) && !ids.contains(&elsewhere.id));
+	}
 }

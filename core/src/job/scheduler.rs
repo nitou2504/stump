@@ -210,6 +210,16 @@ async fn dispatch_metadata_retry(
 	job: &scheduled_job::Model,
 	ctx: &Ctx,
 ) -> CoreResult<()> {
+	// Hardcover refused a request today or the day's background budget is used up: the
+	// records wait for another day (the job would only mark them rate-limited again)
+	if metadata_integrations::hardcover_background_paused() {
+		tracing::info!(
+			id = job.id,
+			name = %job.name,
+			"Hardcover background work is paused for today, not retrying metadata fetches"
+		);
+		return Ok(());
+	}
 	let config = job.metadata_retry_config();
 
 	let statuses = config

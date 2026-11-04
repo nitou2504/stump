@@ -1,6 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
-use metadata_integrations::{create_provider, MetadataProvider, MetadataProviderError};
+use metadata_integrations::{
+	create_provider_for, MetadataProvider, MetadataProviderError, RequestPriority,
+};
 use models::{
 	entity::metadata_provider_config,
 	shared::enums::MetadataProvider as MetadataProviderEnum,
@@ -14,14 +16,27 @@ pub struct ProviderClientCache {
 	clients:
 		RwLock<HashMap<MetadataProviderEnum, Arc<dyn MetadataProvider + Send + Sync>>>,
 	encryption_key: String, // The encryption key used to decrypt API tokens
+	/// Whom the clients' requests are for (someone waiting, or background work)
+	priority: RequestPriority,
 }
 
 impl ProviderClientCache {
-	/// Create a new provider client cache with the given encryption key
+	/// Create a new provider client cache with the given encryption key, for requests
+	/// someone is waiting for
 	pub fn new(encryption_key: String) -> Self {
 		Self {
 			clients: RwLock::new(HashMap::new()),
 			encryption_key,
+			priority: RequestPriority::Interactive,
+		}
+	}
+
+	/// A cache for background work (the metadata fetch job): its Hardcover requests keep to
+	/// a daily budget, wait behind people's lookups and stop for the day on a refusal
+	pub fn for_background(encryption_key: String) -> Self {
+		Self {
+			priority: RequestPriority::Background,
+			..Self::new(encryption_key)
 		}
 	}
 
@@ -46,8 +61,9 @@ impl ProviderClientCache {
 			.map_err(|e| ProviderCacheError::DecryptionFailed(e.to_string()))?;
 
 		let provider_type_str = config.provider_type.to_string();
-		let client = create_provider(&provider_type_str, decrypted_token)
-			.map_err(ProviderCacheError::ProviderCreationFailed)?;
+		let client =
+			create_provider_for(&provider_type_str, decrypted_token, self.priority)
+				.map_err(ProviderCacheError::ProviderCreationFailed)?;
 
 		let client_arc: Arc<dyn MetadataProvider + Send + Sync> = Arc::from(client);
 

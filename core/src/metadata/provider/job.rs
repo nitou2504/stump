@@ -169,7 +169,8 @@ impl MetadataFetchJob {
 
 		let encryption_key = ctx.get_encryption_key().await?;
 
-		let cache = Arc::new(ProviderClientCache::new(encryption_key));
+		// background work: its Hardcover requests are budgeted and come after lookups
+		let cache = Arc::new(ProviderClientCache::for_background(encryption_key));
 		self.provider_cache = Some(Arc::clone(&cache));
 		Ok(cache)
 	}
@@ -417,17 +418,14 @@ impl JobLifecycle for MetadataFetchJob {
 				));
 
 				if !self.params.force_refetch {
-					let existing = metadata_fetch_record::Entity::find()
-						.filter(metadata_fetch_record::Column::SeriesId.eq(&series_id))
-						.filter(metadata_fetch_record::Column::Status.is_in([
-							MetadataFetchStatus::AwaitingReview,
-							MetadataFetchStatus::Fetched,
-							MetadataFetchStatus::RateLimited,
-						]))
-						.one(conn)
-						.await?;
+					let existing = already_answered(
+						conn,
+						metadata_fetch_record::Column::SeriesId,
+						&series_id,
+					)
+					.await?;
 
-					if existing.is_some() {
+					if existing {
 						output.skipped = 1;
 						return Ok(JobTaskOutput {
 							output,
@@ -599,17 +597,14 @@ impl JobLifecycle for MetadataFetchJob {
 				));
 
 				if !self.params.force_refetch {
-					let existing = metadata_fetch_record::Entity::find()
-						.filter(metadata_fetch_record::Column::MediaId.eq(&media_id))
-						.filter(metadata_fetch_record::Column::Status.is_in([
-							MetadataFetchStatus::AwaitingReview,
-							MetadataFetchStatus::Fetched,
-							MetadataFetchStatus::RateLimited,
-						]))
-						.one(conn)
-						.await?;
+					let existing = already_answered(
+						conn,
+						metadata_fetch_record::Column::MediaId,
+						&media_id,
+					)
+					.await?;
 
-					if existing.is_some() {
+					if existing {
 						output.skipped = 1;
 						return Ok(JobTaskOutput {
 							output,
@@ -751,6 +746,24 @@ impl JobLifecycle for MetadataFetchJob {
 	}
 }
 
+/// Whether a provider already answered for this series or book: a fetch record with any
+/// status but `RATE_LIMITED` (which never got an answer). Only a fetch started with
+/// `force_refetch` asks again
+pub(crate) async fn already_answered(
+	conn: &DatabaseConnection,
+	column: metadata_fetch_record::Column,
+	id: &str,
+) -> Result<bool, DbErr> {
+	Ok(metadata_fetch_record::Entity::find()
+		.filter(column.eq(id))
+		.filter(
+			metadata_fetch_record::Column::Status.ne(MetadataFetchStatus::RateLimited),
+		)
+		.one(conn)
+		.await?
+		.is_some())
+}
+
 async fn resolve_library_type(
 	conn: &DatabaseConnection,
 	library_id: &str,
@@ -758,4 +771,65 @@ async fn resolve_library_type(
 	library_type_for_library(conn, library_id)
 		.await
 		.map_err(|error| JobError::InitFailed(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ::tests::fake_data;
+
+	/// Background fetches skip what a provider already answered, and retry only what was
+	/// rate-limited
+	#[tokio::test]
+	async fn skips_books_a_provider_already_answered() {
+		let conn = ::tests::db::test_database().await;
+		// the fetch records' table, which the shared test database leaves out
+		let schema = sea_orm::Schema::new(sea_orm::DbBackend::Sqlite);
+		conn.execute(&schema.create_table_from_entity(metadata_fetch_record::Entity))
+			.await
+			.unwrap();
+		let library = fake_data::Library::default().insert(&conn).await;
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		let mut books = vec![];
+		for status in [
+			None,
+			Some(MetadataFetchStatus::RateLimited),
+			Some(MetadataFetchStatus::NoMatch),
+			Some(MetadataFetchStatus::AwaitingReview),
+			Some(MetadataFetchStatus::Failed),
+		] {
+			let book = fake_data::Media {
+				series_id: series.id.clone(),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await;
+			if let Some(status) = status {
+				metadata_fetch_record::ActiveModel {
+					media_id: Set(Some(book.id.clone())),
+					status: Set(status),
+					raw_hits: Set(0),
+					..Default::default()
+				}
+				.insert(&conn)
+				.await
+				.unwrap();
+			}
+			books.push((status, book.id));
+		}
+		for (status, id) in books {
+			let answered =
+				already_answered(&conn, metadata_fetch_record::Column::MediaId, &id)
+					.await
+					.unwrap();
+			let expected =
+				!matches!(status, None | Some(MetadataFetchStatus::RateLimited));
+			assert_eq!(answered, expected, "{status:?}");
+		}
+	}
 }
