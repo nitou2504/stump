@@ -1,8 +1,10 @@
 import { useGraphQL, useGraphQLMutation } from '@stump/client'
 import { WideSwitch } from '@stump/components'
-import { extractErrorMessage, graphql } from '@stump/graphql'
+import { extractErrorMessage, graphql, UserPermission } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+
+import { useAppContext } from '@/context'
 
 const query = graphql(`
 	query MetadataFetchSettings {
@@ -25,8 +27,13 @@ const mutation = graphql(`
  * Off keeps their daily quota for people's lookups; fetches someone starts still run
  */
 export function MetadataFetchSwitch() {
+	const { checkPermission } = useAppContext()
+	// a server setting: only server managers see it (the query needs it)
+	const canManageServer = checkPermission(UserPermission.ManageServer)
 	const client = useQueryClient()
-	const { data } = useGraphQL(query, ['metadataFetchSettings'])
+	const { data } = useGraphQL(query, ['metadataFetchSettings'], undefined, {
+		enabled: canManageServer,
+	})
 	const isOn = data?.metadataFetchSettings.fetchAfterScan ?? true
 
 	const { mutate, isPending } = useGraphQLMutation(mutation, {
@@ -34,6 +41,8 @@ export function MetadataFetchSwitch() {
 			toast.error('Could not save the setting', { description: extractErrorMessage(error) }),
 		onSuccess: () => client.invalidateQueries({ queryKey: ['metadataFetchSettings'] }),
 	})
+
+	if (!canManageServer) return null
 
 	return (
 		<WideSwitch

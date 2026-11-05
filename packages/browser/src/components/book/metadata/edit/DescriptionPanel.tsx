@@ -80,8 +80,8 @@ export default function DescriptionPanel({ mediaId, onApply, onClose }: Props) {
 					{result.searchedTitle && (
 						<p className="text-xs text-muted-foreground">
 							Searched as “{result.searchedTitle}”
-							{result.searchedAuthors.length > 0 && ` by ${result.searchedAuthors.join(', ')}`},
-							from the book’s title page.
+							{result.searchedAuthors.length > 0 && ` by ${result.searchedAuthors.join(', ')}`}: the
+							book’s own details looked wrong.
 						</p>
 					)}
 
