@@ -2198,8 +2198,8 @@ export type MediaDescriptions = {
   path?: Maybe<Scalars['String']['output']>;
   searchedAuthors: Array<Scalars['String']['output']>;
   /**
-   * The title and authors searched, when they came from the book's title page (its own
-   * looked like junk)
+   * The title and authors searched, when the book's own looked like junk (from its title
+   * page, or its file name for a missing title)
    */
   searchedTitle?: Maybe<Scalars['String']['output']>;
   status: MediaDescriptionStatus;
