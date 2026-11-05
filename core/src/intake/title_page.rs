@@ -16,7 +16,7 @@ use regex::Regex;
 
 use super::{
 	lookup::LookupQuery,
-	naming::{display_name, looks_like_person, split_authors},
+	naming::{display_name, looks_like_person, parse_file_name, split_authors},
 };
 
 /// What looks wrong in a book's title and authors
@@ -79,6 +79,15 @@ pub struct TitlePage {
 static OTHER_BOOKS: LazyLock<Regex> = LazyLock::new(|| {
 	Regex::new(
 		r"(?i)\b(?:also by|other (?:books|titles|works) by|by the same author|books by|praise for|del mismo autor|otros (?:libros|t[ií]tulos) de|otras obras de)\b",
+	)
+	.expect("valid regex")
+});
+
+/// Pages a converter or a library adds (`This book was produced in EPUB format by the Internet
+/// Archive`): nothing on them is the book's
+static NOTICE: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(
+		r"(?i)(?:internet archive|hocr-to-epub|project gutenberg|this (?:e-?book|book|file) was (?:produced|created|converted)|converted to epub)",
 	)
 	.expect("valid regex")
 });
@@ -204,7 +213,12 @@ fn cip_title(raw: &str) -> Option<String> {
 pub fn parse_title_page(pages: &[Vec<String>]) -> TitlePage {
 	let lines: Vec<String> = pages
 		.iter()
-		.filter(|page| !page.iter().take(12).any(|l| OTHER_BOOKS.is_match(l)))
+		.filter(|page| {
+			!page
+				.iter()
+				.take(12)
+				.any(|l| OTHER_BOOKS.is_match(l) || NOTICE.is_match(l))
+		})
 		.flatten()
 		.map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
 		.filter(|l| !l.is_empty() && !NAV.is_match(l))
@@ -256,11 +270,18 @@ pub fn parse_title_page(pages: &[Vec<String>]) -> TitlePage {
 			page.authors = split_authors(&names);
 		}
 	}
-	let title_at = head.iter().enumerate().position(|(i, l)| {
-		Some(i) != by_line
-			&& (1..=12).contains(&l.split_whitespace().count())
-			&& l.chars().any(char::is_alphabetic)
-	});
+	// a title is short and no sentence (a blurb's line, a notice)
+	let title_like = |line: &str| {
+		let words = line.split_whitespace().count();
+		(1..=12).contains(&words)
+			&& line.chars().count() <= 100
+			&& line.chars().any(char::is_alphabetic)
+			&& !(words >= 6 && line.ends_with('.'))
+	};
+	let title_at = head
+		.iter()
+		.enumerate()
+		.position(|(i, l)| Some(i) != by_line && title_like(l));
 	if let Some(at) = title_at {
 		page.title = Some(norm_case(head[at]));
 		if page.authors.is_empty() {
@@ -503,7 +524,20 @@ pub async fn repair_for_lookup(
 	} else {
 		None
 	};
-	let changed = apply_title_page(&mut query, page.as_ref());
+	let mut changed = apply_title_page(&mut query, page.as_ref());
+	// still no usable title: the file's name (`Is_Anyone_There.epub`), as *Add books* reads one
+	if junk_metadata(query.title.as_deref(), &[]).title {
+		let title = path
+			.file_stem()
+			.and_then(|stem| stem.to_str())
+			.map(|stem| stem.trim_end_matches(".kepub"))
+			.and_then(|stem| parse_file_name(stem).title)
+			.filter(|title| !JUNK_TITLE.is_match(title));
+		if let Some(title) = title {
+			query.title = Some(title);
+			changed = true;
+		}
+	}
 	(query, changed)
 }
 
@@ -595,6 +629,37 @@ mod tests {
 		)]);
 		assert_eq!(page.title.as_deref(), Some("The Joy of Clojure"));
 		assert_eq!(page.authors, vec!["Michael Fogus", "Chris Houser"]);
+	}
+
+	#[test]
+	fn skips_notices_and_sentences() {
+		let page = parse_title_page(&[
+			lines("This book was produced in EPUB format by the Internet Archive.\nThe book pages were scanned and converted to EPUB format automatically."),
+			lines("Isaac Asimov calls this unusual collection speculative essays on the known and unknown, spanning a wide field."),
+			lines("Is Anyone There?\nIsaac Asimov\nAce Books"),
+		]);
+		assert_eq!(page.title.as_deref(), Some("Is Anyone There?"));
+		assert_eq!(page.authors, vec!["Isaac Asimov"]);
+	}
+
+	#[tokio::test]
+	async fn falls_back_to_the_file_name_for_a_missing_title() {
+		let query = LookupQuery::default();
+		let (query, changed) =
+			repair_for_lookup(query, Path::new("/lib/Isaac_Asimov/Is_Anyone_There.pdf"))
+				.await;
+		assert!(changed);
+		assert_eq!(query.title.as_deref(), Some("Is Anyone There"));
+		// a good title stays
+		let query = LookupQuery {
+			title: Some("Is Anyone There?".to_string()),
+			authors: vec!["Isaac Asimov".to_string()],
+			..Default::default()
+		};
+		let (query, changed) =
+			repair_for_lookup(query, Path::new("/lib/Isaac_Asimov/Other_Name.pdf")).await;
+		assert!(!changed);
+		assert_eq!(query.title.as_deref(), Some("Is Anyone There?"));
 	}
 
 	#[test]
