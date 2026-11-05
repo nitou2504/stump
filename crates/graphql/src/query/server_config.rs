@@ -26,6 +26,22 @@ impl OnlineLookupSettings {
 	}
 }
 
+/// Automatic metadata fetches from the metadata providers (Hardcover...)
+#[derive(Debug, Clone, SimpleObject)]
+pub struct MetadataFetchSettings {
+	/// Whether a scan asks the providers about the books it added, and the scheduled retries
+	/// run. Off keeps their daily quota for people's lookups; fetches someone starts still run
+	pub fetch_after_scan: bool,
+}
+
+impl MetadataFetchSettings {
+	pub fn of(config: &server_config::Model) -> Self {
+		Self {
+			fetch_after_scan: config.fetch_metadata_after_scan,
+		}
+	}
+}
+
 #[Object]
 impl ServerConfigQuery {
 	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageServer)")]
@@ -38,6 +54,20 @@ impl ServerConfigQuery {
 			.ok_or("Server configuration not found")?;
 
 		Ok(config)
+	}
+
+	/// Whether scans fetch metadata for the books they add
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageServer)")]
+	async fn metadata_fetch_settings(
+		&self,
+		ctx: &Context<'_>,
+	) -> Result<MetadataFetchSettings> {
+		let core = ctx.data::<CoreContext>()?;
+		let config = server_config::Entity::find()
+			.one(core.conn.as_ref())
+			.await?
+			.ok_or("Server configuration not found")?;
+		Ok(MetadataFetchSettings::of(&config))
 	}
 
 	/// The online lookups' settings (whether a Google Books API key is set)

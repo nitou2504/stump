@@ -210,6 +210,15 @@ async fn dispatch_metadata_retry(
 	job: &scheduled_job::Model,
 	ctx: &Ctx,
 ) -> CoreResult<()> {
+	// the server turned automatic metadata fetches off (Settings → Metadata)
+	if !crate::metadata::provider::fetch_after_scan_enabled(ctx.conn.as_ref()).await {
+		tracing::info!(
+			id = job.id,
+			name = %job.name,
+			"Automatic metadata fetches are turned off, not retrying metadata fetches"
+		);
+		return Ok(());
+	}
 	// Hardcover refused a request today or the day's background budget is used up: the
 	// records wait for another day (the job would only mark them rate-limited again)
 	if metadata_integrations::hardcover_background_paused() {

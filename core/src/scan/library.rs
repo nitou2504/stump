@@ -27,7 +27,7 @@ use crate::{
 		error::JobError, CoreJobOutput, JobContext, JobExecuteLog, JobLifecycle,
 		JobOutputExt, JobProgress, JobTaskOutput, StumpJob, WorkingState,
 	},
-	metadata::provider::MetadataFetchJobParams,
+	metadata::provider::{fetch_after_scan_enabled, MetadataFetchJobParams},
 	scan::{
 		options::{BookVisitOperation, ScanOptions},
 		series::SeriesScanTask,
@@ -561,13 +561,16 @@ impl JobLifecycle for LibraryScanJob {
 			.map(|c| c.library_type)
 			.unwrap_or_default();
 
-		let has_relevant_provider = metadata_provider_config::Entity::find()
-			.filter(metadata_provider_config::Column::Enabled.eq(true))
-			.all(ctx.conn())
-			.await
-			.unwrap_or_default()
-			.into_iter()
-			.any(|config| library_type.has_provider_overlap(&config.provider_type));
+		// unless the server turned it off (Settings → Metadata), to keep the providers' daily
+		// quota for people's lookups
+		let has_relevant_provider = fetch_after_scan_enabled(ctx.conn()).await
+			&& metadata_provider_config::Entity::find()
+				.filter(metadata_provider_config::Column::Enabled.eq(true))
+				.all(ctx.conn())
+				.await
+				.unwrap_or_default()
+				.into_iter()
+				.any(|config| library_type.has_provider_overlap(&config.provider_type));
 
 		// only the books this scan added: never the whole library (a scan that added a few
 		// books used up Hardcover's daily quota on thousands of others)

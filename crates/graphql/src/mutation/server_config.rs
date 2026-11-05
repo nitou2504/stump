@@ -1,5 +1,7 @@
 use crate::{
-	data::CoreContext, guard::PermissionGuard, query::server_config::OnlineLookupSettings,
+	data::CoreContext,
+	guard::PermissionGuard,
+	query::server_config::{MetadataFetchSettings, OnlineLookupSettings},
 };
 use async_graphql::{Context, Object, Result};
 use models::{entity::server_config, shared::enums::UserPermission};
@@ -74,5 +76,24 @@ impl ServerConfigMutation {
 		active.google_books_api_key = Set(stored);
 		let updated = active.update(conn).await?;
 		Ok(OnlineLookupSettings::of(&updated))
+	}
+
+	/// Turns the automatic metadata fetches on or off: what a scan asks the metadata
+	/// providers about the books it added, and the scheduled retries
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageServer)")]
+	async fn update_metadata_fetch_settings(
+		&self,
+		ctx: &Context<'_>,
+		fetch_after_scan: bool,
+	) -> Result<MetadataFetchSettings> {
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let config = server_config::Entity::find()
+			.one(conn)
+			.await?
+			.ok_or("Server configuration not found")?;
+		let mut active = config.into_active_model();
+		active.fetch_metadata_after_scan = Set(fetch_after_scan);
+		let updated = active.update(conn).await?;
+		Ok(MetadataFetchSettings::of(&updated))
 	}
 }

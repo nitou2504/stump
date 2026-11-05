@@ -40,6 +40,11 @@ pub struct Model {
 	#[sea_orm(column_type = "Text", nullable)]
 	#[graphql(skip)]
 	pub google_books_api_key: Option<String>,
+	/// Whether a scan asks the metadata providers (Hardcover...) about the books it added,
+	/// and the scheduled metadata retries run. Off keeps their daily quota for people's
+	/// lookups (*Add books*, *Suggest genres*, *Find description*)
+	#[graphql(skip)]
+	pub fetch_metadata_after_scan: bool,
 }
 
 #[derive(FromQueryResult)]
@@ -64,6 +69,9 @@ impl ActiveModelBehavior for ActiveModel {
 			if self.trash_retention_days.is_not_set() {
 				self.trash_retention_days =
 					Set(crate::shared::trash::DEFAULT_RETENTION_DAYS);
+			}
+			if self.fetch_metadata_after_scan.is_not_set() {
+				self.fetch_metadata_after_scan = Set(true);
 			}
 		}
 		Ok(self)
