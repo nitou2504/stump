@@ -28,7 +28,7 @@ use std::{
 	time::{Duration, Instant},
 };
 
-use metadata_integrations::{HardcoverClient, MetadataProviderError};
+use metadata_integrations::{HardcoverClient, MetadataProviderError, RequestPriority};
 use models::{
 	entity::{metadata_provider_config, server_config},
 	shared::{
@@ -408,6 +408,15 @@ fn wait_for_hardcover(fingerprint: u64, wait: Duration) {
 	}
 }
 
+/// How long until the next UTC day, when Hardcover's daily budgets start again
+fn until_tomorrow() -> Duration {
+	let now = chrono::Utc::now();
+	(now.date_naive() + chrono::Days::new(1))
+		.and_hms_opt(0, 0, 0)
+		.and_then(|midnight| (midnight.and_utc() - now).to_std().ok())
+		.unwrap_or(HARDCOVER_DEFAULT_WAIT)
+}
+
 /// Hardcover's refusal, in its words, for a request not sent while it asks to wait
 fn wait_answer(wait: Duration) -> Fetched {
 	Fetched::Status(
@@ -477,6 +486,9 @@ impl Fetch for HttpFetch {
 		.await;
 		let fetched = match reply {
 			Err(_) => Fetched::Failed("no answer in time".to_string()),
+			// not sent: background work (scripts) used up its daily budget, or stopped for the
+			// day after a refusal; answered as Hardcover would, without holding people's lookups
+			Ok(Err(MetadataProviderError::RateLimited)) => wait_answer(until_tomorrow()),
 			Ok(Err(error)) => {
 				tracing::debug!(%error, "Hardcover lookup failed");
 				let timeout = matches!(
@@ -544,11 +556,19 @@ pub enum HardcoverAccess {
 
 /// The Hardcover provider's client for lookups when it is enabled with an API token (decrypted
 /// with the server's key, as the provider's own client does), else why not. One client per
-/// token, so its rate limiter sees every lookup
+/// token and priority, so its rate limiter sees every lookup: a person's lookups are
+/// interactive; a script's (`findMediaDescriptions`) are background work, which keeps to its
+/// daily budget and waits behind people's
 async fn hardcover_client(
 	conn: &DatabaseConnection,
+	priority: RequestPriority,
 ) -> (HardcoverAccess, Option<HardcoverHandle>) {
-	static LOOKUP_CLIENT: Mutex<Option<HardcoverHandle>> = Mutex::new(None);
+	static INTERACTIVE_CLIENT: Mutex<Option<HardcoverHandle>> = Mutex::new(None);
+	static BACKGROUND_CLIENT: Mutex<Option<HardcoverHandle>> = Mutex::new(None);
+	let lookup_client = match priority {
+		RequestPriority::Interactive => &INTERACTIVE_CLIENT,
+		RequestPriority::Background => &BACKGROUND_CLIENT,
+	};
 	let config = metadata_provider_config::Entity::find()
 		.all(conn)
 		.await
@@ -589,7 +609,7 @@ async fn hardcover_client(
 		token.hash(&mut hasher);
 		hasher.finish()
 	};
-	let Ok(mut shared) = LOOKUP_CLIENT.lock() else {
+	let Ok(mut shared) = lookup_client.lock() else {
 		return (HardcoverAccess::Ready, None);
 	};
 	if let Some(handle) = shared.as_ref().filter(|h| h.fingerprint == fingerprint) {
@@ -599,7 +619,7 @@ async fn hardcover_client(
 		Ok(client) => {
 			let handle = HardcoverHandle {
 				fingerprint,
-				client: Arc::new(client),
+				client: Arc::new(client.with_priority(priority)),
 			};
 			*shared = Some(handle.clone());
 			(HardcoverAccess::Ready, Some(handle))
@@ -1514,10 +1534,22 @@ pub async fn lookup_with(
 }
 
 /// Looks a book up online with the server's settings: its Google Books API key, if any, and
-/// the Hardcover metadata provider, when it is enabled with a token
+/// the Hardcover metadata provider, when it is enabled with a token. For someone waiting
+/// (Add books, Suggest genres, Find description)
 pub async fn lookup(conn: &DatabaseConnection, query: &LookupQuery) -> LookupOutcome {
+	lookup_for(conn, query, RequestPriority::Interactive).await
+}
+
+/// [`lookup`] for a person (`Interactive`) or for a script going through many books
+/// (`Background`: Hardcover keeps it to the daily budget of background work, behind people's
+/// lookups)
+pub async fn lookup_for(
+	conn: &DatabaseConnection,
+	query: &LookupQuery,
+	priority: RequestPriority,
+) -> LookupOutcome {
 	let key = google_books_key(conn).await;
-	let (access, hardcover) = hardcover_client(conn).await;
+	let (access, hardcover) = hardcover_client(conn, priority).await;
 	lookup_with(&HttpFetch { hardcover }, key.as_deref(), access, query).await
 }
 

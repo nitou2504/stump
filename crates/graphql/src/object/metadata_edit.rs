@@ -2,11 +2,14 @@ use async_graphql::{Enum, SimpleObject};
 use chrono::{DateTime, Utc};
 use metadata_integrations::MetadataField;
 use models::{
-	entity::media_metadata_edit,
-	shared::intake::{IntakeGenreSuggestion, IntakeSimilarBook, OnlineLookup},
+	entity::{media, media_metadata_edit},
+	shared::intake::{
+		IntakeGenreSuggestion, IntakeSimilarBook, IntakeSource, OnlineLookup,
+	},
 };
 use stump_core::intake::{
 	batch::{BatchItemStatus, BatchResult},
+	describe::{DescriptionCandidate, FoundDescriptions},
 	edit::{
 		ChangedField, CurrentTagFit, EditHistorySave, ExistingBookSuggestions,
 		FileEditOutcome, FileWriteStatus,
@@ -311,6 +314,114 @@ impl From<ExistingBookSuggestions> for MediaGenreSuggestions {
 			subjects: s.subjects,
 			looked_up_online: s.looked_up_online,
 			online_lookups: s.online_lookups,
+		}
+	}
+}
+
+/// A description an online source has for a book
+#[derive(Debug, Clone, SimpleObject)]
+pub struct MediaDescriptionCandidate {
+	/// `HARDCOVER`, `OPEN_LIBRARY` or `GOOGLE_BOOKS`
+	pub source: IntakeSource,
+	pub text: String,
+	pub words: i32,
+}
+
+impl From<DescriptionCandidate> for MediaDescriptionCandidate {
+	fn from(candidate: DescriptionCandidate) -> Self {
+		Self {
+			source: candidate.source,
+			text: candidate.text,
+			words: candidate.words as i32,
+		}
+	}
+}
+
+/// What a description search did for a book
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum MediaDescriptionStatus {
+	/// Descriptions were found (`candidates`, best first)
+	Found,
+	/// Every source answered: none has a description for the book
+	NoDescription,
+	/// Nothing found while a source couldn't answer (a rate limit, an error): ask again later
+	RetryLater,
+	/// Not searched: the book has a summary (with `onlyMissing`)
+	HasSummary,
+	/// Not searched: its summary is locked (someone set or cleared it by hand)
+	Locked,
+	/// No book with that id or path that the user can see
+	NotFound,
+}
+
+/// The descriptions found online for a book. Nothing is saved: put one into the book's
+/// summary with `editMediaMetadata` / `editMediaMetadataBatch` (file, history, lock)
+#[derive(Debug, Clone, SimpleObject)]
+pub struct MediaDescriptions {
+	/// The book's id (the id asked for when there is no such book)
+	pub media_id: Option<String>,
+	/// The book's path as Stump stores it (the path asked for when there is no such book)
+	pub path: Option<String>,
+	pub status: MediaDescriptionStatus,
+	/// The summary the book has now
+	pub summary: Option<String>,
+	/// Hardcover's first, then Open Library's and Google Books' (thin ones last), one per text
+	pub candidates: Vec<MediaDescriptionCandidate>,
+	/// How each online source answered: found a description (N words), found but no
+	/// description, no matching book, rate-limited, error, not configured
+	pub online_lookups: Vec<OnlineLookup>,
+	/// The title and authors searched, when they came from the book's title page (its own
+	/// looked like junk)
+	pub searched_title: Option<String>,
+	pub searched_authors: Vec<String>,
+}
+
+impl MediaDescriptions {
+	/// A book that wasn't searched
+	pub fn skipped(
+		media_id: Option<String>,
+		path: Option<String>,
+		status: MediaDescriptionStatus,
+		summary: Option<String>,
+	) -> Self {
+		Self {
+			media_id,
+			path,
+			status,
+			summary,
+			candidates: vec![],
+			online_lookups: vec![],
+			searched_title: None,
+			searched_authors: vec![],
+		}
+	}
+
+	/// What a search found for a book
+	pub fn found(
+		book: &media::Model,
+		summary: Option<String>,
+		found: FoundDescriptions,
+	) -> Self {
+		let status = if !found.candidates.is_empty() {
+			MediaDescriptionStatus::Found
+		} else if found.incomplete() {
+			MediaDescriptionStatus::RetryLater
+		} else {
+			MediaDescriptionStatus::NoDescription
+		};
+		Self {
+			media_id: Some(book.id.clone()),
+			path: Some(book.path.clone()),
+			status,
+			summary,
+			candidates: found
+				.candidates
+				.into_iter()
+				.map(MediaDescriptionCandidate::from)
+				.collect(),
+			online_lookups: found.lookups,
+			searched_title: found.searched_title,
+			searched_authors: found.searched_authors,
 		}
 	}
 }

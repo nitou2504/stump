@@ -7,6 +7,7 @@
 //! it uses is dropped minutes later.
 
 pub mod batch;
+pub mod describe;
 pub mod edit;
 pub mod extract;
 pub mod library_index;
