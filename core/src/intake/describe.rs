@@ -49,14 +49,16 @@ pub struct FoundDescriptions {
 }
 
 impl FoundDescriptions {
-	/// Whether a source couldn't answer (a rate limit, an error): asking again later may
-	/// find more
+	/// Whether Hardcover or Open Library couldn't answer (a rate limit, an error): asking
+	/// again later may find more. Google Books doesn't count: without a key its shared
+	/// anonymous quota is used up most days, and the other two describe what it does
 	pub fn incomplete(&self) -> bool {
 		self.lookups.iter().any(|l| {
-			matches!(
-				l.status,
-				OnlineLookupStatus::RateLimited | OnlineLookupStatus::Error
-			)
+			l.source != IntakeSource::GoogleBooks
+				&& matches!(
+					l.status,
+					OnlineLookupStatus::RateLimited | OnlineLookupStatus::Error
+				)
 		})
 	}
 }
@@ -252,7 +254,7 @@ mod tests {
 	}
 
 	#[test]
-	fn failed_sources_keep_their_answer_and_make_it_incomplete() {
+	fn only_hardcover_or_open_library_failures_mean_retry_later() {
 		let outcome = LookupOutcome {
 			records: vec![],
 			sources: vec![
@@ -268,7 +270,15 @@ mod tests {
 		let found = description_candidates(&outcome);
 		assert!(found.candidates.is_empty());
 		assert_eq!(found.lookups, outcome.sources);
-		assert!(found.incomplete());
+		// Google Books' refusal alone: nothing to wait for
+		assert!(!found.incomplete());
+		let mut outcome = outcome;
+		outcome.sources[2] = lookup(
+			IntakeSource::Hardcover,
+			OnlineLookupStatus::RateLimited,
+			"daily limit reached: try again in about 5 h",
+		);
+		assert!(description_candidates(&outcome).incomplete());
 	}
 
 	#[test]

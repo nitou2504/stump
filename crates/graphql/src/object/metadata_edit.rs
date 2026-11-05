@@ -342,9 +342,10 @@ impl From<DescriptionCandidate> for MediaDescriptionCandidate {
 pub enum MediaDescriptionStatus {
 	/// Descriptions were found (`candidates`, best first)
 	Found,
-	/// Every source answered: none has a description for the book
+	/// Hardcover and Open Library answered, and no source has a description for the book
 	NoDescription,
-	/// Nothing found while a source couldn't answer (a rate limit, an error): ask again later
+	/// Nothing found while Hardcover or Open Library couldn't answer (a rate limit, an
+	/// error): ask again later
 	RetryLater,
 	/// Not searched: the book has a summary (with `onlyMissing`)
 	HasSummary,
