@@ -2151,6 +2151,59 @@ export type MediaAnnotationModel = {
   userId: Scalars['String']['output'];
 };
 
+/** A description an online source has for a book */
+export type MediaDescriptionCandidate = {
+  __typename?: 'MediaDescriptionCandidate';
+  /** `HARDCOVER`, `OPEN_LIBRARY` or `GOOGLE_BOOKS` */
+  source: IntakeSource;
+  text: Scalars['String']['output'];
+  words: Scalars['Int']['output'];
+};
+
+/** What a description search did for a book */
+export enum MediaDescriptionStatus {
+  /** Descriptions were found (`candidates`, best first) */
+  Found = 'FOUND',
+  /** Not searched: the book has a summary (with `onlyMissing`) */
+  HasSummary = 'HAS_SUMMARY',
+  /** Not searched: its summary is locked (someone set or cleared it by hand) */
+  Locked = 'LOCKED',
+  /** No book with that id or path that the user can see */
+  NotFound = 'NOT_FOUND',
+  /** Every source answered: none has a description for the book */
+  NoDescription = 'NO_DESCRIPTION',
+  /** Nothing found while a source couldn't answer (a rate limit, an error): ask again later */
+  RetryLater = 'RETRY_LATER'
+}
+
+/**
+ * The descriptions found online for a book. Nothing is saved: put one into the book's
+ * summary with `editMediaMetadata` / `editMediaMetadataBatch` (file, history, lock)
+ */
+export type MediaDescriptions = {
+  __typename?: 'MediaDescriptions';
+  /** Hardcover's first, then Open Library's and Google Books' (thin ones last), one per text */
+  candidates: Array<MediaDescriptionCandidate>;
+  /** The book's id (the id asked for when there is no such book) */
+  mediaId?: Maybe<Scalars['String']['output']>;
+  /**
+   * How each online source answered: found a description (N words), found but no
+   * description, no matching book, rate-limited, error, not configured
+   */
+  onlineLookups: Array<OnlineLookup>;
+  /** The book's path as Stump stores it (the path asked for when there is no such book) */
+  path?: Maybe<Scalars['String']['output']>;
+  searchedAuthors: Array<Scalars['String']['output']>;
+  /**
+   * The title and authors searched, when they came from the book's title page (its own
+   * looked like junk)
+   */
+  searchedTitle?: Maybe<Scalars['String']['output']>;
+  status: MediaDescriptionStatus;
+  /** The summary the book has now */
+  summary?: Maybe<Scalars['String']['output']>;
+};
+
 export type MediaFilterInput = {
   _and?: InputMaybe<Array<MediaFilterInput>>;
   _not?: InputMaybe<Array<MediaFilterInput>>;
@@ -2655,6 +2708,16 @@ export type MetadataFetchRecord = {
 export type MetadataFetchRecordId =
   { media: Scalars['String']['input']; series?: never; }
   |  { media?: never; series: Scalars['String']['input']; };
+
+/** Automatic metadata fetches from the metadata providers (Hardcover...) */
+export type MetadataFetchSettings = {
+  __typename?: 'MetadataFetchSettings';
+  /**
+   * Whether a scan asks the providers about the books it added, and the scheduled retries
+   * run. Off keeps their daily quota for people's lookups; fetches someone starts still run
+   */
+  fetchAfterScan: Scalars['Boolean']['output'];
+};
 
 export enum MetadataFetchStatus {
   AwaitingReview = 'AWAITING_REVIEW',
@@ -3207,6 +3270,11 @@ export type Mutation = {
    * will be generated based on the library's thumbnail configuration.
    */
   updateMediaThumbnail: Media;
+  /**
+   * Turns the automatic metadata fetches on or off: what a scan asks the metadata
+   * providers about the books it added, and the scheduled retries
+   */
+  updateMetadataFetchSettings: MetadataFetchSettings;
   updateMetadataProvider: MetadataProviderConfigModel;
   updateNavigationArrangement: Arrangement;
   updateNavigationArrangementLock: Arrangement;
@@ -4052,6 +4120,11 @@ export type MutationUpdateMediaThumbnailArgs = {
 };
 
 
+export type MutationUpdateMetadataFetchSettingsArgs = {
+  fetchAfterScan: Scalars['Boolean']['input'];
+};
+
+
 export type MutationUpdateMetadataProviderArgs = {
   id: Scalars['Int']['input'];
   input: PatchMetadataProviderConfigInput;
@@ -4817,6 +4890,17 @@ export type Query = {
   emailers: Array<Emailer>;
   /** Get a single epub by its media ID */
   epubById: Epub;
+  /**
+   * Descriptions for many books, for scripts: the books asked by `ids` and `paths` (as
+   * Stump stores them), in that order, one result each. With `onlyMissing` (the default)
+   * a book whose summary has 15 words or more is not searched (`HAS_SUMMARY`); a book whose
+   * summary is locked (set or cleared by hand) never is (`LOCKED`). Nothing is saved:
+   * review the `candidates`, then save with `editMediaMetadataBatch`. Hardcover is asked
+   * as background work: within its daily budget for background work, behind people's
+   * lookups (about one request every 4 seconds, 2 or 3 a book); when the budget is used
+   * up, books report `RETRY_LATER`. At most 25 books per call
+   */
+  findMediaDescriptions: Array<MediaDescriptions>;
   finishedReadingSessionCount: Scalars['Int']['output'];
   getNotifierById: Notifier;
   getNotifiers: Array<Notifier>;
@@ -4874,6 +4958,11 @@ export type Query = {
    */
   mediaByPaths: Array<MediaPathMatch>;
   mediaCount: Scalars['Int']['output'];
+  /**
+   * Descriptions for a book from the online sources (Hardcover first, then Open Library
+   * and Google Books), for its summary in *Edit details*. Nothing is saved
+   */
+  mediaDescriptionSuggestions: MediaDescriptions;
   mediaDiskUsage: Scalars['Int']['output'];
   /**
    * Tags for a book already in the library: from its author's and series' other books,
@@ -4890,6 +4979,8 @@ export type Query = {
    */
   mediaMetadataOverview: MediaMetadataOverview;
   metadataFetchRecord?: Maybe<MetadataFetchRecord>;
+  /** Whether scans fetch metadata for the books they add */
+  metadataFetchSettings: MetadataFetchSettings;
   metadataProviderConfigById?: Maybe<MetadataProviderConfigModel>;
   metadataProviderConfigs: Array<MetadataProviderConfigModel>;
   /**
@@ -5086,6 +5177,13 @@ export type QueryEpubByIdArgs = {
 };
 
 
+export type QueryFindMediaDescriptionsArgs = {
+  ids?: Array<Scalars['ID']['input']>;
+  onlyMissing?: Scalars['Boolean']['input'];
+  paths?: Array<Scalars['String']['input']>;
+};
+
+
 export type QueryGetNotifierByIdArgs = {
   id: Scalars['Int']['input'];
 };
@@ -5201,6 +5299,11 @@ export type QueryMediaByPathArgs = {
 
 export type QueryMediaByPathsArgs = {
   paths: Array<Scalars['String']['input']>;
+};
+
+
+export type QueryMediaDescriptionSuggestionsArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -7639,7 +7742,7 @@ export type TagSelectQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type TagSelectQueryQuery = { __typename?: 'Query', tags: Array<{ __typename?: 'Tag', id: number, name: string }> };
 
-export type BookCardFragment = { __typename?: 'Media', id: string, resolvedName: string, extension: string, pages: number, size: number, status: FileStatus, createdAt: any, thumbnail: { __typename?: 'ImageRef', url: string, height?: number | null, width?: number | null, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null }, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null, page?: number | null, updatedAt?: any | null, locator?: { __typename?: 'ReadiumLocator', href: string } | null } | null, readHistory: Array<{ __typename: 'ReadthroughRecord', completedAt: any }>, libraryConfig: { __typename?: 'LibraryConfig', skipBookOverview: boolean }, metadata?: { __typename?: 'MediaMetadata', number?: any | null, rating?: any | null, ageRating?: number | null } | null } & { ' $fragmentName'?: 'BookCardFragment' };
+export type BookCardFragment = { __typename?: 'Media', id: string, resolvedName: string, extension: string, pages: number, size: number, status: FileStatus, createdAt: any, thumbnail: { __typename?: 'ImageRef', url: string, height?: number | null, width?: number | null, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null }, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null, page?: number | null, updatedAt?: any | null, locator?: { __typename?: 'ReadiumLocator', href: string } | null } | null, readHistory: Array<{ __typename: 'ReadthroughRecord', completedAt: any }>, libraryConfig: { __typename?: 'LibraryConfig', skipBookOverview: boolean }, metadata?: { __typename?: 'MediaMetadata', number?: any | null, rating?: any | null, ageRating?: number | null, language?: string | null } | null } & { ' $fragmentName'?: 'BookCardFragment' };
 
 export type BookHeaderFragment = (
   { __typename?: 'Media', id: string, resolvedName: string, pages: number, extension: string, series?: { __typename?: 'Series', id: string, resolvedName: string } | null, library: { __typename?: 'Library', id: string, name: string } }
@@ -7673,7 +7776,7 @@ export type BookSearchOverlayQuery = { __typename?: 'Query', media: { __typename
       & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment;'BookSearchSelectionFragment': BookSearchSelectionFragment } }
     )>, pageInfo: { __typename: 'CursorPaginationInfo', currentCursor?: string | null, nextCursor?: string | null, limit: number } | { __typename: 'OffsetPaginationInfo' } } };
 
-export type BookStatRowFragment = { __typename?: 'Media', pages: number, size: number, extension: string, metadata?: { __typename?: 'MediaMetadata', year?: number | null, rating?: any | null, ageRating?: number | null } | null } & { ' $fragmentName'?: 'BookStatRowFragment' };
+export type BookStatRowFragment = { __typename?: 'Media', pages: number, size: number, extension: string, metadata?: { __typename?: 'MediaMetadata', year?: number | null, rating?: any | null, ageRating?: number | null, language?: string | null } | null } & { ' $fragmentName'?: 'BookStatRowFragment' };
 
 export type EmailBookDropdownDeviceQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -7728,6 +7831,13 @@ export type MediaGenreSuggestionsQueryVariables = Exact<{
 
 
 export type MediaGenreSuggestionsQuery = { __typename?: 'Query', mediaGenreSuggestions: { __typename?: 'MediaGenreSuggestions', subjects: Array<string>, lookedUpOnline: boolean, suggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, current: Array<{ __typename?: 'CurrentGenreFit', value: string, kind: string, confidence: number, fits: boolean, reasons: Array<string>, libraryCount: number }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, onlineLookups: Array<{ __typename?: 'OnlineLookup', source: IntakeSource, status: OnlineLookupStatus, subjects: number, message: string }> } };
+
+export type MediaDescriptionSuggestionsQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type MediaDescriptionSuggestionsQuery = { __typename?: 'Query', mediaDescriptionSuggestions: { __typename?: 'MediaDescriptions', status: MediaDescriptionStatus, searchedTitle?: string | null, searchedAuthors: Array<string>, candidates: Array<{ __typename?: 'MediaDescriptionCandidate', source: IntakeSource, text: string, words: number }>, onlineLookups: Array<{ __typename?: 'OnlineLookup', source: IntakeSource, status: OnlineLookupStatus, subjects: number, message: string }> } };
 
 export type EditMediaMetadataMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -9265,6 +9375,18 @@ export type ExistingProviderCardFragment = (
   & { ' $fragmentRefs'?: { 'EditProviderDialogFragment': EditProviderDialogFragment } }
 ) & { ' $fragmentName'?: 'ExistingProviderCardFragment' };
 
+export type MetadataFetchSettingsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MetadataFetchSettingsQuery = { __typename?: 'Query', metadataFetchSettings: { __typename?: 'MetadataFetchSettings', fetchAfterScan: boolean } };
+
+export type UpdateMetadataFetchSettingsMutationVariables = Exact<{
+  fetchAfterScan: Scalars['Boolean']['input'];
+}>;
+
+
+export type UpdateMetadataFetchSettingsMutation = { __typename?: 'Mutation', updateMetadataFetchSettings: { __typename?: 'MetadataFetchSettings', fetchAfterScan: boolean } };
+
 export type ProviderApiKeyInputValidateKeyMutationVariables = Exact<{
   config: ValidateMetadataProviderConfigInput;
 }>;
@@ -10486,6 +10608,7 @@ export const BookCardFragmentDoc = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }
     `, {"fragmentName":"BookCard"}) as unknown as TypedDocumentString<BookCardFragment, unknown>;
@@ -10595,6 +10718,7 @@ export const BookStatRowFragmentDoc = new TypedDocumentString(`
     year
     rating
     ageRating
+    language
   }
 }
     `, {"fragmentName":"BookStatRow"}) as unknown as TypedDocumentString<BookStatRowFragment, unknown>;
@@ -10643,6 +10767,7 @@ export const BookOverviewDetailsFragmentDoc = new TypedDocumentString(`
     year
     rating
     ageRating
+    language
   }
 }`, {"fragmentName":"BookOverviewDetails"}) as unknown as TypedDocumentString<BookOverviewDetailsFragment, unknown>;
 export const BookSearchSelectionFragmentDoc = new TypedDocumentString(`
@@ -13909,6 +14034,7 @@ export const BookSearchOverlayDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }
 fragment BookSearchSelection on Media {
@@ -14000,6 +14126,26 @@ export const MediaGenreSuggestionsDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<MediaGenreSuggestionsQuery, MediaGenreSuggestionsQueryVariables>;
+export const MediaDescriptionSuggestionsDocument = new TypedDocumentString(`
+    query MediaDescriptionSuggestions($id: ID!) {
+  mediaDescriptionSuggestions(id: $id) {
+    status
+    candidates {
+      source
+      text
+      words
+    }
+    onlineLookups {
+      source
+      status
+      subjects
+      message
+    }
+    searchedTitle
+    searchedAuthors
+  }
+}
+    `) as unknown as TypedDocumentString<MediaDescriptionSuggestionsQuery, MediaDescriptionSuggestionsQueryVariables>;
 export const EditMediaMetadataDocument = new TypedDocumentString(`
     mutation EditMediaMetadata($id: ID!, $input: MediaMetadataInput!) {
   editMediaMetadata(id: $id, input: $input) {
@@ -14217,6 +14363,7 @@ fragment BookStatRow on Media {
     year
     rating
     ageRating
+    language
   }
 }
 fragment BookReadingActions on Media {
@@ -15467,6 +15614,7 @@ export const SeriesBooksSceneDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }
 fragment BookMetadata on Media {
@@ -15633,6 +15781,7 @@ export const BooksInSeriesDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }`) as unknown as TypedDocumentString<BooksInSeriesQuery, BooksInSeriesQueryVariables>;
 export const MoreByAuthorQueryDocument = new TypedDocumentString(`
@@ -15685,6 +15834,7 @@ export const MoreByAuthorQueryDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }`) as unknown as TypedDocumentString<MoreByAuthorQueryQuery, MoreByAuthorQueryQueryVariables>;
 export const BookReaderSceneDocument = new TypedDocumentString(`
@@ -16136,6 +16286,7 @@ export const BookSearchSceneDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }
 fragment BookMetadata on Media {
@@ -16821,6 +16972,7 @@ export const LibraryBooksSceneDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }
 fragment BookMetadata on Media {
@@ -17912,6 +18064,20 @@ export const DeleteProviderDialogDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<DeleteProviderDialogMutation, DeleteProviderDialogMutationVariables>;
+export const MetadataFetchSettingsDocument = new TypedDocumentString(`
+    query MetadataFetchSettings {
+  metadataFetchSettings {
+    fetchAfterScan
+  }
+}
+    `) as unknown as TypedDocumentString<MetadataFetchSettingsQuery, MetadataFetchSettingsQueryVariables>;
+export const UpdateMetadataFetchSettingsDocument = new TypedDocumentString(`
+    mutation UpdateMetadataFetchSettings($fetchAfterScan: Boolean!) {
+  updateMetadataFetchSettings(fetchAfterScan: $fetchAfterScan) {
+    fetchAfterScan
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateMetadataFetchSettingsMutation, UpdateMetadataFetchSettingsMutationVariables>;
 export const ProviderApiKeyInputValidateKeyDocument = new TypedDocumentString(`
     mutation ProviderApiKeyInputValidateKey($config: ValidateMetadataProviderConfigInput!) {
   validateProviderConfig(config: $config) {
@@ -18289,6 +18455,7 @@ export const SmartListItemsDocument = new TypedDocumentString(`
     number
     rating
     ageRating
+    language
   }
 }
 fragment BookMetadata on Media {
