@@ -2170,9 +2170,12 @@ export enum MediaDescriptionStatus {
   Locked = 'LOCKED',
   /** No book with that id or path that the user can see */
   NotFound = 'NOT_FOUND',
-  /** Every source answered: none has a description for the book */
+  /** Hardcover and Open Library answered, and no source has a description for the book */
   NoDescription = 'NO_DESCRIPTION',
-  /** Nothing found while a source couldn't answer (a rate limit, an error): ask again later */
+  /**
+   * Nothing found while Hardcover or Open Library couldn't answer (a rate limit, an
+   * error): ask again later
+   */
   RetryLater = 'RETRY_LATER'
 }
 
