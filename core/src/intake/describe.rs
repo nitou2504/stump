@@ -42,8 +42,8 @@ pub struct FoundDescriptions {
 	/// How each source answered, said for descriptions (`found a description`, `found, but
 	/// it has no description for this book`, `no matching book`, a rate limit...)
 	pub lookups: Vec<OnlineLookup>,
-	/// What was searched, when it came from the book's title page because its title or
-	/// authors looked like junk
+	/// What was searched, when the book's own title or authors looked like junk (from its
+	/// title page, or its file name for a missing title)
 	pub searched_title: Option<String>,
 	pub searched_authors: Vec<String>,
 }

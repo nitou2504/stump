@@ -371,8 +371,8 @@ pub struct MediaDescriptions {
 	/// How each online source answered: found a description (N words), found but no
 	/// description, no matching book, rate-limited, error, not configured
 	pub online_lookups: Vec<OnlineLookup>,
-	/// The title and authors searched, when they came from the book's title page (its own
-	/// looked like junk)
+	/// The title and authors searched, when the book's own looked like junk (from its title
+	/// page, or its file name for a missing title)
 	pub searched_title: Option<String>,
 	pub searched_authors: Vec<String>,
 }
