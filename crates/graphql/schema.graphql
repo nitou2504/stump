@@ -2012,9 +2012,12 @@ type MediaDescriptionCandidate {
 enum MediaDescriptionStatus {
 	"Descriptions were found (`candidates`, best first)"
 	FOUND
-	"Every source answered: none has a description for the book"
+	"Hardcover and Open Library answered, and no source has a description for the book"
 	NO_DESCRIPTION
-	"Nothing found while a source couldn't answer (a rate limit, an error): ask again later"
+	"""
+	Nothing found while Hardcover or Open Library couldn't answer (a rate limit, an
+	error): ask again later
+	"""
 	RETRY_LATER
 	"Not searched: the book has a summary (with `onlyMissing`)"
 	HAS_SUMMARY
