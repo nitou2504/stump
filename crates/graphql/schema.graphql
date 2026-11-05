@@ -2000,6 +2000,57 @@ type MediaAnnotationModel {
 	sessionId: Int
 }
 
+"A description an online source has for a book"
+type MediaDescriptionCandidate {
+	"`HARDCOVER`, `OPEN_LIBRARY` or `GOOGLE_BOOKS`"
+	source: IntakeSource!
+	text: String!
+	words: Int!
+}
+
+"What a description search did for a book"
+enum MediaDescriptionStatus {
+	"Descriptions were found (`candidates`, best first)"
+	FOUND
+	"Every source answered: none has a description for the book"
+	NO_DESCRIPTION
+	"Nothing found while a source couldn't answer (a rate limit, an error): ask again later"
+	RETRY_LATER
+	"Not searched: the book has a summary (with `onlyMissing`)"
+	HAS_SUMMARY
+	"Not searched: its summary is locked (someone set or cleared it by hand)"
+	LOCKED
+	"No book with that id or path that the user can see"
+	NOT_FOUND
+}
+
+"""
+The descriptions found online for a book. Nothing is saved: put one into the book's
+summary with `editMediaMetadata` / `editMediaMetadataBatch` (file, history, lock)
+"""
+type MediaDescriptions {
+	"The book's id (the id asked for when there is no such book)"
+	mediaId: String
+	"The book's path as Stump stores it (the path asked for when there is no such book)"
+	path: String
+	status: MediaDescriptionStatus!
+	"The summary the book has now"
+	summary: String
+	"Hardcover's first, then Open Library's and Google Books' (thin ones last), one per text"
+	candidates: [MediaDescriptionCandidate!]!
+	"""
+	How each online source answered: found a description (N words), found but no
+	description, no matching book, rate-limited, error, not configured
+	"""
+	onlineLookups: [OnlineLookup!]!
+	"""
+	The title and authors searched, when they came from the book's title page (its own
+	looked like junk)
+	"""
+	searchedTitle: String
+	searchedAuthors: [String!]!
+}
+
 input MediaFilterInput {
 	id: FieldFilterString = null
 	name: FieldFilterString = null
@@ -2496,6 +2547,15 @@ input MetadataFetchRecordId @oneOf {
 	media: String
 }
 
+"Automatic metadata fetches from the metadata providers (Hardcover...)"
+type MetadataFetchSettings {
+	"""
+	Whether a scan asks the providers about the books it added, and the scheduled retries
+	run. Off keeps their daily quota for people's lookups; fetches someone starts still run
+	"""
+	fetchAfterScan: Boolean!
+}
+
 enum MetadataFetchStatus {
 	AWAITING_REVIEW
 	NOT_STARTED
@@ -2959,6 +3019,11 @@ type Mutation {
 	back (`onlineLookupSettings` only says whether one is set)
 	"""
 	updateOnlineLookupSettings(googleBooksApiKey: String): OnlineLookupSettings!
+	"""
+	Turns the automatic metadata fetches on or off: what a scan asks the metadata
+	providers about the books it added, and the scheduled retries
+	"""
+	updateMetadataFetchSettings(fetchAfterScan: Boolean!): MetadataFetchSettings!
 	createScheduledJob(input: CreateScheduledJobInput!): ScheduledJob!
 	updateScheduledJob(id: Int!, input: UpdateScheduledJobInput!): ScheduledJob!
 	deleteScheduledJob(id: Int!): Boolean!
@@ -3754,6 +3819,22 @@ type Query {
 	the same evidence
 	"""
 	mediaGenreSuggestions(id: ID!, online: Boolean): MediaGenreSuggestions!
+	"""
+	Descriptions for a book from the online sources (Hardcover first, then Open Library
+	and Google Books), for its summary in *Edit details*. Nothing is saved
+	"""
+	mediaDescriptionSuggestions(id: ID!): MediaDescriptions!
+	"""
+	Descriptions for many books, for scripts: the books asked by `ids` and `paths` (as
+	Stump stores them), in that order, one result each. With `onlyMissing` (the default)
+	a book whose summary has 15 words or more is not searched (`HAS_SUMMARY`); a book whose
+	summary is locked (set or cleared by hand) never is (`LOCKED`). Nothing is saved:
+	review the `candidates`, then save with `editMediaMetadataBatch`. Hardcover is asked
+	as background work: within its daily budget for background work, behind people's
+	lookups (about one request every 4 seconds, 2 or 3 a book); when the budget is used
+	up, books report `RETRY_LATER`. At most 25 books per call
+	"""
+	findMediaDescriptions(ids: [ID!]! = [], paths: [String!]! = [], onlyMissing: Boolean! = true): [MediaDescriptions!]!
 	"The latest saves of a book's metadata edit history, newest first (20 by default)"
 	mediaMetadataEdits(mediaId: ID!, limit: Int): [MetadataEditSave!]!
 	"""
@@ -3809,6 +3890,8 @@ type Query {
 	"Return all metadata fetch records that are awaiting user review."
 	pendingMetadataMatches: [MetadataFetchRecord!]!
 	serverConfig: ServerConfigModel!
+	"Whether scans fetch metadata for the books they add"
+	metadataFetchSettings: MetadataFetchSettings!
 	"The online lookups' settings (whether a Google Books API key is set)"
 	onlineLookupSettings: OnlineLookupSettings!
 	listDirectory(pagination: Pagination!, input: DirectoryListingInput): PaginatedDirectoryListingResponse!
