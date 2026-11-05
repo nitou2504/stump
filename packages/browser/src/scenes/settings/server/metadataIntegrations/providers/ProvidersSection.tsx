@@ -7,6 +7,7 @@ import { useTranslate } from '@/hooks/useTranslate'
 
 import { CreateProviderDialog } from './CreateProviderDialog'
 import { ExistingProviderCard } from './ExistingProviderCard'
+import { MetadataFetchSwitch } from './MetadataFetchSwitch'
 
 const query = graphql(`
 	query ProvidersSectionGetProviders {
@@ -63,6 +64,8 @@ export default function ProvidersSection() {
 			<Suspense fallback={null}>
 				<ProviderCards />
 			</Suspense>
+
+			<MetadataFetchSwitch />
 		</div>
 	)
 }
