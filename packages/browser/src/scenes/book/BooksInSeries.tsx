@@ -46,7 +46,7 @@ const PAGE_SIZE = 50
 
 const queryKey = (seriesId: string) => ['booksInSeries', seriesId]
 
-/** Every book of the series, in the series page's default order (number, then name) */
+/** Every book of the series, in the series page's default order (number, language, then name) */
 const queryVariables = (seriesId: string) => ({
 	seriesId,
 	filter: { seriesId: { eq: seriesId } },

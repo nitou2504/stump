@@ -1,11 +1,13 @@
 import { formatBytes } from '@stump/client'
 import { Link, Text } from '@stump/components'
 import { FragmentType, Media, MediaMetadataModelOrdering, MediaModelOrdering } from '@stump/graphql'
+import { useLocaleContext } from '@stump/i18n'
 import { ColumnSort } from '@stump/sdk'
 import { CellContext, ColumnDef, createColumnHelper } from '@tanstack/react-table'
 import { format, intlFormat, isValid } from 'date-fns'
 
 import { usePaths } from '@/paths'
+import { bookLanguage } from '@/utils/language'
 import { isEbookExtension } from '@/utils/readingProgress'
 
 import { BookCardFragment } from '../BookCard'
@@ -28,6 +30,18 @@ function TextCell({ value }: { value?: string | number | null }) {
 function ListCell({ values }: { values?: string[] | null }) {
 	if (!values?.length) return null
 	return <TextCell value={values.join(', ')} />
+}
+
+/** A book's language as its short code (`ES`), named in full on hover */
+export function LanguageCell({ value }: { value?: string | null }) {
+	const { locale } = useLocaleContext()
+	const language = bookLanguage(value, locale)
+	if (!language) return null
+	return (
+		<Text size="sm" variant="muted" className="truncate" title={language.name}>
+			{language.label}
+		</Text>
+	)
 }
 
 const header = (label: string) =>
@@ -192,6 +206,15 @@ const ageRatingColumn = columnHelper.accessor(({ metadata }) => metadata?.ageRat
 	size: 96,
 })
 
+const languageColumn = columnHelper.accessor(({ metadata }) => metadata?.language, {
+	cell: ({ getValue }) => <LanguageCell value={getValue()} />,
+	enableGlobalFilter: true,
+	enableSorting: true,
+	header: header('Language'),
+	id: MediaMetadataModelOrdering.Language,
+	size: 92,
+})
+
 const genresColumn = columnHelper.accessor(({ metadata }) => metadata?.genres, {
 	cell: ({ getValue }) => <ListCell values={getValue()} />,
 	enableGlobalFilter: true,
@@ -336,6 +359,7 @@ export const columnMap = {
 	position: positionColumn,
 	writers: writersColumn,
 	series: seriesColumn,
+	language: languageColumn,
 	genres: genresColumn,
 	rating: ratingColumn,
 	age_rating: ageRatingColumn,
@@ -363,6 +387,7 @@ export const columnOptionMap: Record<keyof typeof columnMap, string> = {
 	position: 'Series position',
 	writers: 'Writers',
 	series: 'Series',
+	language: 'Language',
 	genres: 'Genres',
 	rating: 'Rating',
 	age_rating: 'Age Rating',
@@ -383,7 +408,7 @@ export const columnOptionMap: Record<keyof typeof columnMap, string> = {
 }
 
 /** The columns shown until the viewer picks their own (keys of `columnMap`) */
-const defaultColumnKeys = ['cover', 'name', 'writers', 'pages', 'published', 'added']
+const defaultColumnKeys = ['cover', 'name', 'writers', 'language', 'pages', 'published', 'added']
 
 export const defaultColumns = defaultColumnKeys.map((key) => columnMap[key]) as ColumnDef<
 	FragmentType<typeof BookCardFragment>

@@ -1,9 +1,20 @@
 import { formatBytesSeparate } from '@stump/client'
 import { MiniStatCard } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
-import { Calendar, FileStack, FileType, HardDrive, ShieldAlert, Star } from 'lucide-react'
+import { useLocaleContext } from '@stump/i18n'
+import {
+	Calendar,
+	FileStack,
+	FileType,
+	HardDrive,
+	Languages,
+	type LucideIcon,
+	ShieldAlert,
+	Star,
+} from 'lucide-react'
 
 import { useTranslate } from '@/hooks/useTranslate'
+import { bookLanguage } from '@/utils/language'
 
 const fragment = graphql(`
 	fragment BookStatRow on Media {
@@ -14,6 +25,7 @@ const fragment = graphql(`
 			year
 			rating
 			ageRating
+			language
 		}
 	}
 `)
@@ -24,11 +36,19 @@ type Props = {
 
 export default function BookStatRow({ fragment: fragmentRef }: Props) {
 	const { translate } = useTranslate()
+	const { locale } = useLocaleContext()
 	const { pages, size, extension, metadata } = useFragment(fragment, fragmentRef)
 	const formattedSize = size > 0 ? formatBytesSeparate(size) : null
 
 	const rating = metadata?.rating != null ? Number(metadata.rating) : null
-	const items = [
+	const language = bookLanguage(metadata?.language, locale)
+	const items: {
+		key: string
+		icon: LucideIcon
+		value?: string | number | null
+		suffix?: string
+		title?: string
+	}[] = [
 		{
 			key: 'rating',
 			icon: Star,
@@ -47,6 +67,7 @@ export default function BookStatRow({ fragment: fragmentRef }: Props) {
 			value: metadata?.year && metadata.year > 0 ? metadata.year : null,
 		},
 		{ key: 'format', icon: FileType, value: extension?.toUpperCase() },
+		{ key: 'language', icon: Languages, value: language?.label, title: language?.name },
 		{
 			key: 'size',
 			icon: HardDrive,
@@ -64,8 +85,8 @@ export default function BookStatRow({ fragment: fragmentRef }: Props) {
 
 	return (
 		<div className="gap-2 flex flex-wrap items-center">
-			{items.map(({ key, icon, value, suffix }) => (
-				<MiniStatCard key={key} icon={icon} value={value!} suffix={suffix} />
+			{items.map(({ key, icon, value, suffix, title }) => (
+				<MiniStatCard key={key} icon={icon} value={value!} suffix={suffix} title={title} />
 			))}
 		</div>
 	)

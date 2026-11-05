@@ -5,7 +5,9 @@ import { ColumnDef, createColumnHelper } from '@tanstack/react-table'
 import { CellContext } from '@tanstack/react-table'
 import { format, intlFormat, isValid } from 'date-fns'
 
+import { LanguageCell } from '@/components/book/table/columns'
 import { usePaths } from '@/paths'
+import { bookLanguageCode } from '@/utils/language'
 import { matchesSearch } from '@/utils/textSearch'
 
 import BookLinksCell from './BookLinksCell'
@@ -143,6 +145,19 @@ const ageRatingColumn = columnHelper.accessor(({ metadata }) => metadata?.ageRat
 	size: 112,
 })
 
+const languageColumn = columnHelper.accessor(
+	({ metadata }) => bookLanguageCode(metadata?.language) ?? undefined,
+	{
+		cell: ({ getValue }) => <LanguageCell value={getValue()} />,
+		enableGlobalFilter: true,
+		enableSorting: true,
+		header: header('Language'),
+		id: 'language',
+		size: 96,
+		sortUndefined: 'last',
+	},
+)
+
 const ratingColumn = columnHelper.accessor(
 	({ metadata }) => (metadata?.rating != null ? Number(metadata.rating) : undefined),
 	{
@@ -265,6 +280,7 @@ export const columnMap = {
 	position: positionColumn,
 	writers: writersColumn,
 	series: seriesColumn,
+	language: languageColumn,
 	genres: genresColumn,
 	rating: ratingColumn,
 	age_rating: ageRatingColumn,
@@ -290,6 +306,7 @@ export const columnOptionMap: Record<keyof typeof columnMap, string> = {
 	position: 'Series position',
 	writers: 'Writers',
 	series: 'Series',
+	language: 'Language',
 	genres: 'Genres',
 	rating: 'Rating',
 	age_rating: 'Age Rating',
@@ -311,6 +328,7 @@ export const defaultColumns = [
 	coverColumn,
 	nameColumn,
 	writersColumn,
+	languageColumn,
 	pagesColumn,
 	publishedColumn,
 	addedColumn,

@@ -11,6 +11,7 @@ import { useCallback } from 'react'
 
 import {
 	DEFAULT_MEDIA_ORDER_BY,
+	LANGUAGE_TIE_BREAK,
 	useSearchMediaFilter,
 	useURLKeywordSearch,
 	useURLPageParams,
@@ -58,6 +59,7 @@ export const seriesLayoutQuery = graphql(`
 
 export const DEFAULT_SERIES_BOOKS_ORDER_BY: MediaOrderBy[] = [
 	{ metadata: { field: MediaMetadataModelOrdering.Number, direction: OrderDirection.Asc } },
+	LANGUAGE_TIE_BREAK,
 	...DEFAULT_MEDIA_ORDER_BY,
 ] as MediaOrderBy[]
 

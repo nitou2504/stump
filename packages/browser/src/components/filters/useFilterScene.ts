@@ -297,7 +297,13 @@ const MEDIA_METADATA_ORDER_FIELDS: string[] = [
 	MediaMetadataModelOrdering.Year,
 	MediaMetadataModelOrdering.Rating,
 	MediaMetadataModelOrdering.AgeRating,
+	MediaMetadataModelOrdering.Language,
 ]
+
+/** Books with the same number (two languages of one volume) keep a steady order: by language */
+export const LANGUAGE_TIE_BREAK: MediaOrderBy = {
+	metadata: { field: MediaMetadataModelOrdering.Language, direction: OrderDirection.Asc },
+} as MediaOrderBy
 
 export function useMediaURLOrderBy(ordering: Ordering): MediaOrderBy[] {
 	return useMemo(() => {
@@ -313,7 +319,7 @@ export function useMediaURLOrderBy(ordering: Ordering): MediaOrderBy[] {
 				},
 			} as MediaOrderBy
 			return ordering.orderBy === MediaMetadataModelOrdering.Number
-				? [metadataOrderBy, ...DEFAULT_MEDIA_ORDER_BY]
+				? [metadataOrderBy, LANGUAGE_TIE_BREAK, ...DEFAULT_MEDIA_ORDER_BY]
 				: [metadataOrderBy]
 		}
 

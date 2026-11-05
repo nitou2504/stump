@@ -2,6 +2,7 @@ import { getThumbnailTintColor } from '@stump/client'
 import { formatBytes } from '@stump/client'
 import { cn, ProgressBar, Text } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
+import { useLocaleContext } from '@stump/i18n'
 import pluralize from 'pluralize'
 import { memo, useCallback, useMemo } from 'react'
 
@@ -10,6 +11,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useTheme } from '@/hooks/useTheme'
 import { usePaths } from '@/paths'
 import { usePrefetchBooksInSeries } from '@/scenes/book/BooksInSeries'
+import { bookLanguage } from '@/utils/language'
 import { isEbookExtension, isEbookReadProgress, readProgressPercent } from '@/utils/readingProgress'
 
 import { ThumbnailImage } from '../thumbnail/ThumbnailImage'
@@ -56,9 +58,14 @@ export const BookCardFragment = graphql(`
 			number
 			rating
 			ageRating
+			language
 		}
 	}
 `)
+
+/** A small label on the cover: the book's language, 18+ */
+const COVER_CHIP =
+	'px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm rounded-md'
 
 /** `3`, `1.5`: a series position without trailing zeros */
 const formatPosition = (value: unknown) => {
@@ -92,6 +99,7 @@ const BookCard = memo(function BookCard({
 		preferences: { thumbnailRatio },
 	} = usePreferences()
 	const { isDarkVariant, getColor: getThemeColor } = useTheme()
+	const { locale } = useLocaleContext()
 
 	const prefetchBook = usePrefetchBook()
 	const prefetchBooksInSeries = usePrefetchBooksInSeries()
@@ -154,6 +162,7 @@ const BookCard = memo(function BookCard({
 			: null
 	const rating = data.metadata?.rating != null ? Number(data.metadata.rating) : null
 	const isAdult = (data.metadata?.ageRating ?? 0) >= 18
+	const language = bookLanguage(data.metadata?.language, locale)
 
 	const ratingLabel =
 		rating != null && Number.isFinite(rating) && rating > 0 ? (
@@ -266,13 +275,20 @@ const BookCard = memo(function BookCard({
 						#{seriesPosition}
 					</span>
 				)}
-				{isAdult && (
-					<span
-						className="right-1.5 top-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/60 text-white backdrop-blur-sm pointer-events-none absolute z-20 rounded-md"
-						title="Adult (18+)"
-					>
-						18+
-					</span>
+				{(language || isAdult) && (
+					<div className="right-1.5 top-1.5 gap-1 pointer-events-none absolute z-20 flex">
+						{language && (
+							// the chip takes the pointer for its tooltip; a click still opens the book
+							<span className={cn(COVER_CHIP, 'pointer-events-auto')} title={language.name}>
+								{language.label}
+							</span>
+						)}
+						{isAdult && (
+							<span className={COVER_CHIP} title="Adult (18+)">
+								18+
+							</span>
+						)}
+					</div>
 				)}
 			</div>
 
