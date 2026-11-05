@@ -13,9 +13,12 @@ const SOURCE_NAME: Partial<Record<IntakeSource, string>> = {
 	[IntakeSource.Hardcover]: 'Hardcover',
 }
 
+/** `Hardcover`, `Open Library`, `Google Books` */
+export const sourceName = (source: IntakeSource): string => SOURCE_NAME[source] ?? 'Online'
+
 /** "Open Library: found, 3 subjects", "Google Books: daily limit reached: add …" */
 export function lookupLine(lookup: Lookup): string {
-	return `${SOURCE_NAME[lookup.source] ?? 'Online'}: ${lookup.message}`
+	return `${sourceName(lookup.source)}: ${lookup.message}`
 }
 
 /** A lookup that failed (the source refused or errored), as opposed to one that found nothing */

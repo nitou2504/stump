@@ -2,10 +2,11 @@ import { useGraphQL, useGraphQLMutation } from '@stump/client'
 import { Button, Dialog, Input, Label, NativeSelect, TextArea } from '@stump/components'
 import { MetadataFacetField } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
-import { Sparkles } from 'lucide-react'
+import { Globe, Sparkles } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import DescriptionPanel from './DescriptionPanel'
 import EditHistory from './EditHistory'
 import { type DetailsForm, detailsForm, editInput } from './form'
 import GenreSuggestPanel from './GenreSuggestPanel'
@@ -97,10 +98,12 @@ export default function EditBookDialog({ mediaId, isOpen, onClose, focus }: Prop
 
 	const [form, setForm] = useState<DetailsForm | null>(null)
 	const [suggesting, setSuggesting] = useState(false)
+	const [describing, setDescribing] = useState(false)
 	useEffect(() => {
 		if (isOpen && initial) {
 			setForm(initial)
 			setSuggesting(false)
+			setDescribing(false)
 		}
 	}, [isOpen, initial])
 
@@ -246,13 +249,37 @@ export default function EditBookDialog({ mediaId, isOpen, onClose, focus }: Prop
 								)}
 							</div>
 
-							<TextArea
-								id={`${id}-summary`}
-								label="Summary"
-								rows={5}
-								value={form.summary}
-								onChange={(e) => set('summary', e.target.value)}
-							/>
+							<div className="gap-2 flex flex-col">
+								<div className="gap-2 flex items-center justify-between">
+									<Label htmlFor={`${id}-summary`}>Summary</Label>
+									{!describing && (
+										<Button
+											type="button"
+											variant="outline"
+											size="xs"
+											onClick={() => setDescribing(true)}
+										>
+											<Globe /> Find description
+										</Button>
+									)}
+								</div>
+								<TextArea
+									id={`${id}-summary`}
+									rows={5}
+									value={form.summary}
+									onChange={(e) => set('summary', e.target.value)}
+								/>
+								{describing && (
+									<DescriptionPanel
+										mediaId={mediaId}
+										onApply={(summary) => {
+											set('summary', summary)
+											setDescribing(false)
+										}}
+										onClose={() => setDescribing(false)}
+									/>
+								)}
+							</div>
 
 							<div className="gap-3 sm:grid-cols-[minmax(0,1fr)_7rem] grid grid-cols-1">
 								<div className="gap-2 flex flex-col">

@@ -49,6 +49,28 @@ export const mediaGenreSuggestionsQuery = graphql(`
 	}
 `)
 
+/** Descriptions found online for a book (Hardcover first), for its summary */
+export const mediaDescriptionSuggestionsQuery = graphql(`
+	query MediaDescriptionSuggestions($id: ID!) {
+		mediaDescriptionSuggestions(id: $id) {
+			status
+			candidates {
+				source
+				text
+				words
+			}
+			onlineLookups {
+				source
+				status
+				subjects
+				message
+			}
+			searchedTitle
+			searchedAuthors
+		}
+	}
+`)
+
 /** Saves a book's metadata and writes the changes into its file */
 export const editMediaMetadataMutation = graphql(`
 	mutation EditMediaMetadata($id: ID!, $input: MediaMetadataInput!) {
