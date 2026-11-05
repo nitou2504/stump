@@ -101,9 +101,41 @@ pub struct LookupQuery {
 	pub by_series: bool,
 }
 
+/// Words that make a trailing bracketed part a publisher's reprint series, not part of the
+/// title: `(Penguin Classics)`, `(Oxford World's Classics)`, `(Vintage International)`
+const IMPRINT_NOTE: &str = r"(?i)\b(?:classics?|cl[aá]sicos?|penguin|vintage|oxford world.?s|everyman.?s|modern library|signet|bantam|wordsworth|harper perennial|library of america)\b";
+/// ... unless it names an adaptation: graded readers (`(Oxford Bookworms Library, Stage 3)`,
+/// `(Penguin Readers)`) are other books than the original
+const ADAPTATION_NOTE: &str =
+	r"(?i)\b(?:readers?|bookworms|graded|stage \d|level \d|adapted|retold)\b";
+
+/// The title without a trailing reprint-series note (see [`IMPRINT_NOTE`])
+fn strip_imprint_note(title: &str) -> String {
+	static NOTE: LazyLock<Regex> = LazyLock::new(|| {
+		Regex::new(r"\s*[\(\[]([^\(\)\[\]]*)[\)\]]\s*$").expect("valid regex")
+	});
+	static IMPRINT: LazyLock<Regex> =
+		LazyLock::new(|| Regex::new(IMPRINT_NOTE).expect("valid regex"));
+	static ADAPTATION: LazyLock<Regex> =
+		LazyLock::new(|| Regex::new(ADAPTATION_NOTE).expect("valid regex"));
+	match NOTE.captures(title) {
+		Some(caps)
+			if IMPRINT.is_match(&caps[1])
+				&& !ADAPTATION.is_match(&caps[1])
+				&& caps.get(0).is_some_and(|m| m.start() > 0) =>
+		{
+			title[..caps.get(0).map_or(title.len(), |m| m.start())]
+				.trim()
+				.to_string()
+		},
+		_ => title.to_string(),
+	}
+}
+
 /// A title without the edition and format words around it (`. Versión ilustrada`,
-/// `(Ed. Ilustrada)`, `(Spanish Edition)`, `Illustrated edition`) and without a trailing volume
-/// number (`v03`, `Vol. 3`, `Tomo 3`, `#3`)
+/// `(Ed. Ilustrada)`, `(Spanish Edition)`, `Illustrated edition`), without a reprint series'
+/// note (`(Penguin Classics)`) and without a trailing volume number (`v03`, `Vol. 3`,
+/// `Tomo 3`, `#3`)
 pub fn normalize_title(title: &str) -> String {
 	static RULES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 		let words = r"ed\.?|edici[oó]n|edition|editions|versi[oó]n|version|illustrated|ilustrad[oa]|annotated|anotad[oa]|spanish|english|espa[nñ]ol|unabridged|abridged|biling[uü]e|bilingual|kindle|ebook|epub|tapa blanda|paperback|hardcover|novela gr[aá]fica";
@@ -126,6 +158,7 @@ pub fn normalize_title(title: &str) -> String {
 	let mut out = title.trim().to_string();
 	loop {
 		let before = out.clone();
+		out = strip_imprint_note(&out);
 		for rule in RULES.iter() {
 			out = rule.replace(&out, "").trim().to_string();
 		}
@@ -1250,23 +1283,27 @@ async fn open_library(
 			_ => (None, answered(source, None)),
 		};
 	};
-	// a search result often has no subjects: its work record, then one of its editions
-	for key in [
-		record.work_key.clone(),
-		record.edition_key.clone().map(|e| format!("/books/{e}")),
-	]
-	.into_iter()
-	.flatten()
-	{
-		if !record.subjects.is_empty() || budget == 0 {
-			break;
+	// the work record, always: a search result never carries the description, and often no
+	// subjects; then one of its editions when there are still no subjects
+	for (key, always) in [
+		(record.work_key.clone(), true),
+		(
+			record.edition_key.clone().map(|e| format!("/books/{e}")),
+			false,
+		),
+	] {
+		let Some(key) = key else { continue };
+		if budget == 0 || !(always || record.subjects.is_empty()) {
+			continue;
 		}
 		budget -= 1;
 		if let Fetched::Json(json) = fetch
 			.get(&format!("https://openlibrary.org{key}.json"))
 			.await
 		{
-			record.subjects = open_library_record_subjects(&json);
+			if record.subjects.is_empty() {
+				record.subjects = open_library_record_subjects(&json);
+			}
 			if record.description.is_none() {
 				record.description = open_library_description(&json);
 			}
@@ -1868,7 +1905,16 @@ mod tests {
 				"Chemical Secret (Oxford Bookworms Library, Stage 3)",
 				"Chemical Secret (Oxford Bookworms Library, Stage 3)",
 			),
+			("Dracula (Penguin Readers)", "Dracula (Penguin Readers)"),
 			("Apollo 13", "Apollo 13"),
+			// a reprint series' note
+			("The Odyssey (Penguin Classics)", "The Odyssey"),
+			("Moby-Dick (Oxford World's Classics)", "Moby-Dick"),
+			("Invisible Man (Vintage International)", "Invisible Man"),
+			(
+				"The Brothers Karamazov (Everyman's Library Classics)",
+				"The Brothers Karamazov",
+			),
 		] {
 			assert_eq!(normalize_title(title), expected, "{title}");
 		}
@@ -1968,12 +2014,64 @@ mod tests {
 		let asked = canned.asked.lock().unwrap().clone();
 		let ol: Vec<&String> =
 			asked.iter().filter(|u| u.contains("openlibrary")).collect();
-		assert_eq!(ol.len(), 1, "one search was enough: {ol:?}");
+		let searches: Vec<&&String> =
+			ol.iter().filter(|u| u.contains("search.json")).collect();
+		assert_eq!(searches.len(), 1, "one search was enough: {ol:?}");
 		assert!(
-			ol[0].contains("q=El%20nombre%20de%20la%20rosa%20Umberto%20Eco"),
+			searches[0].contains("q=El%20nombre%20de%20la%20rosa%20Umberto%20Eco"),
 			"{}",
-			ol[0]
+			searches[0]
 		);
+		// then its work record, for the description a search never has
+		assert!(
+			ol.iter().any(|u| u.contains("/works/OL8996439W.json")),
+			"{ol:?}"
+		);
+		assert_eq!(ol.len(), 2, "{ol:?}");
+	}
+
+	/// A search result with subjects still has no description: its work record gives it
+	#[tokio::test]
+	async fn reads_the_work_description_even_when_the_search_has_subjects() {
+		let canned = Canned {
+			answers: vec![
+				("googleapis.com", quota_error()),
+				(
+					"openlibrary.org/search.json",
+					Fetched::Json(json!({ "docs": [{
+						"key": "/works/OL1W",
+						"title": "Patterns of Software",
+						"author_name": ["Richard P. Gabriel"],
+						"subject": ["Computer software", "Software engineering"]
+					}]})),
+				),
+				(
+					"openlibrary.org/works/OL1W.json",
+					Fetched::Json(json!({
+						"subjects": ["Something else"],
+						"description": {"type": "/type/text", "value": "Essays on software."}
+					})),
+				),
+			],
+			asked: Mutex::new(vec![]),
+		};
+		let outcome = lookup_with(
+			&canned,
+			None,
+			HardcoverAccess::NotConfigured,
+			&query(
+				"Patterns of Software",
+				vec!["Richard P. Gabriel".to_string()],
+			),
+		)
+		.await;
+		let record = &outcome.records[0];
+		// the search's subjects stay
+		assert_eq!(
+			record.subjects,
+			vec!["Computer software", "Software engineering"]
+		);
+		assert_eq!(record.description.as_deref(), Some("Essays on software."));
 	}
 
 	/// Nothing agrees: at most 3 requests per source (here two Open Library searches)

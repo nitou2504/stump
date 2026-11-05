@@ -13,6 +13,7 @@ pub mod library_index;
 pub mod lookup;
 pub mod naming;
 pub mod suggest;
+pub mod title_page;
 pub mod write;
 
 use std::{
@@ -183,22 +184,26 @@ async fn analyse_item(
 		&& !is_comic
 		&& !(has_good_tags && !file_meta.authors.is_empty())
 	{
-		let original_title = files
+		let epub = files
 			.iter()
 			.find(|f| f.format == "epub")
-			.and_then(|f| lookup::original_title_of(&staging.join(&f.staged_name)));
-		lookup::lookup(
-			conn,
-			&lookup::LookupQuery {
-				isbn: file_meta.isbn.clone(),
-				title: file_meta.title.clone(),
-				authors: file_meta.authors.clone(),
-				original_title,
-				series: file_meta.series.clone(),
-				by_series: false,
-			},
+			.map(|f| staging.join(&f.staged_name));
+		let original_title = epub.as_deref().and_then(lookup::original_title_of);
+		let query = lookup::LookupQuery {
+			isbn: file_meta.isbn.clone(),
+			title: file_meta.title.clone(),
+			authors: file_meta.authors.clone(),
+			original_title,
+			series: file_meta.series.clone(),
+			by_series: false,
+		};
+		// junk metadata (`OUP Book`, a swapped title and author): searched by the title page
+		let (query, _) = title_page::repair_for_lookup(
+			query,
+			epub.as_deref().unwrap_or_else(|| Path::new("")),
 		)
-		.await
+		.await;
+		lookup::lookup(conn, &query).await
 	} else {
 		lookup::LookupOutcome::default()
 	};

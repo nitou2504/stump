@@ -239,7 +239,7 @@ pub fn parse_file_name(stem: &str) -> ParsedFileName {
 }
 
 /// Two to five capitalised words (initials allowed), or `Last, First`
-fn looks_like_person(text: &str) -> bool {
+pub(crate) fn looks_like_person(text: &str) -> bool {
 	if text.contains(',') {
 		let parts: Vec<&str> = text.split(',').collect();
 		return parts.len() == 2 && parts.iter().all(|p| looks_like_person(p.trim()) || p.trim().split_whitespace().count() == 1);

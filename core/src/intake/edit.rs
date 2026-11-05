@@ -1965,6 +1965,43 @@ fn judge_current(
 		.collect()
 }
 
+/// What the online lookups search for a book already in the library: its ISBN, title,
+/// authors and series (a comic or manga volume is searched by its series), with the original
+/// title a translated EPUB names; when its title or authors look like junk, those of its title
+/// page (see [`super::title_page`]). Whether the title page changed what is searched
+pub async fn book_lookup_query(
+	book: &media::Model,
+	meta: &media_metadata::Model,
+) -> (lookup::LookupQuery, bool) {
+	let intake_meta = intake_metadata_of(meta);
+	let path = PathBuf::from(&book.path);
+	let format = EditableFormat::of(&path);
+	let is_comic = matches!(format, Some(EditableFormat::Cbz))
+		|| book.extension.eq_ignore_ascii_case("cbr");
+	// a translated EPUB may name its original title, which finds the work behind it
+	let original_title = if format == Some(EditableFormat::Epub) {
+		let path = path.clone();
+		tokio::task::spawn_blocking(move || lookup::original_title_of(&path))
+			.await
+			.ok()
+			.flatten()
+	} else {
+		None
+	};
+	let query = lookup::LookupQuery {
+		isbn: intake_meta.isbn.clone(),
+		title: intake_meta.title.clone(),
+		authors: intake_meta.authors.clone(),
+		original_title,
+		series: intake_meta.series.clone(),
+		by_series: is_comic,
+	};
+	if is_comic {
+		return (query, false);
+	}
+	super::title_page::repair_for_lookup(query, &path).await
+}
+
 /// Suggests tags for a book already in the library from its author's and series' other
 /// books, books with similar descriptions and (when `online`) Open Library / Google Books
 /// subjects, and judges its current tags against the same evidence
@@ -1994,33 +2031,9 @@ pub async fn suggest_for_book(
 
 	let mut intake_meta = intake_metadata_of(meta);
 	let wants_online = online.unwrap_or(settings.online_lookup);
-	let format = EditableFormat::of(Path::new(&book.path));
-	let is_comic = matches!(format, Some(EditableFormat::Cbz))
-		|| book.extension.eq_ignore_ascii_case("cbr");
 	let lookup = if wants_online {
-		// a translated EPUB may name its original title, which finds the work behind it
-		let original_title = if format == Some(EditableFormat::Epub) {
-			let path = PathBuf::from(&book.path);
-			tokio::task::spawn_blocking(move || lookup::original_title_of(&path))
-				.await
-				.ok()
-				.flatten()
-		} else {
-			None
-		};
-		lookup::lookup(
-			conn,
-			&lookup::LookupQuery {
-				isbn: intake_meta.isbn.clone(),
-				title: intake_meta.title.clone(),
-				authors: intake_meta.authors.clone(),
-				original_title,
-				series: intake_meta.series.clone(),
-				// a comic or manga volume is looked up by its series
-				by_series: is_comic,
-			},
-		)
-		.await
+		let (query, _) = book_lookup_query(book, meta).await;
+		lookup::lookup(conn, &query).await
 	} else {
 		lookup::LookupOutcome::default()
 	};
