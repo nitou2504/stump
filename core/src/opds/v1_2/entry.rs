@@ -303,7 +303,7 @@ impl IntoOPDSEntry for OPDSEntryBuilder<OPDSPublicationEntity> {
 			})
 			.filter(|v| !v.is_empty());
 
-		// e.g. "★ 4.1 · 18+ · 1.2 MiB - epub"
+		// e.g. "★ 4.1 · 18+ · EN · 1.2 MiB - epub"
 		let mut details = Vec::new();
 		if let Some(rating) = self.data.metadata.as_ref().and_then(|m| m.rating) {
 			details.push(format!(
@@ -319,6 +319,15 @@ impl IntoOPDSEntry for OPDSEntryBuilder<OPDSPublicationEntity> {
 			.filter(|age| *age > 0)
 		{
 			details.push(format!("{age}+"));
+		}
+		if let Some(language) = self
+			.data
+			.metadata
+			.as_ref()
+			.and_then(|m| m.language.as_deref())
+			.and_then(crate::intake::naming::language_label)
+		{
+			details.push(language);
 		}
 		details.push(format!("{:.1} MiB - {}", mib, self.data.media.extension));
 		let details = details.join(" · ");

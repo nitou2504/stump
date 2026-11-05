@@ -287,6 +287,47 @@ pub fn language_code(value: &str) -> Option<String> {
 		"ita" | "italian" | "italiano" => "it",
 		"por" | "portuguese" | "portugués" | "portugues" => "pt",
 		"cat" | "catalan" | "català" | "catalán" => "ca",
+		// other ISO 639-2 codes (bibliographic and terminology) with a two-letter one
+		"rus" => "ru",
+		"lat" => "la",
+		"chi" | "zho" => "zh",
+		"kor" => "ko",
+		"ara" => "ar",
+		"heb" => "he",
+		"gre" | "ell" => "el",
+		"dut" | "nld" => "nl",
+		"swe" => "sv",
+		"nor" => "no",
+		"nob" => "nb",
+		"nno" => "nn",
+		"dan" => "da",
+		"fin" => "fi",
+		"pol" => "pl",
+		"cze" | "ces" => "cs",
+		"slo" | "slk" => "sk",
+		"slv" => "sl",
+		"hun" => "hu",
+		"tur" => "tr",
+		"rum" | "ron" => "ro",
+		"bul" => "bg",
+		"ukr" => "uk",
+		"hrv" => "hr",
+		"srp" => "sr",
+		"lit" => "lt",
+		"lav" => "lv",
+		"est" => "et",
+		"ice" | "isl" => "is",
+		"gle" => "ga",
+		"wel" | "cym" => "cy",
+		"glg" => "gl",
+		"baq" | "eus" => "eu",
+		"hin" => "hi",
+		"per" | "fas" => "fa",
+		"ind" => "id",
+		"may" | "msa" => "ms",
+		"vie" => "vi",
+		"tha" => "th",
+		"epo" => "eo",
 		other => {
 			let first = other.split(['-', '_', ' ']).next().unwrap_or(other);
 			if first.len() == 2 && first.chars().all(|c| c.is_ascii_alphabetic()) {
@@ -296,6 +337,26 @@ pub fn language_code(value: &str) -> Option<String> {
 		},
 	};
 	Some(mapped.to_string())
+}
+
+/// A book's language as the short code its listings show (`ES`, `EN`, `JA`): the two-letter
+/// code when one is known (`spa`, `es-ES` and `ES` are all `ES`), else the stored
+/// three-letter code (`AST`); nothing for an empty, undetermined or unreadable value
+pub fn language_label(value: &str) -> Option<String> {
+	language_code(value)
+		.or_else(|| {
+			let first = value
+				.trim()
+				.split(['-', '_', ' '])
+				.next()
+				.unwrap_or_default()
+				.to_lowercase();
+			(first.len() == 3
+				&& first.chars().all(|c| c.is_ascii_alphabetic())
+				&& !["und", "zxx", "mis"].contains(&first.as_str()))
+			.then_some(first)
+		})
+		.map(|code| code.to_uppercase())
 }
 
 /// Whether a relative name is one plain path component (no separators, no `..`)
@@ -440,6 +501,21 @@ mod tests {
 		assert_eq!(language_code("es-ES").as_deref(), Some("es"));
 		assert_eq!(language_code("Spanish").as_deref(), Some("es"));
 		assert_eq!(language_code("und"), None);
+		assert_eq!(language_code("rus").as_deref(), Some("ru"));
+		assert_eq!(language_code("ger").as_deref(), Some("de"));
+	}
+
+	#[test]
+	fn labels_any_language() {
+		assert_eq!(language_label("es").as_deref(), Some("ES"));
+		assert_eq!(language_label(" spa ").as_deref(), Some("ES"));
+		assert_eq!(language_label("en_US").as_deref(), Some("EN"));
+		assert_eq!(language_label("ja").as_deref(), Some("JA"));
+		// no two-letter code: the three-letter one
+		assert_eq!(language_label("ast").as_deref(), Some("AST"));
+		assert_eq!(language_label(""), None);
+		assert_eq!(language_label("und"), None);
+		assert_eq!(language_label("x"), None);
 	}
 
 	#[test]
