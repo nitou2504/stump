@@ -639,10 +639,31 @@ fn read_trailer(file: &mut File) -> WriteResult<Trailer> {
 	file.read_exact(&mut chunk)?;
 	let text = String::from_utf8_lossy(&chunk);
 	let (dict, xref_stream) = if text.trim_start().starts_with("xref") {
-		let start = text
-			.find("trailer")
-			.ok_or_else(|| WriteError::Invalid("PDF has no trailer".into()))?;
-		(text[start..].to_string(), false)
+		// a classic xref table takes 20 bytes per object, so the trailer after it can lie far
+		// beyond the first chunk; it ends right before `startxref`, which is in the tail
+		let tail_start = len - tail_len;
+		let in_tail = find_last(&tail[..at], b"trailer")
+			.filter(|&t| tail_start + t as u64 >= prev)
+			.map(|t| String::from_utf8_lossy(&tail[t..at]).into_owned());
+		let dict = match in_tail {
+			Some(dict) => dict,
+			None => {
+				if let Some(start) = text.find("trailer") {
+					text[start..].to_string()
+				} else {
+					// a trailer far from both ends: read the whole xref section
+					let section_len = (len - prev).min(64 * 1024 * 1024);
+					file.seek(SeekFrom::Start(prev))?;
+					let mut section = vec![0; section_len as usize];
+					file.read_exact(&mut section)?;
+					let start = find_last(&section, b"trailer").ok_or_else(|| {
+						WriteError::Invalid("PDF has no trailer".into())
+					})?;
+					String::from_utf8_lossy(&section[start..]).into_owned()
+				}
+			},
+		};
+		(dict, false)
 	} else {
 		let end = text.find("stream").unwrap_or(text.len());
 		(text[..end].to_string(), true)
@@ -937,5 +958,72 @@ mod tests {
 		write_pdf(&path, &meta(), &KeptPdfInfo::default()).unwrap();
 		let mut file = File::open(&path).unwrap();
 		assert_eq!(read_trailer(&mut file).unwrap().size, 5);
+	}
+
+	/// a classic PDF whose xref table (20 bytes an object) is far longer than the 256 KiB read
+	/// after `startxref`: its trailer is found next to `startxref` (`PDF has no trailer` before)
+	fn large_classic_pdf(objects: usize) -> (Vec<u8>, usize) {
+		let mut pdf = b"%PDF-1.4\n".to_vec();
+		let mut offsets = vec![];
+		for n in 1..objects {
+			offsets.push(pdf.len());
+			let body = match n {
+				1 => "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+				2 => "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+				_ => "null".to_string(),
+			};
+			pdf.extend_from_slice(format!("{n} 0 obj\n{body}\nendobj\n").as_bytes());
+		}
+		let xref_at = pdf.len();
+		pdf.extend_from_slice(
+			format!("xref\n0 {objects}\n0000000000 65535 f \n").as_bytes(),
+		);
+		for offset in offsets {
+			pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+		}
+		pdf.extend_from_slice(
+			format!(
+				"trailer\n<< /Size {objects} /Root 1 0 R /ID [<0A><0B>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+			)
+			.as_bytes(),
+		);
+		(pdf, xref_at)
+	}
+
+	#[test]
+	fn reads_the_trailer_after_a_large_classic_xref() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("large.pdf");
+		let (pdf, xref_at) = large_classic_pdf(20_000);
+		assert!(pdf.len() - xref_at > 256 * 1024);
+		std::fs::write(&path, &pdf).unwrap();
+
+		let mut file = File::open(&path).unwrap();
+		let trailer = read_trailer(&mut file).unwrap();
+		assert_eq!(trailer.size, 20_000);
+		assert_eq!(trailer.root, "1 0 R");
+		assert_eq!(trailer.id.as_deref(), Some("[<0A><0B>]"));
+		assert!(!trailer.xref_stream);
+		assert_eq!(trailer.prev, xref_at as u64);
+
+		write_pdf(&path, &meta(), &KeptPdfInfo::default()).unwrap();
+		let updated = std::fs::read(&path).unwrap();
+		assert!(updated.starts_with(&pdf));
+		let update = String::from_utf8_lossy(&updated[pdf.len()..]);
+		assert!(update.contains("20000 0 obj\n<< /Title (El nombre de la rosa)"));
+		assert!(update.contains(&format!(
+			"/Size 20001 /Root 1 0 R /Info 20000 0 R /Prev {xref_at} /ID [<0A><0B>]"
+		)));
+
+		// the update's own trailer is small and read next; a second update chains to it
+		let mut file = File::open(&path).unwrap();
+		let second = read_trailer(&mut file).unwrap();
+		assert_eq!(second.size, 20_001);
+		assert!(second.prev > xref_at as u64);
+		write_pdf(&path, &meta(), &KeptPdfInfo::default()).unwrap();
+		let mut file = File::open(&path).unwrap();
+		let third = read_trailer(&mut file).unwrap();
+		assert_eq!(third.size, 20_002);
+		assert_eq!(third.root, "1 0 R");
 	}
 }
