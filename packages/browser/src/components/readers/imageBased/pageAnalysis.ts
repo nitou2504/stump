@@ -126,7 +126,11 @@ function analyseHere(image: HTMLImageElement, withHalves: boolean): PageAnalysis
 	return { crop: pageCrop(luma, sample, natural, withHalves) }
 }
 
-async function analyse(image: HTMLImageElement): Promise<PageAnalysis | null> {
+/**
+ * Looks at one decoded picture (off the main thread when the browser can), without storing
+ * the result; the PDF reader's margin trim uses it too
+ */
+export async function analyseImage(image: HTMLImageElement): Promise<PageAnalysis | null> {
 	const natural = { w: image.naturalWidth, h: image.naturalHeight }
 	if (!natural.w || !natural.h) return null
 	const withHalves = isWide(natural.w / natural.h)
@@ -154,7 +158,7 @@ async function drain() {
 			queued.delete(job.key)
 			if (useAnalysisStore.getState().books[job.bookId]?.pages[job.page]) continue
 			try {
-				const result = await analyse(job.image)
+				const result = await analyseImage(job.image)
 				if (result) useAnalysisStore.getState().store(job.bookId, job.page, result)
 			} catch (error) {
 				console.warn('Failed to look at page', job.page, error)

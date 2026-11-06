@@ -3,11 +3,16 @@
  * text layer needs selectors Tailwind can't express (`::selection`, sibling states).
  */
 export const PDF_READER_CSS = `
-.pdf-page {
+.pdf-page-frame {
 	position: absolute;
 	overflow: hidden;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 	contain: layout paint;
+}
+/* the whole page inside its frame; with the margins trimmed it is bigger and moved */
+.pdf-page {
+	position: absolute;
+	overflow: hidden;
 }
 .pdf-page-image {
 	position: absolute;

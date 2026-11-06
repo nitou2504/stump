@@ -23,6 +23,8 @@ export type PdfBookPreferences = {
 	coverAlone?: boolean
 	/** Dark themes invert the page picture; off keeps illustrations as they are */
 	invertPagesInDark?: boolean
+	/** Each page shown without its blank margins; unset: on for phones, off on larger screens */
+	trimMargins?: boolean
 	reader?: PdfReaderKind
 }
 
@@ -36,6 +38,7 @@ export const PDF_DEFAULT_KEYS = [
 	'spread',
 	'coverAlone',
 	'invertPagesInDark',
+	'trimMargins',
 ] as const satisfies readonly (keyof PdfBookPreferences)[]
 
 /** What "Reset this book" clears: those settings, and the zoom */
@@ -146,7 +149,7 @@ function mergedPreferences(defaults: PdfBookPreferences, book: PdfBookPreference
 /**
  * What a PDF shows without settings of its own: every PDF's defaults, else the built-in ones
  * (fit width on a phone, fit page on a larger screen; one page scrolling; the cover alone;
- * pages inverted in dark themes)
+ * pages inverted in dark themes; margins trimmed on a phone)
  */
 export function pdfEffectiveDefaults(
 	defaults: Partial<PdfBookPreferences>,
@@ -159,6 +162,7 @@ export function pdfEffectiveDefaults(
 		spread: defaults.spread ?? 'single',
 		coverAlone: defaults.coverAlone ?? true,
 		invertPagesInDark: defaults.invertPagesInDark ?? true,
+		trimMargins: defaults.trimMargins ?? isPhone,
 	}
 }
 

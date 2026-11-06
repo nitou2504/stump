@@ -3838,6 +3838,8 @@
       "theme": "Theme",
       "invertPages": "Invert Pages in Dark Themes",
       "invertPagesHint": "Turn this off for illustrated books to keep pictures as they are",
+      "trimMargins": "Trim Margins",
+      "trimMarginsHint": "Hides the blank margins around each page",
       "fit": {
         "label": "Fit",
         "width": "Fit Width",

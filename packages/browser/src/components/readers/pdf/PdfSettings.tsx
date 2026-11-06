@@ -15,6 +15,8 @@ type PageSettingsProps = {
 	fit: FitMode
 	zoom: number
 	invertPagesInDark: boolean
+	/** Each page shown without its blank margins */
+	trimMargins: boolean
 	/** A dark or black page colour: the only themes where pages can be inverted */
 	darkTheme: boolean
 	onChange: (preferences: Partial<PdfBookPreferences>) => void
@@ -22,12 +24,13 @@ type PageSettingsProps = {
 
 /**
  * The PDF reader's own rows of the reading settings: how the page fits, zoom, and in the
- * dark and black themes whether the pages are inverted too
+ * dark and black themes whether the pages are inverted too; whether blank margins are trimmed
  */
 export function PdfPageSettings({
 	fit,
 	zoom,
 	invertPagesInDark,
+	trimMargins,
 	darkTheme,
 	onChange,
 }: PageSettingsProps) {
@@ -71,6 +74,12 @@ export function PdfPageSettings({
 					resetLabel={translate('shared.pdfReader.zoomReset')}
 				/>
 			</SettingRow>
+			<SwitchRow
+				label={translate('shared.pdfReader.trimMargins')}
+				hint={translate('shared.pdfReader.trimMarginsHint')}
+				checked={trimMargins}
+				onCheckedChange={(checked) => onChange({ trimMargins: checked })}
+			/>
 			{darkTheme && (
 				<SwitchRow
 					label={translate('shared.pdfReader.invertPages')}

@@ -17,7 +17,12 @@ type Props = {
 	page: number
 	/** The layout's document version */
 	v: string
+	/** The size shown: the part of the page left by the margin trim, or the whole page */
 	size: Size
+	/** The part of the page shown (page fractions), `null` for the whole page */
+	trim?: FractionRect | null
+	/** Called with each picture once it has loaded (the margin trim looks at it) */
+	onPicture?: (page: number, image: HTMLImageElement) => void
 	/** The page's width / height in points */
 	aspect: number
 	/** The picture URL to show (already sized for the screen) */
@@ -51,6 +56,8 @@ function PdfPageView({
 	page,
 	v,
 	size,
+	trim = null,
+	onPicture,
 	aspect,
 	src,
 	canLoad,
@@ -94,12 +101,19 @@ function PdfPageView({
 
 	const displayedSrc = shownSrc ?? wantedSrc
 
-	const handleLoad = useCallback(() => {
-		setLoaded(true)
-		setFailed(false)
-		setShownSrc((current) => current ?? displayedSrc)
-		onPictureLoaded(src)
-	}, [displayedSrc, onPictureLoaded, src])
+	const handleLoad = useCallback(
+		(event: React.SyntheticEvent<HTMLImageElement>) => {
+			setLoaded(true)
+			setFailed(false)
+			setShownSrc((current) => current ?? displayedSrc)
+			onPictureLoaded(src)
+			onPicture?.(page, event.currentTarget)
+		},
+		[displayedSrc, onPictureLoaded, onPicture, page, src],
+	)
+
+	// The whole page, drawn inside the frame: moved so that only its trimmed part shows
+	const full = trim ? { width: size.width / trim.width, height: size.height / trim.height } : size
 
 	// once a picture has been shown, later ones (other zoom tiers) load regardless
 	const mayLoad = canLoad || !!shownSrc
@@ -120,8 +134,7 @@ function PdfPageView({
 
 	return (
 		<div
-			{...{ [PAGE_ATTRIBUTE]: page }}
-			className={cn('pdf-page', className)}
+			className={cn('pdf-page-frame', className)}
 			style={{
 				top,
 				left,
@@ -129,48 +142,59 @@ function PdfPageView({
 				height: size.height,
 				backgroundColor: look.pagePlaceholder,
 			}}
-			// Build the text layer right away when the user starts selecting
-			onPointerDown={() => !textReady && text && setTextReady(true)}
 		>
-			{!failed && mayLoad && (
-				<img
-					src={displayedSrc}
-					alt=""
-					draggable={false}
-					decoding="async"
-					className="pdf-page-image"
-					style={{ filter: look.imageFilter }}
-					onLoad={handleLoad}
-					onError={() => {
-						setFailed(true)
-						// don't hold the other pages back
-						onPictureLoaded(src)
-					}}
+			<div
+				{...{ [PAGE_ATTRIBUTE]: page }}
+				className="pdf-page"
+				style={{
+					top: trim ? -trim.y * full.height : 0,
+					left: trim ? -trim.x * full.width : 0,
+					width: full.width,
+					height: full.height,
+				}}
+				// Build the text layer right away when the user starts selecting
+				onPointerDown={() => !textReady && text && setTextReady(true)}
+			>
+				{!failed && mayLoad && (
+					<img
+						src={displayedSrc}
+						alt=""
+						draggable={false}
+						decoding="async"
+						className="pdf-page-image"
+						style={{ filter: look.imageFilter }}
+						onLoad={handleLoad}
+						onError={() => {
+							setFailed(true)
+							// don't hold the other pages back
+							onPictureLoaded(src)
+						}}
+					/>
+				)}
+				{look.tint && <div className="pdf-page-tint" style={{ backgroundColor: look.tint }} />}
+				{failed && (
+					<button
+						type="button"
+						className="pdf-page-error"
+						onClick={() => {
+							setFailed(false)
+							setRetry((value) => value + 1)
+						}}
+					>
+						{translate('shared.pdfReader.pageFailed', { page })}
+					</button>
+				)}
+				<PdfAnnotationLayer
+					annotations={annotations}
+					look={look}
+					selectedId={selectedAnnotationId}
+					flashRects={flashRects}
+					onOpenAnnotation={onOpenAnnotation}
 				/>
-			)}
-			{look.tint && <div className="pdf-page-tint" style={{ backgroundColor: look.tint }} />}
-			{failed && (
-				<button
-					type="button"
-					className="pdf-page-error"
-					onClick={() => {
-						setFailed(false)
-						setRetry((value) => value + 1)
-					}}
-				>
-					{translate('shared.pdfReader.pageFailed', { page })}
-				</button>
-			)}
-			<PdfAnnotationLayer
-				annotations={annotations}
-				look={look}
-				selectedId={selectedAnnotationId}
-				flashRects={flashRects}
-				onOpenAnnotation={onOpenAnnotation}
-			/>
-			{textReady && text && text.runs.length > 0 && (
-				<PdfTextLayer runs={text.runs} aspect={aspect} pageHeight={size.height} />
-			)}
+				{textReady && text && text.runs.length > 0 && (
+					<PdfTextLayer runs={text.runs} aspect={aspect} pageHeight={full.height} />
+				)}
+			</div>
 		</div>
 	)
 }

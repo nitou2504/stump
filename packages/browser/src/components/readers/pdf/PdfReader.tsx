@@ -81,6 +81,7 @@ import {
 } from './geometry'
 import { isZoomedIn, scrollerTouchStyle } from './gestures'
 import { chapterTitleForPage, flattenOutline, pageLabel, resolvePageInput } from './outline'
+import { hasTrim, shownY, trimKey, trimmedPage, trimPage, usePageTrims } from './pageTrim'
 import PdfGoToPageDialog from './PdfGoToPageDialog'
 import PdfLocationsDialog, { type PdfLocationTab } from './PdfLocationsDialog'
 import PdfPageView from './PdfPageView'
@@ -273,9 +274,30 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		}),
 		[viewport.width, viewport.height, sidePadding, gap, double],
 	)
+	// Trim margins: each page shows only its content, once its picture has been looked at
+	const trimMargins = preferences.trimMargins ?? isPhone
+	const trimBookKey = trimKey(mediaId, layout.v)
+	const storedTrims = usePageTrims(trimBookKey)
+	const trims = useMemo(
+		() => layout.pages.map((_, index) => (trimMargins ? (storedTrims[index + 1] ?? null) : null)),
+		[layout.pages, trimMargins, storedTrims],
+	)
+	/** The size each page is shown at (its trimmed part when trimmed) */
 	const sizes = useMemo(
-		() => layout.pages.map((page) => pageCssSize(page, available, fit, zoom)),
-		[layout.pages, available, fit, zoom],
+		() =>
+			layout.pages.map((page, index) =>
+				pageCssSize(trimmedPage(page, trims[index]), available, fit, zoom),
+			),
+		[layout.pages, trims, available, fit, zoom],
+	)
+	/** The whole page's size: bigger than its slot when its margins are trimmed */
+	const fullSizes = useMemo(
+		() =>
+			sizes.map((size, index) => {
+				const trim = trims[index]
+				return trim ? { width: size.width / trim.width, height: size.height / trim.height } : size
+			}),
+		[sizes, trims],
 	)
 	const rows = useMemo(
 		() => spreadRows(pageCount, shownLayout.spread, { coverAlone }),
@@ -358,11 +380,14 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const slot = scrollLayout.slots[index]
 			if (slot) {
 				if (!continuous) setPagedIndex(index)
+				// the anchor is a spot of the whole page, which a trimmed page draws past its slot
+				const trim = trims[index]
+				const full = fullSizes[index] ?? slot
 				const { left, top } = scrollForAnchor(zoomAnchor, {
-					left: pageLeft(index),
-					top: pageTop(index),
-					width: slot.width,
-					height: slot.height,
+					left: pageLeft(index) - (trim ? trim.x * full.width : 0),
+					top: pageTop(index) - (trim ? trim.y * full.height : 0),
+					width: full.width,
+					height: full.height,
 				})
 				programmaticScrollRef.current = true
 				element.scrollLeft = left
@@ -388,7 +413,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		} else {
 			setPagedIndex(anchorRef.current.index)
 		}
-	}, [scrollLayout, continuous, viewport.height, pageLeft, pageTop])
+	}, [scrollLayout, continuous, viewport.height, pageLeft, pageTop, trims, fullSizes])
 
 	const frameRef = useRef<number | null>(null)
 	const handleScroll = useCallback(() => {
@@ -431,9 +456,11 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			const row = slot ? scrollLayout.rows[slot.row] : undefined
 			const element = scrollRef.current
 			let within = 0
-			if (target != null && target > 0 && slot && row && element) {
+			// `target` is down the whole page; a trimmed page shows only part of it
+			const shown = target != null ? shownY(trims[index], target) : undefined
+			if (shown != null && shown > 0 && slot && row && element) {
 				const targetY =
-					(pageTop(index) - (continuous ? row.top : 0) + target * slot.height) / row.height
+					(pageTop(index) - (continuous ? row.top : 0) + shown * slot.height) / row.height
 				within = Math.max(0, targetY - (element.clientHeight * 0.3) / Math.max(1, row.height))
 			}
 			anchorRef.current = { index, progression: within }
@@ -451,13 +478,13 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				element?.scrollTo({
 					left: 0,
 					top:
-						target != null && slot
-							? Math.max(0, pageTop(index) + target * slot.height - element.clientHeight * 0.3)
+						shown != null && slot
+							? Math.max(0, pageTop(index) + shown * slot.height - element.clientHeight * 0.3)
 							: 0,
 				})
 			}
 		},
-		[continuous, pageCount, scrollLayout, pageTop],
+		[continuous, pageCount, scrollLayout, pageTop, trims],
 	)
 
 	/** Moves by rows: a page, or a spread of two */
@@ -482,8 +509,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	const [prefetched, setPrefetched] = useState<ReadonlyMap<string, string>>(() => new Map())
 	const requestedRef = useRef(new Set<string>())
 	const tierFor = useCallback(
-		(index: number) => pickTier(sizes[index]?.width ?? 0, dpr, layout.tiers),
-		[sizes, dpr, layout.tiers],
+		(index: number) => pickTier(fullSizes[index]?.width ?? 0, dpr, layout.tiers),
+		[fullSizes, dpr, layout.tiers],
 	)
 	const srcFor = useCallback(
 		(index: number) => {
@@ -522,6 +549,23 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 	}
 
 	const prefetchText = usePrefetchPdfText(mediaId, layout.v)
+
+	/** Hands a loaded page picture to the margin trim (with the page's text, kept inside) */
+	const trimPicture = useCallback(
+		(page: number, image: HTMLImageElement, urgent = true) => {
+			if (!trimMargins || hasTrim(trimBookKey, page)) return
+			const loadText = layout.hasText
+				? () =>
+						queryClient.fetchQuery({
+							queryKey: pdfTextQueryKey(mediaId, layout.v, page),
+							queryFn: ({ signal }) => sdk.pdf.text(mediaId, page, layout.v, signal),
+							staleTime: Infinity,
+						})
+				: null
+			trimPage(trimBookKey, page, image, loadText, urgent)
+		},
+		[trimMargins, trimBookKey, layout.hasText, layout.v, queryClient, mediaId, sdk],
+	)
 	const lastInView = visible ? visible[1] : currentIndex
 	useEffect(() => {
 		if (viewport.width <= 0 || !visibleLoaded) return undefined
@@ -541,7 +585,10 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					const url = sdk.pdf.pageURL(mediaId, index + 1, { w: tier, v: layout.v, prefetch: true })
 					const image = new Image()
 					image.decoding = 'async'
-					image.onload = () => setPrefetched((previous) => new Map(previous).set(key, url))
+					image.onload = () => {
+						setPrefetched((previous) => new Map(previous).set(key, url))
+						trimPicture(index + 1, image, false)
+					}
 					// a dropped prefetch (503) is asked for again later
 					image.onerror = () => requestedRef.current.delete(key)
 					image.src = url
@@ -566,6 +613,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 		layout.v,
 		layout.hasText,
 		prefetchText,
+		trimPicture,
 		viewport.width,
 		visibleLoaded,
 		double,
@@ -1393,6 +1441,8 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 				page={page}
 				v={layout.v}
 				size={size}
+				trim={trims[index]}
+				onPicture={trimPicture}
 				aspect={pageSize[0] / pageSize[1]}
 				src={srcFor(index)}
 				canLoad={visibleLoaded || (!!visible && index >= visible[0] && index <= visible[1])}
@@ -1630,6 +1680,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 					fit={fit}
 					zoom={zoom}
 					invertPagesInDark={invertPagesInDark}
+					trimMargins={trimMargins}
 					darkTheme={isDarkTheme(theme)}
 					onChange={setPreferences}
 				/>

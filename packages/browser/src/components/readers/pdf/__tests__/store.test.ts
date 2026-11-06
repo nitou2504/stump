@@ -50,5 +50,11 @@ describe("every PDF's defaults", () => {
 		expect(pdfHasOwnSettings({ fit: 'width' }, { fit: 'width' }, false)).toBe(false)
 		expect(pdfHasOwnSettings({ zoom: 1.5 }, {}, false)).toBe(true)
 		expect(pdfHasOwnSettings({ reader: 'pages' }, {}, false)).toBe(false)
+		// margins trimmed on a phone, not on a larger screen
+		expect(pdfEffectiveDefaults({}, true).trimMargins).toBe(true)
+		expect(pdfEffectiveDefaults({}, false).trimMargins).toBe(false)
+		expect(pdfHasOwnSettings({ trimMargins: true }, {}, false)).toBe(true)
+		expect(pdfHasOwnSettings({ trimMargins: true }, {}, true)).toBe(false)
+		expect(PDF_DEFAULT_KEYS).toContain('trimMargins')
 	})
 })
