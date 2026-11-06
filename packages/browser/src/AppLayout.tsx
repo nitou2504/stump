@@ -24,6 +24,7 @@ import { useRecordHistoryTrail } from './hooks/useHistoryTrail'
 import { useMainScrollRestoration } from './hooks/useMainScrollRestoration'
 import { getMainScrollElement as mainScrollElement } from './hooks/useScrollElement'
 import { useAppStore, useUserStore } from './stores'
+import { useReaderSettingsSync } from './stores/readerSettingsSync'
 
 export function AppLayout() {
 	const location = useLocation()
@@ -45,6 +46,8 @@ export function AppLayout() {
 	const onConnectionWithServerChanged = useAppStore((state) => state.setIsConnectedWithServer)
 
 	const storeUser = useUserStore((state) => state.user)
+	// the reading settings follow the user to every address, browser and device
+	useReaderSettingsSync(storeUser?.id)
 	const checkUserPermission = useUserStore((state) => state.checkUserPermission)
 	const setUser = useUserStore((state) => state.setUser)
 

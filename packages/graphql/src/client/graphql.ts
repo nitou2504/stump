@@ -3279,6 +3279,11 @@ export type Mutation = {
    */
   updateMetadataFetchSettings: MetadataFetchSettings;
   updateMetadataProvider: MetadataProviderConfigModel;
+  /**
+   * Saves the signed-in user's reading settings (a JSON object as text, at most 1 MB),
+   * replacing what was saved before
+   */
+  updateMyReaderSettings: Scalars['Boolean']['output'];
   updateNavigationArrangement: Arrangement;
   updateNavigationArrangementLock: Arrangement;
   updateNotifier: Notifier;
@@ -4131,6 +4136,11 @@ export type MutationUpdateMetadataFetchSettingsArgs = {
 export type MutationUpdateMetadataProviderArgs = {
   id: Scalars['Int']['input'];
   input: PatchMetadataProviderConfigInput;
+};
+
+
+export type MutationUpdateMyReaderSettingsArgs = {
+  settings: Scalars['String']['input'];
 };
 
 
@@ -4993,6 +5003,11 @@ export type Query = {
   metadataValueCounts: Array<MetadataValueCount>;
   /** Get all pending invitations for the current user */
   myBookClubInvitations: Array<BookClubInvitation>;
+  /**
+   * The signed-in user's reading settings as the web reader saved them (a JSON text), or
+   * null before the first save
+   */
+  myReaderSettings?: Maybe<Scalars['String']['output']>;
   /** Reading stats for the authenticated user within the provided range */
   myReadingStats: ReadingStats;
   /** The current streaks held for the authenticated user */
@@ -9598,6 +9613,18 @@ export type DeleteSmartListMutationVariables = Exact<{
 
 
 export type DeleteSmartListMutation = { __typename?: 'Mutation', deleteSmartList: { __typename: 'SmartList' } };
+
+export type MyReaderSettingsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MyReaderSettingsQuery = { __typename?: 'Query', myReaderSettings?: string | null };
+
+export type UpdateMyReaderSettingsMutationVariables = Exact<{
+  settings: Scalars['String']['input'];
+}>;
+
+
+export type UpdateMyReaderSettingsMutation = { __typename?: 'Mutation', updateMyReaderSettings: boolean };
 
 export type DirectoryListingQueryVariables = Exact<{
   input: DirectoryListingInput;
@@ -18600,6 +18627,16 @@ export const DeleteSmartListDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<DeleteSmartListMutation, DeleteSmartListMutationVariables>;
+export const MyReaderSettingsDocument = new TypedDocumentString(`
+    query MyReaderSettings {
+  myReaderSettings
+}
+    `) as unknown as TypedDocumentString<MyReaderSettingsQuery, MyReaderSettingsQueryVariables>;
+export const UpdateMyReaderSettingsDocument = new TypedDocumentString(`
+    mutation UpdateMyReaderSettings($settings: String!) {
+  updateMyReaderSettings(settings: $settings)
+}
+    `) as unknown as TypedDocumentString<UpdateMyReaderSettingsMutation, UpdateMyReaderSettingsMutationVariables>;
 export const DirectoryListingDocument = new TypedDocumentString(`
     query DirectoryListing($input: DirectoryListingInput!, $pagination: Pagination!) {
   listDirectory(input: $input, pagination: $pagination) {

@@ -404,6 +404,8 @@ type Documents = {
     "\n\tmutation DeleteSmartListView($id: ID!, $name: String!) {\n\t\tdeleteSmartListView(id: $id, name: $name) {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": typeof types.DeleteSmartListViewDocument,
     "\n\tquery SmartListBasicSettingsScene {\n\t\tsmartLists(input: { mine: true }) {\n\t\t\tname\n\t\t}\n\t}\n": typeof types.SmartListBasicSettingsSceneDocument,
     "\n\tmutation DeleteSmartList($id: ID!) {\n\t\tdeleteSmartList(id: $id) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.DeleteSmartListDocument,
+    "\n\tquery MyReaderSettings {\n\t\tmyReaderSettings\n\t}\n": typeof types.MyReaderSettingsDocument,
+    "\n\tmutation UpdateMyReaderSettings($settings: String!) {\n\t\tupdateMyReaderSettings(settings: $settings)\n\t}\n": typeof types.UpdateMyReaderSettingsDocument,
     "\n\tquery DirectoryListing($input: DirectoryListingInput!, $pagination: Pagination!) {\n\t\tlistDirectory(input: $input, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tparent\n\t\t\t\tfiles {\n\t\t\t\t\tname\n\t\t\t\t\tpath\n\t\t\t\t\tisDirectory\n\t\t\t\t\tmedia {\n\t\t\t\t\t\tid\n\t\t\t\t\t\tresolvedName\n\t\t\t\t\t\tthumbnail {\n\t\t\t\t\t\t\turl\n\t\t\t\t\t\t}\n\t\t\t\t\t\textension\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DirectoryListingDocument,
     "\n\tquery UploadConfig {\n\t\tuploadConfig {\n\t\t\tenabled\n\t\t\tmaxFileUploadSize\n\t\t}\n\t}\n": typeof types.UploadConfigDocument,
 };
@@ -797,6 +799,8 @@ const documents: Documents = {
     "\n\tmutation DeleteSmartListView($id: ID!, $name: String!) {\n\t\tdeleteSmartListView(id: $id, name: $name) {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": types.DeleteSmartListViewDocument,
     "\n\tquery SmartListBasicSettingsScene {\n\t\tsmartLists(input: { mine: true }) {\n\t\t\tname\n\t\t}\n\t}\n": types.SmartListBasicSettingsSceneDocument,
     "\n\tmutation DeleteSmartList($id: ID!) {\n\t\tdeleteSmartList(id: $id) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.DeleteSmartListDocument,
+    "\n\tquery MyReaderSettings {\n\t\tmyReaderSettings\n\t}\n": types.MyReaderSettingsDocument,
+    "\n\tmutation UpdateMyReaderSettings($settings: String!) {\n\t\tupdateMyReaderSettings(settings: $settings)\n\t}\n": types.UpdateMyReaderSettingsDocument,
     "\n\tquery DirectoryListing($input: DirectoryListingInput!, $pagination: Pagination!) {\n\t\tlistDirectory(input: $input, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tparent\n\t\t\t\tfiles {\n\t\t\t\t\tname\n\t\t\t\t\tpath\n\t\t\t\t\tisDirectory\n\t\t\t\t\tmedia {\n\t\t\t\t\t\tid\n\t\t\t\t\t\tresolvedName\n\t\t\t\t\t\tthumbnail {\n\t\t\t\t\t\t\turl\n\t\t\t\t\t\t}\n\t\t\t\t\t\textension\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.DirectoryListingDocument,
     "\n\tquery UploadConfig {\n\t\tuploadConfig {\n\t\t\tenabled\n\t\t\tmaxFileUploadSize\n\t\t}\n\t}\n": types.UploadConfigDocument,
 };
@@ -2357,6 +2361,14 @@ export function graphql(source: "\n\tquery SmartListBasicSettingsScene {\n\t\tsm
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tmutation DeleteSmartList($id: ID!) {\n\t\tdeleteSmartList(id: $id) {\n\t\t\t__typename\n\t\t}\n\t}\n"): typeof import('./graphql').DeleteSmartListDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery MyReaderSettings {\n\t\tmyReaderSettings\n\t}\n"): typeof import('./graphql').MyReaderSettingsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation UpdateMyReaderSettings($settings: String!) {\n\t\tupdateMyReaderSettings(settings: $settings)\n\t}\n"): typeof import('./graphql').UpdateMyReaderSettingsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
