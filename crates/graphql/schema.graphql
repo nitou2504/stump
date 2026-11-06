@@ -2989,6 +2989,11 @@ type Mutation {
 	deleteUser(id: ID!, hardDelete: Boolean): User!
 	deleteUserSessions(id: ID!): Int!
 	updateUserLockStatus(id: ID!, lock: Boolean!): User!
+	"""
+	Saves the signed-in user's reading settings (a JSON object as text, at most 1 MB),
+	replacing what was saved before
+	"""
+	updateMyReaderSettings(settings: String!): Boolean!
 	"Replace the authenticated user's home sections"
 	updateHomeArrangement(input: HomeArrangementInput!): HomeArrangement!
 	updateNavigationArrangementLock(locked: Boolean!): Arrangement!
@@ -3862,6 +3867,11 @@ type Query {
 	"The current streaks held for the authenticated user"
 	myReadingStreaks: ReadingStreaks!
 	me: User!
+	"""
+	The signed-in user's reading settings as the web reader saved them (a JSON text), or
+	null before the first save
+	"""
+	myReaderSettings: String
 	userCount: Int!
 	topReaders(take: Int): [User!]!
 	users(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedUserResponse!

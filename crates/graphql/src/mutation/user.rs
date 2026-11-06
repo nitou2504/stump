@@ -17,7 +17,7 @@ use models::{
 	entity::{
 		age_restriction, session,
 		user::{self, AuthUser},
-		user_login_activity, user_preferences,
+		user_login_activity, user_preferences, user_reader_settings,
 	},
 	services::user::{create_user_with_preferences, NewAgeRestriction},
 	shared::{
@@ -388,6 +388,33 @@ impl UserMutation {
 		Ok(User::from(updated_user))
 	}
 
+	/// Saves the signed-in user's reading settings (a JSON object as text, at most 1 MB),
+	/// replacing what was saved before
+	async fn update_my_reader_settings(
+		&self,
+		ctx: &Context<'_>,
+		settings: String,
+	) -> Result<bool> {
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		validate_reader_settings(&settings)?;
+
+		let existing = user_reader_settings::Entity::find_by_id(user.id.clone())
+			.one(conn)
+			.await?;
+		let row = user_reader_settings::ActiveModel {
+			user_id: Set(user.id.clone()),
+			settings: Set(settings),
+			updated_at: Set(Utc::now()),
+		};
+		if existing.is_some() {
+			row.update(conn).await?;
+		} else {
+			row.insert(conn).await?;
+		}
+		Ok(true)
+	}
+
 	/// Replace the authenticated user's home sections
 	async fn update_home_arrangement(
 		&self,
@@ -649,3 +676,31 @@ async fn update_user_age_restriction(
 }
 
 // TODO(tests): Add meaningful tests after permissions refactor flows through
+
+/// The most a user's saved reading settings may weigh
+const MAX_READER_SETTINGS_BYTES: usize = 1024 * 1024;
+
+/// Reading settings must be a JSON object, and not a huge one
+fn validate_reader_settings(settings: &str) -> Result<()> {
+	if settings.len() > MAX_READER_SETTINGS_BYTES {
+		return Err("Reading settings are too large".into());
+	}
+	match serde_json::from_str::<serde_json::Value>(settings) {
+		Ok(serde_json::Value::Object(_)) => Ok(()),
+		_ => Err("Reading settings must be a JSON object".into()),
+	}
+}
+
+#[cfg(test)]
+mod reader_settings_tests {
+	use super::validate_reader_settings;
+
+	#[test]
+	fn accepts_only_json_objects_of_a_sane_size() {
+		assert!(validate_reader_settings(r#"{"v":1,"reader":{}}"#).is_ok());
+		assert!(validate_reader_settings("[1,2]").is_err());
+		assert!(validate_reader_settings("not json").is_err());
+		let huge = format!(r#"{{"x":"{}"}}"#, "a".repeat(1024 * 1024));
+		assert!(validate_reader_settings(&huge).is_err());
+	}
+}

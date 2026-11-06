@@ -1,6 +1,6 @@
 use async_graphql::{Context, Object, Result, ID};
 use models::{
-	entity::{reading_session, user, user_login_activity},
+	entity::{reading_session, user, user_login_activity, user_reader_settings},
 	shared::enums::{ReadingStatus, UserPermission},
 };
 use sea_orm::{
@@ -35,6 +35,17 @@ impl UserQuery {
 			.unwrap();
 
 		Ok(User::from(first))
+	}
+
+	/// The signed-in user's reading settings as the web reader saved them (a JSON text), or
+	/// null before the first save
+	async fn my_reader_settings(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let saved = user_reader_settings::Entity::find_by_id(user.id.clone())
+			.one(conn)
+			.await?;
+		Ok(saved.map(|row| row.settings))
 	}
 
 	#[graphql(
