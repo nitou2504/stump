@@ -4,10 +4,11 @@ import {
 	EpubNavigator,
 	type EpubNavigatorListeners,
 	EpubPreferences,
+	type FXLFramePoolManager,
 	type IEpubPreferences,
 } from '@readium/navigator'
 import type { BasicTextSelection, FrameClickEvent } from '@readium/navigator-html-injectables'
-import { Link, Locator, Publication } from '@readium/shared'
+import { Layout, Link, Locator, Publication } from '@readium/shared'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -18,6 +19,7 @@ import { clearFramesSelection, resyncFramesPage } from '../annotations/clearSele
 import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
 import { fitDropCaps } from './fitDropCaps'
 import { EPUB_FRAME_LAYOUT_EVENT, fitFrameMedia } from './fitFrameMedia'
+import { fixedLayoutPerPage } from './fixedLayout'
 import { locatorToHref, navigableLocator, resolvePublicationLinkLocator } from './locator'
 import {
 	attachFrameReloadGuard,
@@ -232,6 +234,17 @@ export function useReadiumNavigator({
 		}, 100)
 	}, [])
 
+	/**
+	 * A fixed-layout (pre-paginated) book: each page is drawn as its publisher placed it and
+	 * scaled as a whole by Readium, so nothing that reflows or restyles text goes into it
+	 */
+	const isFixedLayout = publication?.metadata.effectiveLayout === Layout.fixed
+	const isFixedLayoutRef = useRef(isFixedLayout)
+	// (before the effect that opens the book, which reads it)
+	useEffect(() => {
+		isFixedLayoutRef.current = isFixedLayout
+	}, [isFixedLayout])
+
 	/** Frames whose key presses are already forwarded to the host document */
 	const keyForwardedDocsRef = useRef(new WeakSet<Document>())
 	/** Frames whose link taps are already handled here (see `attachFrameLinkHandling`) */
@@ -250,12 +263,14 @@ export function useReadiumNavigator({
 				disableDoubleTapZoom(doc)
 				// and no scrollbar in the frame: a faint bar at the page's edge (scrolling still works)
 				hideFrameScrollbars(doc)
-				// and images that fit the page at any text size (Readium's text size zooms them too):
-				// a cover larger than the page left the chapter's first page blank
-				fitFrameMedia(doc, () => window.dispatchEvent(new Event(EPUB_FRAME_LAYOUT_EVENT)))
-				// and drop caps that span whole lines beside their paragraph (a publisher's float
-				// sized for another line height overlapped the next line), on the same page
-				fitDropCaps(doc, () => window.dispatchEvent(new Event(EPUB_FRAME_LAYOUT_EVENT)))
+				if (!isFixedLayoutRef.current) {
+					// and images that fit the page at any text size (Readium's text size zooms them
+					// too): a cover larger than the page left the chapter's first page blank
+					fitFrameMedia(doc, () => window.dispatchEvent(new Event(EPUB_FRAME_LAYOUT_EVENT)))
+					// and drop caps that span whole lines beside their paragraph (a publisher's float
+					// sized for another line height overlapped the next line), on the same page
+					fitDropCaps(doc, () => window.dispatchEvent(new Event(EPUB_FRAME_LAYOUT_EVENT)))
+				}
 				forwardFrameKeyEvents(doc, document)
 				// and its mouse moves, so the top bar shows when the mouse nears the top
 				forwardFramePointerMoves(doc)
@@ -400,19 +415,23 @@ export function useReadiumNavigator({
 						preferences: preferencesRef.current,
 						defaults: {},
 						injectables: {
-							rules: [
-								{
-									resources: [/.*/],
-									prepend: [
+							// The reader's typefaces are for reflowable text; a fixed-layout page keeps
+							// the publisher's fonts
+							rules: isFixedLayoutRef.current
+								? []
+								: [
 										{
-											as: 'link',
-											rel: 'stylesheet',
-											url: fontHref,
-											target: 'head',
+											resources: [/.*/],
+											prepend: [
+												{
+													as: 'link',
+													rel: 'stylesheet',
+													url: fontHref,
+													target: 'head',
+												},
+											],
 										},
 									],
-								},
-							],
 							allowedDomains,
 						},
 					},
@@ -425,6 +444,10 @@ export function useReadiumNavigator({
 					await navigator.destroy()
 					return
 				}
+
+				// Readium's fixed-layout reader starts in spreads on a landscape screen; show the
+				// pages the reader picked (one unless two were)
+				setFixedLayoutPerPage(navigator, preferencesRef.current)
 
 				const observer: DecorationObserver = {
 					onDecorationActivated: (event) => {
@@ -502,9 +525,12 @@ export function useReadiumNavigator({
 	useEffect(() => {
 		const nav = navigatorRef.current
 		if (!nav || loadState.status !== 'ready') return
-		void nav.submitPreferences(new EpubPreferences(preferences)).catch((err) => {
-			console.error('[useReadiumNavigator] submitPreferences failed', err)
-		})
+		void nav
+			.submitPreferences(new EpubPreferences(preferences))
+			.then(() => setFixedLayoutPerPage(nav, preferences))
+			.catch((err) => {
+				console.error('[useReadiumNavigator] submitPreferences failed', err)
+			})
 	}, [preferences, loadState.status])
 
 	const api = useMemo<ReadiumNavigatorApi>(
@@ -551,6 +577,23 @@ export function useReadiumNavigator({
 
 	return { loadState, api }
 }
+
+/**
+ * One page or a two-page spread in a fixed-layout book, as the preferences ask. Readium only
+ * applies a changed column count (and starts in spreads), so it is set here directly through
+ * its public frame pool. Nothing for reflowable books
+ */
+function setFixedLayoutPerPage(navigator: EpubNavigator, preferences: IEpubPreferences) {
+	if (navigator.layout !== Layout.fixed) return
+	const perPage = fixedLayoutPerPage(preferences.columnCount)
+	// (its `perPage` reads 1 on a portrait screen whatever was set, so keep what was applied)
+	if (fixedLayoutPerPageApplied.get(navigator) === perPage) return
+	fixedLayoutPerPageApplied.set(navigator, perPage)
+	;(navigator.pool as FXLFramePoolManager).setPerPage(perPage)
+}
+
+/** The pages side by side last set on each fixed-layout navigator */
+const fixedLayoutPerPageApplied = new WeakMap<EpubNavigator, 1 | 2>()
 
 /** Wait until `el` has a usable content box, or abort when `isCancelled` is true. */
 function waitForNonZeroBox(el: HTMLElement | null, isCancelled: () => boolean): Promise<void> {

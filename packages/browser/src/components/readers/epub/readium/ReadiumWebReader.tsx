@@ -94,6 +94,7 @@ import ReturnChip from '../links/ReturnChip'
 import { type LinkHistory, useLinkReturnStack } from '../links/useLinkReturnStack'
 import { createStumpFetch } from './createStumpHttpFetcher'
 import { EPUB_FRAME_LAYOUT_EVENT } from './fitFrameMedia'
+import { fixedLayoutChapterPages } from './fixedLayout'
 import {
 	hrefsMatch,
 	packagePathFromHref,
@@ -1089,10 +1090,22 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 	)
 
 	const [chapterPageCount, setChapterPageCount] = useState<ChapterPages | null>(null)
-	const isScrolled = readingMode === ReadingMode.ContinuousVertical
+	// a fixed-layout book's pages turn, whatever the reading mode says
+	const isScrolled = !isFixedLayout && readingMode === ReadingMode.ContinuousVertical
 	useEffect(() => {
 		const container = containerRef.current
 		if (!container || !currentLocator) return undefined
+		if (isFixedLayout) {
+			// every page is its own document (one position): count the chapter's pages
+			setChapterPageCount(
+				fixedLayoutChapterPages(
+					chapterStarts,
+					currentLocator.locations.position,
+					opened?.positions.length ?? 0,
+				),
+			)
+			return undefined
+		}
 		const measure = () => {
 			const measured = measureChapterPages(container, isScrolled)
 			if (measured) {
@@ -1125,7 +1138,7 @@ export default function ReadiumWebReader({ id, isIncognito }: Props) {
 			window.removeEventListener('resize', measure)
 			window.removeEventListener(EPUB_FRAME_LAYOUT_EVENT, measure)
 		}
-	}, [currentLocator, isScrolled, opened])
+	}, [currentLocator, isScrolled, opened, isFixedLayout, chapterStarts])
 
 	const chapterMeta = useMemo(() => {
 		const chapterTitle = findChapterTitle(currentLocator?.href ?? '', toc) ?? currentLocator?.title

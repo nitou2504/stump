@@ -42,7 +42,10 @@ type Props = {
 		| 'canGoBackward'
 		| 'navHistory'
 	>
-	/** The book sets its own page layout (a fixed-layout EPUB): the layout picker is off */
+	/**
+	 * The book sets its own page layout (a fixed-layout EPUB): its pages turn one or two at a
+	 * time (never scroll) and keep the publisher's text, so there are no text settings
+	 */
 	isFixedLayout?: boolean
 }
 
@@ -100,7 +103,7 @@ export default function EpubReaderContainer({
 			}}
 		>
 			<div className="min-h-0 relative h-full w-full overflow-hidden" data-epub-stage>
-				<EpubNavigationControls>{children}</EpubNavigationControls>
+				<EpubNavigationControls isFixedLayout={isFixedLayout}>{children}</EpubNavigationControls>
 				<EpubTopBar
 					chrome={chrome}
 					onContents={() => openContents()}
@@ -379,7 +382,10 @@ function EpubSettings({
 		resetToDefaults,
 	} = useBookPreferences({ book })
 
-	const layout = useMemo(() => epubLayout(readingMode, columnCount), [readingMode, columnCount])
+	const layout = useMemo(
+		() => epubLayout(isFixedLayout ? ReadingMode.Paged : readingMode, columnCount),
+		[isFixedLayout, readingMode, columnCount],
+	)
 	// the keys of the layout on screen: pages that turn, or a chapter that scrolls
 	const shortcuts = useMemo<ShortcutRow[]>(
 		() =>
@@ -409,7 +415,10 @@ function EpubSettings({
 
 	const disabledReason = useCallback(
 		(option: ReaderLayout) => {
-			if (isFixedLayout) return translate('shared.reader.layout.fixedLayout')
+			// a fixed-layout book's pages turn (one or two side by side), they don't scroll
+			if (isFixedLayout && option.flow === 'continuous') {
+				return translate('shared.reader.layout.fixedLayout')
+			}
 			if (option.spread === 'double' && option.flow === 'continuous') {
 				return translate('shared.reader.layout.flowingTextScrollsInOneColumn')
 			}
@@ -445,7 +454,16 @@ function EpubSettings({
 				onReset: resetToDefaults,
 			}}
 		>
-			<TextSettings />
+			{isFixedLayout ? (
+				<p
+					className="leading-snug text-[12.5px] text-muted-foreground"
+					data-testid="fixed-layout-text"
+				>
+					{translate('shared.reader.settings.fixedLayoutText')}
+				</p>
+			) : (
+				<TextSettings />
+			)}
 		</ReaderSettingsDialog>
 	)
 }

@@ -3918,6 +3918,7 @@
         "marginsNarrow": "Narrow Margins",
         "marginsNormal": "Normal Margins",
         "marginsWide": "Wide Margins",
+        "fixedLayoutText": "This book's pages keep the publisher's fonts and layout; they are scaled to fit the screen",
         "align": "Align",
         "direction": "Direction",
         "brightness": "Light",

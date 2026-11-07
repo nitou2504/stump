@@ -19,6 +19,8 @@ const TOUCH_QUERY = '(pointer: coarse)'
 
 type Props = {
 	children: React.ReactNode
+	/** A fixed-layout book: its pages turn whatever the reading mode says */
+	isFixedLayout?: boolean
 }
 
 /**
@@ -30,7 +32,7 @@ type Props = {
  * positioned `absolute` relative to the stage (this component's own root), not `fixed` to the
  * viewport — so it tracks the actual reading pane instead of the window.
  */
-export default function EpubNavigationControls({ children }: Props) {
+export default function EpubNavigationControls({ children, isFixedLayout = false }: Props) {
 	const { translate } = useTranslate()
 	const {
 		readerMeta: { bookEntity: book },
@@ -42,7 +44,7 @@ export default function EpubNavigationControls({ children }: Props) {
 	} = useBookPreferences({ book })
 
 	const invertControls = readingDirection === ReadingDirection.Rtl
-	const isVerticalScrolling = readingMode === ReadingMode.ContinuousVertical
+	const isVerticalScrolling = !isFixedLayout && readingMode === ReadingMode.ContinuousVertical
 
 	/**
 	 * A callback to navigate backward in the book, wrt the natural reading
