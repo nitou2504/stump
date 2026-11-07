@@ -202,6 +202,26 @@ export function useReadiumNavigator({
 		[syncNavButtons],
 	)
 
+	/**
+	 * One page or two in a fixed-layout book, as the preferences ask (see
+	 * `setFixedLayoutPerPage`). Readium keeps the page it was sliding to (in spreads the
+	 * right-hand one) without saying so, so the book goes back to the page it reports once
+	 * Readium has laid the pages out again (its resize waits for a frame)
+	 */
+	const applyFixedLayoutPerPage = useCallback(
+		(navigator: EpubNavigator, prefs: IEpubPreferences) => {
+			if (!setFixedLayoutPerPage(navigator, prefs)) return
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() => {
+					const here = navigator.currentLocator
+					if (!here || navigator !== navigatorRef.current) return
+					void enqueueNavigation(navigator, (complete) => navigator.go(here, false, complete))
+				}),
+			)
+		},
+		[enqueueNavigation],
+	)
+
 	const clearSelection = useCallback(() => {
 		const nav = navigatorRef.current
 		if (!nav) return
@@ -448,7 +468,7 @@ export function useReadiumNavigator({
 
 				// Readium's fixed-layout reader starts in spreads on a landscape screen; show the
 				// pages the reader picked (one unless two were)
-				setFixedLayoutPerPage(navigator, preferencesRef.current)
+				applyFixedLayoutPerPage(navigator, preferencesRef.current)
 
 				const observer: DecorationObserver = {
 					onDecorationActivated: (event) => {
@@ -515,6 +535,7 @@ export function useReadiumNavigator({
 		positions,
 		initialLocator,
 		allowedDomains,
+		applyFixedLayoutPerPage,
 		attachDocumentListeners,
 		attachFrameListeners,
 		containerRef,
@@ -528,11 +549,11 @@ export function useReadiumNavigator({
 		if (!nav || loadState.status !== 'ready') return
 		void nav
 			.submitPreferences(new EpubPreferences(preferences))
-			.then(() => setFixedLayoutPerPage(nav, preferences))
+			.then(() => applyFixedLayoutPerPage(nav, preferences))
 			.catch((err) => {
 				console.error('[useReadiumNavigator] submitPreferences failed', err)
 			})
-	}, [preferences, loadState.status])
+	}, [preferences, loadState.status, applyFixedLayoutPerPage])
 
 	const api = useMemo<ReadiumNavigatorApi>(
 		() => ({
@@ -584,14 +605,15 @@ export function useReadiumNavigator({
  * applies a changed column count (and starts in spreads), so it is set here directly through
  * its public frame pool. Nothing for reflowable books
  */
-function setFixedLayoutPerPage(navigator: EpubNavigator, preferences: IEpubPreferences) {
-	if (navigator.layout !== Layout.fixed) return
+function setFixedLayoutPerPage(navigator: EpubNavigator, preferences: IEpubPreferences): boolean {
+	if (navigator.layout !== Layout.fixed) return false
 	const perPage = fixedLayoutPerPage(preferences.columnCount)
 	// (its `perPage` reads 1 on a portrait screen whatever was set, so keep what was applied;
 	// it starts in spreads, and a resize while its pages load trips over a page not parsed yet)
-	if ((fixedLayoutPerPageApplied.get(navigator) ?? 2) === perPage) return
+	if ((fixedLayoutPerPageApplied.get(navigator) ?? 2) === perPage) return false
 	fixedLayoutPerPageApplied.set(navigator, perPage)
 	;(navigator.pool as FXLFramePoolManager).setPerPage(perPage)
+	return true
 }
 
 /** The pages side by side last set on each fixed-layout navigator */
