@@ -19,7 +19,7 @@ import { clearFramesSelection, resyncFramesPage } from '../annotations/clearSele
 import { attachFrameLinkHandling, type FrameLink } from '../links/frameLinks'
 import { fitDropCaps } from './fitDropCaps'
 import { EPUB_FRAME_LAYOUT_EVENT, fitFrameMedia } from './fitFrameMedia'
-import { fixedLayoutPerPage } from './fixedLayout'
+import { fixedLayoutPerPage, patchFixedLayoutPageSize } from './fixedLayout'
 import { locatorToHref, navigableLocator, resolvePublicationLinkLocator } from './locator'
 import {
 	attachFrameReloadGuard,
@@ -329,6 +329,7 @@ export function useReadiumNavigator({
 				// browser reload then lands on about:blank. Patch navigates via src.
 				patchDurableIframeSrc()
 				patchHiddenFrameAnimationFrames()
+				patchFixedLayoutPageSize()
 
 				const listeners: EpubNavigatorListeners = {
 					// Take over the page's links as soon as it loads, before it can be tapped
@@ -586,8 +587,9 @@ export function useReadiumNavigator({
 function setFixedLayoutPerPage(navigator: EpubNavigator, preferences: IEpubPreferences) {
 	if (navigator.layout !== Layout.fixed) return
 	const perPage = fixedLayoutPerPage(preferences.columnCount)
-	// (its `perPage` reads 1 on a portrait screen whatever was set, so keep what was applied)
-	if (fixedLayoutPerPageApplied.get(navigator) === perPage) return
+	// (its `perPage` reads 1 on a portrait screen whatever was set, so keep what was applied;
+	// it starts in spreads, and a resize while its pages load trips over a page not parsed yet)
+	if ((fixedLayoutPerPageApplied.get(navigator) ?? 2) === perPage) return
 	fixedLayoutPerPageApplied.set(navigator, perPage)
 	;(navigator.pool as FXLFramePoolManager).setPerPage(perPage)
 }

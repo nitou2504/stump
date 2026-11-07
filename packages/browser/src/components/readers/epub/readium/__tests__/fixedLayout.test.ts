@@ -1,4 +1,10 @@
-import { fixedLayoutChapterPages, fixedLayoutPerPage } from '../fixedLayout'
+import { FXLFrameManager } from '@readium/navigator'
+
+import {
+	fixedLayoutChapterPages,
+	fixedLayoutPerPage,
+	patchFixedLayoutPageSize,
+} from '../fixedLayout'
 
 describe('fixedLayoutPerPage', () => {
 	it('shows two pages side by side only when two columns were asked for', () => {
@@ -41,5 +47,52 @@ describe('fixedLayoutChapterPages', () => {
 		expect(fixedLayoutChapterPages(starts, 1, 0)).toBeNull()
 		expect(fixedLayoutChapterPages(starts, 11, 10)).toBeNull()
 		expect(fixedLayoutChapterPages([], 1, 10)).toBeNull()
+	})
+})
+
+describe('patchFixedLayoutPageSize', () => {
+	type Sized = { loadPageSize: () => { width: number; height: number } }
+
+	/** A Readium fixed-layout frame showing `doc` in an iframe sized `style` */
+	function frameWith(doc: unknown, style = { width: '', height: '' }) {
+		const frame = Object.create(FXLFrameManager.prototype) as Sized & { frame: unknown }
+		frame.frame = { contentWindow: { document: doc }, style, clientWidth: 0, clientHeight: 0 }
+		return frame
+	}
+
+	function pageDocument(viewport: string) {
+		const doc = document.implementation.createHTMLDocument('page')
+		const meta = doc.createElement('meta')
+		meta.name = 'viewport'
+		meta.content = viewport
+		doc.head.appendChild(meta)
+		return doc
+	}
+
+	beforeAll(() => patchFixedLayoutPageSize())
+
+	it("reads a loaded page's size from its viewport", () => {
+		expect(frameWith(pageDocument('width=1609, height=1926')).loadPageSize()).toEqual({
+			width: 1609,
+			height: 1926,
+		})
+	})
+
+	it('keeps the last size while the page loads again (no body yet)', () => {
+		const frame = frameWith(pageDocument('width=600, height=800'))
+		frame.loadPageSize()
+		;(frame.frame as { contentWindow: { document: unknown } }).contentWindow.document = {
+			head: { querySelector: () => null },
+			body: null,
+		}
+		expect(frame.loadPageSize()).toEqual({ width: 600, height: 800 })
+	})
+
+	it("falls back to the frame's size for a page never read", () => {
+		const loading = { head: { querySelector: () => null }, body: null }
+		expect(frameWith(loading, { width: '672px', height: '804px' }).loadPageSize()).toEqual({
+			width: 672,
+			height: 804,
+		})
 	})
 })
