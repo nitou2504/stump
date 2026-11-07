@@ -152,10 +152,15 @@ function allFrameManagers(navigator: EpubNavigator): FrameManagerInternal[] {
 		(f): f is FrameManager => f instanceof FrameManager,
 	) as unknown as FrameManagerInternal[]
 
-	const poolMap = (navigator.pool as unknown as { pool?: Map<string, FrameManager> })?.pool
+	const poolMap = (navigator.pool as unknown as { pool?: Map<string, unknown> })?.pool
 	if (!poolMap) return fromCframes
 
-	const fromPool = [...poolMap.values()] as unknown as FrameManagerInternal[]
+	// Reflowable frames only: a fixed-layout book's pool holds Readium's FXL frames, whose
+	// `load` takes the page's source too (called without it, a frame not shown yet went to
+	// `/undefined`, Stump's 404 page, and the book stayed blank)
+	const fromPool = [...poolMap.values()].filter(
+		(f): f is FrameManager => f instanceof FrameManager,
+	) as unknown as FrameManagerInternal[]
 	const seen = new Set<FrameManagerInternal>()
 	const out: FrameManagerInternal[] = []
 	for (const frame of [...fromPool, ...fromCframes]) {
