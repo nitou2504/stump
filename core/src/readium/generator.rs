@@ -1,10 +1,10 @@
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf};
 
 use epub::doc::{EpubDoc, NavPoint};
 use models::shared::readium::{
 	RWPMLink, RWPMLinkBuilder, RWPMMetadata, RWPMMetadataBuilder, RWPMPosition,
 	RWPMPositionBuilder, RWPMPositionLocationsBuilder, RWPMPositions,
-	RWPMPositionsBuilder, RWPManifest, RWPManifestBuilder,
+	RWPMPositionsBuilder, RWPManifest, RWPManifestBuilder, RWPM_EPUB_PROFILE,
 };
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -73,6 +73,9 @@ impl ReadiumManifestGenerator {
 		&self,
 		epub: &mut EpubDoc<BufReader<File>>,
 	) -> Result<Vec<SpineItemMetadata>, ReadiumError> {
+		// A fixed-layout page is one position (Readium's fixed-layout reader pages by
+		// reading-order item, not by size)
+		let fixed = self.package_rendition(epub).fixed;
 		let resource_metas = epub
 			.spine
 			.clone()
@@ -98,7 +101,7 @@ impl ReadiumManifestGenerator {
 
 				let position_count =
 					(compressed_size as f64 / PAGE_LENGTH as f64).ceil() as usize;
-				let position_count = position_count.max(1);
+				let position_count = if fixed { 1 } else { position_count.max(1) };
 
 				Some(SpineItemMetadata {
 					package_path,
@@ -229,6 +232,11 @@ impl ReadiumManifestGenerator {
 		if let Some(description) = get_first("description") {
 			builder.description(description);
 		}
+		if self.package_rendition(epub).fixed {
+			builder
+				.conforms_to(vec![RWPM_EPUB_PROFILE.to_string()])
+				.layout("fixed");
+		}
 		builder
 			.build()
 			.map_err(|error| ReadiumError::EpubRead(error.to_string()))
@@ -271,6 +279,14 @@ impl ReadiumManifestGenerator {
 		}
 	}
 
+	/// The package's fixed-layout properties (see [`read_package_rendition`])
+	fn package_rendition(&self, epub: &mut EpubDoc<BufReader<File>>) -> PackageRendition {
+		let root_file = epub.root_file.clone();
+		epub.get_resource_str_by_path(root_file)
+			.map(|opf| read_package_rendition(&opf))
+			.unwrap_or_default()
+	}
+
 	fn generate_links(&self) -> Result<Vec<RWPMLink>, ReadiumError> {
 		[
 			RWPMLinkBuilder::default()
@@ -296,6 +312,7 @@ impl ReadiumManifestGenerator {
 		epub: &mut EpubDoc<BufReader<File>>,
 	) -> Result<Vec<RWPMLink>, ReadiumError> {
 		let mut reading_order = Vec::new();
+		let rendition = self.package_rendition(epub);
 
 		for (i, spine_item) in epub.spine.clone().iter().enumerate() {
 			let file_present = epub
@@ -331,6 +348,13 @@ impl ReadiumManifestGenerator {
 				}
 				if let Some(title) = title {
 					builder.title(title);
+				}
+				// Which side of a two-page spread a fixed-layout page goes on
+				if let Some(page) = rendition.page_spreads.get(&spine_item.idref) {
+					builder.properties(HashMap::from([(
+						"page".to_string(),
+						serde_json::Value::String(page.clone()),
+					)]));
 				}
 
 				reading_order.push(
@@ -411,6 +435,91 @@ impl ReadiumManifestGenerator {
 			.map_err(|e| ReadiumError::EpubOpen(e.to_string()))?;
 		enumerate_spine_for_positions_at(&mut epub)
 	}
+}
+
+/// What an OPF says about fixed layout: whether the whole book is pre-paginated and the
+/// side of a spread each page goes on (by spine `idref`: `left`, `right` or `center`)
+#[derive(Debug, Default, PartialEq)]
+pub struct PackageRendition {
+	pub fixed: bool,
+	pub page_spreads: HashMap<String, String>,
+}
+
+/// Read the fixed-layout properties of an OPF: EPUB 3
+/// `<meta property="rendition:layout">pre-paginated</meta>` (or the Kindle/EPUB 2
+/// `<meta name="fixed-layout" content="true"/>`) and the spine's
+/// `page-spread-left|right` / `rendition:page-spread-center` itemref properties. Element
+/// names are matched by local name, so prefixed (`opf:`) packages read the same.
+pub fn read_package_rendition(opf: &str) -> PackageRendition {
+	let mut rendition = PackageRendition::default();
+	let mut reader = Reader::from_str(opf);
+	reader.config_mut().trim_text(true);
+	let mut buf = Vec::new();
+	let mut in_layout_meta = false;
+	loop {
+		match reader.read_event_into(&mut buf) {
+			Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+				in_layout_meta = false;
+				let attr = |name: &[u8]| {
+					e.attributes()
+						.flatten()
+						.find(|a| a.key.as_ref() == name)
+						.and_then(|a| a.unescape_value().ok())
+						.map(|v| v.trim().to_string())
+				};
+				match e.local_name().as_ref() {
+					b"meta" => {
+						if attr(b"property").as_deref() == Some("rendition:layout") {
+							// EPUB 3 keeps the value in the text, a few tools in `content`
+							match attr(b"content") {
+								Some(value) => {
+									rendition.fixed |= value == "pre-paginated";
+								},
+								None => in_layout_meta = true,
+							}
+						} else if attr(b"name").as_deref() == Some("fixed-layout") {
+							rendition.fixed |= attr(b"content")
+								.is_some_and(|v| v.eq_ignore_ascii_case("true"));
+						}
+					},
+					b"itemref" => {
+						let (Some(idref), Some(properties)) =
+							(attr(b"idref"), attr(b"properties"))
+						else {
+							buf.clear();
+							continue;
+						};
+						let page = properties.split_whitespace().find_map(|p| match p {
+							"page-spread-left" | "rendition:page-spread-left" => {
+								Some("left")
+							},
+							"page-spread-right" | "rendition:page-spread-right" => {
+								Some("right")
+							},
+							"page-spread-center" | "rendition:page-spread-center" => {
+								Some("center")
+							},
+							_ => None,
+						});
+						if let Some(page) = page {
+							rendition.page_spreads.insert(idref, page.to_string());
+						}
+					},
+					_ => {},
+				}
+			},
+			Ok(Event::Text(ref t)) if in_layout_meta => {
+				let value = t.decode().map(|v| v.trim().to_string()).unwrap_or_default();
+				rendition.fixed |= value == "pre-paginated";
+				in_layout_meta = false;
+			},
+			Ok(Event::End(_)) => in_layout_meta = false,
+			Ok(Event::Eof) | Err(_) => break,
+			_ => {},
+		}
+		buf.clear();
+	}
+	rendition
 }
 
 /// Absolute `/resource/{path}` href for a package-relative EPUB path.
@@ -1028,5 +1137,141 @@ mod tests {
 		let spine = enumerate_spine_for_positions_at(&mut epub).expect("spine");
 		let indices: Vec<_> = spine.iter().map(|meta| meta.spine_index).collect();
 		assert_eq!(indices, vec![1, 2]);
+	}
+
+	/// A two-page fixed-layout EPUB 3 whose first page is big (several reflowable positions'
+	/// worth of bytes) and placed on the right of a spread, the second on the left
+	fn build_fixed_layout_epub() -> (tempfile::TempDir, String) {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let path = temp.path().join("fxl.epub");
+		let file = File::create(&path).expect("create epub");
+		let mut zip = zip::ZipWriter::new(file);
+		let options = zip::write::FileOptions::<()>::default()
+			.compression_method(zip::CompressionMethod::Stored);
+		let mut put = |name: &str, body: &[u8]| {
+			zip.start_file(name, options).expect("start file");
+			zip.write_all(body).expect("write file");
+		};
+		put("mimetype", b"application/epub+zip");
+		put(
+			"META-INF/container.xml",
+			br#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+	<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#,
+		);
+		put(
+			"OEBPS/content.opf",
+			br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
+	<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+		<dc:identifier id="uid">urn:uuid:stump-fxl-test</dc:identifier>
+		<dc:title>Fixed Layout Test</dc:title>
+		<dc:language>es</dc:language>
+		<meta property="rendition:layout">pre-paginated</meta>
+		<meta property="rendition:spread">landscape</meta>
+	</metadata>
+	<manifest>
+		<item id="p1" href="page1.xhtml" media-type="application/xhtml+xml"/>
+		<item id="p2" href="page2.xhtml" media-type="application/xhtml+xml"/>
+	</manifest>
+	<spine><itemref idref="p1" properties="page-spread-right"/><itemref idref="p2" properties="page-spread-left"/></spine>
+</package>"#,
+		);
+		let page = |n: usize, filler: usize| {
+			format!(
+				r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><meta name="viewport" content="width=600, height=800"/><title>Page {n}</title></head><body><p>{}</p></body></html>"#,
+				"x".repeat(filler)
+			)
+		};
+		put("OEBPS/page1.xhtml", page(1, 5000).as_bytes());
+		put("OEBPS/page2.xhtml", page(2, 10).as_bytes());
+		zip.finish().expect("finish zip");
+		(temp, path.to_string_lossy().to_string())
+	}
+
+	#[test]
+	fn test_fixed_layout_manifest_declares_epub_profile_and_layout() {
+		let (_temp, path) = build_fixed_layout_epub();
+		let generator =
+			ReadiumManifestGenerator::new(&path, "https://example.com/epub/1");
+		let manifest = generator.generate_manifest().expect("manifest");
+		let json = serde_json::to_value(&manifest).expect("serialize");
+
+		assert_eq!(json["metadata"]["layout"], "fixed");
+		assert_eq!(
+			json["metadata"]["conformsTo"],
+			serde_json::json!([RWPM_EPUB_PROFILE])
+		);
+		assert_eq!(json["readingOrder"][0]["properties"]["page"], "right");
+		assert_eq!(json["readingOrder"][1]["properties"]["page"], "left");
+	}
+
+	#[test]
+	fn test_fixed_layout_positions_are_one_per_page() {
+		let (_temp, path) = build_fixed_layout_epub();
+		let generator =
+			ReadiumManifestGenerator::new(&path, "https://example.com/epub/1");
+		let positions = generator.generate_positions().expect("positions");
+
+		assert_eq!(positions.total, 2);
+		let numbers: Vec<_> = positions
+			.positions
+			.iter()
+			.map(|p| {
+				(
+					p.href.rsplit('/').next().unwrap().to_string(),
+					p.locations.position,
+				)
+			})
+			.collect();
+		assert_eq!(
+			numbers,
+			vec![
+				("page1.xhtml".to_string(), 1),
+				("page2.xhtml".to_string(), 2)
+			]
+		);
+	}
+
+	#[test]
+	fn test_reflowable_manifest_has_no_layout() {
+		let path = get_test_epub_path();
+		let generator =
+			ReadiumManifestGenerator::new(&path, "https://example.com/epub/1");
+		let json = serde_json::to_value(generator.generate_manifest().expect("manifest"))
+			.unwrap();
+
+		assert!(json["metadata"].get("layout").is_none());
+		assert!(json["metadata"].get("conformsTo").is_none());
+		assert!(json["readingOrder"][0].get("properties").is_none());
+	}
+
+	#[test]
+	fn test_read_package_rendition_variants() {
+		let epub3 = r#"<package><metadata><meta property="rendition:layout">pre-paginated</meta></metadata>
+			<spine><itemref idref="a" properties="rendition:page-spread-center"/><itemref idref="b"/></spine></package>"#;
+		let rendition = read_package_rendition(epub3);
+		assert!(rendition.fixed);
+		assert_eq!(
+			rendition.page_spreads.get("a").map(String::as_str),
+			Some("center")
+		);
+		assert!(!rendition.page_spreads.contains_key("b"));
+
+		let prefixed = r#"<opf:package xmlns:opf="http://www.idpf.org/2007/opf"><opf:metadata>
+			<opf:meta property="rendition:layout"> pre-paginated </opf:meta></opf:metadata></opf:package>"#;
+		assert!(read_package_rendition(prefixed).fixed);
+
+		let kindle = r#"<package><metadata><meta name="fixed-layout" content="true"/></metadata></package>"#;
+		assert!(read_package_rendition(kindle).fixed);
+
+		let reflowable = r#"<package><metadata><meta property="rendition:layout">reflowable</meta>
+			<meta property="dcterms:modified">2020-01-01</meta></metadata></package>"#;
+		assert!(!read_package_rendition(reflowable).fixed);
+
+		// Text after another element doesn't count as the layout's value
+		let other = r#"<package><metadata><meta property="rendition:layout"/><dc:title>pre-paginated</dc:title></metadata></package>"#;
+		assert!(!read_package_rendition(other).fixed);
 	}
 }

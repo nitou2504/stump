@@ -60,7 +60,17 @@ pub struct RWPMMetadata {
 	pub number_of_pages: Option<u32>,
 	#[builder(default)]
 	pub reading_progression: Option<String>,
+	/// Profiles the publication conforms to (the EPUB profile for a fixed-layout EPUB, so
+	/// Readium applies its `layout`)
+	#[builder(default)]
+	pub conforms_to: Option<Vec<String>>,
+	/// `fixed` for a fixed-layout (pre-paginated) EPUB; left out for reflowable ones
+	#[builder(default)]
+	pub layout: Option<String>,
 }
+
+/// The Readium profile of a publication converted from an EPUB
+pub const RWPM_EPUB_PROFILE: &str = "https://readium.org/webpub-manifest/profiles/epub";
 
 /// A Readium Web Publication Manifest.
 #[skip_serializing_none]
