@@ -20,8 +20,8 @@ use graphql::{
 };
 use models::{
 	entity::{
-		library, media, media_metadata, reading_list, reading_list_item, series, smart_list,
-		user::AuthUser,
+		library, media, media_metadata, reading_list, reading_list_item, series,
+		smart_list, user::AuthUser,
 	},
 	shared::enums::UserPermission,
 };
