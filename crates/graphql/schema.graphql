@@ -1915,6 +1915,8 @@ type Media {
 	ebook: Epub
 	"Whether the media is marked as a favorite by the current user"
 	isFavorite: Boolean!
+	"The IDs of the current user's reading lists with this book"
+	readingListIds: [String!]!
 	"The tags associated with the media"
 	tags: [Tag!]!
 	"The series the media belongs to"
@@ -3115,7 +3117,8 @@ type Mutation {
 	updateSmartListView(originalName: String!, input: SaveSmartListView!): SmartListView!
 	deleteSmartListView(id: ID!, name: String!): SmartListView!
 	"""
-	Creates a new reading list.
+	Creates a reading list owned by the current user, with the given books (in order; books
+	the user can't see are left out). The ID is generated when omitted.
 	
 	# Returns
 	
@@ -3123,15 +3126,23 @@ type Mutation {
 	"""
 	createReadingList(input: ReadingListInput!): ReadingList!
 	"""
-	Updates an existing reading list.
+	Renames one of the current user's reading lists, or changes its description or
+	visibility.
 	
 	# Returns
 	
 	A result containing the updated reading list, or an error if update failed.
 	"""
-	updateReadingList(input: ReadingListInput!): ReadingList!
+	updateReadingList(id: ID!, input: UpdateReadingListInput!): ReadingList!
 	"""
-	Deletes a reading list by ID.
+	Adds books to the end of one of the current user's reading lists. Books already in it
+	and books the user can't see are left out.
+	"""
+	addBooksToReadingList(id: ID!, mediaIds: [ID!]!): ReadingList!
+	"Removes books from one of the current user's reading lists"
+	removeBooksFromReadingList(id: ID!, mediaIds: [ID!]!): ReadingList!
+	"""
+	Deletes one of the current user's reading lists (not its books).
 	
 	# Returns
 	
@@ -4006,13 +4017,21 @@ type ReadingList {
 	visibility: String!
 	ordering: String!
 	creatingUserId: String!
+	"The list's books the user can see, in the list's order"
+	books(limit: Int = null): [Media!]!
+	"How many of the list's books the user can see"
+	bookCount: Int!
 }
 
 input ReadingListInput {
-	id: String!
+	"The list's ID, generated when omitted or empty"
+	id: String
 	name: String!
+	description: String
+	"Private (only its owner sees it) when omitted"
 	visibility: EntityVisibility
-	mediaIds: [String!]!
+	"The list's first books, in order"
+	mediaIds: [String!]! = []
 }
 
 "The different reading modes supported by any Stump reader"
@@ -5040,6 +5059,18 @@ input UpdateBookClubInput {
 
 input UpdateCustomEmojiInput {
 	name: String!
+}
+
+"""
+What `updateReadingList` changes: the name and description replace the list's, the
+visibility stays when omitted. The books are changed with `addBooksToReadingList` and
+`removeBooksFromReadingList`
+"""
+input UpdateReadingListInput {
+	name: String!
+	"Omitted or empty clears it"
+	description: String
+	visibility: EntityVisibility
 }
 
 input UpdateScheduledJobInput {

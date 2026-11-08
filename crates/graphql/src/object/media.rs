@@ -3,7 +3,10 @@ use async_graphql::{
 };
 
 use models::{
-	entity::{library, media, media_analysis, media_metadata, reading_session},
+	entity::{
+		library, media, media_analysis, media_metadata, reading_list, reading_list_item,
+		reading_session,
+	},
 	services::reading_timeline::sessions_with_events,
 	shared::{
 		analysis::MediaAnalysisData, enums::SeriesKind, image::ImageRef,
@@ -97,6 +100,24 @@ impl Media {
 			.await?;
 
 		Ok(is_favorite.unwrap_or(false))
+	}
+
+	/// The IDs of the current user's reading lists with this book
+	async fn reading_list_ids(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let ids = reading_list_item::Entity::find()
+			.select_only()
+			.column(reading_list_item::Column::ReadingListId)
+			.inner_join(reading_list::Entity)
+			.filter(reading_list_item::Column::MediaId.eq(self.model.id.clone()))
+			.filter(reading_list::Column::CreatingUserId.eq(user.id.clone()))
+			.into_tuple::<String>()
+			.all(conn)
+			.await?;
+
+		Ok(ids)
 	}
 
 	/// The tags associated with the media
