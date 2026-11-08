@@ -1676,7 +1676,6 @@
       "title": "Reading Lists",
       "newList": "New List",
       "created": "Created “{{name}}”",
-      "notFound": "This reading list doesn't exist",
       "emptyState": {
         "heading": "No reading lists yet",
         "message": "Make a list, then add books to it from their pages"
@@ -1719,7 +1718,9 @@
         "create": "Failed to create the list",
         "update": "Failed to save the list",
         "delete": "Failed to delete the list",
-        "saveBook": "Failed to update the list"
+        "saveBook": "Failed to update the list",
+        "loadLists": "Failed to load the lists",
+        "loadList": "Failed to open the list"
       }
     },
     "settingsScene": {

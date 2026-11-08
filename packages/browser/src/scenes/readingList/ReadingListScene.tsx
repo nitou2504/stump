@@ -46,7 +46,11 @@ export default function ReadingListScene() {
 	const navigate = useNavigate()
 	const { t } = useTranslate()
 	const { user } = useAppContext()
-	const { data, isLoading } = useGraphQL(query, [READING_LISTS_KEY, 'list', id], { id })
+	const {
+		data,
+		isLoading,
+		error: loadError,
+	} = useGraphQL(query, [READING_LISTS_KEY, 'list', id], { id })
 	const { deleteList, addBook, removeBook, isDeleting } = useReadingListActions()
 
 	const [isEditing, setIsEditing] = useState(false)
@@ -55,18 +59,23 @@ export default function ReadingListScene() {
 	const list = data?.readingListById
 	const title = t('readingLists.title')
 
+	// nothing until it's loaded, so the header doesn't change under the user
+	if (isLoading) return null
+
 	if (!list) {
+		// e.g. "Reading list not found", or the server can't be reached
 		return (
 			<>
 				<CollectionSceneHeader title={title} />
-				{!isLoading && (
-					<SceneContainer className="gap-4 items-center">
-						<GenericEmptyState title={t('readingLists.notFound')} />
-						<ButtonOrLink variant="outline" href={paths.readingLists()}>
-							{t('readingLists.addToList.allLists')}
-						</ButtonOrLink>
-					</SceneContainer>
-				)}
+				<SceneContainer className="gap-4 items-center">
+					<GenericEmptyState
+						title={t('readingLists.errors.loadList')}
+						subtitle={errorMessage(loadError)}
+					/>
+					<ButtonOrLink variant="outline" href={paths.readingLists()}>
+						{t('readingLists.addToList.allLists')}
+					</ButtonOrLink>
+				</SceneContainer>
 			</>
 		)
 	}
@@ -162,7 +171,9 @@ export default function ReadingListScene() {
 											onClick={() => remove(book)}
 											aria-label={t('readingLists.list.removeBook', { name: book.resolvedName })}
 											title={t('readingLists.list.removeBookShort')}
-											className="left-2.5 top-2.5 size-7 pointer-coarse:size-8 bg-black/60 text-white backdrop-blur-sm hover:bg-black/80 absolute z-30 flex items-center justify-center rounded-full opacity-0 transition-opacity group-hover/item:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:opacity-100"
+											// a 32px circle on touch screens, with a 44px area for the finger (a near miss
+											// would open the book)
+											className="left-2.5 top-2.5 size-7 pointer-coarse:size-8 bg-black/60 text-white backdrop-blur-sm hover:bg-black/80 after:-inset-1.5 absolute z-30 flex items-center justify-center rounded-full opacity-0 transition-opacity group-hover/item:opacity-100 after:absolute after:content-[''] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:opacity-100"
 										>
 											<X className="size-4" />
 										</button>

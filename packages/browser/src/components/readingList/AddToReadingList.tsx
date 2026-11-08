@@ -9,7 +9,13 @@ import { Link, useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
-import { bookReadingListsQuery, byName, READING_LISTS_KEY, useReadingListActions } from './queries'
+import {
+	bookReadingListIdsQuery,
+	byName,
+	pickerReadingListsQuery,
+	READING_LISTS_KEY,
+	useReadingListActions,
+} from './queries'
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error && error.message ? error.message : undefined
@@ -34,19 +40,28 @@ export default function AddToReadingList({ bookId, bookName }: Props) {
 	const isMobile = useMediaMatch('(max-width: 768px)')
 	const [isOpen, setIsOpen] = useState(false)
 
-	const { data, isLoading } = useGraphQL(
-		bookReadingListsQuery,
+	// the book page only needs to know whether the book is in a list; the lists themselves
+	// (and their counts) are loaded when the menu opens
+	const { data: bookData } = useGraphQL(
+		bookReadingListIdsQuery,
 		[READING_LISTS_KEY, 'book', bookId],
 		{ id: bookId },
 	)
-	const inLists = useMemo(() => new Set(data?.mediaById?.readingListIds ?? []), [data])
+	const {
+		data: listsData,
+		isLoading,
+		error,
+	} = useGraphQL(pickerReadingListsQuery, [READING_LISTS_KEY, 'picker'], undefined, {
+		enabled: isOpen,
+	})
+	const inLists = useMemo(() => new Set(bookData?.mediaById?.readingListIds ?? []), [bookData])
 	// only the user's own lists can change
 	const lists = useMemo(
 		() =>
-			(data?.readingLists.nodes ?? [])
+			(listsData?.readingLists.nodes ?? [])
 				.filter((list) => list.creatingUserId === user.id)
 				.sort(byName),
-		[data, user.id],
+		[listsData, user.id],
 	)
 
 	const label = t('readingLists.addToList.label')
@@ -64,13 +79,15 @@ export default function AddToReadingList({ bookId, bookName }: Props) {
 		</Button>
 	)
 
-	const picker = (
+	const picker = (rowsClassName?: string) => (
 		<ReadingListPicker
 			bookId={bookId}
 			lists={lists}
 			inLists={inLists}
 			isLoading={isLoading}
+			loadError={error}
 			onLeave={() => setIsOpen(false)}
+			rowsClassName={rowsClassName}
 		/>
 	)
 
@@ -83,8 +100,8 @@ export default function AddToReadingList({ bookId, bookName }: Props) {
 						<Drawer.Title>{label}</Drawer.Title>
 						<Drawer.Description className="truncate">{bookName}</Drawer.Description>
 					</Drawer.Header>
-					<div className="px-2 overflow-y-auto pb-[calc(1rem+env(safe-area-inset-bottom))]">
-						{picker}
+					<div className="px-2 min-h-0 flex flex-col pb-[calc(1rem+env(safe-area-inset-bottom))]">
+						{picker()}
 					</div>
 				</Drawer.Content>
 			</Drawer>
@@ -96,7 +113,7 @@ export default function AddToReadingList({ bookId, bookName }: Props) {
 			<Popover.Trigger asChild>{trigger}</Popover.Trigger>
 			<Popover.Content portal align="end" className="w-72 p-1.5">
 				<p className="px-2 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">{label}</p>
-				<div className="max-h-80 overflow-y-auto">{picker}</div>
+				{picker('max-h-64')}
 			</Popover.Content>
 		</Popover>
 	)
@@ -107,11 +124,27 @@ type PickerProps = {
 	lists: { id: string; name: string; bookCount: number }[]
 	inLists: Set<string>
 	isLoading: boolean
+	/** Why the lists couldn't be loaded */
+	loadError: unknown
 	/** Closes the menu, when a link takes the user to another page */
 	onLeave: () => void
+	/** Classes for the scrolling list rows, e.g. a maximum height in the popover */
+	rowsClassName?: string
 }
 
-function ReadingListPicker({ bookId, lists, inLists, isLoading, onLeave }: PickerProps) {
+/**
+ * The lists, then the actions: only the lists scroll, so *New list…* and *All reading lists*
+ * stay in view however many lists there are
+ */
+function ReadingListPicker({
+	bookId,
+	lists,
+	inLists,
+	isLoading,
+	loadError,
+	onLeave,
+	rowsClassName,
+}: PickerProps) {
 	const { t, translate } = useTranslate()
 	const paths = usePaths()
 	const { createList, addBook, removeBook, isSaving } = useReadingListActions()
@@ -150,74 +183,89 @@ function ReadingListPicker({ bookId, lists, inLists, isLoading, onLeave }: Picke
 	}
 
 	return (
-		<div className="gap-0.5 flex flex-col">
-			{!isLoading && !lists.length && (
-				<p className="px-2 py-2 text-sm text-muted-foreground">
-					{t('readingLists.addToList.noLists')}
-				</p>
-			)}
+		<div className="min-h-0 flex flex-col">
+			<div className={cn('gap-0.5 min-h-0 flex flex-col overflow-y-auto', rowsClassName)}>
+				{loadError ? (
+					<p className="px-2 py-2 text-sm text-muted-foreground">
+						{[t('readingLists.errors.loadLists'), errorMessage(loadError)]
+							.filter(Boolean)
+							.join(': ')}
+					</p>
+				) : (
+					!isLoading &&
+					!lists.length && (
+						<p className="px-2 py-2 text-sm text-muted-foreground">
+							{t('readingLists.addToList.noLists')}
+						</p>
+					)
+				)}
 
-			{lists.map((list) => {
-				const checked = pending?.id === list.id ? pending.checked : inLists.has(list.id)
-				return (
-					<button
-						key={list.id}
-						type="button"
-						role="checkbox"
-						aria-checked={checked}
-						disabled={pending?.id === list.id}
-						onClick={() => toggle(list.id, !checked)}
-						className={ROW}
-					>
-						<span
-							className={cn(
-								'size-4 flex shrink-0 items-center justify-center rounded-[4px] border transition-colors',
-								checked
-									? 'border-primary bg-primary text-primary-foreground'
-									: 'border-muted-foreground/50',
-							)}
+				{lists.map((list) => {
+					const checked = pending?.id === list.id ? pending.checked : inLists.has(list.id)
+					return (
+						<button
+							key={list.id}
+							type="button"
+							role="checkbox"
+							aria-checked={checked}
+							disabled={pending?.id === list.id}
+							onClick={() => toggle(list.id, !checked)}
+							className={ROW}
 						>
-							{checked && <Check className="size-3" strokeWidth={3} />}
-						</span>
-						<span className="min-w-0 flex-1 truncate">{list.name}</span>
-						<span className="text-xs text-muted-foreground tabular-nums">{list.bookCount}</span>
+							<span
+								className={cn(
+									'size-4 flex shrink-0 items-center justify-center rounded-[4px] border transition-colors',
+									checked
+										? 'border-primary bg-primary text-primary-foreground'
+										: 'border-muted-foreground/50',
+								)}
+							>
+								{checked && <Check className="size-3" strokeWidth={3} />}
+							</span>
+							<span className="min-w-0 flex-1 truncate">{list.name}</span>
+							<span className="text-xs text-muted-foreground tabular-nums">{list.bookCount}</span>
+						</button>
+					)
+				})}
+			</div>
+
+			<div className="gap-0.5 flex shrink-0 flex-col">
+				<div className="my-1 h-px bg-border" />
+
+				{isNaming ? (
+					<form onSubmit={create} className="gap-2 px-1 py-1 flex items-center">
+						<Input
+							autoFocus
+							fullWidth
+							size="sm"
+							className="pointer-coarse:h-10"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+							placeholder={t('readingLists.form.namePlaceholder')}
+							aria-label={t('readingLists.form.name')}
+							maxLength={200}
+							containerClassName="flex-1"
+						/>
+						<Button type="submit" size="sm" disabled={!name.trim() || isSaving}>
+							{translate('shared.common.create')}
+						</Button>
+					</form>
+				) : (
+					<button type="button" onClick={() => setIsNaming(true)} className={ROW}>
+						<Plus className="size-4 shrink-0 text-muted-foreground" />
+						<span>{t('readingLists.addToList.newList')}</span>
 					</button>
-				)
-			})}
+				)}
 
-			<div className="my-1 h-px bg-border" />
-
-			{isNaming ? (
-				<form onSubmit={create} className="gap-2 px-1 py-1 flex items-center">
-					<Input
-						autoFocus
-						fullWidth
-						value={name}
-						onChange={(event) => setName(event.target.value)}
-						placeholder={t('readingLists.form.namePlaceholder')}
-						aria-label={t('readingLists.form.name')}
-						maxLength={200}
-						containerClassName="flex-1"
-					/>
-					<Button type="submit" size="sm" disabled={!name.trim() || isSaving}>
-						{translate('shared.common.create')}
-					</Button>
-				</form>
-			) : (
-				<button type="button" onClick={() => setIsNaming(true)} className={ROW}>
-					<Plus className="size-4 shrink-0 text-muted-foreground" />
-					<span>{t('readingLists.addToList.newList')}</span>
-				</button>
-			)}
-
-			<Link
-				to={paths.readingLists()}
-				onClick={onLeave}
-				className={cn(ROW, 'text-muted-foreground hover:text-foreground')}
-			>
-				<ListChecks className="size-4 shrink-0" />
-				<span>{t('readingLists.addToList.allLists')}</span>
-			</Link>
+				<Link
+					to={paths.readingLists()}
+					onClick={onLeave}
+					className={cn(ROW, 'text-muted-foreground hover:text-foreground')}
+				>
+					<ListChecks className="size-4 shrink-0" />
+					<span>{t('readingLists.addToList.allLists')}</span>
+				</Link>
+			</div>
 		</div>
 	)
 }

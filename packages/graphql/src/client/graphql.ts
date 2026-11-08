@@ -8288,12 +8288,17 @@ export type DeletePdfBookmarkMutationVariables = Exact<{
 
 export type DeletePdfBookmarkMutation = { __typename?: 'Mutation', deleteBookmark: { __typename?: 'Bookmark', id: string } };
 
-export type BookReadingListsQueryVariables = Exact<{
+export type BookReadingListIdsQueryVariables = Exact<{
   id: Scalars['ID']['input'];
 }>;
 
 
-export type BookReadingListsQuery = { __typename?: 'Query', mediaById?: { __typename?: 'Media', id: string, readingListIds: Array<string> } | null, readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<{ __typename?: 'ReadingList', id: string, name: string, creatingUserId: string, bookCount: number }> } };
+export type BookReadingListIdsQuery = { __typename?: 'Query', mediaById?: { __typename?: 'Media', id: string, readingListIds: Array<string> } | null };
+
+export type PickerReadingListsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PickerReadingListsQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<{ __typename?: 'ReadingList', id: string, name: string, creatingUserId: string, bookCount: number }> } };
 
 export type CreateReadingListMutationVariables = Exact<{
   input: ReadingListInput;
@@ -9030,7 +9035,7 @@ export type ReadingListsSceneQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type ReadingListsSceneQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<(
-      { __typename?: 'ReadingList', id: string, name: string }
+      { __typename?: 'ReadingList', id: string, name: string, creatingUserId: string }
       & { ' $fragmentRefs'?: { 'ReadingListGridItemFragment': ReadingListGridItemFragment } }
     )> } };
 
@@ -15584,12 +15589,16 @@ export const DeletePdfBookmarkDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<DeletePdfBookmarkMutation, DeletePdfBookmarkMutationVariables>;
-export const BookReadingListsDocument = new TypedDocumentString(`
-    query BookReadingLists($id: ID!) {
+export const BookReadingListIdsDocument = new TypedDocumentString(`
+    query BookReadingListIds($id: ID!) {
   mediaById(id: $id) {
     id
     readingListIds
   }
+}
+    `) as unknown as TypedDocumentString<BookReadingListIdsQuery, BookReadingListIdsQueryVariables>;
+export const PickerReadingListsDocument = new TypedDocumentString(`
+    query PickerReadingLists {
   readingLists(pagination: {none: {unpaginated: true}}) {
     nodes {
       id
@@ -15599,7 +15608,7 @@ export const BookReadingListsDocument = new TypedDocumentString(`
     }
   }
 }
-    `) as unknown as TypedDocumentString<BookReadingListsQuery, BookReadingListsQueryVariables>;
+    `) as unknown as TypedDocumentString<PickerReadingListsQuery, PickerReadingListsQueryVariables>;
 export const CreateReadingListDocument = new TypedDocumentString(`
     mutation CreateReadingList($input: ReadingListInput!) {
   createReadingList(input: $input) {
@@ -17592,6 +17601,7 @@ export const ReadingListsSceneDocument = new TypedDocumentString(`
     nodes {
       id
       name
+      creatingUserId
       ...ReadingListGridItem
     }
   }

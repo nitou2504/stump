@@ -1,6 +1,6 @@
 import { useGraphQL } from '@stump/client'
 import { Button } from '@stump/components'
-import { graphql } from '@stump/graphql'
+import { extractErrorMessage, graphql } from '@stump/graphql'
 import { BookMarked, Plus } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Helmet } from 'react-helmet'
@@ -8,7 +8,8 @@ import { Helmet } from 'react-helmet'
 import { SceneContainer } from '@/components/container'
 import GenericEmptyState from '@/components/GenericEmptyState'
 import { byName, READING_LISTS_KEY } from '@/components/readingList/queries'
-import { CollectionSceneHeader } from '@/components/sharedLayout'
+import { CollectionSceneHeader, HeaderIconButton } from '@/components/sharedLayout'
+import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import ReadingListFormDialog from './ReadingListFormDialog'
@@ -20,6 +21,7 @@ const query = graphql(`
 			nodes {
 				id
 				name
+				creatingUserId
 				...ReadingListGridItem
 			}
 		}
@@ -29,8 +31,16 @@ const query = graphql(`
 /** Reading lists: the user's lists of books, put together by hand */
 export default function ReadingListsScene() {
 	const { t } = useTranslate()
-	const { data, isLoading } = useGraphQL(query, [READING_LISTS_KEY, 'scene'])
-	const lists = useMemo(() => [...(data?.readingLists.nodes ?? [])].sort(byName), [data])
+	const { user } = useAppContext()
+	const { data, isLoading, error } = useGraphQL(query, [READING_LISTS_KEY, 'scene'])
+	// only the user's own lists (the API can make a list public, but nothing here shares them)
+	const lists = useMemo(
+		() =>
+			(data?.readingLists.nodes ?? [])
+				.filter((list) => list.creatingUserId === user.id)
+				.sort(byName),
+		[data, user.id],
+	)
 
 	const [isCreating, setIsCreating] = useState(false)
 
@@ -59,6 +69,15 @@ export default function ReadingListsScene() {
 
 	const renderContent = () => {
 		if (isLoading) return null
+
+		if (error) {
+			return (
+				<GenericEmptyState
+					title={t('readingLists.errors.loadLists')}
+					subtitle={extractErrorMessage(error)}
+				/>
+			)
+		}
 
 		if (!lists.length) {
 			return (
@@ -95,16 +114,7 @@ export default function ReadingListsScene() {
 				stats={data ? [{ key: 'lists', icon: BookMarked, value: lists.length }] : undefined}
 				endActions={
 					!!lists.length && (
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => setIsCreating(true)}
-							aria-label={newList}
-							title={newList}
-						>
-							<Plus />
-							<span className="sm:inline hidden">{newList}</span>
-						</Button>
+						<HeaderIconButton label={newList} icon={Plus} onClick={() => setIsCreating(true)} />
 					)
 				}
 			/>

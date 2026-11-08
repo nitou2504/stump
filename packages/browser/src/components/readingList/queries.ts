@@ -6,13 +6,19 @@ import { useCallback } from 'react'
 /** Every reading list query key starts with it, so one change refreshes them all */
 export const READING_LISTS_KEY = 'readingLists'
 
-/** The lists a book is in, and the user's lists to add it to */
-export const bookReadingListsQuery = graphql(`
-	query BookReadingLists($id: ID!) {
+/** The user's lists a book is in (only their ids: enough to mark the book page's list button) */
+export const bookReadingListIdsQuery = graphql(`
+	query BookReadingListIds($id: ID!) {
 		mediaById(id: $id) {
 			id
 			readingListIds
 		}
+	}
+`)
+
+/** The reading lists to add a book to, loaded when the add-to-list menu opens */
+export const pickerReadingListsQuery = graphql(`
+	query PickerReadingLists {
 		readingLists(pagination: { none: { unpaginated: true } }) {
 			nodes {
 				id

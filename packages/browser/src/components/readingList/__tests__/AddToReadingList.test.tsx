@@ -27,11 +27,11 @@ function setup() {
 	})
 	const execute = vi.spyOn(sdk, 'execute').mockImplementation(async (document) => {
 		const query = document.toString()
-		if (query.includes('query BookReadingLists')) {
-			return {
-				mediaById: { id: 'book', readingListIds: ['favs'] },
-				readingLists: { nodes: lists },
-			}
+		if (query.includes('query BookReadingListIds')) {
+			return { mediaById: { id: 'book', readingListIds: ['favs'] } }
+		}
+		if (query.includes('query PickerReadingLists')) {
+			return { readingLists: { nodes: lists } }
 		}
 		if (query.includes('mutation AddBooksToReadingList')) {
 			return { addBooksToReadingList: { id: 'recs' } }
@@ -68,11 +68,18 @@ const calls = (execute: ReturnType<typeof setup>['execute'], name: string) =>
 		.filter(([document]) => document.toString().includes(`mutation ${name}`))
 		.map(([, variables]) => variables)
 
+const queried = (execute: ReturnType<typeof setup>['execute'], name: string) =>
+	execute.mock.calls.some(([document]) => document.toString().includes(`query ${name}`))
+
 describe('AddToReadingList', () => {
 	it("lists the user's own lists by name, checked when they have the book", async () => {
 		const user = userEvent.setup()
-		const { Wrapper } = setup()
+		const { execute, Wrapper } = setup()
 		render(<AddToReadingList bookId="book" bookName="Dune" />, { wrapper: Wrapper })
+
+		// the book page only asks which lists have the book; the lists load when the menu opens
+		await waitFor(() => expect(queried(execute, 'BookReadingListIds')).toBe(true))
+		expect(queried(execute, 'PickerReadingLists')).toBe(false)
 
 		await user.click(await screen.findByRole('button', { name: 'readingLists.addToList.label' }))
 
