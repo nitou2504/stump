@@ -6,6 +6,7 @@
 //!     like KOReader search *inside* the shelf/library/series being viewed
 //!   - OPDS facets for sort order and language
 //! - Smart lists ("Shelves") as navigation + book feeds
+//! - Reading lists (the user's own, hand-picked) as navigation + book feeds, in list order
 //! - Authors and genres indexes (letter → value → books)
 
 use std::collections::BTreeMap;
@@ -18,13 +19,16 @@ use graphql::{
 	query::metadata_facets::{metadata_value_counts, sort_key, MetadataFacetField},
 };
 use models::{
-	entity::{library, media, media_metadata, series, smart_list, user::AuthUser},
+	entity::{
+		library, media, media_metadata, reading_list, reading_list_item, series, smart_list,
+		user::AuthUser,
+	},
 	shared::enums::UserPermission,
 };
 use sea_orm::{
 	prelude::*,
 	sea_query::{Expr as QExpr, SelectStatement},
-	Condition, ExprTrait, Order, QueryOrder, QuerySelect, Select,
+	Condition, ExprTrait, Order, QueryOrder, QuerySelect, QueryTrait, Select,
 };
 use serde::Deserialize;
 use stump_core::opds::{
@@ -148,6 +152,9 @@ impl BookFeedParams {
 			Some("title") => BookSort::Title,
 			Some("rating") => BookSort::Rating,
 			Some("relevance") if self.search().is_some() => BookSort::Relevance,
+			Some("list") if matches!(scope, BookScope::ReadingList { .. }) => {
+				BookSort::ListOrder
+			},
 			_ => self.default_sort(scope),
 		}
 	}
@@ -163,10 +170,13 @@ enum BookSort {
 	Author,
 	/// Highest rated first, unrated last
 	Rating,
+	/// The order the books were added to a reading list (reading list feeds only)
+	ListOrder,
 }
 
 impl BookSort {
-	const ALL: [BookSort; 6] = [
+	const ALL: [BookSort; 7] = [
+		BookSort::ListOrder,
 		BookSort::Relevance,
 		BookSort::Title,
 		BookSort::Rating,
@@ -183,6 +193,7 @@ impl BookSort {
 			BookSort::Series => "series",
 			BookSort::Author => "author",
 			BookSort::Rating => "rating",
+			BookSort::ListOrder => "list",
 		}
 	}
 
@@ -194,6 +205,7 @@ impl BookSort {
 			BookSort::Series => "Series order",
 			BookSort::Author => "Author",
 			BookSort::Rating => "Rating",
+			BookSort::ListOrder => "List order",
 		}
 	}
 }
@@ -214,12 +226,17 @@ pub(crate) enum BookScope {
 		name: String,
 		media_ids: SelectStatement,
 	},
+	ReadingList {
+		id: String,
+		name: String,
+	},
 }
 
 impl BookScope {
 	fn default_sort(&self) -> BookSort {
 		match self {
 			BookScope::Series { .. } => BookSort::Series,
+			BookScope::ReadingList { .. } => BookSort::ListOrder,
 			_ => BookSort::Title,
 		}
 	}
@@ -231,6 +248,7 @@ impl BookScope {
 			BookScope::Library { id, .. } => format!("libraries/{id}/books"),
 			BookScope::Series { id, .. } => format!("series/{id}"),
 			BookScope::SmartList { id, .. } => format!("smart-lists/{id}"),
+			BookScope::ReadingList { id, .. } => format!("reading-lists/{id}"),
 		}
 	}
 
@@ -240,6 +258,7 @@ impl BookScope {
 			BookScope::Library { id, .. } => format!("library:{id}:books"),
 			BookScope::Series { id, .. } => id.clone(),
 			BookScope::SmartList { id, .. } => format!("smartList:{id}"),
+			BookScope::ReadingList { id, .. } => format!("readingList:{id}"),
 		}
 	}
 
@@ -249,6 +268,7 @@ impl BookScope {
 			BookScope::Library { name, .. } => format!("{name}: all books"),
 			BookScope::Series { title, .. } => title.clone(),
 			BookScope::SmartList { name, .. } => name.clone(),
+			BookScope::ReadingList { name, .. } => name.clone(),
 		}
 	}
 
@@ -264,6 +284,15 @@ impl BookScope {
 			BookScope::SmartList { media_ids, .. } => {
 				query.filter(media::Column::Id.in_subquery(media_ids.clone()))
 			},
+			BookScope::ReadingList { id, .. } => query.filter(
+				media::Column::Id.in_subquery(
+					reading_list_item::Entity::find()
+						.select_only()
+						.column(reading_list_item::Column::MediaId)
+						.filter(reading_list_item::Column::ReadingListId.eq(id.clone()))
+						.into_query(),
+				),
+			),
 		}
 	}
 }
@@ -329,11 +358,22 @@ fn apply_sort(
 	query: Select<media::Entity>,
 	sort: BookSort,
 	search: Option<&str>,
+	scope: &BookScope,
 ) -> Select<media::Entity> {
 	let title = QExpr::cust(
 		"TRIM(COALESCE(NULLIF(TRIM(\"media_metadata\".\"title_sort\"), ''), NULLIF(TRIM(\"media_metadata\".\"title\"), ''), \"media\".\"name\")) COLLATE NOCASE",
 	);
 	match sort {
+		BookSort::ListOrder => {
+			let BookScope::ReadingList { id, .. } = scope else {
+				return query.order_by(title, Order::Asc).order_by_asc(media::Column::Id);
+			};
+			let position = QExpr::cust_with_values(
+				"(SELECT MIN(\"reading_list_items\".\"display_order\" * 1000000 + \"reading_list_items\".\"id\") FROM \"reading_list_items\" WHERE \"reading_list_items\".\"reading_list_id\" = ? AND \"reading_list_items\".\"media_id\" = \"media\".\"id\")",
+				[id.clone()],
+			);
+			query.order_by(position, Order::Asc).order_by_asc(media::Column::Id)
+		},
 		BookSort::Relevance => {
 			let pattern = format!(
 				"%{}%",
@@ -457,7 +497,7 @@ pub(crate) async fn books_feed(
 		SkipFilters::default(),
 	);
 	let count = query.clone().count(conn).await?;
-	let books = apply_sort(query, sort, params.search().as_deref())
+	let books = apply_sort(query, sort, params.search().as_deref(), &scope)
 		.offset(pagination.offset())
 		.limit(pagination.limit())
 		.into_model::<OPDSPublicationEntity>()
@@ -512,6 +552,11 @@ pub(crate) async fn books_feed(
 	// Sort facets (best match only makes sense while searching)
 	for option in BookSort::ALL {
 		if option == BookSort::Relevance && params.search().is_none() {
+			continue;
+		}
+		if option == BookSort::ListOrder
+			&& !matches!(scope, BookScope::ReadingList { .. })
+		{
 			continue;
 		}
 		let key = (option != default_sort).then(|| option.key().to_string());
@@ -832,6 +877,85 @@ pub(crate) async fn smart_list_books_feed(
 			id,
 			name: list.name,
 			media_ids,
+		},
+		pagination,
+		params,
+	)
+	.await
+}
+
+/// GET /opds/v1.2/reading-lists: the user's own reading lists, with their book counts
+pub(crate) async fn reading_lists_feed(
+	ctx: &AppState,
+	req: &AuthContext,
+) -> APIResult<Xml> {
+	let user = req.user();
+	let conn = ctx.conn.as_ref();
+
+	let lists = reading_list::Entity::find()
+		.filter(reading_list::Column::CreatingUserId.eq(user.id.clone()))
+		.order_by_asc(reading_list::Column::Name)
+		.all(conn)
+		.await?;
+
+	let mut entries = Vec::with_capacity(lists.len());
+	for list in lists {
+		let count = BookScope::ReadingList {
+			id: list.id.clone(),
+			name: list.name.clone(),
+		}
+		.apply(media::Entity::find_for_user(&user))
+		.count(conn)
+		.await?;
+		let books = if count == 1 {
+			"1 book".to_string()
+		} else {
+			format!("{count} books")
+		};
+		let content = match list.description.as_deref().filter(|d| !d.is_empty()) {
+			Some(description) => format!("{books} · {description}"),
+			None => books,
+		};
+		entries.push(navigation_entry(
+			req,
+			format!("readingList:{}", list.id),
+			list.name.clone(),
+			Some(content),
+			format!("reading-lists/{}", list.id),
+			true,
+		));
+	}
+
+	let feed = simple_feed(
+		req,
+		"readingLists",
+		"Reading lists".to_string(),
+		"reading-lists",
+		entries,
+	);
+	Ok(Xml(feed.build()?))
+}
+
+/// GET /opds/v1.2/reading-lists/{id}: the books of one of the user's reading lists
+pub(crate) async fn reading_list_books_feed(
+	ctx: &AppState,
+	req: &AuthContext,
+	id: String,
+	pagination: OffsetPagination,
+	params: BookFeedParams,
+) -> APIResult<Xml> {
+	let user = req.user();
+	let list = reading_list::Entity::find_by_id(id.clone())
+		.filter(reading_list::Column::CreatingUserId.eq(user.id.clone()))
+		.one(ctx.conn.as_ref())
+		.await?
+		.ok_or(APIError::NotFound("Reading list not found".to_string()))?;
+	books_feed(
+		ctx,
+		req,
+		BookScope::ReadingList {
+			id,
+			name: list.name,
 		},
 		pagination,
 		params,

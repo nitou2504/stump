@@ -39,9 +39,9 @@ use stump_core::{
 };
 
 use super::v1_2_browse::{
-	books_feed, library_books_feed, scoped_search_link, series_books_feed,
-	smart_list_books_feed, smart_lists_feed, value_index_feed, BookFeedParams, BookScope,
-	ValueIndex, ValueIndexParams,
+	books_feed, library_books_feed, reading_list_books_feed, reading_lists_feed,
+	scoped_search_link, series_books_feed, smart_list_books_feed, smart_lists_feed,
+	value_index_feed, BookFeedParams, BookScope, ValueIndex, ValueIndexParams,
 };
 use crate::{
 	config::state::AppState,
@@ -80,6 +80,8 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 		.route("/keep-reading", get(keep_reading))
 		.route("/smart-lists", get(get_smart_lists))
 		.route("/smart-lists/{id}", get(get_smart_list_books))
+		.route("/reading-lists", get(get_reading_lists))
+		.route("/reading-lists/{id}", get(get_reading_list_books))
 		.route("/authors", get(get_authors))
 		.route("/genres", get(get_genres))
 		.nest(
@@ -262,6 +264,20 @@ async fn catalog(Extension(req): Extension<AuthContext>) -> APIResult<Xml> {
 				link_type: OpdsLinkType::Navigation,
 				rel: OpdsLinkRel::Subsection,
 				href: catalog_url(&req, "smart-lists"),
+			}]),
+			None,
+		),
+		OpdsEntry::new(
+			"readingLists".to_string(),
+			Utc::now().into(),
+			"Reading lists".to_string(),
+			None,
+			Some(String::from("Browse your reading lists")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "reading-lists"),
 			}]),
 			None,
 		),
@@ -530,6 +546,28 @@ async fn get_smart_list_books(
 	Extension(req): Extension<AuthContext>,
 ) -> APIResult<Xml> {
 	smart_list_books_feed(&ctx, &req, id, pagination, params).await
+}
+
+/// A handler for GET /opds/v1.2/reading-lists, the user's own reading lists
+async fn get_reading_lists(
+	State(ctx): State<AppState>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	reading_lists_feed(&ctx, &req).await
+}
+
+/// A handler for GET /opds/v1.2/reading-lists/{id}, the books of a reading list
+async fn get_reading_list_books(
+	State(ctx): State<AppState>,
+	Path(OPDSURLParams {
+		params: OPDSIDURLParams { id },
+		..
+	}): Path<OPDSURLParams<OPDSIDURLParams>>,
+	Query(pagination): Query<OffsetPagination>,
+	Query(params): Query<BookFeedParams>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	reading_list_books_feed(&ctx, &req, id, pagination, params).await
 }
 
 /// A handler for GET /opds/v1.2/authors
