@@ -1672,6 +1672,56 @@
         }
       }
     },
+    "readingLists": {
+      "title": "Reading Lists",
+      "newList": "New List",
+      "created": "Created “{{name}}”",
+      "notFound": "This reading list doesn't exist",
+      "emptyState": {
+        "heading": "No reading lists yet",
+        "message": "Make a list, then add books to it from their pages"
+      },
+      "form": {
+        "createTitle": "New Reading List",
+        "editTitle": "Edit Reading List",
+        "name": "Name",
+        "namePlaceholder": "Favourites",
+        "description": "Description",
+        "descriptionPlaceholder": "Optional"
+      },
+      "actions": {
+        "edit": "Edit",
+        "delete": "Delete"
+      },
+      "delete": {
+        "title": "Delete Reading List",
+        "description": "Delete “{{name}}”? Its books stay in the library.",
+        "confirm": "Delete",
+        "deleted": "Deleted “{{name}}”"
+      },
+      "list": {
+        "empty": {
+          "heading": "No books in this list yet",
+          "message": "Add books to it from their pages"
+        },
+        "removeBook": "Remove “{{name}}” from this list",
+        "removeBookShort": "Remove from List",
+        "removed": "Removed “{{name}}”",
+        "undo": "Undo"
+      },
+      "addToList": {
+        "label": "Add to List",
+        "noLists": "No lists yet",
+        "newList": "New List…",
+        "allLists": "All Reading Lists"
+      },
+      "errors": {
+        "create": "Failed to create the list",
+        "update": "Failed to save the list",
+        "delete": "Failed to delete the list",
+        "saveBook": "Failed to update the list"
+      }
+    },
     "settingsScene": {
       "navigation": {
         "general": "General",

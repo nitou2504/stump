@@ -214,6 +214,12 @@ type Documents = {
     "\n\tquery PdfReaderBookmarks($id: ID!) {\n\t\tbookmarksByMediaId(id: $id) {\n\t\t\tid\n\t\t\tpage\n\t\t\tpreviewContent\n\t\t\tcreatedAt\n\t\t\tlocator {\n\t\t\t\tchapterTitle\n\t\t\t\thref\n\t\t\t\ttitle\n\t\t\t\ttype\n\t\t\t\tlocations {\n\t\t\t\t\tfragments\n\t\t\t\t\tprogression\n\t\t\t\t\tposition\n\t\t\t\t\ttotalProgression\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PdfReaderBookmarksDocument,
     "\n\tmutation CreatePdfBookmark($input: BookmarkInput!) {\n\t\tcreateBookmark(input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.CreatePdfBookmarkDocument,
     "\n\tmutation DeletePdfBookmark($id: String!) {\n\t\tdeleteBookmark(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.DeletePdfBookmarkDocument,
+    "\n\tquery BookReadingLists($id: ID!) {\n\t\tmediaById(id: $id) {\n\t\t\tid\n\t\t\treadingListIds\n\t\t}\n\t\treadingLists(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tcreatingUserId\n\t\t\t\tbookCount\n\t\t\t}\n\t\t}\n\t}\n": typeof types.BookReadingListsDocument,
+    "\n\tmutation CreateReadingList($input: ReadingListInput!) {\n\t\tcreateReadingList(input: $input) {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": typeof types.CreateReadingListDocument,
+    "\n\tmutation UpdateReadingList($id: ID!, $input: UpdateReadingListInput!) {\n\t\tupdateReadingList(id: $id, input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.UpdateReadingListDocument,
+    "\n\tmutation DeleteReadingList($id: String!) {\n\t\tdeleteReadingList(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.DeleteReadingListDocument,
+    "\n\tmutation AddBooksToReadingList($id: ID!, $mediaIds: [ID!]!) {\n\t\taddBooksToReadingList(id: $id, mediaIds: $mediaIds) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.AddBooksToReadingListDocument,
+    "\n\tmutation RemoveBooksFromReadingList($id: ID!, $mediaIds: [ID!]!) {\n\t\tremoveBooksFromReadingList(id: $id, mediaIds: $mediaIds) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.RemoveBooksFromReadingListDocument,
     "\n\tquery SeriesBookGrid($id: String!, $pagination: Pagination) {\n\t\tmedia(filter: { seriesId: { eq: $id } }, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tpages\n\t\t\t\textension\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on CursorPaginationInfo {\n\t\t\t\t\tcurrentCursor\n\t\t\t\t\tnextCursor\n\t\t\t\t\tlimit\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.SeriesBookGridDocument,
     "\n\tquery SeriesBooksAlphabet($id: ID!) {\n\t\tseriesById(id: $id) {\n\t\t\tmediaAlphabet\n\t\t}\n\t}\n": typeof types.SeriesBooksAlphabetDocument,
     "\n\tmutation SeriesActionComplete($id: ID!) {\n\t\tfinishSeriesProgress(id: $id)\n\t}\n": typeof types.SeriesActionCompleteDocument,
@@ -307,6 +313,9 @@ type Documents = {
     "\n\tmutation LibraryThumbnailSelectorUpload($id: ID!, $file: Upload!) {\n\t\tuploadLibraryThumbnail(id: $id, file: $file) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": typeof types.LibraryThumbnailSelectorUploadDocument,
     "\n\tmutation ProcessLibraryThumbnails($id: ID!, $forceRegenerate: Boolean!) {\n\t\tprocessLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)\n\t}\n": typeof types.ProcessLibraryThumbnailsDocument,
     "\n\tmutation RegenerateThumbnails($id: ID!, $forceRegenerate: Boolean!) {\n\t\tgenerateLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)\n\t}\n": typeof types.RegenerateThumbnailsDocument,
+    "\n\tfragment ReadingListGridItem on ReadingList {\n\t\tid\n\t\tname\n\t\tbookCount\n\t\tbooks(limit: 5) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t\tmetadata {\n\t\t\t\t\taverageColor\n\t\t\t\t\tcolors {\n\t\t\t\t\t\tcolor\n\t\t\t\t\t\tpercentage\n\t\t\t\t\t}\n\t\t\t\t\tthumbhash\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.ReadingListGridItemFragmentDoc,
+    "\n\tquery ReadingListScene($id: ID!) {\n\t\treadingListById(id: $id) {\n\t\t\tid\n\t\t\tname\n\t\t\tdescription\n\t\t\tcreatingUserId\n\t\t\tbookCount\n\t\t\tbooks {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t}\n\t}\n": typeof types.ReadingListSceneDocument,
+    "\n\tquery ReadingListsScene {\n\t\treadingLists(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\t...ReadingListGridItem\n\t\t\t}\n\t\t}\n\t}\n": typeof types.ReadingListsSceneDocument,
     "\n\tquery SeriesSettingsScene($id: ID!) {\n\t\tseriesById(id: $id) {\n\t\t\tid\n\t\t\ttags {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t}\n\t\t\tmetadata {\n\t\t\t\t...SeriesMetadataEditor\n\t\t\t}\n\t\t}\n\t}\n": typeof types.SeriesSettingsSceneDocument,
     "\n\tmutation SeriesSettingsSceneResetMetadata($id: ID!, $impact: MetadataResetImpact!) {\n\t\tresetSeriesMetadata(id: $id, impact: $impact) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.SeriesSettingsSceneResetMetadataDocument,
     "\n\tquery APIKeyTable {\n\t\tapiKeys {\n\t\t\tid\n\t\t\tname\n\t\t\tpermissions {\n\t\t\t\t__typename\n\t\t\t\t... on UserPermissionStruct {\n\t\t\t\t\tvalue\n\t\t\t\t}\n\t\t\t}\n\t\t\tlastUsedAt\n\t\t\texpiresAt\n\t\t\tcreatedAt\n\t\t}\n\t}\n": typeof types.ApiKeyTableDocument,
@@ -609,6 +618,12 @@ const documents: Documents = {
     "\n\tquery PdfReaderBookmarks($id: ID!) {\n\t\tbookmarksByMediaId(id: $id) {\n\t\t\tid\n\t\t\tpage\n\t\t\tpreviewContent\n\t\t\tcreatedAt\n\t\t\tlocator {\n\t\t\t\tchapterTitle\n\t\t\t\thref\n\t\t\t\ttitle\n\t\t\t\ttype\n\t\t\t\tlocations {\n\t\t\t\t\tfragments\n\t\t\t\t\tprogression\n\t\t\t\t\tposition\n\t\t\t\t\ttotalProgression\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.PdfReaderBookmarksDocument,
     "\n\tmutation CreatePdfBookmark($input: BookmarkInput!) {\n\t\tcreateBookmark(input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": types.CreatePdfBookmarkDocument,
     "\n\tmutation DeletePdfBookmark($id: String!) {\n\t\tdeleteBookmark(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": types.DeletePdfBookmarkDocument,
+    "\n\tquery BookReadingLists($id: ID!) {\n\t\tmediaById(id: $id) {\n\t\t\tid\n\t\t\treadingListIds\n\t\t}\n\t\treadingLists(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tcreatingUserId\n\t\t\t\tbookCount\n\t\t\t}\n\t\t}\n\t}\n": types.BookReadingListsDocument,
+    "\n\tmutation CreateReadingList($input: ReadingListInput!) {\n\t\tcreateReadingList(input: $input) {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": types.CreateReadingListDocument,
+    "\n\tmutation UpdateReadingList($id: ID!, $input: UpdateReadingListInput!) {\n\t\tupdateReadingList(id: $id, input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": types.UpdateReadingListDocument,
+    "\n\tmutation DeleteReadingList($id: String!) {\n\t\tdeleteReadingList(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": types.DeleteReadingListDocument,
+    "\n\tmutation AddBooksToReadingList($id: ID!, $mediaIds: [ID!]!) {\n\t\taddBooksToReadingList(id: $id, mediaIds: $mediaIds) {\n\t\t\tid\n\t\t}\n\t}\n": types.AddBooksToReadingListDocument,
+    "\n\tmutation RemoveBooksFromReadingList($id: ID!, $mediaIds: [ID!]!) {\n\t\tremoveBooksFromReadingList(id: $id, mediaIds: $mediaIds) {\n\t\t\tid\n\t\t}\n\t}\n": types.RemoveBooksFromReadingListDocument,
     "\n\tquery SeriesBookGrid($id: String!, $pagination: Pagination) {\n\t\tmedia(filter: { seriesId: { eq: $id } }, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tpages\n\t\t\t\textension\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on CursorPaginationInfo {\n\t\t\t\t\tcurrentCursor\n\t\t\t\t\tnextCursor\n\t\t\t\t\tlimit\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.SeriesBookGridDocument,
     "\n\tquery SeriesBooksAlphabet($id: ID!) {\n\t\tseriesById(id: $id) {\n\t\t\tmediaAlphabet\n\t\t}\n\t}\n": types.SeriesBooksAlphabetDocument,
     "\n\tmutation SeriesActionComplete($id: ID!) {\n\t\tfinishSeriesProgress(id: $id)\n\t}\n": types.SeriesActionCompleteDocument,
@@ -702,6 +717,9 @@ const documents: Documents = {
     "\n\tmutation LibraryThumbnailSelectorUpload($id: ID!, $file: Upload!) {\n\t\tuploadLibraryThumbnail(id: $id, file: $file) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": types.LibraryThumbnailSelectorUploadDocument,
     "\n\tmutation ProcessLibraryThumbnails($id: ID!, $forceRegenerate: Boolean!) {\n\t\tprocessLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)\n\t}\n": types.ProcessLibraryThumbnailsDocument,
     "\n\tmutation RegenerateThumbnails($id: ID!, $forceRegenerate: Boolean!) {\n\t\tgenerateLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)\n\t}\n": types.RegenerateThumbnailsDocument,
+    "\n\tfragment ReadingListGridItem on ReadingList {\n\t\tid\n\t\tname\n\t\tbookCount\n\t\tbooks(limit: 5) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t\tmetadata {\n\t\t\t\t\taverageColor\n\t\t\t\t\tcolors {\n\t\t\t\t\t\tcolor\n\t\t\t\t\t\tpercentage\n\t\t\t\t\t}\n\t\t\t\t\tthumbhash\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.ReadingListGridItemFragmentDoc,
+    "\n\tquery ReadingListScene($id: ID!) {\n\t\treadingListById(id: $id) {\n\t\t\tid\n\t\t\tname\n\t\t\tdescription\n\t\t\tcreatingUserId\n\t\t\tbookCount\n\t\t\tbooks {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t}\n\t}\n": types.ReadingListSceneDocument,
+    "\n\tquery ReadingListsScene {\n\t\treadingLists(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\t...ReadingListGridItem\n\t\t\t}\n\t\t}\n\t}\n": types.ReadingListsSceneDocument,
     "\n\tquery SeriesSettingsScene($id: ID!) {\n\t\tseriesById(id: $id) {\n\t\t\tid\n\t\t\ttags {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t}\n\t\t\tmetadata {\n\t\t\t\t...SeriesMetadataEditor\n\t\t\t}\n\t\t}\n\t}\n": types.SeriesSettingsSceneDocument,
     "\n\tmutation SeriesSettingsSceneResetMetadata($id: ID!, $impact: MetadataResetImpact!) {\n\t\tresetSeriesMetadata(id: $id, impact: $impact) {\n\t\t\tid\n\t\t}\n\t}\n": types.SeriesSettingsSceneResetMetadataDocument,
     "\n\tquery APIKeyTable {\n\t\tapiKeys {\n\t\t\tid\n\t\t\tname\n\t\t\tpermissions {\n\t\t\t\t__typename\n\t\t\t\t... on UserPermissionStruct {\n\t\t\t\t\tvalue\n\t\t\t\t}\n\t\t\t}\n\t\t\tlastUsedAt\n\t\t\texpiresAt\n\t\t\tcreatedAt\n\t\t}\n\t}\n": types.ApiKeyTableDocument,
@@ -1604,6 +1622,30 @@ export function graphql(source: "\n\tmutation DeletePdfBookmark($id: String!) {\
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tquery BookReadingLists($id: ID!) {\n\t\tmediaById(id: $id) {\n\t\t\tid\n\t\t\treadingListIds\n\t\t}\n\t\treadingLists(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\tcreatingUserId\n\t\t\t\tbookCount\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').BookReadingListsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation CreateReadingList($input: ReadingListInput!) {\n\t\tcreateReadingList(input: $input) {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n"): typeof import('./graphql').CreateReadingListDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation UpdateReadingList($id: ID!, $input: UpdateReadingListInput!) {\n\t\tupdateReadingList(id: $id, input: $input) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateReadingListDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation DeleteReadingList($id: String!) {\n\t\tdeleteReadingList(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').DeleteReadingListDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation AddBooksToReadingList($id: ID!, $mediaIds: [ID!]!) {\n\t\taddBooksToReadingList(id: $id, mediaIds: $mediaIds) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').AddBooksToReadingListDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation RemoveBooksFromReadingList($id: ID!, $mediaIds: [ID!]!) {\n\t\tremoveBooksFromReadingList(id: $id, mediaIds: $mediaIds) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').RemoveBooksFromReadingListDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tquery SeriesBookGrid($id: String!, $pagination: Pagination) {\n\t\tmedia(filter: { seriesId: { eq: $id } }, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tpages\n\t\t\t\textension\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on CursorPaginationInfo {\n\t\t\t\t\tcurrentCursor\n\t\t\t\t\tnextCursor\n\t\t\t\t\tlimit\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').SeriesBookGridDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -1973,6 +2015,18 @@ export function graphql(source: "\n\tmutation ProcessLibraryThumbnails($id: ID!,
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tmutation RegenerateThumbnails($id: ID!, $forceRegenerate: Boolean!) {\n\t\tgenerateLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)\n\t}\n"): typeof import('./graphql').RegenerateThumbnailsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tfragment ReadingListGridItem on ReadingList {\n\t\tid\n\t\tname\n\t\tbookCount\n\t\tbooks(limit: 5) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t\tmetadata {\n\t\t\t\t\taverageColor\n\t\t\t\t\tcolors {\n\t\t\t\t\t\tcolor\n\t\t\t\t\t\tpercentage\n\t\t\t\t\t}\n\t\t\t\t\tthumbhash\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').ReadingListGridItemFragmentDoc;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery ReadingListScene($id: ID!) {\n\t\treadingListById(id: $id) {\n\t\t\tid\n\t\t\tname\n\t\t\tdescription\n\t\t\tcreatingUserId\n\t\t\tbookCount\n\t\t\tbooks {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').ReadingListSceneDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery ReadingListsScene {\n\t\treadingLists(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\t...ReadingListGridItem\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').ReadingListsSceneDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

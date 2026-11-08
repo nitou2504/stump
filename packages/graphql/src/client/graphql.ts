@@ -2046,6 +2046,8 @@ export type Media = {
   path: Scalars['String']['output'];
   readHistory: Array<ReadthroughRecord>;
   readProgress?: Maybe<ResumeReadingCursor>;
+  /** The IDs of the current user's reading lists with this book */
+  readingListIds: Array<Scalars['String']['output']>;
   /**
    * The reading timeline for the book for the current user. Will be `None` if the user has not
    * read the book.
@@ -2896,6 +2898,11 @@ export type Mutation = {
   acceptSeriesMatch: MetadataFetchRecord;
   /** Add a book to the club's queue */
   addBookToClub: BookClub;
+  /**
+   * Adds books to the end of one of the current user's reading lists. Books already in it
+   * and books the user can't see are left out.
+   */
+  addBooksToReadingList: ReadingList;
   analyzeLibrary: Scalars['Boolean']['output'];
   analyzeMedia: Scalars['Boolean']['output'];
   analyzeSeries: Scalars['Boolean']['output'];
@@ -2953,7 +2960,8 @@ export type Mutation = {
   createMetadataProvider: MetadataProviderConfigModel;
   createNotifier: Notifier;
   /**
-   * Creates a new reading list.
+   * Creates a reading list owned by the current user, with the given books (in order; books
+   * the user can't see are left out). The ID is generated when omitted.
    *
    * # Returns
    *
@@ -3016,7 +3024,7 @@ export type Mutation = {
   /** Deletes a reading device owned by the authenticated user */
   deleteReadingDevice: Scalars['Boolean']['output'];
   /**
-   * Deletes a reading list by ID.
+   * Deletes one of the current user's reading lists (not its books).
    *
    * # Returns
    *
@@ -3146,6 +3154,8 @@ export type Mutation = {
   rejectSeriesMatch: MetadataFetchRecord;
   /** Removes a member from the book club */
   removeBookClubMember: BookClubMember;
+  /** Removes books from one of the current user's reading lists */
+  removeBooksFromReadingList: ReadingList;
   /** Remove your own suggestion (only before it's resolved) */
   removeSuggestion: BookClubBookSuggestion;
   /**
@@ -3295,7 +3305,8 @@ export type Mutation = {
   updateOnlineLookupSettings: OnlineLookupSettings;
   updatePublicUrl: ServerConfigModel;
   /**
-   * Updates an existing reading list.
+   * Renames one of the current user's reading lists, or changes its description or
+   * visibility.
    *
    * # Returns
    *
@@ -3390,6 +3401,12 @@ export type MutationAcceptSeriesMatchArgs = {
 export type MutationAddBookToClubArgs = {
   bookClubId: Scalars['ID']['input'];
   input: AddBookToClubInput;
+};
+
+
+export type MutationAddBooksToReadingListArgs = {
+  id: Scalars['ID']['input'];
+  mediaIds: Array<Scalars['ID']['input']>;
 };
 
 
@@ -3882,6 +3899,12 @@ export type MutationRemoveBookClubMemberArgs = {
 };
 
 
+export type MutationRemoveBooksFromReadingListArgs = {
+  id: Scalars['ID']['input'];
+  mediaIds: Array<Scalars['ID']['input']>;
+};
+
+
 export type MutationRemoveSuggestionArgs = {
   suggestionId: Scalars['ID']['input'];
 };
@@ -4171,7 +4194,8 @@ export type MutationUpdatePublicUrlArgs = {
 
 
 export type MutationUpdateReadingListArgs = {
-  input: ReadingListInput;
+  id: Scalars['ID']['input'];
+  input: UpdateReadingListInput;
 };
 
 
@@ -5511,6 +5535,10 @@ export enum ReadingImageScaleFit {
 
 export type ReadingList = {
   __typename?: 'ReadingList';
+  /** How many of the list's books the user can see */
+  bookCount: Scalars['Int']['output'];
+  /** The list's books the user can see, in the list's order */
+  books: Array<Media>;
   creatingUserId: Scalars['String']['output'];
   description?: Maybe<Scalars['String']['output']>;
   id: Scalars['String']['output'];
@@ -5520,10 +5548,19 @@ export type ReadingList = {
   visibility: Scalars['String']['output'];
 };
 
+
+export type ReadingListBooksArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type ReadingListInput = {
-  id: Scalars['String']['input'];
-  mediaIds: Array<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  /** The list's ID, generated when omitted or empty */
+  id?: InputMaybe<Scalars['String']['input']>;
+  /** The list's first books, in order */
+  mediaIds?: Array<Scalars['String']['input']>;
   name: Scalars['String']['input'];
+  /** Private (only its owner sees it) when omitted */
   visibility?: InputMaybe<EntityVisibility>;
 };
 
@@ -6631,6 +6668,18 @@ export type UpdateBookClubInput = {
 
 export type UpdateCustomEmojiInput = {
   name: Scalars['String']['input'];
+};
+
+/**
+ * What `updateReadingList` changes: the name and description replace the list's, the
+ * visibility stays when omitted. The books are changed with `addBooksToReadingList` and
+ * `removeBooksFromReadingList`
+ */
+export type UpdateReadingListInput = {
+  /** Omitted or empty clears it */
+  description?: InputMaybe<Scalars['String']['input']>;
+  name: Scalars['String']['input'];
+  visibility?: InputMaybe<EntityVisibility>;
 };
 
 export type UpdateScheduledJobInput = {
@@ -8239,6 +8288,51 @@ export type DeletePdfBookmarkMutationVariables = Exact<{
 
 export type DeletePdfBookmarkMutation = { __typename?: 'Mutation', deleteBookmark: { __typename?: 'Bookmark', id: string } };
 
+export type BookReadingListsQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type BookReadingListsQuery = { __typename?: 'Query', mediaById?: { __typename?: 'Media', id: string, readingListIds: Array<string> } | null, readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<{ __typename?: 'ReadingList', id: string, name: string, creatingUserId: string, bookCount: number }> } };
+
+export type CreateReadingListMutationVariables = Exact<{
+  input: ReadingListInput;
+}>;
+
+
+export type CreateReadingListMutation = { __typename?: 'Mutation', createReadingList: { __typename?: 'ReadingList', id: string, name: string } };
+
+export type UpdateReadingListMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  input: UpdateReadingListInput;
+}>;
+
+
+export type UpdateReadingListMutation = { __typename?: 'Mutation', updateReadingList: { __typename?: 'ReadingList', id: string } };
+
+export type DeleteReadingListMutationVariables = Exact<{
+  id: Scalars['String']['input'];
+}>;
+
+
+export type DeleteReadingListMutation = { __typename?: 'Mutation', deleteReadingList: { __typename?: 'ReadingList', id: string } };
+
+export type AddBooksToReadingListMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  mediaIds: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type AddBooksToReadingListMutation = { __typename?: 'Mutation', addBooksToReadingList: { __typename?: 'ReadingList', id: string } };
+
+export type RemoveBooksFromReadingListMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  mediaIds: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type RemoveBooksFromReadingListMutation = { __typename?: 'Mutation', removeBooksFromReadingList: { __typename?: 'ReadingList', id: string } };
+
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
   pagination?: InputMaybe<Pagination>;
@@ -8919,6 +9013,26 @@ export type RegenerateThumbnailsMutationVariables = Exact<{
 
 
 export type RegenerateThumbnailsMutation = { __typename?: 'Mutation', generateLibraryThumbnails: boolean };
+
+export type ReadingListGridItemFragment = { __typename?: 'ReadingList', id: string, name: string, bookCount: number, books: Array<{ __typename?: 'Media', id: string, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }> } & { ' $fragmentName'?: 'ReadingListGridItemFragment' };
+
+export type ReadingListSceneQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type ReadingListSceneQuery = { __typename?: 'Query', readingListById: { __typename?: 'ReadingList', id: string, name: string, description?: string | null, creatingUserId: string, bookCount: number, books: Array<(
+      { __typename?: 'Media', id: string, resolvedName: string }
+      & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment } }
+    )> } };
+
+export type ReadingListsSceneQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ReadingListsSceneQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<(
+      { __typename?: 'ReadingList', id: string, name: string }
+      & { ' $fragmentRefs'?: { 'ReadingListGridItemFragment': ReadingListGridItemFragment } }
+    )> } };
 
 export type SeriesSettingsSceneQueryVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -11193,6 +11307,27 @@ export const LibrarySettingsConfigFragmentDoc = new TypedDocumentString(`
   }
 }
     `, {"fragmentName":"LibrarySettingsConfig"}) as unknown as TypedDocumentString<LibrarySettingsConfigFragment, unknown>;
+export const ReadingListGridItemFragmentDoc = new TypedDocumentString(`
+    fragment ReadingListGridItem on ReadingList {
+  id
+  name
+  bookCount
+  books(limit: 5) {
+    id
+    thumbnail {
+      url
+      metadata {
+        averageColor
+        colors {
+          color
+          percentage
+        }
+        thumbhash
+      }
+    }
+  }
+}
+    `, {"fragmentName":"ReadingListGridItem"}) as unknown as TypedDocumentString<ReadingListGridItemFragment, unknown>;
 export const CreateOrUpdateEmailerFormFragmentDoc = new TypedDocumentString(`
     fragment CreateOrUpdateEmailerForm on Emailer {
   name
@@ -15449,6 +15584,58 @@ export const DeletePdfBookmarkDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<DeletePdfBookmarkMutation, DeletePdfBookmarkMutationVariables>;
+export const BookReadingListsDocument = new TypedDocumentString(`
+    query BookReadingLists($id: ID!) {
+  mediaById(id: $id) {
+    id
+    readingListIds
+  }
+  readingLists(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      name
+      creatingUserId
+      bookCount
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<BookReadingListsQuery, BookReadingListsQueryVariables>;
+export const CreateReadingListDocument = new TypedDocumentString(`
+    mutation CreateReadingList($input: ReadingListInput!) {
+  createReadingList(input: $input) {
+    id
+    name
+  }
+}
+    `) as unknown as TypedDocumentString<CreateReadingListMutation, CreateReadingListMutationVariables>;
+export const UpdateReadingListDocument = new TypedDocumentString(`
+    mutation UpdateReadingList($id: ID!, $input: UpdateReadingListInput!) {
+  updateReadingList(id: $id, input: $input) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateReadingListMutation, UpdateReadingListMutationVariables>;
+export const DeleteReadingListDocument = new TypedDocumentString(`
+    mutation DeleteReadingList($id: String!) {
+  deleteReadingList(id: $id) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<DeleteReadingListMutation, DeleteReadingListMutationVariables>;
+export const AddBooksToReadingListDocument = new TypedDocumentString(`
+    mutation AddBooksToReadingList($id: ID!, $mediaIds: [ID!]!) {
+  addBooksToReadingList(id: $id, mediaIds: $mediaIds) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<AddBooksToReadingListMutation, AddBooksToReadingListMutationVariables>;
+export const RemoveBooksFromReadingListDocument = new TypedDocumentString(`
+    mutation RemoveBooksFromReadingList($id: ID!, $mediaIds: [ID!]!) {
+  removeBooksFromReadingList(id: $id, mediaIds: $mediaIds) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<RemoveBooksFromReadingListMutation, RemoveBooksFromReadingListMutationVariables>;
 export const SeriesBookGridDocument = new TypedDocumentString(`
     query SeriesBookGrid($id: String!, $pagination: Pagination) {
   media(filter: {seriesId: {eq: $id}}, pagination: $pagination) {
@@ -17341,6 +17528,93 @@ export const RegenerateThumbnailsDocument = new TypedDocumentString(`
   generateLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)
 }
     `) as unknown as TypedDocumentString<RegenerateThumbnailsMutation, RegenerateThumbnailsMutationVariables>;
+export const ReadingListSceneDocument = new TypedDocumentString(`
+    query ReadingListScene($id: ID!) {
+  readingListById(id: $id) {
+    id
+    name
+    description
+    creatingUserId
+    bookCount
+    books {
+      id
+      resolvedName
+      ...BookCard
+    }
+  }
+}
+    fragment BookCard on Media {
+  id
+  resolvedName
+  extension
+  pages
+  size
+  status
+  thumbnail {
+    url
+    metadata {
+      averageColor
+      colors {
+        color
+        percentage
+      }
+      thumbhash
+    }
+    height
+    width
+  }
+  readProgress {
+    percentageCompleted
+    page
+    updatedAt
+    locator {
+      href
+    }
+  }
+  readHistory {
+    __typename
+    completedAt
+  }
+  createdAt
+  libraryConfig {
+    skipBookOverview
+  }
+  metadata {
+    number
+    rating
+    ageRating
+    language
+  }
+}`) as unknown as TypedDocumentString<ReadingListSceneQuery, ReadingListSceneQueryVariables>;
+export const ReadingListsSceneDocument = new TypedDocumentString(`
+    query ReadingListsScene {
+  readingLists(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      name
+      ...ReadingListGridItem
+    }
+  }
+}
+    fragment ReadingListGridItem on ReadingList {
+  id
+  name
+  bookCount
+  books(limit: 5) {
+    id
+    thumbnail {
+      url
+      metadata {
+        averageColor
+        colors {
+          color
+          percentage
+        }
+        thumbhash
+      }
+    }
+  }
+}`) as unknown as TypedDocumentString<ReadingListsSceneQuery, ReadingListsSceneQueryVariables>;
 export const SeriesSettingsSceneDocument = new TypedDocumentString(`
     query SeriesSettingsScene($id: ID!) {
   seriesById(id: $id) {

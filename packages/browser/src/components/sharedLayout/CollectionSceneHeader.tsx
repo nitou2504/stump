@@ -17,10 +17,12 @@ type Props = {
 	stats?: Stat[]
 	actions?: DropdownMenuProps['groups']
 	docsLink?: string
+	/** buttons shown on the right, e.g. a "New list" button */
+	endActions?: React.ReactNode
 }
 
 /** the page header for top-level collection pages, e.g. `Libraries` */
-export function CollectionSceneHeader({ title, actions, stats, docsLink }: Props) {
+export function CollectionSceneHeader({ title, actions, stats, docsLink, endActions }: Props) {
 	return (
 		<PageHeader>
 			<PageHeader.Start>
@@ -53,9 +55,10 @@ export function CollectionSceneHeader({ title, actions, stats, docsLink }: Props
 				)}
 			</PageHeader.Start>
 
-			{docsLink && (
+			{(docsLink || endActions) && (
 				<PageHeader.End>
-					<DocsLinkButton href={docsLink} />
+					{endActions}
+					{docsLink && <DocsLinkButton href={docsLink} />}
 				</PageHeader.End>
 			)}
 		</PageHeader>

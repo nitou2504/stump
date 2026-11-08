@@ -118,6 +118,8 @@ const pathsInternal = {
 	},
 	notFound: () => '/404',
 	notifications: () => '/notifications',
+	readingList: (id: string) => `/reading-lists/${id}`,
+	readingLists: () => '/reading-lists',
 	seriesFileExplorer: (id: string) => `/series/${id}/files`,
 	seriesManagement: (id: string) => `/series/${id}/manage`,
 	seriesOverview: (id: string, page?: number) => {
@@ -186,6 +188,8 @@ export function usePaths() {
 			`${basePath}${pathsInternal.librarySeries(id, page)}`,
 		notFound: () => `${basePath}${pathsInternal.notFound()}`,
 		notifications: () => `${basePath}${pathsInternal.notifications()}`,
+		readingList: (id: string) => `${basePath}${pathsInternal.readingList(id)}`,
+		readingLists: () => `${basePath}${pathsInternal.readingLists()}`,
 		seriesFileExplorer: (id: string) => `${basePath}${pathsInternal.seriesFileExplorer(id)}`,
 		seriesManagement: (id: string) => `${basePath}${pathsInternal.seriesManagement(id)}`,
 		seriesOverview: (id: string, page?: number) =>

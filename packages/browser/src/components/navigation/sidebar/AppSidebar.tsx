@@ -7,7 +7,7 @@ import {
 	UserPermission,
 } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
-import { Book, BookPlus, Home, Tags, Users } from 'lucide-react'
+import { Book, BookMarked, BookPlus, Home, Tags, Users } from 'lucide-react'
 import { Fragment, Suspense, useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router'
 import { match } from 'ts-pattern'
@@ -139,6 +139,13 @@ export default function AppSidebar() {
 							isActive={location.pathname === paths.browseIndex('genres')}
 						>
 							Genres
+						</SideBarButtonLink>
+						<SideBarButtonLink
+							to={paths.readingLists()}
+							icon={BookMarked}
+							isActive={location.pathname.startsWith(paths.readingLists())}
+						>
+							{t('readingLists.title')}
 						</SideBarButtonLink>
 						{canAddBooks && (
 							<SideBarButtonLink

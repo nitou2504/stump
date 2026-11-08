@@ -1,5 +1,6 @@
 import { Button, ButtonOrLink, DropdownMenu } from '@stump/components'
 import { BookMinus, BookOpen, BookOpenCheck, ChevronDown, EyeOff, FileText } from 'lucide-react'
+import { ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -8,9 +9,11 @@ import { BookReadingActionsRef, useBookReadingActions } from './useBookReadingAc
 
 type Props = {
 	fragment: BookReadingActionsRef
+	/** More buttons at the end of the row, e.g. adding the book to a reading list */
+	children?: ReactNode
 }
 
-export function BookReadActions({ fragment }: Props) {
+export function BookReadActions({ fragment, children }: Props) {
 	const navigate = useNavigate()
 
 	const { translate } = useTranslate()
@@ -95,6 +98,8 @@ export function BookReadActions({ fragment }: Props) {
 						: []),
 				]}
 			/>
+
+			{children}
 		</div>
 	)
 }

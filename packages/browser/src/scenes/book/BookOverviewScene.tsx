@@ -8,6 +8,7 @@ import { BookInfoSheet } from '@/components/book/BookInfoSheet'
 import { BookOverviewDetails } from '@/components/book/BookOverviewDetails'
 import { BookReadActions } from '@/components/book/BookReadActions'
 import { SceneContainer } from '@/components/container'
+import AddToReadingList from '@/components/readingList/AddToReadingList'
 import { ProminentThumbnailImage } from '@/components/thumbnail'
 
 import BooksInSeries from './BooksInSeries'
@@ -41,7 +42,9 @@ export default function BookOverviewScene() {
 							alt={media.resolvedName}
 							placeholderData={media.thumbnail.metadata}
 						/>
-						<BookReadActions fragment={media} />
+						<BookReadActions fragment={media}>
+							<AddToReadingList bookId={media.id} bookName={media.resolvedName} />
+						</BookReadActions>
 					</div>
 
 					<BookOverviewDetails fragment={media} />
