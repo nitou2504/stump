@@ -35,7 +35,7 @@ export default function BookOverviewScene() {
 			<BookHeader fragment={media} onInfoClick={() => setIsInfoSheetOpen(true)} />
 
 			<SceneContainer className="gap-8 @container">
-				<div className="gap-6 @xl:grid-cols-[11rem_minmax(0,1fr)] @3xl:grid-cols-[13rem_minmax(0,1fr)] grid grid-cols-1">
+				<div className="gap-6 @xl:grid-cols-[13rem_minmax(0,1fr)] grid grid-cols-1">
 					<div className="gap-3 @xl:max-w-none max-w-56 mx-auto flex w-full flex-col">
 						<ProminentThumbnailImage
 							src={media.thumbnail.url}
