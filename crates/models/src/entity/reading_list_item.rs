@@ -20,7 +20,7 @@ pub struct Model {
 		from = "media_id",
 		to = "id",
 		on_update = "Cascade",
-		on_delete = "Restrict"
+		on_delete = "Cascade"
 	)]
 	#[graphql(skip)]
 	pub media: BelongsTo<media::Entity>,
@@ -29,7 +29,7 @@ pub struct Model {
 		from = "reading_list_id",
 		to = "id",
 		on_update = "Cascade",
-		on_delete = "Restrict"
+		on_delete = "Cascade"
 	)]
 	#[graphql(skip)]
 	pub reading_list: BelongsTo<reading_list::Entity>,

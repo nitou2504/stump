@@ -2,8 +2,9 @@ use models::entity::{
 	age_restriction, api_key, bookmark, held_file, intake_item, kobo_sync_session,
 	library, library_config, library_exclusion, library_intake_settings, media,
 	media_analysis, media_annotation, media_metadata, media_metadata_edit, media_purge,
-	media_tag, post_processing_task, reading_device, reading_session, refresh_token,
-	series, series_metadata, server_config, session, tag, user, user_preferences,
+	media_tag, post_processing_task, reading_device, reading_list, reading_list_item,
+	reading_list_rule, reading_session, refresh_token, series, series_metadata,
+	server_config, session, tag, user, user_preferences,
 };
 use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, DbErr, Schema};
 pub async fn test_database() -> DbConn {
@@ -50,6 +51,9 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(session::Entity),
 		schema.create_table_from_entity(bookmark::Entity),
 		schema.create_table_from_entity(media_annotation::Entity),
+		schema.create_table_from_entity(reading_list::Entity),
+		schema.create_table_from_entity(reading_list_item::Entity),
+		schema.create_table_from_entity(reading_list_rule::Entity),
 	];
 
 	for stmt in tables {

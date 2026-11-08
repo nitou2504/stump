@@ -18,7 +18,7 @@ pub struct Model {
 		from = "reading_list_id",
 		to = "id",
 		on_update = "Cascade",
-		on_delete = "Restrict"
+		on_delete = "Cascade"
 	)]
 	pub reading_list: BelongsTo<reading_list::Entity>,
 }

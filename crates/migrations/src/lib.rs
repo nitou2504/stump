@@ -52,6 +52,7 @@ mod m20261104_000000_deleted_books_trash;
 mod m20261105_000000_standalone;
 mod m20261106_000000_metadata_fetch_after_scan;
 mod m20261107_000000_user_reader_settings;
+mod m20261108_000000_reading_lists;
 
 pub struct Migrator;
 
@@ -110,6 +111,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261105_000000_standalone::Migration),
 			Box::new(m20261106_000000_metadata_fetch_after_scan::Migration),
 			Box::new(m20261107_000000_user_reader_settings::Migration),
+			Box::new(m20261108_000000_reading_lists::Migration),
 		]
 	}
 }
