@@ -17,11 +17,12 @@ use models::{
 	entity::{
 		age_restriction, session,
 		user::{self, AuthUser},
-		user_login_activity, user_preferences, user_reader_settings,
+		user_discover_rules, user_login_activity, user_preferences, user_reader_settings,
 	},
 	services::user::{create_user_with_preferences, NewAgeRestriction},
 	shared::{
 		arrangement::{Arrangement, HomeArrangement},
+		discover::DiscoverRules,
 		enums::UserPermission,
 		permission_set::PermissionSet,
 	},
@@ -413,6 +414,33 @@ impl UserMutation {
 			row.insert(conn).await?;
 		}
 		Ok(true)
+	}
+
+	/// Saves the signed-in user's rules for the home's picks and Surprise me (cleaned:
+	/// trimmed lists without repeats, a rating within 0-5), returning them as saved
+	async fn update_my_discover_rules(
+		&self,
+		ctx: &Context<'_>,
+		input: DiscoverRules,
+	) -> Result<DiscoverRules> {
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let rules = input.normalized();
+
+		let existing = user_discover_rules::Entity::find_by_id(user.id.clone())
+			.one(conn)
+			.await?;
+		let row = user_discover_rules::ActiveModel {
+			user_id: Set(user.id.clone()),
+			rules: Set(serde_json::to_string(&rules)?),
+			updated_at: Set(Utc::now()),
+		};
+		if existing.is_some() {
+			row.update(conn).await?;
+		} else {
+			row.insert(conn).await?;
+		}
+		Ok(rules)
 	}
 
 	/// Replace the authenticated user's home sections

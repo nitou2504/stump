@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod api_key;
 pub mod arrangement;
 pub mod book_club;
+pub mod discover;
 pub mod enums;
 pub mod ignore_rules;
 pub mod image;

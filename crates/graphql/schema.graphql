@@ -756,6 +756,46 @@ input DiscoverBooksInput {
 	name: String
 }
 
+"What the home's \"Picks of the week\" and \"Surprise me\" may pick, per user"
+type DiscoverRules {
+	"Only books the user hasn't started"
+	unreadOnly: Boolean!
+	"""
+	Books tagged with any of these (or in a series or library tagged so) are left out,
+	ignoring case
+	"""
+	excludedTags: [String!]!
+	"""
+	Books with any of these genres are left out: a whole genre (`Level: High School`),
+	or a family ending in `*` (`Reference: *`)
+	"""
+	excludedGenres: [String!]!
+	"Books in these libraries are left out"
+	excludedLibraryIds: [String!]!
+	"Books rated below this (0-5) are left out; books without a rating stay"
+	minRating: Float
+}
+
+"What the home's \"Picks of the week\" and \"Surprise me\" may pick, per user"
+input DiscoverRulesInput {
+	"Only books the user hasn't started"
+	unreadOnly: Boolean! = true
+	"""
+	Books tagged with any of these (or in a series or library tagged so) are left out,
+	ignoring case
+	"""
+	excludedTags: [String!]! = ["No picks"]
+	"""
+	Books with any of these genres are left out: a whole genre (`Level: High School`),
+	or a family ending in `*` (`Reference: *`)
+	"""
+	excludedGenres: [String!]! = []
+	"Books in these libraries are left out"
+	excludedLibraryIds: [String!]! = []
+	"Books rated below this (0-5) are left out; books without a rating stay"
+	minRating: Float = null
+}
+
 type DiscoveredMissingLibrary {
 	id: String!
 }
@@ -3007,6 +3047,11 @@ type Mutation {
 	replacing what was saved before
 	"""
 	updateMyReaderSettings(settings: String!): Boolean!
+	"""
+	Saves the signed-in user's rules for the home's picks and Surprise me (cleaned:
+	trimmed lists without repeats, a rating within 0-5), returning them as saved
+	"""
+	updateMyDiscoverRules(input: DiscoverRulesInput!): DiscoverRules!
 	"Replace the authenticated user's home sections"
 	updateHomeArrangement(input: HomeArrangementInput!): HomeArrangement!
 	updateNavigationArrangementLock(locked: Boolean!): Arrangement!
@@ -3813,11 +3858,21 @@ type Query {
 	keepReading(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	onDeck(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	"""
+	The signed-in user's rules for the home's picks and Surprise me (the defaults until
+	saved)
+	"""
+	myDiscoverRules: DiscoverRules!
+	"""
+	How many books the picks can come from under `rules` (the saved rules if omitted),
+	e.g. to preview a change before saving it
+	"""
+	discoverPoolSize(rules: DiscoverRulesInput): Int!
+	"""
 	A few books picked at random among those `filter` matches (e.g. the unread ones).
 	The same `seed` gives the same books for the same user (the home's "Picks of the
 	week" seeds with the week); without one, every call picks anew ("Surprise me").
-	Books tagged `No picks`, or in a series or library tagged so, are never picked
-	(school books, solutions, dictionaries, game guides...)
+	Only books the user's picks rules allow (`myDiscoverRules`: unread only, and no
+	`No picks` tag on the book, its series or library, by default)
 	"""
 	randomMedia(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, count: Int! = 12, seed: String): [Media!]!
 	recentlyAddedMedia(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!

@@ -2,9 +2,12 @@ use std::collections::HashMap;
 
 use async_graphql::{Context, Object, Result, ID};
 use models::{
-	entity::{media, media_metadata, reading_session, user::AuthUser},
+	entity::{
+		media, media_metadata, reading_session, user::AuthUser, user_discover_rules,
+	},
 	shared::{
 		alphabet::{AvailableAlphabet, EntityLetter},
+		discover::DiscoverRules,
 		enums::{ReadingStatus, UserPermission},
 	},
 };
@@ -33,31 +36,109 @@ use crate::{
 #[derive(Default)]
 pub struct MediaQuery;
 
+/// The user's saved picks rules, or the defaults
+pub async fn saved_discover_rules(
+	conn: &DatabaseConnection,
+	user_id: &str,
+) -> Result<DiscoverRules> {
+	let saved = user_discover_rules::Entity::find_by_id(user_id.to_string())
+		.one(conn)
+		.await?;
+	Ok(DiscoverRules::from_json(
+		saved.as_ref().map(|row| row.rules.as_str()),
+	))
+}
+
 /// Seeded picks for `randomMedia`: each ID gets a stable pseudo-random key from the seed, and
 /// the lowest keys win, so a seed always picks the same books (in the same order) as long as
 /// they still match, whatever order the database returns them in
 mod random_pick {
-	use sea_orm::{sea_query::Expr, Condition};
+	use models::{
+		entity::{media, media_metadata},
+		shared::discover::DiscoverRules,
+	};
+	use sea_orm::{prelude::*, sea_query::Expr, Condition, Value};
 
-	/// The tag that keeps a book, or every book of a series or library, out of the picks
-	/// (matched ignoring case)
-	pub const VETO_TAG: &str = "no picks";
+	use crate::filter::{list_has_element, list_has_element_starting_with};
 
-	/// Leaves out the books tagged `No picks`, or in a series or library tagged so
-	pub fn not_vetoed() -> Condition {
-		let tag = |table: &str, column: &str, outer: &str| {
-			Expr::cust(format!(
-				r#"{outer} NOT IN (SELECT "{table}"."{column}" FROM "{table}" JOIN "tags" ON "tags"."id" = "{table}"."tag_id" WHERE LOWER("tags"."name") = '{VETO_TAG}')"#
-			))
-		};
-		Condition::all()
-			.add(tag("media_tags", "media_id", r#""media"."id""#))
-			.add(tag("library_tags", "library_id", r#""media"."library_id""#))
-			.add(
+	/// `outer NOT IN` the ids tagged with any of `tags` in a `*_tags` junction table
+	fn not_tagged(table: &str, column: &str, outer: &str, tags: &[String]) -> Expr {
+		let placeholders = vec!["?"; tags.len()].join(", ");
+		Expr::cust_with_values(
+			format!(
+				r#"{outer} NOT IN (SELECT "{table}"."{column}" FROM "{table}" JOIN "tags" ON "tags"."id" = "{table}"."tag_id" WHERE LOWER("tags"."name") IN ({placeholders}))"#
+			),
+			// SQLite's LOWER folds ASCII only, so the values are folded the same way
+			tags.iter()
+				.map(|tag| Value::from(tag.to_ascii_lowercase()))
+				.collect::<Vec<_>>(),
+		)
+	}
+
+	/// The books a user's picks may come from (see `DiscoverRules`). Needs the media
+	/// metadata join (`find_for_user` has it)
+	pub fn rules_condition(user_id: &str, rules: &DiscoverRules) -> Condition {
+		let mut condition = Condition::all();
+		if rules.unread_only {
+			condition = condition.add(Expr::cust_with_values(
+				r#"NOT EXISTS (SELECT 1 FROM "reading_sessions" WHERE "reading_sessions"."media_id" = "media"."id" AND "reading_sessions"."user_id" = ?)"#,
+				[Value::from(user_id.to_string())],
+			));
+		}
+		let tags = &rules.excluded_tags;
+		if !tags.is_empty() {
+			condition = condition
+				.add(not_tagged(
+					"media_tags",
+					"media_id",
+					r#""media"."id""#,
+					tags,
+				))
+				.add(not_tagged(
+					"library_tags",
+					"library_id",
+					r#""media"."library_id""#,
+					tags,
+				))
+				.add(Condition::any().add(media::Column::SeriesId.is_null()).add(
+					not_tagged(
+						"series_tags",
+						"series_id",
+						r#""media"."series_id""#,
+						tags,
+					),
+				));
+		}
+		if !rules.excluded_genres.is_empty() {
+			let genres = media_metadata::Column::Genres;
+			let any =
+				rules
+					.excluded_genres
+					.iter()
+					.fold(Condition::any(), |any, genre| {
+						match genre.strip_suffix('*') {
+							Some(prefix) => {
+								any.add(list_has_element_starting_with(genres, prefix))
+							},
+							None => any.add(list_has_element(genres, genre)),
+						}
+					});
+			condition =
+				condition.add(Condition::any().add(genres.is_null()).add(any.not()));
+		}
+		if !rules.excluded_library_ids.is_empty() {
+			condition = condition.add(
+				media::Column::LibraryId.is_not_in(rules.excluded_library_ids.clone()),
+			);
+		}
+		if let Some(rating) = rules.min_rating {
+			condition = condition.add(
 				Condition::any()
-					.add(Expr::cust(r#""media"."series_id" IS NULL"#))
-					.add(tag("series_tags", "series_id", r#""media"."series_id""#)),
-			)
+					.add(media_metadata::Column::Rating.is_null())
+					.add(media_metadata::Column::Rating.gte(rating)),
+			);
+		}
+		condition
 	}
 
 	/// FNV-1a over `value`, continuing from `state`
@@ -852,11 +933,39 @@ impl MediaQuery {
 		})
 	}
 
+	/// The signed-in user's rules for the home's picks and Surprise me (the defaults until
+	/// saved)
+	async fn my_discover_rules(&self, ctx: &Context<'_>) -> Result<DiscoverRules> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		saved_discover_rules(conn, &user.id).await
+	}
+
+	/// How many books the picks can come from under `rules` (the saved rules if omitted),
+	/// e.g. to preview a change before saving it
+	async fn discover_pool_size(
+		&self,
+		ctx: &Context<'_>,
+		rules: Option<DiscoverRules>,
+	) -> Result<u64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let rules = match rules {
+			Some(rules) => rules.normalized(),
+			None => saved_discover_rules(conn, &user.id).await?,
+		};
+		Ok(media::Entity::find_for_user(user)
+			.filter(media::Column::DeletedAt.is_null())
+			.filter(random_pick::rules_condition(&user.id, &rules))
+			.count(conn)
+			.await?)
+	}
+
 	/// A few books picked at random among those `filter` matches (e.g. the unread ones).
 	/// The same `seed` gives the same books for the same user (the home's "Picks of the
 	/// week" seeds with the week); without one, every call picks anew ("Surprise me").
-	/// Books tagged `No picks`, or in a series or library tagged so, are never picked
-	/// (school books, solutions, dictionaries, game guides...)
+	/// Only books the user's picks rules allow (`myDiscoverRules`: unread only, and no
+	/// `No picks` tag on the book, its series or library, by default)
 	async fn random_media(
 		&self,
 		ctx: &Context<'_>,
@@ -866,6 +975,7 @@ impl MediaQuery {
 	) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let rules = saved_discover_rules(conn, &user.id).await?;
 
 		// only the IDs of the candidates: a few hundred KB for a large library
 		let ids = add_sessions_join_for_filter(
@@ -875,7 +985,7 @@ impl MediaQuery {
 		)
 		.filter(filter.into_filter())
 		.filter(media::Column::DeletedAt.is_null())
-		.filter(random_pick::not_vetoed())
+		.filter(random_pick::rules_condition(&user.id, &rules))
 		.select_only()
 		.column(media::Column::Id)
 		.into_tuple::<String>()

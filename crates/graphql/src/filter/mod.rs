@@ -75,6 +75,20 @@ where
 	Condition::all().add(normalized_column.like(LikeExpr::new(pattern).escape('\\')))
 }
 
+/// Like [`list_has_element`], for any element starting with `prefix`, e.g. `Reference: `
+/// matches `Novel, Reference: Atlases` (ASCII case-insensitive, as SQLite `LIKE`)
+pub fn list_has_element_starting_with<C>(column: C, prefix: &str) -> Condition
+where
+	C: sea_orm::ColumnTrait + Copy,
+{
+	let normalized_column = QExpr::cust_with_exprs(
+		"',' || REPLACE(REPLACE(?, ', ', ','), ' ,', ',') || ','",
+		[QExpr::col(column.as_column_ref())],
+	);
+	let pattern = format!("%,{}%", keyword::escape_like_fragment(prefix.trim_start()));
+	Condition::all().add(normalized_column.like(LikeExpr::new(pattern).escape('\\')))
+}
+
 pub(crate) fn apply_string_filter<C, T>(
 	column: C,
 	filter: StringLikeFilter<T>,
