@@ -18,6 +18,7 @@ import HomeScene, { usePrefetchHomeScene } from '../HomeScene'
 const prefetch = vi.hoisted(() => ({
 	reading: vi.fn(),
 	deck: vi.fn(),
+	discover: vi.fn(),
 	books: vi.fn(),
 	series: vi.fn(),
 }))
@@ -29,6 +30,10 @@ vi.mock('../ContinueReading', () => ({
 vi.mock('../OnDeck', () => ({
 	default: () => <h2>Deck section</h2>,
 	usePrefetchOnDeck: () => prefetch.deck,
+}))
+vi.mock('../DiscoverBooks', () => ({
+	default: () => <h2>Discover section</h2>,
+	usePrefetchDiscoverBooks: () => prefetch.discover,
 }))
 vi.mock('../RecentlyAddedMedia', () => ({
 	default: () => <h2>Books section</h2>,
@@ -60,6 +65,8 @@ const original: HomeSection[] = [
 			name: null,
 		},
 	},
+	// last, so the indices above stay as before it was added
+	{ visible: true, config: { __typename: 'DiscoverBooks', name: null } },
 ]
 const response = (sections: HomeSection[]) => ({
 	me: { preferences: { homeArrangement: { sections } } },
@@ -175,6 +182,7 @@ describe('HomeScene arrangement', () => {
 		expect(prefetch.deck).toHaveBeenCalledOnce()
 		expect(prefetch.books).not.toHaveBeenCalled()
 		expect(prefetch.series).not.toHaveBeenCalled()
+		expect(prefetch.discover).not.toHaveBeenCalled()
 	})
 	it('does not let an older in-flight read overwrite a successful save', async () => {
 		const { Wrapper, client, saved } = setup()

@@ -3387,6 +3387,13 @@
         "emptyText": "No books on deck",
         "emptyMessage": "Your next recommended books will show up here"
       },
+      "discover": {
+        "label": "Picks of the Week",
+        "emptyText": "Nothing left to discover",
+        "emptyMessage": "Unread books will show up here, a new set every week",
+        "shuffle": "Shuffle the picks",
+        "surprise": "Surprise me: open a random unread book"
+      },
       "continueReading": {
         "label": "Continue Reading",
         "emptyText": "No books in progress",

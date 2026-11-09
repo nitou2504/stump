@@ -2853,6 +2853,13 @@
         "emptyText": "No hay libros a mano",
         "emptyMessage": "Tus siguientes recomendaciónes de libros aparecerán aquí"
       },
+      "discover": {
+        "label": "Selección de la semana",
+        "emptyText": "No queda nada por descubrir",
+        "emptyMessage": "Aquí aparecerán libros sin leer, una selección nueva cada semana",
+        "shuffle": "Barajar la selección",
+        "surprise": "Sorpréndeme: abrir un libro sin leer al azar"
+      },
       "continueReading": {
         "label": "Continuar leyendo",
         "emptyText": "No hay libros en progreso",

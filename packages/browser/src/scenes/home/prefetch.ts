@@ -2,6 +2,7 @@ import { Api } from '@stump/sdk'
 import { QueryClient, QueryKey } from '@tanstack/react-query'
 
 import { prefetchContinueReading } from './ContinueReading'
+import { prefetchDiscoverBooks } from './DiscoverBooks'
 import { prefetchHomeSections } from './HomeScene'
 import { prefetchOnDeck } from './OnDeck'
 import { prefetchRecentlyAddedMedia } from './RecentlyAddedMedia'
@@ -15,6 +16,7 @@ export function prefetchHomeScene(client: QueryClient, sdk: Api, queryKey: Query
 	return prefetchHomeSections(client, sdk, queryKey, {
 		continueReading: () => prefetchContinueReading(client, sdk),
 		onDeck: () => prefetchOnDeck(client, sdk),
+		discover: () => prefetchDiscoverBooks(client, sdk),
 		recentlyAddedBooks: () => prefetchRecentlyAddedMedia(client, sdk),
 		recentlyAddedSeries: () => prefetchRecentlyAddedSeries(client, sdk),
 	})

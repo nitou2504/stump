@@ -8,6 +8,8 @@ import { useHorizontalScroll, usePreferences } from '../hooks'
 
 type Props<T> = {
 	title: string
+	/** Buttons shown by the title (e.g. shuffle), before the scroll arrows */
+	actions?: ReactNode
 	items: T[]
 	renderItem: (item: T) => ReactNode
 	keyExtractor: (item: T) => string
@@ -24,6 +26,7 @@ type Props<T> = {
 
 export default function MultiRowHorizontalCardList<T>({
 	title,
+	actions,
 	items,
 	renderItem,
 	keyExtractor,
@@ -107,8 +110,9 @@ export default function MultiRowHorizontalCardList<T>({
 		<div className="space-y-2 flex flex-col">
 			<div className="flex flex-row items-center justify-between">
 				<Heading size="sm">{title}</Heading>
-				<div className={cn('self-end', { hidden: !items.length })}>
-					<div className="gap-2 flex">
+				<div className="gap-2 flex items-center self-end">
+					{actions && <div className="gap-1 flex items-center">{actions}</div>}
+					<div className={cn('gap-2 flex', { hidden: !items.length })}>
 						<ToolTip content="Seek backwards" isDisabled={!canSkipBackward} align="end">
 							<Button
 								variant="ghost"

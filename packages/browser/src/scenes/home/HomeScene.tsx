@@ -20,6 +20,7 @@ import {
 	useHomeArrangementKey,
 } from './arrangement'
 import ContinueReadingMedia, { usePrefetchContinueReading } from './ContinueReading'
+import DiscoverBooks, { usePrefetchDiscoverBooks } from './DiscoverBooks'
 import OnDeck, { usePrefetchOnDeck } from './OnDeck'
 import RecentlyAddedMedia, { usePrefetchRecentlyAddedMedia } from './RecentlyAddedMedia'
 import RecentlyAddedSeries, { usePrefetchRecentlyAddedSeries } from './RecentlyAddedSeries'
@@ -63,6 +64,7 @@ export const usePrefetchHomeScene = () => {
 	const prefetchContinueReading = usePrefetchContinueReading()
 	const prefetchRecentSeries = usePrefetchRecentlyAddedSeries()
 	const prefetchOnDeck = usePrefetchOnDeck()
+	const prefetchDiscover = usePrefetchDiscoverBooks()
 
 	const { sdk } = useSDK()
 	const client = useQueryClient()
@@ -71,6 +73,7 @@ export const usePrefetchHomeScene = () => {
 		prefetchHomeSections(client, sdk, queryKey, {
 			continueReading: prefetchContinueReading,
 			onDeck: prefetchOnDeck,
+			discover: prefetchDiscover,
 			recentlyAddedBooks: prefetchRecentMedia,
 			recentlyAddedSeries: prefetchRecentSeries,
 		})
@@ -115,6 +118,7 @@ export default function HomeScene() {
 	const components = {
 		continueReading: ContinueReadingMedia,
 		onDeck: OnDeck,
+		discover: DiscoverBooks,
 		recentlyAddedBooks: RecentlyAddedMedia,
 		recentlyAddedSeries: RecentlyAddedSeries,
 	}

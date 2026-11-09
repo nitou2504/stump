@@ -13,6 +13,7 @@ import { HomeArrangementForm } from '../HomeArrangementPreference'
 const initialSections: HomeSection[] = [
 	{ visible: true, config: { __typename: 'InProgressBooks', name: null } },
 	{ visible: true, config: { __typename: 'OnDeckBooks', name: null } },
+	{ visible: true, config: { __typename: 'DiscoverBooks', name: null } },
 	{
 		visible: true,
 		config: {
@@ -76,6 +77,7 @@ describe('HomeArrangementForm', () => {
 			expect(rowLabels()).toEqual([
 				'Continue reading',
 				'Your next read',
+				'Picks of the week',
 				'Recently added series',
 				'Recently added books',
 			]),
@@ -86,11 +88,16 @@ describe('HomeArrangementForm', () => {
 		expect(saved.map(getHomeSectionId)).toEqual([
 			'continueReading',
 			'onDeck',
+			'discover',
 			'recentlyAddedSeries',
 			'recentlyAddedBooks',
 		])
-		expect(saved[3]!.visible).toBe(false)
-		expect(saved.map(toHomeSectionInput)[3]).toEqual({
+		expect(saved[4]!.visible).toBe(false)
+		expect(saved.map(toHomeSectionInput)[2]).toEqual({
+			visible: true,
+			config: { discoverBooks: { name: null } },
+		})
+		expect(saved.map(toHomeSectionInput)[4]).toEqual({
 			visible: false,
 			config: { recentlyAdded: { entity: 'BOOKS', name: null } },
 		})
@@ -106,6 +113,7 @@ describe('HomeArrangementForm', () => {
 		expect(rowLabels()).toEqual([
 			'Continue reading',
 			'Your next read',
+			'Picks of the week',
 			'Recently added books',
 			'Recently added series',
 		])
@@ -176,6 +184,7 @@ describe('HomeArrangementForm', () => {
 		expect(rowLabels()).toEqual([
 			'Continue reading',
 			'Your next read',
+			'Picks of the week',
 			'Recently added books',
 			'Recently added series',
 		])
