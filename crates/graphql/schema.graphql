@@ -85,12 +85,13 @@ type Arrangement {
 	sections: [ArrangementSection!]!
 }
 
-union ArrangementConfig = SystemArrangementConfig | InProgressBooks | OnDeckBooks | RecentlyAdded | CustomArrangementConfig
+union ArrangementConfig = SystemArrangementConfig | InProgressBooks | OnDeckBooks | DiscoverBooks | RecentlyAdded | CustomArrangementConfig
 
 input ArrangementConfigInput @oneOf {
 	system: SystemArrangementConfigInput
 	inProgressBooks: InProgressBooksInput
 	onDeckBooks: OnDeckBooksInput
+	discoverBooks: DiscoverBooksInput
 	recentlyAdded: RecentlyAddedInput
 	custom: FilterableArrangementEntityLinkInput
 }
@@ -743,6 +744,16 @@ type DiscordConfig {
 
 input DiscordConfigInput {
 	webhookUrl: String!
+}
+
+"A few unread books picked at random, the same for a week (the home's \"Picks of the week\")"
+type DiscoverBooks {
+	name: String
+}
+
+"A few unread books picked at random, the same for a week (the home's \"Picks of the week\")"
+input DiscoverBooksInput {
+	name: String
 }
 
 type DiscoveredMissingLibrary {
@@ -3801,6 +3812,12 @@ type Query {
 	mediaAlphabet: JSONObject!
 	keepReading(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	onDeck(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
+	"""
+	A few books picked at random among those `filter` matches (e.g. the unread ones).
+	The same `seed` gives the same books for the same user (the home's "Picks of the
+	week" seeds with the week); without one, every call picks anew ("Surprise me")
+	"""
+	randomMedia(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, count: Int! = 12, seed: String): [Media!]!
 	recentlyAddedMedia(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	duplicateMedia: [Media!]!
 	readingSessionConflictView(mediaId: ID!, branchedSessionId: Int): ReadingSessionConflictResolutionView!

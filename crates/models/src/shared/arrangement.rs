@@ -185,6 +185,23 @@ pub struct OnDeckBooks {
 	name: Option<String>,
 }
 
+/// A few unread books picked at random, the same for a week (the home's "Picks of the week")
+#[derive(
+	Debug,
+	Clone,
+	Default,
+	PartialEq,
+	Eq,
+	Serialize,
+	Deserialize,
+	SimpleObject,
+	InputObject,
+)]
+#[graphql(input_name = "DiscoverBooksInput")]
+pub struct DiscoverBooks {
+	name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Union, OneofObject)]
 #[graphql(input_name = "ArrangementConfigInput")]
 #[serde(tag = "type")]
@@ -192,6 +209,7 @@ pub enum ArrangementConfig {
 	System(SystemArrangementConfig),
 	InProgressBooks(InProgressBooks),
 	OnDeckBooks(OnDeckBooks),
+	DiscoverBooks(DiscoverBooks),
 	RecentlyAdded(RecentlyAdded),
 	Custom(CustomArrangementConfig),
 }
@@ -218,6 +236,7 @@ impl ArrangementSection {
 		match &self.config {
 			ArrangementConfig::InProgressBooks(_) => Some("continueReading"),
 			ArrangementConfig::OnDeckBooks(_) => Some("onDeck"),
+			ArrangementConfig::DiscoverBooks(_) => Some("discover"),
 			ArrangementConfig::RecentlyAdded(config) => match config.entity {
 				FilterableArrangementEntity::Books => Some("recentlyAddedBooks"),
 				FilterableArrangementEntity::Series => Some("recentlyAddedSeries"),
@@ -228,16 +247,38 @@ impl ArrangementSection {
 	}
 }
 
+/// Home sections added after users had saved their arrangement: missing from a saved one,
+/// they show at their default place (after the section before them in the defaults), where the
+/// older sections a saved arrangement lacks are added hidden
+const NEW_HOME_SECTIONS: &[&str] = &["discover"];
+
 impl HomeArrangement {
 	pub fn new(sections: Vec<ArrangementSection>) -> Self {
+		let was_empty = sections.is_empty();
 		let mut seen = std::collections::HashSet::new();
 		let mut sections: Vec<_> = sections
 			.into_iter()
 			.filter(|section| section.home_key().is_some_and(|key| seen.insert(key)))
 			.collect();
 
-		for mut section in Arrangement::default_home().sections {
-			if seen.insert(section.home_key().unwrap()) {
+		let defaults = Arrangement::default_home().sections;
+		for (index, mut section) in defaults.iter().cloned().enumerate() {
+			let key = section.home_key().unwrap();
+			if !seen.insert(key) {
+				continue;
+			}
+			if !was_empty && NEW_HOME_SECTIONS.contains(&key) {
+				let after = index
+					.checked_sub(1)
+					.and_then(|previous| defaults[previous].home_key())
+					.and_then(|previous| {
+						sections.iter().position(|s| s.home_key() == Some(previous))
+					});
+				match after {
+					Some(position) => sections.insert(position + 1, section),
+					None => sections.push(section),
+				}
+			} else {
 				section.visible = false;
 				sections.push(section);
 			}
@@ -318,6 +359,10 @@ impl Arrangement {
 				},
 				ArrangementSection {
 					config: ArrangementConfig::OnDeckBooks(OnDeckBooks::default()),
+					visible: true,
+				},
+				ArrangementSection {
+					config: ArrangementConfig::DiscoverBooks(DiscoverBooks::default()),
 					visible: true,
 				},
 				ArrangementSection {
@@ -453,7 +498,7 @@ mod tests {
 	#[test]
 	fn home_sections_are_normalized_without_changing_valid_order_or_visibility() {
 		let defaults = Arrangement::default_home().sections;
-		let mut hidden_books = defaults[2].clone();
+		let mut hidden_books = defaults[3].clone();
 		hidden_books.visible = false;
 		let unsupported_entity = ArrangementSection {
 			config: ArrangementConfig::RecentlyAdded(RecentlyAdded {
@@ -463,19 +508,22 @@ mod tests {
 			visible: true,
 		};
 		let home = HomeArrangement::new(vec![
-			defaults[3].clone(),
+			defaults[4].clone(),
 			hidden_books.clone(),
-			defaults[2].clone(),
+			defaults[3].clone(),
 			Arrangement::default_navigation().sections[0].clone(),
 			unsupported_entity,
 		]);
-		assert_eq!(home.sections.len(), 4);
-		assert_eq!(home.sections[0], defaults[3]);
+		assert_eq!(home.sections.len(), 5);
+		assert_eq!(home.sections[0], defaults[4]);
 		assert_eq!(home.sections[1], hidden_books);
 		assert_eq!(home.sections[2].home_key(), Some("continueReading"));
 		assert_eq!(home.sections[3].home_key(), Some("onDeck"));
 		assert!(!home.sections[2].visible);
 		assert!(!home.sections[3].visible);
+		// a section added after the arrangement was saved shows, after its default neighbour
+		assert_eq!(home.sections[4], defaults[2]);
+		assert!(home.sections[4].visible);
 		assert_eq!(
 			HomeArrangement::new(home.sections.clone()).sections,
 			home.sections
@@ -483,9 +531,25 @@ mod tests {
 	}
 
 	#[test]
+	fn new_home_sections_show_in_saved_arrangements_but_stay_hidden_when_hidden() {
+		let defaults = Arrangement::default_home().sections;
+		let saved: Vec<_> = defaults
+			.iter()
+			.filter(|section| section.home_key() != Some("discover"))
+			.cloned()
+			.collect();
+		let home = HomeArrangement::new(saved);
+		assert_eq!(home.sections, defaults);
+
+		let mut hidden = defaults.clone();
+		hidden[2].visible = false;
+		assert_eq!(HomeArrangement::new(hidden.clone()).sections, hidden);
+	}
+
+	#[test]
 	fn empty_home_sections_are_filled_as_hidden() {
 		let home = HomeArrangement::new(vec![]);
-		assert_eq!(home.sections.len(), 4);
+		assert_eq!(home.sections.len(), 5);
 		assert!(home.sections.iter().all(|section| !section.visible));
 	}
 }

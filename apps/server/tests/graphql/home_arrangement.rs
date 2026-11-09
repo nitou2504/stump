@@ -78,6 +78,8 @@ async fn home_section_order_and_visibility_are_saved() {
 		json!([
 			{"visible": false, "config": {"__typename": "RecentlyAdded", "entity": "SERIES"}},
 			{"visible": true, "config": {"__typename": "OnDeckBooks"}},
+			// added after these sections, so a saved arrangement without it shows it
+			{"visible": true, "config": {"__typename": "DiscoverBooks"}},
 			{"visible": false, "config": {"__typename": "RecentlyAdded", "entity": "BOOKS"}},
 			{"visible": true, "config": {"__typename": "InProgressBooks"}}
 		])
@@ -103,6 +105,7 @@ async fn home_sections_are_normalized_on_save() {
 			{"visible": true, "config": {"__typename": "RecentlyAdded", "entity": "BOOKS"}},
 			{"visible": false, "config": {"__typename": "InProgressBooks"}},
 			{"visible": false, "config": {"__typename": "OnDeckBooks"}},
+			{"visible": true, "config": {"__typename": "DiscoverBooks"}},
 			{"visible": false, "config": {"__typename": "RecentlyAdded", "entity": "SERIES"}}
 		])
 	);
@@ -113,7 +116,7 @@ async fn home_sections_are_normalized_on_save() {
 async fn empty_home_input_hides_all_sections() {
 	let app = TestApp::new_with_default_user().await;
 	let hidden = update(&app, json!([])).await;
-	assert_eq!(hidden.as_array().unwrap().len(), 4);
+	assert_eq!(hidden.as_array().unwrap().len(), 5);
 	assert!(hidden
 		.as_array()
 		.unwrap()
@@ -133,12 +136,16 @@ async fn stored_home_sections_are_normalized_on_read() {
 	)
 	.await;
 	let normalized = read_sections(&app).await;
-	assert_eq!(normalized.as_array().unwrap().len(), 4);
+	assert_eq!(normalized.as_array().unwrap().len(), 5);
 	assert_eq!(
 		normalized[0],
 		json!({"visible": true, "config": {"__typename": "OnDeckBooks"}})
 	);
-	assert!(normalized.as_array().unwrap()[1..]
+	assert_eq!(
+		normalized[1],
+		json!({"visible": true, "config": {"__typename": "DiscoverBooks"}})
+	);
+	assert!(normalized.as_array().unwrap()[2..]
 		.iter()
 		.all(|section| section["visible"] == false));
 }

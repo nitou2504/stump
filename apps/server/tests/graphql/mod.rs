@@ -7,5 +7,6 @@ mod intake;
 mod media;
 mod metadata_batch;
 mod next_in_series;
+mod random_media;
 mod upload;
 mod user_mutations;

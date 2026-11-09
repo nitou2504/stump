@@ -33,6 +33,85 @@ use crate::{
 #[derive(Default)]
 pub struct MediaQuery;
 
+/// Seeded picks for `randomMedia`: each ID gets a stable pseudo-random key from the seed, and
+/// the lowest keys win, so a seed always picks the same books (in the same order) as long as
+/// they still match, whatever order the database returns them in
+mod random_pick {
+	/// FNV-1a over `value`, continuing from `state`
+	pub fn hash_str(state: u64, value: &str) -> u64 {
+		let mut hash = state ^ 0xcbf2_9ce4_8422_2325;
+		for byte in value.bytes() {
+			hash ^= u64::from(byte);
+			hash = hash.wrapping_mul(0x0100_0000_01b3);
+		}
+		hash
+	}
+
+	/// splitmix64's finalizer: spreads FNV's output over all bits
+	fn mix(mut z: u64) -> u64 {
+		z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+		z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+		z ^ (z >> 31)
+	}
+
+	/// The `count` IDs with the lowest keys for `seed`, lowest first (linear time)
+	pub fn pick(ids: Vec<String>, seed: u64, count: usize) -> Vec<String> {
+		let mut keyed: Vec<(u64, String)> = ids
+			.into_iter()
+			.map(|id| (mix(hash_str(seed, &id)), id))
+			.collect();
+		if keyed.len() > count {
+			keyed.select_nth_unstable(count);
+			keyed.truncate(count);
+		}
+		keyed.sort_unstable();
+		keyed.into_iter().map(|(_, id)| id).collect()
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+
+		fn ids(n: usize) -> Vec<String> {
+			(0..n).map(|i| format!("book-{i}")).collect()
+		}
+
+		#[test]
+		fn same_seed_same_picks_whatever_the_order() {
+			let mut reversed = ids(500);
+			reversed.reverse();
+			assert_eq!(pick(ids(500), 7, 12), pick(reversed, 7, 12));
+			assert_eq!(pick(ids(500), 7, 12).len(), 12);
+		}
+
+		#[test]
+		fn another_seed_other_picks() {
+			assert_ne!(pick(ids(500), 7, 12), pick(ids(500), 8, 12));
+		}
+
+		#[test]
+		fn fewer_books_than_asked_returns_them_all() {
+			let mut picked = pick(ids(3), 1, 12);
+			picked.sort();
+			assert_eq!(picked, ids(3));
+			assert!(pick(vec![], 1, 12).is_empty());
+		}
+
+		#[test]
+		fn picks_are_spread_out() {
+			// every book has a fair chance: over many seeds no book wins far too often
+			let mut wins = std::collections::HashMap::new();
+			for seed in 0..2000 {
+				for id in pick(ids(100), seed, 1) {
+					*wins.entry(id).or_insert(0) += 1;
+				}
+			}
+			assert!(wins.len() > 90);
+			assert!(wins.values().all(|&n| n < 60));
+		}
+	}
+}
+
 pub fn should_add_sessions_join_for_filter(filter: &MediaFilterInput) -> bool {
 	filter.reading_status.is_some()
 		|| [&filter._and, &filter._or, &filter._not]
@@ -748,6 +827,59 @@ impl MediaQuery {
 			nodes: ordered_results,
 			page_info: OffsetPaginationInfo::new(offset_info, total_count).into(),
 		})
+	}
+
+	/// A few books picked at random among those `filter` matches (e.g. the unread ones).
+	/// The same `seed` gives the same books for the same user (the home's "Picks of the
+	/// week" seeds with the week); without one, every call picks anew ("Surprise me")
+	async fn random_media(
+		&self,
+		ctx: &Context<'_>,
+		#[graphql(default)] filter: MediaFilterInput,
+		#[graphql(default = 12, validator(minimum = 1, maximum = 50))] count: usize,
+		seed: Option<String>,
+	) -> Result<Vec<Media>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		// only the IDs of the candidates: a few hundred KB for a large library
+		let ids = add_sessions_join_for_filter(
+			user,
+			&filter,
+			media::Entity::find_for_user(user),
+		)
+		.filter(filter.into_filter())
+		.filter(media::Column::DeletedAt.is_null())
+		.select_only()
+		.column(media::Column::Id)
+		.into_tuple::<String>()
+		.all(conn)
+		.await?;
+
+		let seed = match seed {
+			Some(seed) => random_pick::hash_str(random_pick::hash_str(0, &user.id), &seed),
+			None => std::hash::BuildHasher::hash_one(
+				&std::collections::hash_map::RandomState::new(),
+				&user.id,
+			),
+		};
+		let picked = random_pick::pick(ids, seed, count);
+		if picked.is_empty() {
+			return Ok(vec![]);
+		}
+
+		let mut models = media::ModelWithMetadata::find_for_user(user)
+			.filter(media::Column::Id.is_in(picked.clone()))
+			.into_model::<media::ModelWithMetadata>()
+			.all(conn)
+			.await?;
+		let order: HashMap<&str, usize> = picked
+			.iter()
+			.enumerate()
+			.map(|(index, id)| (id.as_str(), index))
+			.collect();
+		models.sort_by_key(|m| order.get(m.media.id.as_str()).copied());
+		Ok(models.into_iter().map(Media::from).collect())
 	}
 
 	async fn recently_added_media(
