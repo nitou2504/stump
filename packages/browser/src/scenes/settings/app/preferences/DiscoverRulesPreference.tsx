@@ -85,6 +85,9 @@ const RATINGS = [
 	{ label: '4 or more', value: '4' },
 ]
 
+/** A row whose control (chips) sits under its label, across the card */
+const STACKED = 'lg:flex-col lg:items-stretch lg:gap-2.5'
+
 type Option = { value: string; label: string; count?: number; hint?: string }
 
 const sameRules = (a: DiscoverRulesInput, b: DiscoverRulesInput) =>
@@ -196,6 +199,7 @@ export default function DiscoverRulesPreference() {
 
 			<NewCard.Row
 				label="Leave out tags"
+				className={STACKED}
 				description="Books with these tags, or in a series or library with them. A pick's ✕ adds No picks"
 			>
 				<RuleChips
@@ -209,6 +213,7 @@ export default function DiscoverRulesPreference() {
 
 			<NewCard.Row
 				label="Leave out genres"
+				className={STACKED}
 				description="A whole genre, or a family ending in * (Reference: * leaves out every Reference: genre)"
 			>
 				<div className="gap-2 flex flex-col">
@@ -238,7 +243,11 @@ export default function DiscoverRulesPreference() {
 				</div>
 			</NewCard.Row>
 
-			<NewCard.Row label="Leave out libraries" description="Every book in these libraries">
+			<NewCard.Row
+				label="Leave out libraries"
+				className={STACKED}
+				description="Every book in these libraries"
+			>
 				<RuleChips
 					label="library"
 					values={libraries}
@@ -290,12 +299,7 @@ export default function DiscoverRulesPreference() {
 					>
 						Cancel
 					</Button>
-					<Button
-						type="button"
-						size="sm"
-						disabled={isPending || !isDirty}
-						onClick={save}
-					>
+					<Button type="button" size="sm" disabled={isPending || !isDirty} onClick={save}>
 						Save
 					</Button>
 				</div>
@@ -394,11 +398,6 @@ function RuleChips({ label, values, options, onChange, typedHint }: ChipsProps) 
 							onValueChange={setSearch}
 						/>
 						<Command.List className="max-h-[min(20rem,45dvh)]">
-							{canUseTyped && (
-								<Command.Item value={`typed:${typed}`} onSelect={() => add(typed)}>
-									{typedHint} “{typed}”
-								</Command.Item>
-							)}
 							{shown.map((option) => (
 								<Command.Item
 									key={option.value}
@@ -419,6 +418,11 @@ function RuleChips({ label, values, options, onChange, typedHint }: ChipsProps) 
 									)}
 								</Command.Item>
 							))}
+							{canUseTyped && (
+								<Command.Item value={`typed:${typed}`} onSelect={() => add(typed)}>
+									{typedHint} “{typed}”
+								</Command.Item>
+							)}
 							{!shown.length && !canUseTyped && (
 								<p className="py-6 text-sm text-center text-muted-foreground">Nothing to add</p>
 							)}
