@@ -6,7 +6,6 @@ import { QueryClient, QueryKey, useQueryClient } from '@tanstack/react-query'
 import { Helmet } from 'react-helmet'
 
 import { SceneContainer } from '@/components/container'
-import { FilterHeader } from '@/components/filters'
 import { NoLibraries } from '@/components/library'
 import { OwlEmptyState } from '@/components/Owl'
 import { PageHeader } from '@/components/sharedLayout'
@@ -21,7 +20,6 @@ import {
 	useHomeArrangementKey,
 } from './arrangement'
 import ContinueReadingMedia, { usePrefetchContinueReading } from './ContinueReading'
-import HomeSearch from './HomeSearch'
 import OnDeck, { usePrefetchOnDeck } from './OnDeck'
 import RecentlyAddedMedia, { usePrefetchRecentlyAddedMedia } from './RecentlyAddedMedia'
 import RecentlyAddedSeries, { usePrefetchRecentlyAddedSeries } from './RecentlyAddedSeries'
@@ -124,9 +122,6 @@ export default function HomeScene() {
 	return (
 		<>
 			{helmet}
-
-			{/* The search sits in the same toolbar as on the list pages (library books, explore) */}
-			<FilterHeader search={<HomeSearch />} navOffset />
 
 			<SceneContainer className="gap-6 flex flex-1 flex-col">
 				{sections.map((section) => {

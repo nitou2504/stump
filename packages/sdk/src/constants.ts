@@ -29,6 +29,7 @@ export const cacheKeys = {
 	tags: 'tags',
 	getStats: 'getStats',
 	recentlyAddedMedia: 'recentlyAddedMedia',
+	randomMedia: 'randomMedia',
 	media: 'media',
 	mediaById: 'mediaById',
 	apiKeys: 'apiKeys',

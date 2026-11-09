@@ -2,15 +2,19 @@ import { cn } from '@stump/components'
 import { ReactNode } from 'react'
 
 import { Sidebar } from '../navigation/sidebar'
+import { GlobalSearch } from '../search'
 
 type Props = {
 	children?: ReactNode
 	className?: string
+	/** Whether to show the library search at the end of the bar (on by default) */
+	search?: boolean
 }
 
 /**
  * a header at the top of the page that holds a trigger to collapse the sidebar. every page
- * should have this if not e.g. a reader or some full-screen experience
+ * should have this if not e.g. a reader or some full-screen experience. it ends with the
+ * library search (`GlobalSearch`, Ctrl/Cmd+K), so it is one click away on every page
  *
  * compose via slots like:
  *
@@ -21,7 +25,7 @@ type Props = {
  * </PageHeader>
  * ```
  */
-function PageHeaderRoot({ children, className }: Props) {
+function PageHeaderRoot({ children, className, search = true }: Props) {
 	return (
 		<header
 			data-slot="page-header"
@@ -36,6 +40,7 @@ function PageHeaderRoot({ children, className }: Props) {
 			<div data-tauri-drag-region className="h-12 gap-3 pr-4 pl-2 min-w-0 flex w-full items-center">
 				<Sidebar.Trigger />
 				{children}
+				{search && <GlobalSearch className="ml-auto" />}
 			</div>
 		</header>
 	)

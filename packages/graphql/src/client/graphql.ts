@@ -130,14 +130,15 @@ export type Arrangement = {
   sections: Array<ArrangementSection>;
 };
 
-export type ArrangementConfig = CustomArrangementConfig | InProgressBooks | OnDeckBooks | RecentlyAdded | SystemArrangementConfig;
+export type ArrangementConfig = CustomArrangementConfig | DiscoverBooks | InProgressBooks | OnDeckBooks | RecentlyAdded | SystemArrangementConfig;
 
 export type ArrangementConfigInput =
-  { custom: FilterableArrangementEntityLinkInput; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded?: never; system?: never; }
-  |  { custom?: never; inProgressBooks: InProgressBooksInput; onDeckBooks?: never; recentlyAdded?: never; system?: never; }
-  |  { custom?: never; inProgressBooks?: never; onDeckBooks: OnDeckBooksInput; recentlyAdded?: never; system?: never; }
-  |  { custom?: never; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded: RecentlyAddedInput; system?: never; }
-  |  { custom?: never; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded?: never; system: SystemArrangementConfigInput; };
+  { custom: FilterableArrangementEntityLinkInput; discoverBooks?: never; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded?: never; system?: never; }
+  |  { custom?: never; discoverBooks: DiscoverBooksInput; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded?: never; system?: never; }
+  |  { custom?: never; discoverBooks?: never; inProgressBooks: InProgressBooksInput; onDeckBooks?: never; recentlyAdded?: never; system?: never; }
+  |  { custom?: never; discoverBooks?: never; inProgressBooks?: never; onDeckBooks: OnDeckBooksInput; recentlyAdded?: never; system?: never; }
+  |  { custom?: never; discoverBooks?: never; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded: RecentlyAddedInput; system?: never; }
+  |  { custom?: never; discoverBooks?: never; inProgressBooks?: never; onDeckBooks?: never; recentlyAdded?: never; system: SystemArrangementConfigInput; };
 
 export type ArrangementSection = {
   __typename?: 'ArrangementSection';
@@ -812,6 +813,17 @@ export type DiscordConfig = {
 
 export type DiscordConfigInput = {
   webhookUrl: Scalars['String']['input'];
+};
+
+/** A few unread books picked at random, the same for a week (the home's "Picks of the week") */
+export type DiscoverBooks = {
+  __typename?: 'DiscoverBooks';
+  name?: Maybe<Scalars['String']['output']>;
+};
+
+/** A few unread books picked at random, the same for a week (the home's "Picks of the week") */
+export type DiscoverBooksInput = {
+  name?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type DiscoveredMissingLibrary = {
@@ -5054,6 +5066,12 @@ export type Query = {
   /** The books deleted permanently, most recent first (a log: their files were deleted) */
   purgedBooks: Array<PurgedBook>;
   /**
+   * A few books picked at random among those `filter` matches (e.g. the unread ones).
+   * The same `seed` gives the same books for the same user (the home's "Picks of the
+   * week" seeds with the week); without one, every call picks anew ("Surprise me")
+   */
+  randomMedia: Array<Media>;
+  /**
    * Retrieves a reading list by ID for the current user.
    *
    * # Returns
@@ -5415,6 +5433,13 @@ export type QueryPreviousBookClubDiscussionsArgs = {
 
 export type QueryPurgedBooksArgs = {
   limit?: Scalars['Int']['input'];
+};
+
+
+export type QueryRandomMediaArgs = {
+  count?: Scalars['Int']['input'];
+  filter?: MediaFilterInput;
+  seed?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -8154,7 +8179,7 @@ export type SetSeriesLockedFieldsMutation = { __typename?: 'Mutation', setSeries
 export type SideBarQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type SideBarQueryQuery = { __typename?: 'Query', me: { __typename?: 'User', id: string, preferences: { __typename?: 'UserPreferences', navigationArrangement: { __typename?: 'Arrangement', locked: boolean, sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'InProgressBooks' } | { __typename: 'OnDeckBooks' } | { __typename: 'RecentlyAdded' } | { __typename: 'SystemArrangementConfig', variant: SystemArrangement, links: Array<FilterableArrangementEntityLink> } }> } } } };
+export type SideBarQueryQuery = { __typename?: 'Query', me: { __typename?: 'User', id: string, preferences: { __typename?: 'UserPreferences', navigationArrangement: { __typename?: 'Arrangement', locked: boolean, sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'DiscoverBooks' } | { __typename: 'InProgressBooks' } | { __typename: 'OnDeckBooks' } | { __typename: 'RecentlyAdded' } | { __typename: 'SystemArrangementConfig', variant: SystemArrangement, links: Array<FilterableArrangementEntityLink> } }> } } } };
 
 export type BookClubSideBarSectionQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -8338,6 +8363,14 @@ export type RemoveBooksFromReadingListMutationVariables = Exact<{
 
 export type RemoveBooksFromReadingListMutation = { __typename?: 'Mutation', removeBooksFromReadingList: { __typename?: 'ReadingList', id: string } };
 
+export type GlobalSearchQueryVariables = Exact<{
+  media: MediaFilterInput;
+  series: SeriesFilterInput;
+}>;
+
+
+export type GlobalSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalItems: number } }, series: { __typename?: 'PaginatedSeriesResponse', nodes: Array<{ __typename?: 'Series', id: string, resolvedName: string, mediaCount: number, thumbnail: { __typename?: 'ImageRef', url: string } }> } };
+
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
   pagination?: InputMaybe<Pagination>;
@@ -8449,6 +8482,13 @@ export type UsePreferencesMutationVariables = Exact<{
 
 
 export type UsePreferencesMutation = { __typename?: 'Mutation', updateViewerPreferences: { __typename: 'UserPreferences' } };
+
+export type SurpriseMeQueryVariables = Exact<{
+  filter: MediaFilterInput;
+}>;
+
+
+export type SurpriseMeQuery = { __typename?: 'Query', randomMedia: Array<{ __typename?: 'Media', id: string }> };
 
 export type BookMetadataFragment = { __typename?: 'Media', metadata?: { __typename?: 'MediaMetadata', ageRating?: number | null, rating?: any | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, editors: Array<string>, genres: Array<string>, inkers: Array<string>, letterers: Array<string>, links: Array<string>, pencillers: Array<string>, publisher?: string | null, series?: string | null, teams: Array<string>, writers: Array<string>, year?: number | null, month?: number | null, day?: number | null, volume?: number | null, number?: any | null } | null } & { ' $fragmentName'?: 'BookMetadataFragment' };
 
@@ -8650,17 +8690,24 @@ export type ContinueReadingMediaQuery = { __typename?: 'Query', keepReading: { _
       & { ' $fragmentRefs'?: { 'ContinueReadingBookFragment': ContinueReadingBookFragment } }
     )>, pageInfo: { __typename: 'CursorPaginationInfo', currentCursor?: string | null, nextCursor?: string | null, limit: number } | { __typename: 'OffsetPaginationInfo', currentPage: number, totalPages: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
 
+export type DiscoverBookFragment = { __typename?: 'Media', id: string, resolvedName: string, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'DiscoverBookFragment' };
+
+export type DiscoverBooksQueryVariables = Exact<{
+  filter: MediaFilterInput;
+  count: Scalars['Int']['input'];
+  seed?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type DiscoverBooksQuery = { __typename?: 'Query', randomMedia: Array<(
+    { __typename?: 'Media', id: string }
+    & { ' $fragmentRefs'?: { 'DiscoverBookFragment': DiscoverBookFragment } }
+  )> };
+
 export type HomeSceneQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type HomeSceneQueryQuery = { __typename?: 'Query', numberOfLibraries: number };
-
-export type HomeSearchQueryVariables = Exact<{
-  filter: MediaFilterInput;
-}>;
-
-
-export type HomeSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalPages: number } } };
 
 export type OnDeckBookFragment = { __typename?: 'Media', id: string, resolvedName: string, seriesPosition?: number | null, metadata?: { __typename?: 'MediaMetadata', number?: any | null } | null, series?: { __typename?: 'Series', mediaCount: number, metadata?: { __typename?: 'SeriesMetadata', totalIssues?: number | null } | null } | null, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'OnDeckBookFragment' };
 
@@ -8696,14 +8743,14 @@ export type RecentlyAddedSeriesQuery = { __typename?: 'Query', recentlyAddedSeri
 export type HomeArrangementPreferencesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type HomeArrangementPreferencesQuery = { __typename?: 'Query', me: { __typename?: 'User', preferences: { __typename?: 'UserPreferences', homeArrangement: { __typename?: 'Arrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } } } };
+export type HomeArrangementPreferencesQuery = { __typename?: 'Query', me: { __typename?: 'User', preferences: { __typename?: 'UserPreferences', homeArrangement: { __typename?: 'Arrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'DiscoverBooks', name?: string | null } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } } } };
 
 export type UpdateHomeArrangementMutationVariables = Exact<{
   input: HomeArrangementInput;
 }>;
 
 
-export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHomeArrangement: { __typename?: 'HomeArrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } };
+export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHomeArrangement: { __typename?: 'HomeArrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'DiscoverBooks', name?: string | null } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } };
 
 export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -9098,7 +9145,7 @@ export type UpdateUserProfileFormMutation = { __typename?: 'Mutation', updateVie
 export type NavigationArrangementQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type NavigationArrangementQuery = { __typename?: 'Query', me: { __typename?: 'User', preferences: { __typename?: 'UserPreferences', navigationArrangement: { __typename?: 'Arrangement', locked: boolean, sections: Array<{ __typename: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'InProgressBooks' } | { __typename: 'OnDeckBooks' } | { __typename: 'RecentlyAdded' } | { __typename: 'SystemArrangementConfig', variant: SystemArrangement, links: Array<FilterableArrangementEntityLink> } }> } } } };
+export type NavigationArrangementQuery = { __typename?: 'Query', me: { __typename?: 'User', preferences: { __typename?: 'UserPreferences', navigationArrangement: { __typename?: 'Arrangement', locked: boolean, sections: Array<{ __typename: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'DiscoverBooks' } | { __typename: 'InProgressBooks' } | { __typename: 'OnDeckBooks' } | { __typename: 'RecentlyAdded' } | { __typename: 'SystemArrangementConfig', variant: SystemArrangement, links: Array<FilterableArrangementEntityLink> } }> } } } };
 
 export type NavigationArrangementUpdateMutationVariables = Exact<{
   input: NavigationArrangementInput;
@@ -11222,6 +11269,27 @@ export const ContinueReadingBookFragmentDoc = new TypedDocumentString(`
   }
 }
     `, {"fragmentName":"ContinueReadingBook"}) as unknown as TypedDocumentString<ContinueReadingBookFragment, unknown>;
+export const DiscoverBookFragmentDoc = new TypedDocumentString(`
+    fragment DiscoverBook on Media {
+  id
+  resolvedName
+  metadata {
+    writers
+    rating
+  }
+  thumbnail {
+    url
+    metadata {
+      averageColor
+      colors {
+        color
+        percentage
+      }
+      thumbhash
+    }
+  }
+}
+    `, {"fragmentName":"DiscoverBook"}) as unknown as TypedDocumentString<DiscoverBookFragment, unknown>;
 export const OnDeckBookFragmentDoc = new TypedDocumentString(`
     fragment OnDeckBook on Media {
   id
@@ -15645,6 +15713,39 @@ export const RemoveBooksFromReadingListDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<RemoveBooksFromReadingListMutation, RemoveBooksFromReadingListMutationVariables>;
+export const GlobalSearchDocument = new TypedDocumentString(`
+    query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!) {
+  media(filter: $media, pagination: {offset: {page: 1, pageSize: 6}}) {
+    nodes {
+      id
+      resolvedName
+      thumbnail {
+        url
+      }
+      metadata {
+        writers
+        rating
+      }
+    }
+    pageInfo {
+      __typename
+      ... on OffsetPaginationInfo {
+        totalItems
+      }
+    }
+  }
+  series(filter: $series, pagination: {offset: {page: 1, pageSize: 3}}) {
+    nodes {
+      id
+      resolvedName
+      mediaCount
+      thumbnail {
+        url
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<GlobalSearchQuery, GlobalSearchQueryVariables>;
 export const SeriesBookGridDocument = new TypedDocumentString(`
     query SeriesBookGrid($id: String!, $pagination: Pagination) {
   media(filter: {seriesId: {eq: $id}}, pagination: $pagination) {
@@ -15938,6 +16039,13 @@ export const UsePreferencesDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UsePreferencesMutation, UsePreferencesMutationVariables>;
+export const SurpriseMeDocument = new TypedDocumentString(`
+    query SurpriseMe($filter: MediaFilterInput!) {
+  randomMedia(filter: $filter, count: 1) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<SurpriseMeQuery, SurpriseMeQueryVariables>;
 export const BooksAlphabetDocument = new TypedDocumentString(`
     query BooksAlphabet {
   mediaAlphabet
@@ -16629,34 +16737,37 @@ export const ContinueReadingMediaDocument = new TypedDocumentString(`
     }
   }
 }`) as unknown as TypedDocumentString<ContinueReadingMediaQuery, ContinueReadingMediaQueryVariables>;
+export const DiscoverBooksDocument = new TypedDocumentString(`
+    query DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {
+  randomMedia(filter: $filter, count: $count, seed: $seed) {
+    id
+    ...DiscoverBook
+  }
+}
+    fragment DiscoverBook on Media {
+  id
+  resolvedName
+  metadata {
+    writers
+    rating
+  }
+  thumbnail {
+    url
+    metadata {
+      averageColor
+      colors {
+        color
+        percentage
+      }
+      thumbhash
+    }
+  }
+}`) as unknown as TypedDocumentString<DiscoverBooksQuery, DiscoverBooksQueryVariables>;
 export const HomeSceneQueryDocument = new TypedDocumentString(`
     query HomeSceneQuery {
   numberOfLibraries
 }
     `) as unknown as TypedDocumentString<HomeSceneQueryQuery, HomeSceneQueryQueryVariables>;
-export const HomeSearchDocument = new TypedDocumentString(`
-    query HomeSearch($filter: MediaFilterInput!) {
-  media(filter: $filter, pagination: {offset: {page: 1, pageSize: 6}}) {
-    nodes {
-      id
-      resolvedName
-      thumbnail {
-        url
-      }
-      metadata {
-        writers
-        rating
-      }
-    }
-    pageInfo {
-      __typename
-      ... on OffsetPaginationInfo {
-        totalPages
-      }
-    }
-  }
-}
-    `) as unknown as TypedDocumentString<HomeSearchQuery, HomeSearchQueryVariables>;
 export const OnDeckBooksWebDocument = new TypedDocumentString(`
     query OnDeckBooksWeb($pagination: Pagination!) {
   onDeck(pagination: $pagination) {
@@ -16785,6 +16896,9 @@ export const HomeArrangementPreferencesDocument = new TypedDocumentString(`
             ... on OnDeckBooks {
               name
             }
+            ... on DiscoverBooks {
+              name
+            }
             ... on RecentlyAdded {
               entity
               name
@@ -16807,6 +16921,9 @@ export const UpdateHomeArrangementDocument = new TypedDocumentString(`
           name
         }
         ... on OnDeckBooks {
+          name
+        }
+        ... on DiscoverBooks {
           name
         }
         ... on RecentlyAdded {
