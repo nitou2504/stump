@@ -12,7 +12,12 @@ query($seed: String, $count: Int!, $filter: MediaFilterInput!) {
 }
 "#;
 
-async fn pick(app: &TestApp, seed: Option<&str>, count: i32, filter: Value) -> Vec<String> {
+async fn pick(
+	app: &TestApp,
+	seed: Option<&str>,
+	count: i32,
+	filter: Value,
+) -> Vec<String> {
 	let response = app
 		.execute_gql(
 			QUERY,
@@ -40,7 +45,10 @@ async fn random_media_is_stable_per_seed_and_respects_the_filter() {
 	let week = pick(&app, Some("2026-W46"), 5, unread.clone()).await;
 	assert_eq!(week.len(), 5);
 	assert_eq!(pick(&app, Some("2026-W46"), 5, unread.clone()).await, week);
-	assert_ne!(pick(&app, Some("2026-W46#1"), 5, unread.clone()).await, week);
+	assert_ne!(
+		pick(&app, Some("2026-W46#1"), 5, unread.clone()).await,
+		week
+	);
 
 	create_nth_readthrough(&app, &week[0], 1).await;
 	let mut removed = books
@@ -67,4 +75,40 @@ async fn random_media_is_stable_per_seed_and_respects_the_filter() {
 
 	let surprise = pick(&app, None, 1, json!({})).await;
 	assert_eq!(surprise.len(), 1);
+}
+
+async fn set_tags(app: &TestApp, mutation: &str, id: &str, tags: Value) {
+	let query = format!(
+		"mutation($id: ID!, $tags: [String!]!) {{ {mutation}(id: $id, tags: $tags) {{ id }} }}"
+	);
+	let response = app
+		.execute_gql(&query, Some(json!({"id": id, "tags": tags})))
+		.await;
+	assert!(response.get("errors").is_none(), "{response}");
+}
+
+/// The `No picks` tag (any case) on a book, its series or its library keeps it out
+#[tokio::test]
+async fn books_tagged_no_picks_are_never_picked() {
+	let app = TestApp::new_with_default_user().await;
+	let (_, books) =
+		setup_single_series_with_n_books(&app, fake_data::Series::default(), 4).await;
+	let (series, others) =
+		setup_single_series_with_n_books(&app, fake_data::Series::default(), 3).await;
+
+	set_tags(
+		&app,
+		"setMediaTags",
+		&books[0].id,
+		json!(["Favourite", "No Picks"]),
+	)
+	.await;
+	let picked = pick(&app, Some("s"), 50, json!({})).await;
+	assert_eq!(picked.len(), 6);
+	assert!(!picked.contains(&books[0].id));
+
+	set_tags(&app, "setSeriesTags", &series.id, json!(["no picks"])).await;
+	let picked = pick(&app, Some("s"), 50, json!({})).await;
+	assert_eq!(picked.len(), 3);
+	assert!(others.iter().all(|book| !picked.contains(&book.id)));
 }

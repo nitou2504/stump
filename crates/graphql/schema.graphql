@@ -3815,7 +3815,9 @@ type Query {
 	"""
 	A few books picked at random among those `filter` matches (e.g. the unread ones).
 	The same `seed` gives the same books for the same user (the home's "Picks of the
-	week" seeds with the week); without one, every call picks anew ("Surprise me")
+	week" seeds with the week); without one, every call picks anew ("Surprise me").
+	Books tagged `No picks`, or in a series or library tagged so, are never picked
+	(school books, solutions, dictionaries, game guides...)
 	"""
 	randomMedia(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, count: Int! = 12, seed: String): [Media!]!
 	recentlyAddedMedia(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!

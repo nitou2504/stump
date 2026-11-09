@@ -5068,7 +5068,9 @@ export type Query = {
   /**
    * A few books picked at random among those `filter` matches (e.g. the unread ones).
    * The same `seed` gives the same books for the same user (the home's "Picks of the
-   * week" seeds with the week); without one, every call picks anew ("Surprise me")
+   * week" seeds with the week); without one, every call picks anew ("Surprise me").
+   * Books tagged `No picks`, or in a series or library tagged so, are never picked
+   * (school books, solutions, dictionaries, game guides...)
    */
   randomMedia: Array<Media>;
   /**
@@ -8690,7 +8692,15 @@ export type ContinueReadingMediaQuery = { __typename?: 'Query', keepReading: { _
       & { ' $fragmentRefs'?: { 'ContinueReadingBookFragment': ContinueReadingBookFragment } }
     )>, pageInfo: { __typename: 'CursorPaginationInfo', currentCursor?: string | null, nextCursor?: string | null, limit: number } | { __typename: 'OffsetPaginationInfo', currentPage: number, totalPages: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
 
-export type DiscoverBookFragment = { __typename?: 'Media', id: string, resolvedName: string, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'DiscoverBookFragment' };
+export type DiscoverBookFragment = { __typename?: 'Media', id: string, resolvedName: string, tags: Array<{ __typename?: 'Tag', name: string }>, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } } & { ' $fragmentName'?: 'DiscoverBookFragment' };
+
+export type DiscoverBooksVetoMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  tags: Array<Scalars['String']['input']> | Scalars['String']['input'];
+}>;
+
+
+export type DiscoverBooksVetoMutation = { __typename?: 'Mutation', setMediaTags: { __typename?: 'Media', id: string } };
 
 export type DiscoverBooksQueryVariables = Exact<{
   filter: MediaFilterInput;
@@ -11273,6 +11283,9 @@ export const DiscoverBookFragmentDoc = new TypedDocumentString(`
     fragment DiscoverBook on Media {
   id
   resolvedName
+  tags {
+    name
+  }
   metadata {
     writers
     rating
@@ -16737,6 +16750,13 @@ export const ContinueReadingMediaDocument = new TypedDocumentString(`
     }
   }
 }`) as unknown as TypedDocumentString<ContinueReadingMediaQuery, ContinueReadingMediaQueryVariables>;
+export const DiscoverBooksVetoDocument = new TypedDocumentString(`
+    mutation DiscoverBooksVeto($id: ID!, $tags: [String!]!) {
+  setMediaTags(id: $id, tags: $tags) {
+    id
+  }
+}
+    `) as unknown as TypedDocumentString<DiscoverBooksVetoMutation, DiscoverBooksVetoMutationVariables>;
 export const DiscoverBooksDocument = new TypedDocumentString(`
     query DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {
   randomMedia(filter: $filter, count: $count, seed: $seed) {
@@ -16747,6 +16767,9 @@ export const DiscoverBooksDocument = new TypedDocumentString(`
     fragment DiscoverBook on Media {
   id
   resolvedName
+  tags {
+    name
+  }
   metadata {
     writers
     rating

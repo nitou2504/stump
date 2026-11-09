@@ -37,6 +37,29 @@ pub struct MediaQuery;
 /// the lowest keys win, so a seed always picks the same books (in the same order) as long as
 /// they still match, whatever order the database returns them in
 mod random_pick {
+	use sea_orm::{sea_query::Expr, Condition};
+
+	/// The tag that keeps a book, or every book of a series or library, out of the picks
+	/// (matched ignoring case)
+	pub const VETO_TAG: &str = "no picks";
+
+	/// Leaves out the books tagged `No picks`, or in a series or library tagged so
+	pub fn not_vetoed() -> Condition {
+		let tag = |table: &str, column: &str, outer: &str| {
+			Expr::cust(format!(
+				r#"{outer} NOT IN (SELECT "{table}"."{column}" FROM "{table}" JOIN "tags" ON "tags"."id" = "{table}"."tag_id" WHERE LOWER("tags"."name") = '{VETO_TAG}')"#
+			))
+		};
+		Condition::all()
+			.add(tag("media_tags", "media_id", r#""media"."id""#))
+			.add(tag("library_tags", "library_id", r#""media"."library_id""#))
+			.add(
+				Condition::any()
+					.add(Expr::cust(r#""media"."series_id" IS NULL"#))
+					.add(tag("series_tags", "series_id", r#""media"."series_id""#)),
+			)
+	}
+
 	/// FNV-1a over `value`, continuing from `state`
 	pub fn hash_str(state: u64, value: &str) -> u64 {
 		let mut hash = state ^ 0xcbf2_9ce4_8422_2325;
@@ -831,7 +854,9 @@ impl MediaQuery {
 
 	/// A few books picked at random among those `filter` matches (e.g. the unread ones).
 	/// The same `seed` gives the same books for the same user (the home's "Picks of the
-	/// week" seeds with the week); without one, every call picks anew ("Surprise me")
+	/// week" seeds with the week); without one, every call picks anew ("Surprise me").
+	/// Books tagged `No picks`, or in a series or library tagged so, are never picked
+	/// (school books, solutions, dictionaries, game guides...)
 	async fn random_media(
 		&self,
 		ctx: &Context<'_>,
@@ -850,6 +875,7 @@ impl MediaQuery {
 		)
 		.filter(filter.into_filter())
 		.filter(media::Column::DeletedAt.is_null())
+		.filter(random_pick::not_vetoed())
 		.select_only()
 		.column(media::Column::Id)
 		.into_tuple::<String>()
@@ -857,7 +883,9 @@ impl MediaQuery {
 		.await?;
 
 		let seed = match seed {
-			Some(seed) => random_pick::hash_str(random_pick::hash_str(0, &user.id), &seed),
+			Some(seed) => {
+				random_pick::hash_str(random_pick::hash_str(0, &user.id), &seed)
+			},
 			None => std::hash::BuildHasher::hash_one(
 				&std::collections::hash_map::RandomState::new(),
 				&user.id,
