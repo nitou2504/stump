@@ -68,14 +68,14 @@ describe('DiscoverRulesPreference', () => {
 		const { execute, client, Wrapper } = setup()
 		render(<DiscoverRulesPreference />, { wrapper: Wrapper })
 
-		expect(await screen.findByText('8,000 books can be picked')).toBeInTheDocument()
+		expect(await screen.findByText('8,000 books')).toBeInTheDocument()
 		expect(screen.getByText('No picks')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
 
 		// a common rule, with how many books have it
 		await user.click(await screen.findByRole('button', { name: /Level: High School/ }))
-		expect(await screen.findByText('7,900 books can be picked')).toBeInTheDocument()
-		await user.click(screen.getByRole('switch', { name: 'Only unread books' }))
+		expect(await screen.findByText('7,900 books')).toBeInTheDocument()
+		await user.click(screen.getByRole('switch', { name: 'Unread only' }))
 		await user.click(screen.getByRole('button', { name: 'Save' }))
 
 		await waitFor(() =>
@@ -97,11 +97,11 @@ describe('DiscoverRulesPreference', () => {
 		const user = userEvent.setup()
 		const { Wrapper } = setup()
 		render(<DiscoverRulesPreference />, { wrapper: Wrapper })
-		await screen.findByText('8,000 books can be picked')
+		await screen.findByText('8,000 books')
 		await user.click(screen.getByRole('button', { name: 'Add a genre' }))
 		expect(await screen.findByRole('option', { name: /Reference: \*/ })).toBeInTheDocument()
 		await user.type(screen.getByPlaceholderText('Search genres…'), 'Form: *')
-		await user.click(screen.getByRole('option', { name: 'Leave out “Form: *”' }))
+		await user.click(screen.getByRole('option', { name: 'Add “Form: *”' }))
 		expect(screen.getByRole('button', { name: 'Remove Form: *' })).toBeInTheDocument()
 	})
 
@@ -109,10 +109,10 @@ describe('DiscoverRulesPreference', () => {
 		const user = userEvent.setup()
 		const { Wrapper } = setup()
 		render(<DiscoverRulesPreference />, { wrapper: Wrapper })
-		await screen.findByText('8,000 books can be picked')
+		await screen.findByText('8,000 books')
 		await user.click(screen.getByRole('button', { name: 'Add a tag' }))
 		// the only tag is already left out
-		expect(await screen.findByText(/No other tags yet/)).toBeInTheDocument()
+		expect(await screen.findByText(/No other tags/)).toBeInTheDocument()
 		await user.type(screen.getByPlaceholderText('Search tags…'), 'manga')
 		await user.click(await screen.findByRole('option', { name: /Manga & Comics/ }))
 		// added as a genre rule, not a tag

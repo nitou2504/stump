@@ -80,11 +80,11 @@ const SUGGESTED_GENRES = [
 ]
 
 const RATINGS = [
-	{ label: 'Any rating', value: '' },
-	{ label: '2 or more', value: '2' },
-	{ label: '3 or more', value: '3' },
-	{ label: '3.5 or more', value: '3.5' },
-	{ label: '4 or more', value: '4' },
+	{ label: 'Any', value: '' },
+	{ label: '2+', value: '2' },
+	{ label: '3+', value: '3' },
+	{ label: '3.5+', value: '3.5' },
+	{ label: '4+', value: '4' },
 ]
 
 /** A row whose control (chips) sits under its label, across the card */
@@ -140,9 +140,9 @@ export default function DiscoverRulesPreference() {
 			setDraft(rules)
 			// the picks follow the new rules right away
 			await client.invalidateQueries({ queryKey: sdk.cacheKey('randomMedia') })
-			toast.success('Picks rules saved')
+			toast.success('Saved')
 		} catch (error) {
-			toast.error("Couldn't save the rules", {
+			toast.error("Couldn't save", {
 				description: error instanceof Error ? error.message : undefined,
 			})
 		}
@@ -182,37 +182,29 @@ export default function DiscoverRulesPreference() {
 	const libraries = draft.excludedLibraryIds ?? []
 
 	return (
-		<NewCard
-			label="Picks of the week"
-			description="What the home's picks and Surprise me can choose from. A rule leaves books out of the picks only; they stay everywhere else."
-		>
+		<NewCard label="Picks of the week" description="What Picks and Surprise me choose from">
 			<NewCard.Row
-				label="Only unread books"
-				description="Leave out books you've started or finished"
+				label="Unread only"
 				onClick={() => set({ unreadOnly: !draft.unreadOnly })}
 				className="flex-row items-center justify-between"
 			>
 				<RawSwitch
-					aria-label="Only unread books"
+					aria-label="Unread only"
 					checked={!!draft.unreadOnly}
 					onCheckedChange={(checked) => set({ unreadOnly: checked })}
 				/>
 			</NewCard.Row>
 
-			<NewCard.Row
-				label="Leave out tags"
-				className={STACKED}
-				description="Tags you put on books, series or libraries (a pick's ✕ adds No picks). For kinds of books such as manga, use genres"
-			>
+			<NewCard.Row label="Skip tags" className={STACKED}>
 				<RuleChips
 					label="tag"
 					values={tags}
 					options={tagOptions}
 					onChange={(excludedTags) => set({ excludedTags })}
-					typedHint="Use the tag"
-					emptyText="No other tags yet: tag books in their settings, or type a tag. Kinds of books (Manga & Comics, Light Novels…) are genres: search them here or under Leave out genres"
+					typedHint="Add"
+					emptyText="No other tags. Manga and the like are genres."
 					elsewhere={{
-						heading: 'Genres (left out under Leave out genres)',
+						heading: 'Genres',
 						options: genreOptions,
 						taken: genres,
 						onPick: (value) => set({ excludedGenres: [...genres, value] }),
@@ -221,9 +213,9 @@ export default function DiscoverRulesPreference() {
 			</NewCard.Row>
 
 			<NewCard.Row
-				label="Leave out genres"
+				label="Skip genres"
 				className={STACKED}
-				description="A whole genre, or a family ending in * (Reference: * leaves out every Reference: genre)"
+				description="End with * for a whole family"
 			>
 				<div className="gap-2 flex flex-col">
 					<RuleChips
@@ -231,9 +223,9 @@ export default function DiscoverRulesPreference() {
 						values={genres}
 						options={genreOptions}
 						onChange={(excludedGenres) => set({ excludedGenres })}
-						typedHint="Leave out"
+						typedHint="Add"
 						elsewhere={{
-							heading: 'Tags (left out under Leave out tags)',
+							heading: 'Tags',
 							options: tagOptions,
 							taken: tags,
 							onPick: (value) => set({ excludedTags: [...tags, value] }),
@@ -241,7 +233,6 @@ export default function DiscoverRulesPreference() {
 					/>
 					{suggested.length > 0 && (
 						<div className="gap-1.5 flex flex-wrap items-center">
-							<span className="text-xs text-muted-foreground">Common:</span>
 							{suggested.map((option) => (
 								<button
 									key={option.value}
@@ -258,11 +249,7 @@ export default function DiscoverRulesPreference() {
 				</div>
 			</NewCard.Row>
 
-			<NewCard.Row
-				label="Leave out libraries"
-				className={STACKED}
-				description="Every book in these libraries"
-			>
+			<NewCard.Row label="Skip libraries" className={STACKED}>
 				<RuleChips
 					label="library"
 					values={libraries}
@@ -273,7 +260,6 @@ export default function DiscoverRulesPreference() {
 
 			<NewCard.Row
 				label="Minimum rating"
-				description="Leave out books rated below it; books without a rating stay"
 				className="sm:flex-row sm:items-center sm:justify-between"
 			>
 				<NativeSelect
@@ -293,7 +279,7 @@ export default function DiscoverRulesPreference() {
 					className={cn('text-sm text-muted-foreground', isCounting && 'opacity-60')}
 					aria-live="polite"
 				>
-					{pool ? `${pool.discoverPoolSize.toLocaleString()} books can be picked` : ' '}
+					{pool ? `${pool.discoverPoolSize.toLocaleString()} books` : ' '}
 				</span>
 				<div className="gap-2 flex">
 					<Button
@@ -426,8 +412,14 @@ function RuleChips({
 			))}
 			<Popover open={open} onOpenChange={setOpen}>
 				<Popover.Trigger asChild>
-					<Button type="button" variant="ghost" size="xs" className="text-muted-foreground">
-						<Plus /> Add a {label}
+					<Button
+						type="button"
+						variant="ghost"
+						size="xs"
+						className="text-muted-foreground"
+						aria-label={`Add a ${label}`}
+					>
+						<Plus /> Add
 					</Button>
 				</Popover.Trigger>
 				<Popover.Content
