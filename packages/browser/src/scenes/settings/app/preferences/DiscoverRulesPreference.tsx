@@ -75,6 +75,8 @@ const SUGGESTED_GENRES = [
 	'Reference: *',
 	'Language & Writing: Dictionaries',
 	'Language & Writing: Graded Readers',
+	'Manga & Comics',
+	'Light Novels',
 ]
 
 const RATINGS = [
@@ -200,14 +202,21 @@ export default function DiscoverRulesPreference() {
 			<NewCard.Row
 				label="Leave out tags"
 				className={STACKED}
-				description="Books with these tags, or in a series or library with them. A pick's ✕ adds No picks"
+				description="Tags you put on books, series or libraries (a pick's ✕ adds No picks). For kinds of books such as manga, use genres"
 			>
 				<RuleChips
 					label="tag"
 					values={tags}
 					options={tagOptions}
 					onChange={(excludedTags) => set({ excludedTags })}
-					typedHint="Use this tag"
+					typedHint="Use the tag"
+					emptyText="No other tags yet: tag books in their settings, or type a tag. Kinds of books (Manga & Comics, Light Novels…) are genres: search them here or under Leave out genres"
+					elsewhere={{
+						heading: 'Genres (left out under Leave out genres)',
+						options: genreOptions,
+						taken: genres,
+						onPick: (value) => set({ excludedGenres: [...genres, value] }),
+					}}
 				/>
 			</NewCard.Row>
 
@@ -223,6 +232,12 @@ export default function DiscoverRulesPreference() {
 						options={genreOptions}
 						onChange={(excludedGenres) => set({ excludedGenres })}
 						typedHint="Leave out"
+						elsewhere={{
+							heading: 'Tags (left out under Leave out tags)',
+							options: tagOptions,
+							taken: tags,
+							onPick: (value) => set({ excludedTags: [...tags, value] }),
+						}}
 					/>
 					{suggested.length > 0 && (
 						<div className="gap-1.5 flex flex-wrap items-center">
@@ -337,9 +352,29 @@ type ChipsProps = {
 	onChange: (values: string[]) => void
 	/** Offer what was typed when no option has it, with this text before it */
 	typedHint?: string
+	/** What to say when there is nothing left to add and nothing typed */
+	emptyText?: string
+	/**
+	 * Matches from the other list (e.g. genres while searching tags), so a value looked for in
+	 * the wrong place is still found; picking one adds it there
+	 */
+	elsewhere?: {
+		heading: string
+		options: Option[]
+		taken: string[]
+		onPick: (value: string) => void
+	}
 }
 
-function RuleChips({ label, values, options, onChange, typedHint }: ChipsProps) {
+function RuleChips({
+	label,
+	values,
+	options,
+	onChange,
+	typedHint,
+	emptyText,
+	elsewhere,
+}: ChipsProps) {
 	const [open, setOpen] = useState(false)
 	const [search, setSearch] = useState('')
 	const labelOf = (value: string) => options.find((o) => o.value === value)?.label ?? value
@@ -350,6 +385,15 @@ function RuleChips({ label, values, options, onChange, typedHint }: ChipsProps) 
 		.filter((o) => !chosen.has(o.value.toLowerCase()) && o.label.toLowerCase().includes(term))
 		.sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
 		.slice(0, 60)
+	const takenElsewhere = new Set(elsewhere?.taken.map((value) => value.toLowerCase()))
+	const shownElsewhere = term
+		? (elsewhere?.options ?? [])
+				.filter(
+					(o) => !takenElsewhere.has(o.value.toLowerCase()) && o.label.toLowerCase().includes(term),
+				)
+				.sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+				.slice(0, 8)
+		: []
 	const typed = search.trim()
 	const canUseTyped =
 		!!typedHint &&
@@ -423,8 +467,33 @@ function RuleChips({ label, values, options, onChange, typedHint }: ChipsProps) 
 									{typedHint} “{typed}”
 								</Command.Item>
 							)}
-							{!shown.length && !canUseTyped && (
-								<p className="py-6 text-sm text-center text-muted-foreground">Nothing to add</p>
+							{elsewhere && shownElsewhere.length > 0 && (
+								<Command.Group heading={elsewhere.heading}>
+									{shownElsewhere.map((option) => (
+										<Command.Item
+											key={`elsewhere:${option.value}`}
+											value={`elsewhere:${option.value}`}
+											onSelect={() => {
+												elsewhere.onPick(option.value)
+												setSearch('')
+												setOpen(false)
+											}}
+											className="gap-2"
+										>
+											<span className="flex-1 truncate">{option.label}</span>
+											{option.count != null && (
+												<span className="text-xs text-muted-foreground tabular-nums">
+													{option.count}
+												</span>
+											)}
+										</Command.Item>
+									))}
+								</Command.Group>
+							)}
+							{!shown.length && !canUseTyped && !shownElsewhere.length && (
+								<p className="px-4 py-6 text-sm text-center text-muted-foreground">
+									{(!term && emptyText) || 'Nothing to add'}
+								</p>
 							)}
 						</Command.List>
 					</Command>

@@ -35,6 +35,8 @@ function setup() {
 					{ value: 'Level: High School', count: 127 },
 					{ value: 'Reference: Dictionaries', count: 12 },
 					{ value: 'Fantasy', count: 876 },
+					{ value: 'Manga & Comics', count: 154 },
+					{ value: 'Light Novels', count: 76 },
 				],
 			}
 		if (query.includes('query DiscoverPoolSize')) {
@@ -101,5 +103,23 @@ describe('DiscoverRulesPreference', () => {
 		await user.type(screen.getByPlaceholderText('Search genres…'), 'Form: *')
 		await user.click(screen.getByRole('option', { name: 'Leave out “Form: *”' }))
 		expect(screen.getByRole('button', { name: 'Remove Form: *' })).toBeInTheDocument()
+	})
+
+	it('finds genres such as manga from the tag search, and says why the tags are empty', async () => {
+		const user = userEvent.setup()
+		const { Wrapper } = setup()
+		render(<DiscoverRulesPreference />, { wrapper: Wrapper })
+		await screen.findByText('8,000 books can be picked')
+		await user.click(screen.getByRole('button', { name: 'Add a tag' }))
+		// the only tag is already left out
+		expect(await screen.findByText(/No other tags yet/)).toBeInTheDocument()
+		await user.type(screen.getByPlaceholderText('Search tags…'), 'manga')
+		await user.click(await screen.findByRole('option', { name: /Manga & Comics/ }))
+		// added as a genre rule, not a tag
+		expect(screen.getByRole('button', { name: 'Remove Manga & Comics' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Remove manga' })).not.toBeInTheDocument()
+		// the common rules offer light novels in one click
+		await user.click(screen.getByRole('button', { name: /Light Novels/ }))
+		expect(screen.getByRole('button', { name: 'Remove Light Novels' })).toBeInTheDocument()
 	})
 })
