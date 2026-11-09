@@ -303,14 +303,7 @@ pub async fn dispatch_job(
 			run_job(&job_ctx, &mut PlaceholderGenerationJob { config }).await
 		},
 		StumpJob::MetadataFetch { params } => {
-			run_job(
-				&job_ctx,
-				&mut MetadataFetchJob {
-					params,
-					provider_cache: None,
-				},
-			)
-			.await
+			run_job(&job_ctx, &mut MetadataFetchJob::new(params)).await
 		},
 		StumpJob::AnalyzeMedia { config } => {
 			run_job(&job_ctx, &mut AnalyzeMediaJob { config }).await

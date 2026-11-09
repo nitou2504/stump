@@ -1,11 +1,14 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{
+	atomic::{AtomicBool, Ordering},
+	Arc,
+};
 
 use async_graphql::SimpleObject;
 use metadata_integrations::{MatchCandidate, SearchQuery};
 use models::{
 	entity::{media, metadata_fetch_record, metadata_provider_config, series},
-	shared::enums::{LibraryType, MetadataFetchStatus},
+	shared::enums::{LibraryType, MetadataFetchStatus, MetadataProvider},
 };
 use sea_orm::QuerySelect;
 use sea_orm::{prelude::*, sea_query::OnConflict, Set};
@@ -126,6 +129,9 @@ impl JobOutputExt for MetadataFetchJobOutput {
 pub struct MetadataFetchJob {
 	pub params: MetadataFetchJobParams,
 	pub provider_cache: Option<Arc<ProviderClientCache>>,
+	/// Whether the job already logged that a provider's background work is paused, so it
+	/// says so once rather than once a book
+	pause_logged: Arc<AtomicBool>,
 }
 
 // Note: We won't persist the provider cache
@@ -144,10 +150,7 @@ impl<'de> Deserialize<'de> for MetadataFetchJob {
 		D: serde::Deserializer<'de>,
 	{
 		let params = MetadataFetchJobParams::deserialize(deserializer)?;
-		Ok(Self {
-			params,
-			provider_cache: None,
-		})
+		Ok(Self::new(params))
 	}
 }
 
@@ -156,7 +159,23 @@ impl MetadataFetchJob {
 		Self {
 			params,
 			provider_cache: None,
+			pause_logged: Arc::new(AtomicBool::new(false)),
 		}
+	}
+
+	/// The job's one log that a provider's background work is paused (Hardcover's daily
+	/// budget is used up, or it refused a request): `None` once it was logged
+	fn pause_log(&self, provider: &MetadataProvider) -> Option<JobExecuteLog> {
+		if self.pause_logged.swap(true, Ordering::Relaxed) {
+			return None;
+		}
+		tracing::warn!(
+			?provider,
+			"Background metadata fetches are paused for today: the rest are marked rate-limited for the scheduled retry"
+		);
+		Some(JobExecuteLog::warn(&format!(
+			"{provider:?} background fetches are paused for today (daily budget used up or a refusal): the books and series left are marked rate-limited and the scheduled retry asks again tomorrow"
+		)))
 	}
 
 	async fn get_or_init_cache(
@@ -440,6 +459,12 @@ impl JobLifecycle for MetadataFetchJob {
 				let mut raw_hits: i32 = 0;
 
 				for config in &provider_configs {
+					// not asked: the book or series waits for the scheduled retry
+					if background_paused(&config.provider_type) {
+						was_rate_limited = true;
+						logs.extend(self.pause_log(&config.provider_type));
+						continue;
+					}
 					match provider_cache.get_or_create(config).await {
 						Ok(provider) => {
 							let query = SearchQuery {
@@ -455,14 +480,21 @@ impl JobLifecycle for MetadataFetchJob {
 								},
 								Err(e) if e.is_rate_limited() => {
 									was_rate_limited = true;
-									logs.push(JobExecuteLog::error(format!(
-										"Rate limited by provider {:?} for series metadata",
-										config.provider_type
-									)));
-									tracing::warn!(
-										provider = ?config.provider_type,
-										"Rate limited after retries for series metadata"
-									);
+									if background_paused(&config.provider_type) {
+										// this request used up the day's budget or was refused
+										logs.extend(
+											self.pause_log(&config.provider_type),
+										);
+									} else {
+										logs.push(JobExecuteLog::error(format!(
+											"Rate limited by provider {:?} for series metadata",
+											config.provider_type
+										)));
+										tracing::warn!(
+											provider = ?config.provider_type,
+											"Rate limited after retries for series metadata"
+										);
+									}
 								},
 								Err(e) => {
 									logs.push(JobExecuteLog::error(format!(
@@ -619,6 +651,12 @@ impl JobLifecycle for MetadataFetchJob {
 				let mut raw_hits: i32 = 0;
 
 				for config in &provider_configs {
+					// not asked: the book or series waits for the scheduled retry
+					if background_paused(&config.provider_type) {
+						was_rate_limited = true;
+						logs.extend(self.pause_log(&config.provider_type));
+						continue;
+					}
 					match provider_cache.get_or_create(config).await {
 						Ok(provider) => {
 							let query = SearchQuery {
@@ -634,14 +672,21 @@ impl JobLifecycle for MetadataFetchJob {
 								},
 								Err(e) if e.is_rate_limited() => {
 									was_rate_limited = true;
-									logs.push(JobExecuteLog::error(format!(
-										"Rate limited by provider {:?} for media metadata",
-										config.provider_type
-									)));
-									tracing::warn!(
-										provider = ?config.provider_type,
-										"Rate limited after retries for media metadata"
-									);
+									if background_paused(&config.provider_type) {
+										// this request used up the day's budget or was refused
+										logs.extend(
+											self.pause_log(&config.provider_type),
+										);
+									} else {
+										logs.push(JobExecuteLog::error(format!(
+											"Rate limited by provider {:?} for media metadata",
+											config.provider_type
+										)));
+										tracing::warn!(
+											provider = ?config.provider_type,
+											"Rate limited after retries for media metadata"
+										);
+									}
 								},
 								Err(e) => {
 									tracing::error!(
@@ -744,6 +789,28 @@ impl JobLifecycle for MetadataFetchJob {
 			subtasks: vec![],
 		})
 	}
+
+	async fn finalize(
+		&self,
+		_ctx: &JobContext,
+		output: &Self::Output,
+	) -> Result<(), JobError> {
+		if output.rate_limited > 0 {
+			tracing::info!(
+				rate_limited = output.rate_limited,
+				total = output.total_processed,
+				"Metadata fetch done: the rate-limited ones wait for the scheduled retry"
+			);
+		}
+		Ok(())
+	}
+}
+
+/// Whether a provider's background work is paused for now: Hardcover's daily budget for
+/// background work is used up, or it refused a request today. The job doesn't ask it then
+fn background_paused(provider: &MetadataProvider) -> bool {
+	matches!(provider, MetadataProvider::Hardcover)
+		&& metadata_integrations::hardcover_background_paused()
 }
 
 /// Whether a provider already answered for this series or book: a fetch record with any
@@ -777,6 +844,25 @@ async fn resolve_library_type(
 mod tests {
 	use super::*;
 	use ::tests::fake_data;
+
+	/// A paused provider is logged once a job, not once a book
+	#[test]
+	fn a_paused_provider_is_logged_once_a_job() {
+		let job = MetadataFetchJob::new(MetadataFetchJobParams::media(vec![]));
+		let first = job.pause_log(&MetadataProvider::Hardcover);
+		assert!(matches!(
+			first.map(|log| log.level),
+			Some(models::shared::enums::LogLevel::Warn)
+		));
+		assert!(job.pause_log(&MetadataProvider::Hardcover).is_none());
+		assert!(job
+			.clone()
+			.pause_log(&MetadataProvider::Hardcover)
+			.is_none());
+
+		let next_job = MetadataFetchJob::new(MetadataFetchJobParams::media(vec![]));
+		assert!(next_job.pause_log(&MetadataProvider::Hardcover).is_some());
+	}
 
 	/// Background fetches skip what a provider already answered, and retry only what was
 	/// rate-limited
