@@ -6,6 +6,7 @@ import { SceneContainer } from '@/components/container'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import DebugSettings from './DebugSettings'
+import DiscoverRulesPreference from './DiscoverRulesPreference'
 import EnableAlphabetFiltering from './EnableAlphabetFiltering'
 import EnableFancyAnimations from './EnableFancyAnimations'
 import EnableJobOverlayToggle from './EnableJobOverlayToggle'
@@ -88,6 +89,10 @@ export default function AppearanceSettingsScene() {
 
 				<Suspense>
 					<HomeArrangementPreference />
+				</Suspense>
+
+				<Suspense>
+					<DiscoverRulesPreference />
 				</Suspense>
 
 				<NewCard label={t(getKey('lists.title'))} description={t(getKey('lists.description'))}>

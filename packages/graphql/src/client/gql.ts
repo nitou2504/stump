@@ -237,7 +237,7 @@ type Documents = {
     "\n\tmutation SeriesThumbnailSelectorUpload($id: ID!, $file: Upload!) {\n\t\tuploadSeriesThumbnail(id: $id, file: $file) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": typeof types.SeriesThumbnailSelectorUploadDocument,
     "\n\tsubscription UseCoreEvent {\n\t\treadEvents {\n\t\t\t__typename\n\t\t\t... on CreatedManySeries {\n\t\t\t\tcount\n\t\t\t\tlibraryId\n\t\t\t}\n\t\t\t... on DiscoveredMissingLibrary {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobStarted {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobUpdate {\n\t\t\t\t__typename\n\t\t\t\tid\n\t\t\t\tstatus\n\t\t\t\tmessage\n\t\t\t\tcompletedTasks\n\t\t\t\tremainingTasks\n\t\t\t\tcompletedSubtasks\n\t\t\t\ttotalSubtasks\n\t\t\t\tsubtitle\n\t\t\t}\n\t\t\t... on JobOutput {\n\t\t\t\tid\n\t\t\t\toutput {\n\t\t\t\t\t__typename\n\t\t\t\t\t... on LibraryScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tcreatedSeries\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t\tupdatedSeries\n\t\t\t\t\t}\n\t\t\t\t\t... on SeriesScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UseCoreEventDocument,
     "\n\tmutation UsePreferences($input: UpdateUserPreferencesInput!) {\n\t\tupdateViewerPreferences(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.UsePreferencesDocument,
-    "\n\tquery SurpriseMe($filter: MediaFilterInput!) {\n\t\trandomMedia(filter: $filter, count: 1) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.SurpriseMeDocument,
+    "\n\tquery SurpriseMe {\n\t\trandomMedia(count: 1) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.SurpriseMeDocument,
     "\n\tfragment BookMetadata on Media {\n\t\tmetadata {\n\t\t\tageRating\n\t\t\trating\n\t\t\tcharacters\n\t\t\tcolorists\n\t\t\tcoverArtists\n\t\t\teditors\n\t\t\tgenres\n\t\t\tinkers\n\t\t\tletterers\n\t\t\tlinks\n\t\t\tpencillers\n\t\t\tpublisher\n\t\t\tseries\n\t\t\tteams\n\t\t\twriters\n\t\t\tyear\n\t\t\tmonth\n\t\t\tday\n\t\t\tvolume\n\t\t\tnumber\n\t\t}\n\t}\n": typeof types.BookMetadataFragmentDoc,
     "\n\tquery BooksAlphabet {\n\t\tmediaAlphabet\n\t}\n": typeof types.BooksAlphabetDocument,
     "\n\tquery BooksInSeries(\n\t\t$seriesId: ID!\n\t\t$filter: MediaFilterInput!\n\t\t$orderBy: [MediaOrderBy!]!\n\t\t$pagination: Pagination!\n\t) {\n\t\tseriesById(id: $seriesId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t}\n\t\tmedia(filter: $filter, orderBy: $orderBy, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\ttotalItems\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.BooksInSeriesDocument,
@@ -267,7 +267,7 @@ type Documents = {
     "\n\tquery ContinueReadingMedia($pagination: Pagination!) {\n\t\tkeepReading(pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...ContinueReadingBook\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on CursorPaginationInfo {\n\t\t\t\t\tcurrentCursor\n\t\t\t\t\tnextCursor\n\t\t\t\t\tlimit\n\t\t\t\t}\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.ContinueReadingMediaDocument,
     "\n\tfragment DiscoverBook on Media {\n\t\tid\n\t\tresolvedName\n\t\ttags {\n\t\t\tname\n\t\t}\n\t\tmetadata {\n\t\t\twriters\n\t\t\trating\n\t\t}\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DiscoverBookFragmentDoc,
     "\n\tmutation DiscoverBooksVeto($id: ID!, $tags: [String!]!) {\n\t\tsetMediaTags(id: $id, tags: $tags) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.DiscoverBooksVetoDocument,
-    "\n\tquery DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {\n\t\trandomMedia(filter: $filter, count: $count, seed: $seed) {\n\t\t\tid\n\t\t\t...DiscoverBook\n\t\t}\n\t}\n": typeof types.DiscoverBooksDocument,
+    "\n\tquery DiscoverBooks($count: Int!, $seed: String) {\n\t\trandomMedia(count: $count, seed: $seed) {\n\t\t\tid\n\t\t\t...DiscoverBook\n\t\t}\n\t}\n": typeof types.DiscoverBooksDocument,
     "\n\tquery HomeSceneQuery {\n\t\tnumberOfLibraries\n\t}\n": typeof types.HomeSceneQueryDocument,
     "\n\tfragment OnDeckBook on Media {\n\t\tid\n\t\tmetadata {\n\t\t\tnumber\n\t\t}\n\t\tresolvedName\n\t\tseriesPosition\n\t\tseries {\n\t\t\tmediaCount\n\t\t\tmetadata {\n\t\t\t\ttotalIssues\n\t\t\t}\n\t\t}\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": typeof types.OnDeckBookFragmentDoc,
     "\n\tquery OnDeckBooksWeb($pagination: Pagination!) {\n\t\tonDeck(pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...OnDeckBook\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.OnDeckBooksWebDocument,
@@ -329,6 +329,10 @@ type Documents = {
     "\n\tmutation UploadUserAvatar($file: Upload!) {\n\t\tuploadUserAvatar(upload: $file) {\n\t\t\tid\n\t\t\tavatar {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UploadUserAvatarDocument,
     "\n\tmutation DeleteUserAvatar {\n\t\tdeleteUserAvatar {\n\t\t\tid\n\t\t\tavatar {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DeleteUserAvatarDocument,
     "\n\tmutation UpdateUserProfileForm($input: UpdateUserInput!) {\n\t\tupdateViewer(input: $input) {\n\t\t\tid\n\t\t\tusername\n\t\t}\n\t}\n": typeof types.UpdateUserProfileFormDocument,
+    "\n\tquery DiscoverRulesPreference {\n\t\tmyDiscoverRules {\n\t\t\tunreadOnly\n\t\t\texcludedTags\n\t\t\texcludedGenres\n\t\t\texcludedLibraryIds\n\t\t\tminRating\n\t\t}\n\t}\n": typeof types.DiscoverRulesPreferenceDocument,
+    "\n\tquery DiscoverRulesOptions($field: MetadataFacetField!) {\n\t\ttags {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t}\n\t\t}\n\t\tmetadataValueCounts(field: $field) {\n\t\t\tvalue\n\t\t\tcount\n\t\t}\n\t}\n": typeof types.DiscoverRulesOptionsDocument,
+    "\n\tquery DiscoverPoolSize($rules: DiscoverRulesInput) {\n\t\tdiscoverPoolSize(rules: $rules)\n\t}\n": typeof types.DiscoverPoolSizeDocument,
+    "\n\tmutation UpdateDiscoverRules($input: DiscoverRulesInput!) {\n\t\tupdateMyDiscoverRules(input: $input) {\n\t\t\tunreadOnly\n\t\t\texcludedTags\n\t\t\texcludedGenres\n\t\t\texcludedLibraryIds\n\t\t\tminRating\n\t\t}\n\t}\n": typeof types.UpdateDiscoverRulesDocument,
     "\n\tquery NavigationArrangement {\n\t\tme {\n\t\t\tpreferences {\n\t\t\t\tnavigationArrangement {\n\t\t\t\t\tlocked\n\t\t\t\t\tsections {\n\t\t\t\t\t\t__typename\n\t\t\t\t\t\tconfig {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on SystemArrangementConfig {\n\t\t\t\t\t\t\t\tvariant\n\t\t\t\t\t\t\t\tlinks\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvisible\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.NavigationArrangementDocument,
     "\n\tmutation NavigationArrangementUpdate($input: NavigationArrangementInput!) {\n\t\tupdateNavigationArrangement(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.NavigationArrangementUpdateDocument,
     "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.NavigationArrangementUpdateLockStatusDocument,
@@ -646,7 +650,7 @@ const documents: Documents = {
     "\n\tmutation SeriesThumbnailSelectorUpload($id: ID!, $file: Upload!) {\n\t\tuploadSeriesThumbnail(id: $id, file: $file) {\n\t\t\tid\n\t\t\tthumbnail {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": types.SeriesThumbnailSelectorUploadDocument,
     "\n\tsubscription UseCoreEvent {\n\t\treadEvents {\n\t\t\t__typename\n\t\t\t... on CreatedManySeries {\n\t\t\t\tcount\n\t\t\t\tlibraryId\n\t\t\t}\n\t\t\t... on DiscoveredMissingLibrary {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobStarted {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobUpdate {\n\t\t\t\t__typename\n\t\t\t\tid\n\t\t\t\tstatus\n\t\t\t\tmessage\n\t\t\t\tcompletedTasks\n\t\t\t\tremainingTasks\n\t\t\t\tcompletedSubtasks\n\t\t\t\ttotalSubtasks\n\t\t\t\tsubtitle\n\t\t\t}\n\t\t\t... on JobOutput {\n\t\t\t\tid\n\t\t\t\toutput {\n\t\t\t\t\t__typename\n\t\t\t\t\t... on LibraryScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tcreatedSeries\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t\tupdatedSeries\n\t\t\t\t\t}\n\t\t\t\t\t... on SeriesScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.UseCoreEventDocument,
     "\n\tmutation UsePreferences($input: UpdateUserPreferencesInput!) {\n\t\tupdateViewerPreferences(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.UsePreferencesDocument,
-    "\n\tquery SurpriseMe($filter: MediaFilterInput!) {\n\t\trandomMedia(filter: $filter, count: 1) {\n\t\t\tid\n\t\t}\n\t}\n": types.SurpriseMeDocument,
+    "\n\tquery SurpriseMe {\n\t\trandomMedia(count: 1) {\n\t\t\tid\n\t\t}\n\t}\n": types.SurpriseMeDocument,
     "\n\tfragment BookMetadata on Media {\n\t\tmetadata {\n\t\t\tageRating\n\t\t\trating\n\t\t\tcharacters\n\t\t\tcolorists\n\t\t\tcoverArtists\n\t\t\teditors\n\t\t\tgenres\n\t\t\tinkers\n\t\t\tletterers\n\t\t\tlinks\n\t\t\tpencillers\n\t\t\tpublisher\n\t\t\tseries\n\t\t\tteams\n\t\t\twriters\n\t\t\tyear\n\t\t\tmonth\n\t\t\tday\n\t\t\tvolume\n\t\t\tnumber\n\t\t}\n\t}\n": types.BookMetadataFragmentDoc,
     "\n\tquery BooksAlphabet {\n\t\tmediaAlphabet\n\t}\n": types.BooksAlphabetDocument,
     "\n\tquery BooksInSeries(\n\t\t$seriesId: ID!\n\t\t$filter: MediaFilterInput!\n\t\t$orderBy: [MediaOrderBy!]!\n\t\t$pagination: Pagination!\n\t) {\n\t\tseriesById(id: $seriesId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t}\n\t\tmedia(filter: $filter, orderBy: $orderBy, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\ttotalItems\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.BooksInSeriesDocument,
@@ -676,7 +680,7 @@ const documents: Documents = {
     "\n\tquery ContinueReadingMedia($pagination: Pagination!) {\n\t\tkeepReading(pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...ContinueReadingBook\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on CursorPaginationInfo {\n\t\t\t\t\tcurrentCursor\n\t\t\t\t\tnextCursor\n\t\t\t\t\tlimit\n\t\t\t\t}\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.ContinueReadingMediaDocument,
     "\n\tfragment DiscoverBook on Media {\n\t\tid\n\t\tresolvedName\n\t\ttags {\n\t\t\tname\n\t\t}\n\t\tmetadata {\n\t\t\twriters\n\t\t\trating\n\t\t}\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": types.DiscoverBookFragmentDoc,
     "\n\tmutation DiscoverBooksVeto($id: ID!, $tags: [String!]!) {\n\t\tsetMediaTags(id: $id, tags: $tags) {\n\t\t\tid\n\t\t}\n\t}\n": types.DiscoverBooksVetoDocument,
-    "\n\tquery DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {\n\t\trandomMedia(filter: $filter, count: $count, seed: $seed) {\n\t\t\tid\n\t\t\t...DiscoverBook\n\t\t}\n\t}\n": types.DiscoverBooksDocument,
+    "\n\tquery DiscoverBooks($count: Int!, $seed: String) {\n\t\trandomMedia(count: $count, seed: $seed) {\n\t\t\tid\n\t\t\t...DiscoverBook\n\t\t}\n\t}\n": types.DiscoverBooksDocument,
     "\n\tquery HomeSceneQuery {\n\t\tnumberOfLibraries\n\t}\n": types.HomeSceneQueryDocument,
     "\n\tfragment OnDeckBook on Media {\n\t\tid\n\t\tmetadata {\n\t\t\tnumber\n\t\t}\n\t\tresolvedName\n\t\tseriesPosition\n\t\tseries {\n\t\t\tmediaCount\n\t\t\tmetadata {\n\t\t\t\ttotalIssues\n\t\t\t}\n\t\t}\n\t\tthumbnail {\n\t\t\turl\n\t\t\tmetadata {\n\t\t\t\taverageColor\n\t\t\t\tcolors {\n\t\t\t\t\tcolor\n\t\t\t\t\tpercentage\n\t\t\t\t}\n\t\t\t\tthumbhash\n\t\t\t}\n\t\t}\n\t}\n": types.OnDeckBookFragmentDoc,
     "\n\tquery OnDeckBooksWeb($pagination: Pagination!) {\n\t\tonDeck(pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...OnDeckBook\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.OnDeckBooksWebDocument,
@@ -738,6 +742,10 @@ const documents: Documents = {
     "\n\tmutation UploadUserAvatar($file: Upload!) {\n\t\tuploadUserAvatar(upload: $file) {\n\t\t\tid\n\t\t\tavatar {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": types.UploadUserAvatarDocument,
     "\n\tmutation DeleteUserAvatar {\n\t\tdeleteUserAvatar {\n\t\t\tid\n\t\t\tavatar {\n\t\t\t\turl\n\t\t\t}\n\t\t}\n\t}\n": types.DeleteUserAvatarDocument,
     "\n\tmutation UpdateUserProfileForm($input: UpdateUserInput!) {\n\t\tupdateViewer(input: $input) {\n\t\t\tid\n\t\t\tusername\n\t\t}\n\t}\n": types.UpdateUserProfileFormDocument,
+    "\n\tquery DiscoverRulesPreference {\n\t\tmyDiscoverRules {\n\t\t\tunreadOnly\n\t\t\texcludedTags\n\t\t\texcludedGenres\n\t\t\texcludedLibraryIds\n\t\t\tminRating\n\t\t}\n\t}\n": types.DiscoverRulesPreferenceDocument,
+    "\n\tquery DiscoverRulesOptions($field: MetadataFacetField!) {\n\t\ttags {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t}\n\t\t}\n\t\tmetadataValueCounts(field: $field) {\n\t\t\tvalue\n\t\t\tcount\n\t\t}\n\t}\n": types.DiscoverRulesOptionsDocument,
+    "\n\tquery DiscoverPoolSize($rules: DiscoverRulesInput) {\n\t\tdiscoverPoolSize(rules: $rules)\n\t}\n": types.DiscoverPoolSizeDocument,
+    "\n\tmutation UpdateDiscoverRules($input: DiscoverRulesInput!) {\n\t\tupdateMyDiscoverRules(input: $input) {\n\t\t\tunreadOnly\n\t\t\texcludedTags\n\t\t\texcludedGenres\n\t\t\texcludedLibraryIds\n\t\t\tminRating\n\t\t}\n\t}\n": types.UpdateDiscoverRulesDocument,
     "\n\tquery NavigationArrangement {\n\t\tme {\n\t\t\tpreferences {\n\t\t\t\tnavigationArrangement {\n\t\t\t\t\tlocked\n\t\t\t\t\tsections {\n\t\t\t\t\t\t__typename\n\t\t\t\t\t\tconfig {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on SystemArrangementConfig {\n\t\t\t\t\t\t\t\tvariant\n\t\t\t\t\t\t\t\tlinks\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvisible\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.NavigationArrangementDocument,
     "\n\tmutation NavigationArrangementUpdate($input: NavigationArrangementInput!) {\n\t\tupdateNavigationArrangement(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.NavigationArrangementUpdateDocument,
     "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.NavigationArrangementUpdateLockStatusDocument,
@@ -1724,7 +1732,7 @@ export function graphql(source: "\n\tmutation UsePreferences($input: UpdateUserP
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n\tquery SurpriseMe($filter: MediaFilterInput!) {\n\t\trandomMedia(filter: $filter, count: 1) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').SurpriseMeDocument;
+export function graphql(source: "\n\tquery SurpriseMe {\n\t\trandomMedia(count: 1) {\n\t\t\tid\n\t\t}\n\t}\n"): typeof import('./graphql').SurpriseMeDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -1844,7 +1852,7 @@ export function graphql(source: "\n\tmutation DiscoverBooksVeto($id: ID!, $tags:
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n\tquery DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {\n\t\trandomMedia(filter: $filter, count: $count, seed: $seed) {\n\t\t\tid\n\t\t\t...DiscoverBook\n\t\t}\n\t}\n"): typeof import('./graphql').DiscoverBooksDocument;
+export function graphql(source: "\n\tquery DiscoverBooks($count: Int!, $seed: String) {\n\t\trandomMedia(count: $count, seed: $seed) {\n\t\t\tid\n\t\t\t...DiscoverBook\n\t\t}\n\t}\n"): typeof import('./graphql').DiscoverBooksDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -2089,6 +2097,22 @@ export function graphql(source: "\n\tmutation DeleteUserAvatar {\n\t\tdeleteUser
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tmutation UpdateUserProfileForm($input: UpdateUserInput!) {\n\t\tupdateViewer(input: $input) {\n\t\t\tid\n\t\t\tusername\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateUserProfileFormDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery DiscoverRulesPreference {\n\t\tmyDiscoverRules {\n\t\t\tunreadOnly\n\t\t\texcludedTags\n\t\t\texcludedGenres\n\t\t\texcludedLibraryIds\n\t\t\tminRating\n\t\t}\n\t}\n"): typeof import('./graphql').DiscoverRulesPreferenceDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery DiscoverRulesOptions($field: MetadataFacetField!) {\n\t\ttags {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t\tlibraries(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tname\n\t\t\t\temoji\n\t\t\t}\n\t\t}\n\t\tmetadataValueCounts(field: $field) {\n\t\t\tvalue\n\t\t\tcount\n\t\t}\n\t}\n"): typeof import('./graphql').DiscoverRulesOptionsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery DiscoverPoolSize($rules: DiscoverRulesInput) {\n\t\tdiscoverPoolSize(rules: $rules)\n\t}\n"): typeof import('./graphql').DiscoverPoolSizeDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation UpdateDiscoverRules($input: DiscoverRulesInput!) {\n\t\tupdateMyDiscoverRules(input: $input) {\n\t\t\tunreadOnly\n\t\t\texcludedTags\n\t\t\texcludedGenres\n\t\t\texcludedLibraryIds\n\t\t\tminRating\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateDiscoverRulesDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

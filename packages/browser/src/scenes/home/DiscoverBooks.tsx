@@ -19,7 +19,7 @@ import { ThumbnailImage } from '@/components/thumbnail/ThumbnailImage'
 import { ThumbnailPlaceholderData } from '@/components/thumbnail/ThumbnailPlaceholder'
 import { Link, useAppContext } from '@/context'
 import { usePreferences } from '@/hooks/usePreferences'
-import { UNREAD_FILTER, useSurpriseMe } from '@/hooks/useSurpriseMe'
+import { useSurpriseMe } from '@/hooks/useSurpriseMe'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -64,8 +64,8 @@ const vetoMutation = graphql(`
 export const NO_PICKS_TAG = 'No picks'
 
 const query = graphql(`
-	query DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {
-		randomMedia(filter: $filter, count: $count, seed: $seed) {
+	query DiscoverBooks($count: Int!, $seed: String) {
+		randomMedia(count: $count, seed: $seed) {
 			id
 			...DiscoverBook
 		}
@@ -104,7 +104,8 @@ function writeShuffle(week: string, count: number) {
 
 const seedFor = (week: string, shuffle: number) => (shuffle ? `${week}#${shuffle}` : week)
 const queryKey = (sdk: Api, seed: string) => sdk.cacheKey('randomMedia', [seed])
-const variables = (seed: string) => ({ filter: UNREAD_FILTER, count: PICKS, seed })
+// what can be picked follows the user's rules (Settings → Preferences → Picks of the week)
+const variables = (seed: string) => ({ count: PICKS, seed })
 
 /** Plain version for callers outside React (the sidebar loads it on demand) */
 export const prefetchDiscoverBooks = (client: QueryClient, sdk: Api) => {

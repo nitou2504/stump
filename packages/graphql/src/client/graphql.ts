@@ -826,6 +826,47 @@ export type DiscoverBooksInput = {
   name?: InputMaybe<Scalars['String']['input']>;
 };
 
+/** What the home's "Picks of the week" and "Surprise me" may pick, per user */
+export type DiscoverRules = {
+  __typename?: 'DiscoverRules';
+  /**
+   * Books with any of these genres are left out: a whole genre (`Level: High School`),
+   * or a family ending in `*` (`Reference: *`)
+   */
+  excludedGenres: Array<Scalars['String']['output']>;
+  /** Books in these libraries are left out */
+  excludedLibraryIds: Array<Scalars['String']['output']>;
+  /**
+   * Books tagged with any of these (or in a series or library tagged so) are left out,
+   * ignoring case
+   */
+  excludedTags: Array<Scalars['String']['output']>;
+  /** Books rated below this (0-5) are left out; books without a rating stay */
+  minRating?: Maybe<Scalars['Float']['output']>;
+  /** Only books the user hasn't started */
+  unreadOnly: Scalars['Boolean']['output'];
+};
+
+/** What the home's "Picks of the week" and "Surprise me" may pick, per user */
+export type DiscoverRulesInput = {
+  /**
+   * Books with any of these genres are left out: a whole genre (`Level: High School`),
+   * or a family ending in `*` (`Reference: *`)
+   */
+  excludedGenres?: Array<Scalars['String']['input']>;
+  /** Books in these libraries are left out */
+  excludedLibraryIds?: Array<Scalars['String']['input']>;
+  /**
+   * Books tagged with any of these (or in a series or library tagged so) are left out,
+   * ignoring case
+   */
+  excludedTags?: Array<Scalars['String']['input']>;
+  /** Books rated below this (0-5) are left out; books without a rating stay */
+  minRating?: InputMaybe<Scalars['Float']['input']>;
+  /** Only books the user hasn't started */
+  unreadOnly?: Scalars['Boolean']['input'];
+};
+
 export type DiscoveredMissingLibrary = {
   __typename?: 'DiscoveredMissingLibrary';
   id: Scalars['String']['output'];
@@ -3302,6 +3343,11 @@ export type Mutation = {
   updateMetadataFetchSettings: MetadataFetchSettings;
   updateMetadataProvider: MetadataProviderConfigModel;
   /**
+   * Saves the signed-in user's rules for the home's picks and Surprise me (cleaned:
+   * trimmed lists without repeats, a rating within 0-5), returning them as saved
+   */
+  updateMyDiscoverRules: DiscoverRules;
+  /**
    * Saves the signed-in user's reading settings (a JSON object as text, at most 1 MB),
    * replacing what was saved before
    */
@@ -4174,6 +4220,11 @@ export type MutationUpdateMetadataProviderArgs = {
 };
 
 
+export type MutationUpdateMyDiscoverRulesArgs = {
+  input: DiscoverRulesInput;
+};
+
+
 export type MutationUpdateMyReaderSettingsArgs = {
   settings: Scalars['String']['input'];
 };
@@ -4932,6 +4983,11 @@ export type Query = {
    * last automatic purge
    */
   deletedBooksSettings: DeletedBooksSettings;
+  /**
+   * How many books the picks can come from under `rules` (the saved rules if omitted),
+   * e.g. to preview a change before saving it
+   */
+  discoverPoolSize: Scalars['Int']['output'];
   duplicateMedia: Array<Media>;
   emailDeviceById?: Maybe<RegisteredEmailDevice>;
   emailDevices: Array<RegisteredEmailDevice>;
@@ -5040,6 +5096,11 @@ export type Query = {
   /** Get all pending invitations for the current user */
   myBookClubInvitations: Array<BookClubInvitation>;
   /**
+   * The signed-in user's rules for the home's picks and Surprise me (the defaults until
+   * saved)
+   */
+  myDiscoverRules: DiscoverRules;
+  /**
    * The signed-in user's reading settings as the web reader saved them (a JSON text), or
    * null before the first save
    */
@@ -5069,8 +5130,8 @@ export type Query = {
    * A few books picked at random among those `filter` matches (e.g. the unread ones).
    * The same `seed` gives the same books for the same user (the home's "Picks of the
    * week" seeds with the week); without one, every call picks anew ("Surprise me").
-   * Books tagged `No picks`, or in a series or library tagged so, are never picked
-   * (school books, solutions, dictionaries, game guides...)
+   * Only books the user's picks rules allow (`myDiscoverRules`: unread only, and no
+   * `No picks` tag on the book, its series or library, by default)
    */
   randomMedia: Array<Media>;
   /**
@@ -5221,6 +5282,11 @@ export type QueryBookmarksByMediaIdArgs = {
 
 export type QueryDeletedBooksArgs = {
   libraryId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryDiscoverPoolSizeArgs = {
+  rules?: InputMaybe<DiscoverRulesInput>;
 };
 
 
@@ -8485,9 +8551,7 @@ export type UsePreferencesMutationVariables = Exact<{
 
 export type UsePreferencesMutation = { __typename?: 'Mutation', updateViewerPreferences: { __typename: 'UserPreferences' } };
 
-export type SurpriseMeQueryVariables = Exact<{
-  filter: MediaFilterInput;
-}>;
+export type SurpriseMeQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type SurpriseMeQuery = { __typename?: 'Query', randomMedia: Array<{ __typename?: 'Media', id: string }> };
@@ -8703,7 +8767,6 @@ export type DiscoverBooksVetoMutationVariables = Exact<{
 export type DiscoverBooksVetoMutation = { __typename?: 'Mutation', setMediaTags: { __typename?: 'Media', id: string } };
 
 export type DiscoverBooksQueryVariables = Exact<{
-  filter: MediaFilterInput;
   count: Scalars['Int']['input'];
   seed?: InputMaybe<Scalars['String']['input']>;
 }>;
@@ -9151,6 +9214,32 @@ export type UpdateUserProfileFormMutationVariables = Exact<{
 
 
 export type UpdateUserProfileFormMutation = { __typename?: 'Mutation', updateViewer: { __typename?: 'User', id: string, username: string } };
+
+export type DiscoverRulesPreferenceQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type DiscoverRulesPreferenceQuery = { __typename?: 'Query', myDiscoverRules: { __typename?: 'DiscoverRules', unreadOnly: boolean, excludedTags: Array<string>, excludedGenres: Array<string>, excludedLibraryIds: Array<string>, minRating?: number | null } };
+
+export type DiscoverRulesOptionsQueryVariables = Exact<{
+  field: MetadataFacetField;
+}>;
+
+
+export type DiscoverRulesOptionsQuery = { __typename?: 'Query', tags: Array<{ __typename?: 'Tag', id: number, name: string }>, libraries: { __typename?: 'PaginatedLibraryResponse', nodes: Array<{ __typename?: 'Library', id: string, name: string, emoji?: string | null }> }, metadataValueCounts: Array<{ __typename?: 'MetadataValueCount', value: string, count: number }> };
+
+export type DiscoverPoolSizeQueryVariables = Exact<{
+  rules?: InputMaybe<DiscoverRulesInput>;
+}>;
+
+
+export type DiscoverPoolSizeQuery = { __typename?: 'Query', discoverPoolSize: number };
+
+export type UpdateDiscoverRulesMutationVariables = Exact<{
+  input: DiscoverRulesInput;
+}>;
+
+
+export type UpdateDiscoverRulesMutation = { __typename?: 'Mutation', updateMyDiscoverRules: { __typename?: 'DiscoverRules', unreadOnly: boolean, excludedTags: Array<string>, excludedGenres: Array<string>, excludedLibraryIds: Array<string>, minRating?: number | null } };
 
 export type NavigationArrangementQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -16053,8 +16142,8 @@ export const UsePreferencesDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<UsePreferencesMutation, UsePreferencesMutationVariables>;
 export const SurpriseMeDocument = new TypedDocumentString(`
-    query SurpriseMe($filter: MediaFilterInput!) {
-  randomMedia(filter: $filter, count: 1) {
+    query SurpriseMe {
+  randomMedia(count: 1) {
     id
   }
 }
@@ -16758,8 +16847,8 @@ export const DiscoverBooksVetoDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<DiscoverBooksVetoMutation, DiscoverBooksVetoMutationVariables>;
 export const DiscoverBooksDocument = new TypedDocumentString(`
-    query DiscoverBooks($filter: MediaFilterInput!, $count: Int!, $seed: String) {
-  randomMedia(filter: $filter, count: $count, seed: $seed) {
+    query DiscoverBooks($count: Int!, $seed: String) {
+  randomMedia(count: $count, seed: $seed) {
     id
     ...DiscoverBook
   }
@@ -17875,6 +17964,52 @@ export const UpdateUserProfileFormDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateUserProfileFormMutation, UpdateUserProfileFormMutationVariables>;
+export const DiscoverRulesPreferenceDocument = new TypedDocumentString(`
+    query DiscoverRulesPreference {
+  myDiscoverRules {
+    unreadOnly
+    excludedTags
+    excludedGenres
+    excludedLibraryIds
+    minRating
+  }
+}
+    `) as unknown as TypedDocumentString<DiscoverRulesPreferenceQuery, DiscoverRulesPreferenceQueryVariables>;
+export const DiscoverRulesOptionsDocument = new TypedDocumentString(`
+    query DiscoverRulesOptions($field: MetadataFacetField!) {
+  tags {
+    id
+    name
+  }
+  libraries(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      name
+      emoji
+    }
+  }
+  metadataValueCounts(field: $field) {
+    value
+    count
+  }
+}
+    `) as unknown as TypedDocumentString<DiscoverRulesOptionsQuery, DiscoverRulesOptionsQueryVariables>;
+export const DiscoverPoolSizeDocument = new TypedDocumentString(`
+    query DiscoverPoolSize($rules: DiscoverRulesInput) {
+  discoverPoolSize(rules: $rules)
+}
+    `) as unknown as TypedDocumentString<DiscoverPoolSizeQuery, DiscoverPoolSizeQueryVariables>;
+export const UpdateDiscoverRulesDocument = new TypedDocumentString(`
+    mutation UpdateDiscoverRules($input: DiscoverRulesInput!) {
+  updateMyDiscoverRules(input: $input) {
+    unreadOnly
+    excludedTags
+    excludedGenres
+    excludedLibraryIds
+    minRating
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateDiscoverRulesMutation, UpdateDiscoverRulesMutationVariables>;
 export const NavigationArrangementDocument = new TypedDocumentString(`
     query NavigationArrangement {
   me {

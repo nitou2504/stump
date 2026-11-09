@@ -30,6 +30,8 @@ export const cacheKeys = {
 	getStats: 'getStats',
 	recentlyAddedMedia: 'recentlyAddedMedia',
 	randomMedia: 'randomMedia',
+	discoverRules: 'discoverRules',
+	discoverPoolSize: 'discoverPoolSize',
 	media: 'media',
 	mediaById: 'mediaById',
 	apiKeys: 'apiKeys',

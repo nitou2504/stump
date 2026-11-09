@@ -76,15 +76,11 @@ function setup(canEdit = true) {
 }
 
 describe('DiscoverBooks', () => {
-	it('seeds the picks with the week and asks for unread books', async () => {
+	it('seeds the picks with the week (the server applies the rules)', async () => {
 		const { execute, Wrapper } = setup()
 		render(<DiscoverBooks />, { wrapper: Wrapper })
 		expect(await screen.findByText('Dune')).toBeInTheDocument()
-		expect(execute.mock.calls[0]![1]).toEqual({
-			filter: { readingStatus: { is: 'NOT_STARTED' } },
-			count: 16,
-			seed: isoWeek(),
-		})
+		expect(execute.mock.calls[0]![1]).toEqual({ count: 16, seed: isoWeek() })
 	})
 
 	it('"Not for picks" tags the book No picks, keeping its tags, and drops it', async () => {
