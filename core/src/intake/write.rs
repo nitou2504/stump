@@ -279,6 +279,25 @@ pub(crate) fn remove_matches(body: &mut String, pattern: &str) {
 	}
 }
 
+/// What Stump's EPUB reader takes as a book's description wherever it finds it in the OPF:
+/// elements called `description`, `summary` or `synopsis` (with the `dc:` prefix or without, in
+/// any case), and `meta` elements named so (`name` or `property`, with `calibre:` or without), as
+/// a pair or empty. The empty ones go first: the pattern of a pair, from an empty element, would
+/// run on to the next closing tag and take what is between.
+const DESCRIPTION_ELEMENTS: [&str; 4] = [
+	r"(?i)\s*<(?:dc:)?(?:description|summary|synopsis)\b[^>]*/>",
+	r"(?is)\s*<(?:dc:)?(?:description|summary|synopsis)\b[^>]*>.*?</(?:dc:)?(?:description|summary|synopsis)\s*>",
+	r#"(?i)\s*<meta\b[^>]*\b(?:name|property)\s*=\s*["'](?:calibre:)?(?:description|summary|synopsis)["'][^>]*/>"#,
+	r#"(?is)\s*<meta\b[^>]*\b(?:name|property)\s*=\s*["'](?:calibre:)?(?:description|summary|synopsis)["'][^>]*>.*?</meta\s*>"#,
+];
+
+/// Takes out of `text` every element Stump's reader would read as a description
+pub(crate) fn remove_descriptions(text: &mut String) {
+	for pattern in DESCRIPTION_ELEMENTS {
+		remove_matches(text, pattern);
+	}
+}
+
 /// Edits the OPF text: the reviewed values replace what the file had
 pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	// the XML declaration must say UTF-8, the encoding we write
@@ -294,6 +313,9 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	let mut head = caps[1].to_string();
 	let mut body = caps[2].to_string();
 	let tail = caps[3].to_string();
+	// what is around the metadata block: edited only to take descriptions out of it
+	let mut before = opf[..whole.start()].to_string();
+	let mut after = opf[whole.end()..].to_string();
 	let package = Regex::new(r"<package\b[^>]*>")
 		.expect("valid regex")
 		.find(&opf)
@@ -443,8 +465,11 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	// trusted, the file's own goes whatever it says and there is only the one given
 	let description = meta.description.as_deref().filter(|d| !d.trim().is_empty());
 	if meta.replace_description {
-		remove(&mut body, r"(?s)\s*<dc:description\b[^>]*>.*?</dc:description>");
-		remove(&mut body, r"\s*<dc:description\b[^>]*/>");
+		// every form the reader takes for a description, in the metadata and anywhere else in
+		// the OPF (the reader does not stop at the end of the metadata block)
+		remove_descriptions(&mut body);
+		remove_descriptions(&mut before);
+		remove_descriptions(&mut after);
 		if let Some(description) = description {
 			add.push(format!("<dc:description>{}</dc:description>", esc(description)));
 		}
@@ -478,18 +503,16 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 		add.push(format!("<meta name=\"typicalAgeRange\" content=\"{value}\"/>"));
 	}
 
-	if add.is_empty() && body == caps[2] && head == caps[1] {
+	if add.is_empty()
+		&& body == caps[2]
+		&& head == caps[1]
+		&& before == opf[..whole.start()]
+		&& after == opf[whole.end()..]
+	{
 		return Ok(opf);
 	}
 	let body = format!("{}\n    {}\n  ", body.trim_end(), add.join("\n    "));
-	Ok(format!(
-		"{}{}{}{}{}",
-		&opf[..whole.start()],
-		head,
-		body,
-		tail,
-		&opf[whole.end()..]
-	))
+	Ok(format!("{before}{head}{body}{tail}{after}"))
 }
 
 pub(crate) fn html_unescape(s: &str) -> String {
@@ -550,30 +573,33 @@ pub fn comic_info(meta: &FileMetadata) -> String {
 	x
 }
 
-/// Writes (or replaces) ComicInfo.xml in a CBZ file (in place)
+/// Whether an entry of a comic archive is a `ComicInfo.xml`, in any folder: Stump's readers
+/// take the one they find first or last by its file name alone (`sub/ComicInfo.xml` is one),
+/// so the one written is the only one that may stay
+pub(crate) fn is_comic_info(entry_name: &str) -> bool {
+	entry_name
+		.rsplit(['/', '\\'])
+		.next()
+		.is_some_and(|name| name.eq_ignore_ascii_case("comicinfo.xml"))
+}
+
+/// Writes (or replaces) ComicInfo.xml in a CBZ file (in place). Every other `ComicInfo.xml` the
+/// archive holds, in any folder, is dropped.
 pub fn write_cbz(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 	let info = comic_info(meta);
 	let tmp = temp_path(path);
-	let result = rewrite_zip(
-		path,
-		&tmp,
-		&|name| name.eq_ignore_ascii_case("comicinfo.xml"),
-		&mut |writer| {
-			writer.start_file(
-				"ComicInfo.xml",
-				SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
-			)?;
-			writer.write_all(info.as_bytes())?;
-			Ok(())
-		},
-	)
+	let result = rewrite_zip(path, &tmp, &|name| is_comic_info(name), &mut |writer| {
+		writer.start_file(
+			"ComicInfo.xml",
+			SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+		)?;
+		writer.write_all(info.as_bytes())?;
+		Ok(())
+	})
 	.and_then(|_| {
 		let original = ZipArchive::new(File::open(path)?)?;
-		let original_count = original.len()
-			- original
-				.file_names()
-				.filter(|n| n.eq_ignore_ascii_case("comicinfo.xml"))
-				.count();
+		let original_count =
+			original.len() - original.file_names().filter(|n| is_comic_info(n)).count();
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
 		let text = bounded::read_to_string_capped(
 			check.by_name("ComicInfo.xml")?,
@@ -929,6 +955,213 @@ mod tests {
 		check_xml(&removed).unwrap();
 		assert!(!removed.contains("dc:description"), "{removed}");
 		assert!(!removed.contains("iframe"), "{removed}");
+	}
+
+	/// Every form Stump's EPUB reader takes for a description is taken out when the file's own
+	/// has to go, in the metadata and outside it, and what is between them stays
+	#[test]
+	fn every_form_of_a_description_goes_when_the_files_own_has_to() {
+		let opf = r##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:isbn:1</dc:identifier>
+    <dc:description/>
+    <dc:title>Between</dc:title>
+    <dc:description>EVIL-PAIR</dc:description>
+    <summary>EVIL-SUMMARY</summary>
+    <dc:synopsis>EVIL-SYNOPSIS</dc:synopsis>
+    <Description>EVIL-CAPITAL</Description>
+    <DC:creator>kept</DC:creator>
+    <meta name="description" content="EVIL-META"/>
+    <meta name="calibre:description" content="EVIL-CALIBRE" />
+    <meta property="Description">EVIL-PROPERTY</meta>
+    <dc:creator>Eco, Umberto</dc:creator>
+  </metadata>
+  <meta name="description" content="EVIL-OUTSIDE"/>
+</package>"##;
+		let replaced = edit_opf(
+			opf,
+			&FileMetadata {
+				description: Some("Plain.".into()),
+				replace_description: true,
+				..Default::default()
+			},
+		)
+		.unwrap();
+		check_xml(&replaced).unwrap();
+		assert!(!replaced.contains("EVIL"), "{replaced}");
+		assert_eq!(
+			replaced.matches("<dc:description>").count(),
+			1,
+			"{replaced}"
+		);
+		assert!(replaced.contains("<dc:description>Plain.</dc:description>"));
+		// what was between an empty element and a pair is not taken with them
+		assert!(
+			replaced.contains("<dc:title>Between</dc:title>"),
+			"{replaced}"
+		);
+		assert!(
+			replaced.contains("<dc:creator>Eco, Umberto</dc:creator>"),
+			"{replaced}"
+		);
+		assert!(
+			replaced.contains("<DC:creator>kept</DC:creator>"),
+			"{replaced}"
+		);
+
+		// a book of somebody who is trusted keeps what it has
+		let kept = edit_opf(
+			opf,
+			&FileMetadata {
+				description: Some("Plain.".into()),
+				..Default::default()
+			},
+		)
+		.unwrap();
+		assert!(
+			kept.contains("EVIL-META") && kept.contains("EVIL-OUTSIDE"),
+			"{kept}"
+		);
+	}
+
+	/// What the scan reads as the description of a file: what the library shows for the book
+	async fn scanned_summary(path: &Path) -> Option<String> {
+		use models::shared::enums::OrganizationMode;
+
+		let options = crate::media::processor::MediaProcessorOptions {
+			process_metadata: true,
+			organization_mode: OrganizationMode::Metadata,
+			..Default::default()
+		};
+		crate::media::processor::process_file(
+			path,
+			options,
+			&crate::config::StumpConfig::debug(),
+		)
+		.await
+		.expect("the file can be read")
+		.metadata
+		.and_then(|metadata| metadata.summary)
+	}
+
+	/// The scan reads the plain description and no other from an EPUB whose own description was
+	/// in a form that is not `dc:description`
+	#[tokio::test]
+	async fn the_scan_reads_only_the_plain_description_of_an_epub() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("book.epub");
+		::tests::fixtures::write_test_epub(
+			&path,
+			"Book",
+			r#"<dc:creator>Eco, Umberto</dc:creator>
+			<meta name="description" content="&lt;iframe srcdoc=EVIL&gt;"/>
+			<summary>&lt;script&gt;EVIL&lt;/script&gt;</summary>"#,
+		);
+		let before = scanned_summary(&path)
+			.await
+			.expect("a summary to start with");
+		assert!(before.contains("EVIL"), "{before}");
+		write_epub(
+			&path,
+			&FileMetadata {
+				description: Some("A plain description.".into()),
+				replace_description: true,
+				..Default::default()
+			},
+		)
+		.unwrap();
+		assert_eq!(
+			scanned_summary(&path).await.as_deref(),
+			Some("A plain description.")
+		);
+		// and nothing at all when there is none to give
+		write_epub(
+			&path,
+			&FileMetadata {
+				replace_description: true,
+				..Default::default()
+			},
+		)
+		.unwrap();
+		assert_eq!(scanned_summary(&path).await, None);
+	}
+
+	/// A `ComicInfo.xml` in a folder is as good as the one at the root for the scan (which takes
+	/// the last it finds): the one that is written is the only one that stays
+	#[tokio::test]
+	async fn the_scan_reads_only_the_comic_info_that_was_written() {
+		use std::io::Write;
+
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("comic.cbz");
+		let evil = r#"<?xml version="1.0"?><ComicInfo><Summary>&lt;iframe srcdoc=EVIL&gt;</Summary></ComicInfo>"#;
+		{
+			let mut zip = ZipWriter::new(File::create(&path).unwrap());
+			let options = SimpleFileOptions::default();
+			for name in [
+				"01.png",
+				"sub/ComicInfo.xml",
+				"ComicInfo.xml",
+				"Other\\comicinfo.XML",
+			] {
+				zip.start_file(name, options).unwrap();
+				zip.write_all(if name.ends_with("png") {
+					b"png"
+				} else {
+					evil.as_bytes()
+				})
+				.unwrap();
+			}
+			zip.start_file("02.png", options).unwrap();
+			zip.write_all(b"png").unwrap();
+			zip.finish().unwrap();
+		}
+		assert!(scanned_summary(&path).await.unwrap().contains("EVIL"));
+		write_cbz(
+			&path,
+			&FileMetadata {
+				description: Some("A plain description.".into()),
+				replace_description: true,
+				..Default::default()
+			},
+		)
+		.unwrap();
+		assert_eq!(
+			scanned_summary(&path).await.as_deref(),
+			Some("A plain description.")
+		);
+		let archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+		let names: Vec<&str> = archive.file_names().collect();
+		assert_eq!(
+			names.iter().filter(|n| is_comic_info(n)).count(),
+			1,
+			"{names:?}"
+		);
+		assert!(
+			names.contains(&"01.png") && names.contains(&"02.png"),
+			"{names:?}"
+		);
+	}
+
+	#[test]
+	fn a_comic_info_is_known_by_its_file_name_alone() {
+		for name in [
+			"ComicInfo.xml",
+			"comicinfo.XML",
+			"sub/ComicInfo.xml",
+			"a/b\\ComicInfo.xml",
+		] {
+			assert!(is_comic_info(name), "{name}");
+		}
+		for name in [
+			"ComicInfo.xml.bak",
+			"xComicInfo.xml",
+			"sub/ComicInfo.xml/",
+			"1.png",
+		] {
+			assert!(!is_comic_info(name), "{name}");
+		}
 	}
 
 	fn authors(names: &[&str]) -> FileMetadata {

@@ -2393,6 +2393,232 @@ async fn test_what_was_read_before_an_approval_does_not_undo_it() {
 	);
 }
 
+/// a zip with the given entries (name, text), in memory
+fn zip_bytes(entries: &[(&str, &str)]) -> Vec<u8> {
+	use std::io::Write;
+	let mut buffer = std::io::Cursor::new(vec![]);
+	{
+		let mut zip = zip::ZipWriter::new(&mut buffer);
+		for (name, text) in entries {
+			zip.start_file(*name, zip::write::SimpleFileOptions::default())
+				.expect("an entry");
+			zip.write_all(text.as_bytes()).expect("its text");
+		}
+		zip.finish().expect("the zip");
+	}
+	buffer.into_inner()
+}
+
+/// every file under `dir`, with `extension`
+fn files_with(dir: &std::path::Path, extension: &str) -> Vec<PathBuf> {
+	let mut found = vec![];
+	let mut pending = vec![dir.to_path_buf()];
+	while let Some(next) = pending.pop() {
+		for entry in fs::read_dir(&next).into_iter().flatten().flatten() {
+			let path = entry.path();
+			if path.is_dir() {
+				pending.push(path);
+			} else if path.extension().is_some_and(|e| e == extension) {
+				found.push(path);
+			}
+		}
+	}
+	found
+}
+
+/// what the scan reads as the description of a file: what the library shows the book with
+async fn scanned_summary(world: &World, path: &std::path::Path) -> Option<String> {
+	let options = stump_core::media::processor::MediaProcessorOptions {
+		process_metadata: true,
+		organization_mode: models::shared::enums::OrganizationMode::Metadata,
+		..Default::default()
+	};
+	stump_core::media::processor::process_file(path, options, &world.app.ctx.config)
+		.await
+		.expect("the filed book can be read")
+		.metadata
+		.and_then(|metadata| metadata.summary)
+}
+
+impl World {
+	/// ana uploads a file over REST: the id of the item it makes
+	async fn ana_uploads_file(&self, name: &str, bytes: Vec<u8>) -> String {
+		let response = post_upload(
+			&self.app,
+			Some(&self.vis.ana.token),
+			&self.library.id,
+			None,
+			&UploadBody::new().file(name, bytes),
+		)
+		.await;
+		assert_eq!(response.status_code(), 200, "{}", response.text());
+		let body: Value = response.json();
+		body["items"][0]["id"]
+			.as_str()
+			.expect("an item id")
+			.to_string()
+	}
+
+	/// ana fixes what she can (`review`, if any), submits the item and the owner approves it; what
+	/// became of it
+	async fn approve_ana_item(
+		&self,
+		id: &str,
+		review: Option<Value>,
+	) -> intake_item::Model {
+		self.ana_items().await;
+		if let Some(input) = review {
+			assert_ok(
+				&self
+					.gql(
+						&self.vis.ana.token,
+						REVIEW,
+						json!({ "id": id, "input": input }),
+					)
+					.await,
+			);
+		}
+		assert_ok(
+			&self
+				.gql(&self.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+				.await,
+		);
+		assert_ok(&self.as_owner(APPROVE, json!({ "ids": [id] })).await);
+		// filed, or put back in the queue with the reason
+		for _ in 0..150 {
+			let row = self.row(id).await;
+			if row.state != IntakeState::Filing {
+				return row;
+			}
+			tokio::time::sleep(Duration::from_millis(100)).await;
+		}
+		panic!("the item stayed in FILING");
+	}
+}
+
+/// A file's own description can say itself in more places than the one a filing writes: an OPF's
+/// `meta` and `summary`, a `ComicInfo.xml` in a folder. A friend's book is filed with what the
+/// scan reads as its description being the plain one, or none
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_description_is_plain_wherever_a_file_says_it() {
+	let world = world().await;
+
+	// an EPUB whose own description is in a `meta` and in a `summary`, with a plain one to file
+	let id = world
+		.ana_uploads_epub(
+			"Hostile Meta",
+			concat!(
+				"<dc:creator>Eco, Umberto</dc:creator>",
+				r#"<meta name="description" content="&lt;iframe srcdoc=x&gt;&lt;/iframe&gt;"/>"#,
+				"<summary>&lt;script&gt;x&lt;/script&gt;</summary>",
+			),
+		)
+		.await;
+	let row = world.approve_ana_item(&id, None).await;
+	assert_eq!(row.state, IntakeState::Filed, "{:?}", row.error);
+	let filed = world.library_dir.join("Umberto_Eco/Hostile_Meta.epub");
+	let opf = epub_entry(&filed, "OEBPS/content.opf");
+	for markup in ["iframe", "script", "srcdoc", "&lt;"] {
+		assert!(!opf.contains(markup), "{markup} was filed:\n{opf}");
+	}
+	let summary = scanned_summary(&world, &filed).await;
+	assert!(
+		summary.as_deref().is_none_or(|s| !s.contains('<')),
+		"{summary:?}"
+	);
+
+	// a comic whose `ComicInfo.xml` is in a folder (and another at the root)
+	let evil = r#"<?xml version="1.0"?><ComicInfo><Series>Hostile</Series><Summary>&lt;iframe srcdoc=x&gt;&lt;/iframe&gt;</Summary></ComicInfo>"#;
+	let id = world
+		.ana_uploads_file(
+			"Hostile Comic.cbz",
+			zip_bytes(&[
+				("01.png", "png"),
+				("sub/ComicInfo.xml", evil),
+				("ComicInfo.xml", evil),
+				("02.png", "png"),
+			]),
+		)
+		.await;
+	let row = world.approve_ana_item(&id, None).await;
+	assert_eq!(row.state, IntakeState::Filed, "{:?}", row.error);
+	let filed = files_with(&world.library_dir, "cbz");
+	assert_eq!(filed.len(), 1, "{filed:?}");
+	let archive = zip::ZipArchive::new(fs::File::open(&filed[0]).unwrap()).unwrap();
+	let infos: Vec<&str> = archive
+		.file_names()
+		.filter(|name| name.to_lowercase().ends_with("comicinfo.xml"))
+		.collect();
+	assert_eq!(
+		infos,
+		["ComicInfo.xml"],
+		"only the one that was written stays"
+	);
+	let summary = scanned_summary(&world, &filed[0]).await;
+	assert!(
+		summary.as_deref().is_none_or(|s| !s.contains('<')),
+		"{summary:?}"
+	);
+}
+
+/// A format that can't be written (a RAR) is filed with the description it has when that is the
+/// plain one, as the scan reads it: its `ComicInfo.xml` is in a folder
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_rar_with_a_plain_description_is_filed_as_it_is() {
+	let world = world().await;
+	let bytes = fs::read(fixtures::get_test_complex_rar_path()).expect("the RAR fixture");
+	let id = world.ana_uploads_file("Tree.cbr", bytes).await;
+	let row = world
+		.approve_ana_item(&id, Some(json!({ "series": "Tree" })))
+		.await;
+	assert_eq!(row.state, IntakeState::Filed, "{:?}", row.error);
+	let filed = files_with(&world.library_dir, "cbr");
+	assert_eq!(filed.len(), 1, "{filed:?}");
+	let summary = scanned_summary(&world, &filed[0]).await;
+	assert!(
+		summary.as_deref().is_some_and(|s| !s.contains('<')),
+		"{summary:?}"
+	);
+}
+
+/// A book that can't be written and can't be read is not one that was shown to be plain: it is
+/// not filed, it goes back to the approver's queue with the reason, and nothing is put in the
+/// library (a PDF whose trailer says it is encrypted, with a description of its own)
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_book_that_cannot_be_checked_is_not_filed() {
+	let world = world().await;
+	let pdf = concat!(
+		"%PDF-1.4\n",
+		"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+		"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+		"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+		"4 0 obj\n<< /Title (Locked) /Author (Eco, Umberto) /Subject (<iframe srcdoc=x>) >>\nendobj\n",
+		"trailer\n<< /Size 5 /Root 1 0 R /Info 4 0 R /Encrypt 9 0 R >>\n",
+		"startxref\n0\n%%EOF\n"
+	);
+	let id = world
+		.ana_uploads_file("Locked.pdf", pdf.as_bytes().to_vec())
+		.await;
+	let row = world
+		.approve_ana_item(&id, Some(json!({ "authors": ["Umberto Eco"] })))
+		.await;
+	assert_ne!(row.state, IntakeState::Filed, "it was filed: {row:?}");
+	assert_eq!(row.state, IntakeState::PendingApproval, "{:?}", row.error);
+	let error = row.error.expect("the reason");
+	assert!(error.contains("description"), "{error}");
+	assert!(
+		files_with(&world.library_dir, "pdf").is_empty(),
+		"nothing was put in the library"
+	);
+	// and the friend is told, in words that say nothing of the server
+	let response = world.ana_items().await;
+	let text = response.to_string();
+	assert!(
+		!text.contains(&*world.tmp.path().to_string_lossy()),
+		"{text}"
+	);
+}
+
 /// 40 MB of noise in an EPUB (a stored entry, so nothing makes it small): a book that takes a
 /// moment to file
 fn append_noise(path: &std::path::Path, bytes: usize) {

@@ -46,7 +46,12 @@ use models::{
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel, QueryOrder};
 
-use crate::{job::StumpJob, scan::own_writes, CoreError, CoreResult, Ctx};
+use crate::{
+	job::StumpJob,
+	media::processor::{process_file, MediaProcessorOptions},
+	scan::own_writes,
+	CoreError, CoreResult, Ctx,
+};
 
 use self::{
 	extract::{extract_file, metadata_of},
@@ -1060,6 +1065,63 @@ async fn record_progress(
 	Ok(())
 }
 
+/// Whether two texts are the same but for their white space
+fn same_text(a: &str, b: &str) -> bool {
+	a.split_whitespace().eq(b.split_whitespace())
+}
+
+/// A book from somebody whose text isn't trusted is filed only when what the scan will read as
+/// its description is a plain one: the description is shown as Markdown, HTML included, on the
+/// screens of whoever reads the library, and a file can say it in more places than the one that
+/// is written (a `summary` or a `meta` in an OPF, a `ComicInfo.xml` in a folder). So the staged
+/// file is read the way the scan reads it, whatever the writing did; one that can't be read is
+/// not filed either.
+///
+/// A format that is written (`rewritten`) carries the plain description it was given, or none:
+/// anything else is the file's own that was not replaced. A format that can't be written (a RAR)
+/// keeps its own, which then only has to be plain text already.
+async fn only_the_plain_description(
+	config: &crate::config::StumpConfig,
+	staged: &Path,
+	original_name: &str,
+	plain: Option<&str>,
+	rewritten: bool,
+) -> CoreResult<()> {
+	let options = MediaProcessorOptions {
+		process_metadata: true,
+		organization_mode: OrganizationMode::Metadata,
+		..Default::default()
+	};
+	let found = match process_file(staged, options, config).await {
+		Ok(processed) => processed
+			.metadata
+			.and_then(|metadata| metadata.summary)
+			.filter(|summary| !summary.trim().is_empty()),
+		Err(error) => {
+			tracing::warn!(
+				?error,
+				original_name,
+				"Couldn't read a staged file's description"
+			);
+			return Err(CoreError::BadRequest(format!(
+				"'{original_name}': its description could not be checked"
+			)));
+		},
+	};
+	let Some(found) = found else {
+		return Ok(());
+	};
+	let is_the_plain_one = plain.is_some_and(|plain| same_text(&found, plain));
+	let is_plain_text =
+		rules::untrusted_description(&found).is_some_and(|text| same_text(&text, &found));
+	if is_the_plain_one || (!rewritten && is_plain_text) {
+		return Ok(());
+	}
+	Err(CoreError::BadRequest(format!(
+		"'{original_name}': it carries a description of its own that could not be replaced with plain text"
+	)))
+}
+
 /// Whether `placed` is the copy that `staged` made when it was put in the library: a file there
 /// with the length of the staged file
 fn is_copy_of(placed: &Path, staged: &Path) -> bool {
@@ -1314,10 +1376,11 @@ async fn file_claimed_inner(
 		.as_ref()
 		.map(|r| r.notes.clone())
 		.unwrap_or_default();
-	for (i, file) in files.iter().enumerate() {
-		if i < paths.len() {
-			continue;
-		}
+	// What is written into the files that are not placed yet comes first, and for the book of
+	// somebody who needs approval it is checked before any file of it is placed: a book is
+	// filed whole or not at all, never a few volumes of it and then a refusal.
+	let placed_before = paths.len();
+	for (i, file) in files.iter().enumerate().skip(placed_before) {
 		let mut meta = FileMetadata::from_metadata(
 			&decision.metadata,
 			decision.series_kind == Some(IntakeSeriesKind::Manga),
@@ -1359,14 +1422,29 @@ async fn file_claimed_inner(
 			Ok(Some(note)) => notes.push(note),
 			Ok(None) => {},
 			Err(error) => {
-				// the book still goes in, with the metadata it came with
+				// the book still goes in, with the metadata it came with (a book of somebody
+				// who needs approval, only if what is read from it is a plain description:
+				// below)
 				notes.push(format!(
 					"{}: metadata not written ({error})",
 					file.original_name
 				));
 			},
 		}
+		if untrusted {
+			only_the_plain_description(
+				&ctx.config,
+				&staged,
+				&file.original_name,
+				meta.description.as_deref(),
+				matches!(file.format.as_str(), "epub" | "cbz" | "pdf"),
+			)
+			.await?;
+		}
+	}
 
+	for (i, file) in files.iter().enumerate().skip(placed_before) {
+		let staged = staging.join(&file.staged_name);
 		let name = decision.file_names.get(i).cloned().unwrap_or_default();
 		let mut target = dir.join(&name);
 		let mut n = 2;
@@ -1648,6 +1726,178 @@ pub async fn recently_filed(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// A zip of comic pages with the given entries (name, text), the way an uploader might build one
+	fn cbz(path: &Path, entries: &[(&str, &str)]) {
+		use std::io::Write;
+		let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+		for (name, text) in entries {
+			zip.start_file(*name, zip::write::SimpleFileOptions::default())
+				.unwrap();
+			zip.write_all(text.as_bytes()).unwrap();
+		}
+		zip.finish().unwrap();
+	}
+
+	fn comic_info(summary: &str) -> String {
+		format!(
+			r#"<?xml version="1.0"?><ComicInfo><Summary>{summary}</Summary></ComicInfo>"#
+		)
+	}
+
+	/// A book of somebody who needs approval is filed only with what the scan will read as its
+	/// description being the plain one or none: from any entry that holds it, and for a format
+	/// that was not written at all; a file that can't be read is not filed
+	#[tokio::test]
+	async fn a_book_is_filed_only_when_its_description_reads_plain() {
+		let config = crate::config::StumpConfig::debug();
+		let dir = tempfile::tempdir().unwrap();
+		let check = |path: &Path, plain: Option<&str>| {
+			let path = path.to_path_buf();
+			let config = config.clone();
+			let plain = plain.map(str::to_string);
+			async move {
+				only_the_plain_description(
+					&config,
+					&path,
+					"book.cbz",
+					plain.as_deref(),
+					true,
+				)
+				.await
+				.map_err(|error| error.to_string())
+			}
+		};
+		let evil = comic_info("&lt;iframe srcdoc=EVIL&gt;");
+
+		// nothing to read, or the plain description (spaces apart): filed
+		let none = dir.path().join("none.cbz");
+		cbz(&none, &[("01.png", "png")]);
+		assert_eq!(check(&none, None).await, Ok(()));
+		assert_eq!(check(&none, Some("Plain.")).await, Ok(()));
+		let plain = dir.path().join("plain.cbz");
+		cbz(
+			&plain,
+			&[
+				("01.png", "png"),
+				("ComicInfo.xml", &comic_info("A  plain\n description.")),
+			],
+		);
+		assert_eq!(check(&plain, Some("A plain description.")).await, Ok(()));
+
+		// a description that is not the plain one, in the entry the writer replaced or in a
+		// folder, whether or not there is a plain one to compare with
+		for (name, entries) in [
+			("root", vec![("ComicInfo.xml", evil.as_str())]),
+			("folder", vec![("sub/ComicInfo.xml", evil.as_str())]),
+			(
+				"both",
+				vec![
+					("sub/ComicInfo.xml", evil.as_str()),
+					("ComicInfo.xml", evil.as_str()),
+				],
+			),
+		] {
+			let path = dir.path().join(format!("{name}.cbz"));
+			cbz(&path, &entries);
+			for plain in [None, Some("Plain.")] {
+				let error = check(&path, plain).await.expect_err(name);
+				assert!(error.contains("description of its own"), "{name}: {error}");
+				assert!(error.contains("'book.cbz'"), "{name}: {error}");
+			}
+		}
+
+		// a format that can't be written keeps what it has: filed when that is plain text
+		// already, whatever the description it was given, and not when it holds markup
+		let unwritten = |path: &Path, plain: Option<&str>| {
+			let (path, config) = (path.to_path_buf(), config.clone());
+			let plain = plain.map(str::to_string);
+			async move {
+				only_the_plain_description(
+					&config,
+					&path,
+					"book.cbr",
+					plain.as_deref(),
+					false,
+				)
+				.await
+				.map_err(|error| error.to_string())
+			}
+		};
+		assert_eq!(unwritten(&plain, None).await, Ok(()));
+		assert_eq!(unwritten(&plain, Some("Another.")).await, Ok(()));
+		let folder = dir.path().join("folder.cbz");
+		cbz(&folder, &[("sub/ComicInfo.xml", &evil)]);
+		let error = unwritten(&folder, Some("Plain."))
+			.await
+			.expect_err("markup");
+		assert!(error.contains("description of its own"), "{error}");
+		let tagged = dir.path().join("tagged.cbz");
+		cbz(
+			&tagged,
+			&[("ComicInfo.xml", &comic_info("&lt;b&gt;bold&lt;/b&gt;"))],
+		);
+		assert!(unwritten(&tagged, None).await.is_err());
+		// a format that is written holds the plain one or none: its own plain text is no
+		// excuse (it was meant to be replaced)
+		assert!(check(&plain, None).await.is_err());
+
+		// a file that can't be read is not one that was shown to be plain
+		let broken = dir.path().join("broken.cbz");
+		std::fs::write(&broken, "this is not a zip").unwrap();
+		let error = check(&broken, None).await.expect_err("an unreadable file");
+		assert!(error.contains("could not be checked"), "{error}");
+		// and what is said says nothing of the server
+		assert!(
+			!error.contains(&dir.path().to_string_lossy().to_string()),
+			"{error}"
+		);
+	}
+
+	/// A RAR has no writer: what it says is read the way the scan reads it, a `ComicInfo.xml` in
+	/// a folder included
+	#[tokio::test]
+	async fn a_rar_is_read_as_the_scan_reads_it() {
+		let config = crate::config::StumpConfig::debug();
+		let rar = ::tests::fixtures::get_test_complex_rar_path();
+		let options = MediaProcessorOptions {
+			process_metadata: true,
+			organization_mode: OrganizationMode::Metadata,
+			..Default::default()
+		};
+		let scanned = process_file(&rar, options, &config)
+			.await
+			.expect("the RAR reads")
+			.metadata
+			.and_then(|metadata| metadata.summary)
+			.filter(|summary| !summary.trim().is_empty())
+			.expect("the fixture's ComicInfo.xml, in a folder, has a summary");
+		let path = Path::new(&rar);
+		// it has no writer: its own description, in a folder, is what it keeps, and it is plain
+		for plain in [None, Some(scanned.as_str()), Some("Another one.")] {
+			assert!(
+				only_the_plain_description(&config, path, "x.cbr", plain, false)
+					.await
+					.is_ok(),
+				"{plain:?}"
+			);
+		}
+		// were it a format that is written, its own would be one that was not replaced
+		for plain in [None, Some("Another one.")] {
+			let error = only_the_plain_description(&config, path, "x.cbr", plain, true)
+				.await
+				.expect_err("a description that is not the plain one");
+			assert!(
+				error.to_string().contains("description of its own"),
+				"{error}"
+			);
+		}
+		assert!(
+			only_the_plain_description(&config, path, "x.cbr", Some(&scanned), true)
+				.await
+				.is_ok()
+		);
+	}
 
 	/// Whether a book is looked up is decided on the library its reader can read: subjects that
 	/// only books they can't read carry don't make a lookup unnecessary for them, so they can't
