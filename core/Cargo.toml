@@ -63,6 +63,7 @@ webp = "0.3.0"
 xml-rs = "1.0.0" # XML reader/writer
 reqwest.workspace = true
 strsim = "0.11"
+tempfile.workspace = true
 unidecode = "0.3.0"
 zip.workspace = true
 quick-xml = { version = "0.38.3", features = ["serialize"] }
@@ -74,7 +75,6 @@ base64.workspace = true
 
 [dev-dependencies]
 temp-env = "0.3.6"
-tempfile.workspace = true
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 tests = { path = "../crates/tests" }
 

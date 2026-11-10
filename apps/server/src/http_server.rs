@@ -68,6 +68,10 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 
 	let _post_processing_collector = core.init_post_processing();
 
+	core.init_intake()
+		.await
+		.map_err(|e| ServerError::ServerStartError(e.to_string()))?;
+
 	let oidc_provider: Option<Arc<OidcProvider>> = {
 		if let Some(oidc_config) = config.oidc.as_ref().filter(|c| c.is_valid()) {
 			let state = OidcProvider::new(oidc_config).await.map_err(|e| {

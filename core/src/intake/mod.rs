@@ -6,15 +6,21 @@
 //! Nothing runs between requests: analysis is a short task per upload, and the library index
 //! it uses is dropped minutes later.
 
+pub mod approval;
 pub mod batch;
 pub mod describe;
 pub mod edit;
 pub mod extract;
 pub mod library_index;
+pub mod limits;
 pub mod lookup;
 pub mod naming;
+pub mod rules;
+pub mod scope;
+pub mod staging;
 pub mod suggest;
 pub mod title_page;
+pub mod upload;
 pub mod write;
 
 use std::{
@@ -319,7 +325,15 @@ async fn analyse_item(
 
 	let decision = default_decision(item.kind, &files, &proposal);
 	let destination = compute_destination(&root, &settings, &files, &decision);
-	let state = state_for(&proposal, &decision, &destination);
+	// an item in the approval queue stays there; for somebody who may not file, the state is
+	// what they can see and fix, not what only the library knows (that the book may be in it)
+	let state = if item.submitted_at.is_some() {
+		IntakeState::PendingApproval
+	} else if approval::uploader_can_file_directly(conn, &item.user_id).await? {
+		state_for(&proposal, &decision, &destination)
+	} else {
+		state_for_uploader(&proposal, &decision, &destination)
+	};
 
 	// the item may have been moved to another library, discarded or filed while this ran, or
 	// answered by another analysis: then this outcome is dropped, not stored over it
@@ -515,6 +529,23 @@ pub fn state_for(
 	}
 }
 
+/// The same for somebody who may not file books themselves: ready when what they can fix is
+/// fixed. A possible duplicate or a name that exists is the approver's to see, and showing it
+/// through the state would tell the uploader what the library holds
+pub fn state_for_uploader(
+	proposal: &IntakeProposal,
+	decision: &IntakeDecision,
+	destination: &IntakeDestination,
+) -> IntakeState {
+	if scope::problems_for_uploader(decision_problems(decision, destination)).is_empty()
+		&& proposal.confidence >= READY_CONFIDENCE
+	{
+		IntakeState::Ready
+	} else {
+		IntakeState::NeedsReview
+	}
+}
+
 /// What keeps a decision from being filed
 pub fn decision_problems(
 	decision: &IntakeDecision,
@@ -557,7 +588,7 @@ pub fn decision_problems(
 		problems.push("Two files would get the same name".to_string());
 	}
 	if destination.files.iter().any(|f| f.exists) {
-		problems.push("A file with that name is already in the library".to_string());
+		problems.push(scope::EXISTS_PROBLEM.to_string());
 	}
 	problems
 }
@@ -580,15 +611,39 @@ fn set_text(
 pub fn is_open_for_changes(state: IntakeState) -> bool {
 	matches!(
 		state,
-		IntakeState::NeedsReview | IntakeState::Ready | IntakeState::Failed
+		IntakeState::NeedsReview
+			| IntakeState::Ready
+			| IntakeState::Failed
+			| IntakeState::Rejected
 	)
+}
+
+/// Who is changing an item, and what they may do to it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reviewer {
+	/// An approver is trusted: no limits on what they write, and they choose the folder
+	pub approver: bool,
+	/// The item is theirs. Otherwise it is somebody else's in the approval queue, which is the
+	/// only thing an approver can change that isn't theirs
+	pub owns_item: bool,
+}
+
+impl Reviewer {
+	/// Whether an item in this state is open to this person for changes
+	pub fn may_change(&self, state: IntakeState) -> bool {
+		if self.owns_item {
+			is_open_for_changes(state)
+		} else {
+			self.approver && state == IntakeState::PendingApproval
+		}
+	}
 }
 
 /// Whether an item can be analysed again: the ones open for changes, and one still marked as
 /// being analysed (an analysis that never answered, across a restart, would leave it there
 /// for good)
-pub fn can_reanalyse(state: IntakeState) -> bool {
-	is_open_for_changes(state) || state == IntakeState::Analysing
+pub fn can_reanalyse(state: IntakeState, reviewer: Reviewer) -> bool {
+	reviewer.may_change(state) || (reviewer.owns_item && state == IntakeState::Analysing)
 }
 
 /// Why an item in this state can't be changed
@@ -597,22 +652,91 @@ pub fn closed_for_changes(state: IntakeState, what: &str) -> CoreError {
 		IntakeState::Filed | IntakeState::Discarded => {
 			"This item is no longer in the inbox".to_string()
 		},
+		IntakeState::PendingApproval => {
+			format!("This item is waiting for approval: take it back to have it {what}")
+		},
+		IntakeState::Filing => "This item is being filed".to_string(),
 		state => format!("An item that is {state} can't be {what}"),
 	})
 }
 
-/// Applies the uploader's review to an item and recomputes its destination and state
+/// A line of text from somebody who may not file books themselves: no control characters, one
+/// space between words
+fn clean_line(text: &str) -> String {
+	text.chars()
+		.filter(|c| !c.is_control() || c.is_whitespace())
+		.collect::<String>()
+		.split_whitespace()
+		.collect::<Vec<_>>()
+		.join(" ")
+}
+
+/// The folder an item goes to, for somebody who doesn't choose it: the best candidate the library
+/// has for the first author (or the series), or the new folder their names make
+async fn derived_folder(
+	conn: &DatabaseConnection,
+	library: &library::Model,
+	settings: &library_intake_settings::Model,
+	decision: &IntakeDecision,
+) -> CoreResult<String> {
+	let index = library_index(
+		conn,
+		&library.id,
+		Path::new(&library.path),
+		&settings.manga_dir,
+		&settings.light_novel_dir,
+	)
+	.await?;
+	Ok(match decision.series_kind {
+		None => suggest::author_folder_candidates(&index, &decision.metadata.authors)
+			.into_iter()
+			.next()
+			.map(|c| c.folder),
+		Some(kind) => decision.metadata.series.as_deref().and_then(|series| {
+			suggest::series_folder_candidates(&index, series, kind)
+				.into_iter()
+				.next()
+				.map(|c| c.folder)
+		}),
+	}
+	.unwrap_or_default())
+}
+
+/// Applies a review to an item and recomputes its destination and state.
+///
+/// An approver's review is taken as it comes. Somebody else's is held to the rules of
+/// [`rules`]: texts have a length and no markup, the age rating can't go down, and the folder and
+/// the file names are not theirs to choose: they are worked out again from the authors or the
+/// series. An item waiting for approval stays waiting; one that goes back to its uploader is
+/// ready, or needs review, by what they can still fix.
 pub async fn apply_review(
 	ctx: &Ctx,
 	item: intake_item::Model,
 	input: IntakeReviewInput,
+	reviewer: Reviewer,
 ) -> CoreResult<intake_item::Model> {
 	let conn = ctx.conn.as_ref();
-	if !is_open_for_changes(item.state) {
+	if !reviewer.may_change(item.state) {
 		return Err(CoreError::BadRequest(format!(
 			"An item that is {} can't be changed",
 			item.state
 		)));
+	}
+	let mut input = input;
+	if !reviewer.approver {
+		rules::check_uploader_review(&input).map_err(CoreError::BadRequest)?;
+		input.title = input.title.map(|t| clean_line(&t));
+		input.series = input.series.map(|t| clean_line(&t));
+		input.publisher = input.publisher.map(|t| clean_line(&t));
+		input.authors = input
+			.authors
+			.map(|a| a.iter().map(|a| clean_line(a)).collect());
+		input.genres = input
+			.genres
+			.map(|g| g.iter().map(|g| clean_line(g)).collect());
+		// the descriptions of a book are shown, as Markdown, on the screens of people who trust
+		// what is in them
+		input.description = input.description.map(|d| rules::plain_text(&d));
 	}
 	let (library, config) = load_library(conn, &item.library_id).await?;
 	let library_type = library_type_in(config.as_ref());
@@ -664,6 +788,10 @@ pub async fn apply_review(
 			.collect();
 	}
 	if let Some(age) = input.age_rating {
+		if !reviewer.approver {
+			rules::check_age_rating(meta.age_rating, age)
+				.map_err(CoreError::BadRequest)?;
+		}
 		meta.age_rating = Some(age);
 	}
 	if input.clear_series_kind {
@@ -679,56 +807,67 @@ pub async fn apply_review(
 		decision.volumes = volumes;
 	}
 	decision.volumes.resize(files.len(), None);
-	match input.folder {
-		Some(folder) => {
-			let folder = folder.trim().to_string();
-			decision.folder = if decision.series_kind.is_some() {
-				series_folder_name(&folder)
-			} else if is_plain_component(&folder) {
-				folder
-			} else {
-				fold_name(&folder)
-			};
-		},
-		None => {
-			// switching between author and series filing picks the matching default folder
-			let proposal = item.proposal.clone().unwrap_or_default();
-			let current_is_series_folder = proposal
-				.series_folders
-				.iter()
-				.any(|c| c.folder == decision.folder);
-			if decision.series_kind.is_some() && !current_is_series_folder {
-				decision.folder = decision
-					.metadata
-					.series
-					.as_deref()
-					.map(series_folder_name)
-					.unwrap_or_default();
-			} else if decision.series_kind.is_none() && current_is_series_folder {
-				decision.folder = decision
-					.metadata
-					.authors
-					.first()
-					.map(|a| fold_name(a))
-					.unwrap_or_default();
-			}
-		},
+	if reviewer.approver {
+		match input.folder {
+			Some(folder) => {
+				let folder = folder.trim().to_string();
+				decision.folder = if decision.series_kind.is_some() {
+					series_folder_name(&folder)
+				} else if is_plain_component(&folder) {
+					folder
+				} else {
+					fold_name(&folder)
+				};
+			},
+			None => {
+				// switching between author and series filing picks the matching default folder
+				let proposal = item.proposal.clone().unwrap_or_default();
+				let current_is_series_folder = proposal
+					.series_folders
+					.iter()
+					.any(|c| c.folder == decision.folder);
+				if decision.series_kind.is_some() && !current_is_series_folder {
+					decision.folder = decision
+						.metadata
+						.series
+						.as_deref()
+						.map(series_folder_name)
+						.unwrap_or_default();
+				} else if decision.series_kind.is_none() && current_is_series_folder {
+					decision.folder = decision
+						.metadata
+						.authors
+						.first()
+						.map(|a| fold_name(a))
+						.unwrap_or_default();
+				}
+			},
+		}
+		match input.file_names {
+			Some(names) => {
+				decision.file_names =
+					names.into_iter().map(|n| n.trim().to_string()).collect()
+			},
+			None if names_were_default => {
+				decision.file_names = default_file_names(&files, &decision)
+			},
+			None => {},
+		}
+		decision.file_names.resize(files.len(), String::new());
+	} else {
+		// not theirs to choose: worked out again from the authors or the series
+		decision.folder = derived_folder(conn, &library, &settings, &decision).await?;
+		decision.file_names = default_file_names(&files, &decision);
 	}
-	match input.file_names {
-		Some(names) => {
-			decision.file_names =
-				names.into_iter().map(|n| n.trim().to_string()).collect()
-		},
-		None if names_were_default => {
-			decision.file_names = default_file_names(&files, &decision)
-		},
-		None => {},
-	}
-	decision.file_names.resize(files.len(), String::new());
-
 	let destination =
 		compute_destination(Path::new(&library.path), &settings, &files, &decision);
-	let state = if decision_problems(&decision, &destination).is_empty() {
+	let mut problems = decision_problems(&decision, &destination);
+	if !reviewer.approver {
+		problems = scope::problems_for_uploader(problems);
+	}
+	let state = if item.state == IntakeState::PendingApproval {
+		IntakeState::PendingApproval
+	} else if problems.is_empty() {
 		IntakeState::Ready
 	} else {
 		IntakeState::NeedsReview
@@ -808,8 +947,9 @@ pub async fn change_library(
 	ctx: &Ctx,
 	item: intake_item::Model,
 	library_id: &str,
+	reviewer: Reviewer,
 ) -> CoreResult<intake_item::Model> {
-	if !is_open_for_changes(item.state) {
+	if !reviewer.may_change(item.state) {
 		return Err(closed_for_changes(item.state, "moved to another library"));
 	}
 	let conn = ctx.conn.as_ref();
@@ -821,13 +961,48 @@ pub async fn change_library(
 	Ok(active.update(conn).await?)
 }
 
-/// Files a reviewed item into its library
-pub async fn file_item(
+/// Files an item that was claimed for it (its state is `FILING`, see [`approval`]). If filing
+/// fails the item goes back to `back` with the reason, and what was already placed in the
+/// library stays recorded, so trying again continues where it stopped and copies nothing twice.
+pub async fn file_claimed(
 	ctx: &Ctx,
 	item: intake_item::Model,
+	back: IntakeState,
+) -> CoreResult<intake_item::Model> {
+	match file_claimed_inner(ctx, &item).await {
+		Ok(filed) => Ok(filed),
+		Err(error) => {
+			tracing::warn!(?error, item_id = item.id, "Filing an intake item failed");
+			let restore = intake_item::ActiveModel {
+				state: Set(back),
+				error: Set(Some(error.to_string())),
+				updated_at: Set(chrono::Utc::now().into()),
+				..Default::default()
+			};
+			if let Err(write_error) = intake_item::Entity::update_many()
+				.set(restore)
+				.filter(intake_item::Column::Id.eq(item.id.clone()))
+				.filter(intake_item::Column::State.eq(IntakeState::Filing))
+				.exec(ctx.conn.as_ref())
+				.await
+			{
+				tracing::error!(
+					?write_error,
+					item_id = item.id,
+					"Couldn't put a book back after filing it failed"
+				);
+			}
+			Err(error)
+		},
+	}
+}
+
+async fn file_claimed_inner(
+	ctx: &Ctx,
+	item: &intake_item::Model,
 ) -> CoreResult<intake_item::Model> {
 	let conn = ctx.conn.as_ref();
-	if item.state != IntakeState::Ready {
+	if item.state != IntakeState::Filing {
 		return Err(CoreError::BadRequest(format!(
 			"'{}' is not ready to be filed",
 			item.name
@@ -845,9 +1020,7 @@ pub async fn file_item(
 	let destination = compute_destination(&root, &settings, &files, &decision);
 	let problems = decision_problems(&decision, &destination);
 	// a name taken since the review gets a suffix instead of failing
-	let clash_only = problems
-		.iter()
-		.all(|p| p == "A file with that name is already in the library");
+	let clash_only = problems.iter().all(|p| p == scope::EXISTS_PROBLEM);
 	if !problems.is_empty() && !clash_only {
 		return Err(CoreError::BadRequest(problems.join("; ")));
 	}
@@ -861,9 +1034,23 @@ pub async fn file_item(
 			.map_err(|e| CoreError::InternalError(e.to_string()))??;
 	}
 
-	let mut paths = vec![];
-	let mut notes = vec![];
+	// what an earlier try placed: those files are in the library, in the order of the item's files
+	let mut paths: Vec<String> = item
+		.result
+		.as_ref()
+		.map(|r| r.paths.clone())
+		.unwrap_or_default();
+	let placed = paths.iter().take_while(|p| Path::new(p).is_file()).count();
+	paths.truncate(placed);
+	let mut notes = item
+		.result
+		.as_ref()
+		.map(|r| r.notes.clone())
+		.unwrap_or_default();
 	for (i, file) in files.iter().enumerate() {
+		if i < paths.len() {
+			continue;
+		}
 		let mut meta = FileMetadata::from_metadata(
 			&decision.metadata,
 			decision.series_kind == Some(IntakeSeriesKind::Manga),
@@ -917,6 +1104,16 @@ pub async fn file_item(
 			.await
 			.map_err(|e| CoreError::InternalError(e.to_string()))??;
 		paths.push(target.to_string_lossy().into_owned());
+		// remembered at once: if a later file fails, trying again starts after this one
+		let progress = intake_item::ActiveModel {
+			id: sea_orm::ActiveValue::Unchanged(item.id.clone()),
+			result: Set(Some(IntakeResult {
+				paths: paths.clone(),
+				notes: notes.clone(),
+			})),
+			..Default::default()
+		};
+		progress.update(conn).await?;
 	}
 
 	let mut active = item.clone().into_active_model();
@@ -924,11 +1121,13 @@ pub async fn file_item(
 	active.destination = Set(Some(destination));
 	active.result = Set(Some(IntakeResult { paths, notes }));
 	active.filed_at = Set(Some(chrono::Utc::now().into()));
+	active.submitted_at = Set(None);
 	active.error = Set(None);
 	let updated = active.update(conn).await?;
 
 	let _ = tokio::fs::remove_dir_all(&staging).await;
 	library_index::invalidate_index(&library.id);
+	scope::forget_vocabularies();
 	enqueue_scan(ctx, &library, config.as_ref(), &dir).await;
 	Ok(updated)
 }
@@ -985,15 +1184,43 @@ pub async fn enqueue_scan(
 
 /// Throws an item away with its staged files
 pub async fn discard(ctx: &Ctx, item: intake_item::Model) -> CoreResult<()> {
+	if item.state == IntakeState::Discarded {
+		return Ok(());
+	}
 	if item.state == IntakeState::Filed {
 		return Err(CoreError::BadRequest(
 			"A filed item can't be discarded".into(),
 		));
 	}
+	if item.state == IntakeState::Filing {
+		return Err(CoreError::BadRequest(
+			"This item is being filed: it can't be discarded".into(),
+		));
+	}
+	// one statement says whether it is thrown away: an approver may have claimed it since it was
+	// read, and its files must not be removed from under the filing
+	let change = intake_item::ActiveModel {
+		state: Set(IntakeState::Discarded),
+		submitted_at: Set(None),
+		updated_at: Set(chrono::Utc::now().into()),
+		..Default::default()
+	};
+	let discarded = intake_item::Entity::update_many()
+		.set(change)
+		.filter(intake_item::Column::Id.eq(item.id.clone()))
+		.filter(intake_item::Column::State.is_not_in([
+			IntakeState::Filed,
+			IntakeState::Filing,
+			IntakeState::Discarded,
+		]))
+		.exec(ctx.conn.as_ref())
+		.await?;
+	if discarded.rows_affected == 0 {
+		return Err(CoreError::BadRequest(
+			"This item changed while it was being discarded: look at it again".into(),
+		));
+	}
 	let _ = tokio::fs::remove_dir_all(&item.staging_dir).await;
-	let mut active = item.into_active_model();
-	active.state = Set(IntakeState::Discarded);
-	active.update(ctx.conn.as_ref()).await?;
 	Ok(())
 }
 
@@ -1238,25 +1465,49 @@ mod tests {
 	}
 
 	/// every state is decided here: a state added later doesn't compile until someone says
-	/// whether the uploader can still change an item in it
+	/// whether the uploader, and an approver, can still change an item in it
 	#[test]
 	fn only_the_states_that_wait_for_the_uploader_are_open_for_changes() {
 		use sea_orm::strum::IntoEnumIterator;
 
-		fn expected(state: IntakeState) -> (bool, bool) {
-			// (open for changes, can be analysed again)
+		fn expected(state: IntakeState) -> (bool, bool, bool) {
+			// (open for the uploader's changes, can be analysed again by them, open to an
+			// approver for somebody else's item)
 			match state {
-				IntakeState::NeedsReview | IntakeState::Ready | IntakeState::Failed => {
-					(true, true)
+				IntakeState::NeedsReview
+				| IntakeState::Ready
+				| IntakeState::Failed
+				| IntakeState::Rejected => (true, true, false),
+				IntakeState::Analysing => (false, true, false),
+				IntakeState::PendingApproval => (false, false, true),
+				IntakeState::Filing | IntakeState::Filed | IntakeState::Discarded => {
+					(false, false, false)
 				},
-				IntakeState::Analysing => (false, true),
-				IntakeState::Filed | IntakeState::Discarded => (false, false),
 			}
 		}
+		let uploader = Reviewer {
+			approver: false,
+			owns_item: true,
+		};
+		let approver_of_others = Reviewer {
+			approver: true,
+			owns_item: false,
+		};
 		for state in IntakeState::iter() {
-			let (open, again) = expected(state);
+			let (open, again, approvers) = expected(state);
 			assert_eq!(is_open_for_changes(state), open, "{state}");
-			assert_eq!(can_reanalyse(state), again, "{state}");
+			assert_eq!(uploader.may_change(state), open, "{state}");
+			assert_eq!(can_reanalyse(state, uploader), again, "{state}");
+			assert_eq!(approver_of_others.may_change(state), approvers, "{state}");
+			// somebody who isn't an approver never changes an item that isn't theirs
+			assert!(
+				!Reviewer {
+					approver: false,
+					owns_item: false
+				}
+				.may_change(state),
+				"{state}"
+			);
 		}
 		// what an uploader is told
 		assert!(matches!(
@@ -1267,6 +1518,10 @@ mod tests {
 			closed_for_changes(IntakeState::Analysing, "moved to another library"),
 			CoreError::BadRequest(m)
 				if m == "An item that is ANALYSING can't be moved to another library"
+		));
+		assert!(matches!(
+			closed_for_changes(IntakeState::PendingApproval, "analysed again"),
+			CoreError::BadRequest(m) if m.contains("waiting for approval")
 		));
 	}
 

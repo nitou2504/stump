@@ -11,7 +11,8 @@ use sea_orm_migration::prelude::*;
 /// - `user_intake_limits` holds a user's own upload limits where they differ from the server's.
 ///   No foreign key and no index, for the same reason: its rollback is a `DROP TABLE`.
 ///
-/// The rollback puts the new states back to ones an older version knows first.
+/// The rollback puts the new states back to ones an older version knows first. The same statements
+/// are in `manual-down/m20261112_000000_intake_approval.sql`, for rolling back by hand.
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -73,6 +74,8 @@ impl MigrationTrait for Migration {
 				 WHEN 'PENDING_APPROVAL' THEN 'READY' \
 				 WHEN 'FILING' THEN 'READY' \
 				 WHEN 'REJECTED' THEN 'NEEDS_REVIEW' \
+				 WHEN 'SCREENING' THEN 'FAILED' \
+				 WHEN 'BLOCKED' THEN 'FAILED' \
 				 ELSE state END",
 			)
 			.await?;
@@ -247,5 +250,115 @@ mod tests {
 			],
 			"the new states are put back to ones an older version reads"
 		);
+	}
+
+	/// The SQL for rolling back by hand leaves a database the previous image can use: the same
+	/// states, columns and tables as the migration's own `down()`, and the migration forgotten
+	#[tokio::test]
+	async fn the_manual_down_leaves_a_database_the_previous_image_can_use() {
+		let db = Database::connect("sqlite::memory:")
+			.await
+			.expect("should connect to in-memory sqlite");
+		Migrator::up(&db, None)
+			.await
+			.expect("every migration should apply");
+		let backend = db.get_database_backend();
+		db.execute_unprepared("PRAGMA foreign_keys = OFF")
+			.await
+			.expect("foreign keys off");
+		for (id, state) in [
+			("a", "READY"),
+			("p", "PENDING_APPROVAL"),
+			("f", "FILING"),
+			("r", "REJECTED"),
+			("s", "SCREENING"),
+			("b", "BLOCKED"),
+			("d", "FILED"),
+		] {
+			db.execute_raw(Statement::from_string(
+				backend,
+				format!(
+					"INSERT INTO intake_items (id, user_id, library_id, state, kind, name, \
+					 staging_dir, files, review_note) VALUES ('{id}', 'u', 'l', '{state}', \
+					 'BOOK', 'a.epub', '/staging', '[]', 'a note')"
+				),
+			))
+			.await
+			.expect("an item");
+		}
+		db.execute_raw(Statement::from_string(
+			backend,
+			"INSERT INTO user_intake_limits (user_id, limits) VALUES ('u', '{}')",
+		))
+		.await
+		.expect("a user's limits");
+
+		let sql = include_str!("../manual-down/m20261112_000000_intake_approval.sql");
+		let statements = sql
+			.lines()
+			.filter(|line| !line.trim_start().starts_with("--"))
+			.collect::<Vec<_>>()
+			.join("\n");
+		for statement in statements
+			.split(';')
+			.map(str::trim)
+			.filter(|statement| !statement.is_empty())
+		{
+			db.execute_unprepared(statement)
+				.await
+				.unwrap_or_else(|e| panic!("{statement}: {e}"));
+		}
+
+		let manager = SchemaManager::new(&db);
+		assert!(!manager.has_table("user_intake_limits").await.unwrap());
+		for column in [
+			"submitted_at",
+			"reviewed_at",
+			"reviewed_by",
+			"review_note",
+			"cover_file",
+		] {
+			assert!(!manager.has_column("intake_items", column).await.unwrap());
+		}
+		// what an older version has to read
+		let rows: Vec<(String, String)> = Row::find_by_statement(Statement::from_string(
+			backend,
+			"SELECT id, state FROM intake_items ORDER BY id",
+		))
+		.all(&db)
+		.await
+		.unwrap()
+		.into_iter()
+		.map(|row| (row.id, row.state))
+		.collect();
+		let expected = [
+			("a", "READY"),
+			("b", "FAILED"),
+			("d", "FILED"),
+			("f", "READY"),
+			("p", "READY"),
+			("r", "NEEDS_REVIEW"),
+			("s", "FAILED"),
+		];
+		assert_eq!(
+			rows,
+			expected
+				.iter()
+				.map(|(id, state)| (id.to_string(), state.to_string()))
+				.collect::<Vec<_>>()
+		);
+		// the migration is forgotten, and the ones before it are not
+		let versions: Vec<String> = db
+			.query_all_raw(Statement::from_string(
+				backend,
+				"SELECT version FROM seaql_migrations",
+			))
+			.await
+			.unwrap()
+			.iter()
+			.map(|row| row.try_get::<String>("", "version").unwrap())
+			.collect();
+		assert!(!versions.contains(&NAME.to_string()), "{versions:?}");
+		assert!(versions.contains(&"m20261109_000000_user_discover_rules".to_string()));
 	}
 }
