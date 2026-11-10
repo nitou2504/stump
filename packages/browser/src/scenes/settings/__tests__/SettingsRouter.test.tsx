@@ -30,6 +30,9 @@ vi.mock('../app/general/GeneralSettingsScene.tsx', () => ({
 vi.mock('../server/general/GeneralServerSettingsScene.tsx', () => ({
 	default: () => <div data-testid="server-scene" />,
 }))
+vi.mock('../server/bookApprovals', () => ({
+	default: () => <div data-testid="book-approvals-scene" />,
+}))
 
 const buildContext = (permissions: UserPermission[]): IAppContext => ({
 	checkPermission: (p: UserPermission) => permissions.includes(p),
@@ -79,17 +82,18 @@ describe('SettingsRouter', () => {
 		})
 	})
 
-	// the page is not built yet (its flag is off): approvers get sent home, others to their account
+	// the books other people add are approved by the owner and library managers (turning the page
+	// off sends the route home: that is tested with the page)
 	describe('book approvals route', () => {
-		it('goes home for those who may manage libraries while the page is not built', async () => {
+		it('renders the page for those who may manage libraries', async () => {
 			renderAt('book-approvals', [UserPermission.ManageLibrary])
-			expect(await screen.findByTestId('home')).toBeInTheDocument()
+			expect(await screen.findByTestId('book-approvals-scene')).toBeInTheDocument()
 		})
 
 		it('is not there for anyone else', async () => {
 			renderAt('book-approvals', [UserPermission.AddBooks])
 			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
-			expect(screen.queryByTestId('home')).not.toBeInTheDocument()
+			expect(screen.queryByTestId('book-approvals-scene')).not.toBeInTheDocument()
 		})
 	})
 
