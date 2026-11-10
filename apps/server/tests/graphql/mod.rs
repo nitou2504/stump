@@ -12,6 +12,7 @@ mod next_in_series;
 mod permission_guards;
 mod query_limits;
 mod random_media;
+mod reading_lists;
 mod smart_list_paging;
 mod upload;
 mod user_mutations;

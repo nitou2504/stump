@@ -3184,7 +3184,8 @@ type Mutation {
 	deleteSmartListView(id: ID!, name: String!): SmartListView!
 	"""
 	Creates a reading list owned by the current user, with the given books (in order; books
-	the user can't see are left out). The ID is generated when omitted.
+	the user can't see are left out). The ID is generated when omitted. Everyone but the
+	server owner has at most 100 lists of at most 2,000 books each.
 	
 	# Returns
 	
@@ -3193,7 +3194,8 @@ type Mutation {
 	createReadingList(input: ReadingListInput!): ReadingList!
 	"""
 	Renames one of the current user's reading lists, or changes its description or
-	visibility.
+	visibility. The server owner can take someone else's public list back to private (and
+	nothing else).
 	
 	# Returns
 	
@@ -3208,7 +3210,8 @@ type Mutation {
 	"Removes books from one of the current user's reading lists"
 	removeBooksFromReadingList(id: ID!, mediaIds: [ID!]!): ReadingList!
 	"""
-	Deletes one of the current user's reading lists (not its books).
+	Deletes one of the current user's reading lists (not its books). The server owner can
+	delete someone else's public list too.
 	
 	# Returns
 	
@@ -4059,22 +4062,32 @@ type Query {
 	): SmartListItems!
 	smartListViews: [SmartListView!]!
 	"""
-	Retrieves a paginated list of reading lists for the current user.
+	Retrieves a paginated list of the reading lists the current user can see: by default
+	their own and the public lists of everyone else (lists of people who are deleted or
+	locked are left out). `scope` narrows it to their own lists or to other people's.
 	
 	# Returns
 	
 	A paginated list of reading lists.
 	"""
-	readingLists(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedReadingListResponse!
+	readingLists(scope: ReadingListScope! = ALL, pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedReadingListResponse!
 	"""
 	Retrieves a reading list by ID for the current user.
 	
 	# Returns
-	A reading list with the given ID. If no reading list with this ID exists for the current user, an error will be returned.
+	A reading list with the given ID. If no reading list with this ID exists, or it is
+	private and isn't the current user's, the same error is returned.
 	"""
 	readingListById(id: ID!): ReadingList!
 	"List the custom emojis available on this server"
 	customEmojis: [CustomEmoji!]!
+}
+
+type ReaderProfile {
+	id: String!
+	username: String!
+	"The address of the person's avatar, when they have one. It changes when they set a new one"
+	avatarUrl: String
 }
 
 type ReadingDeviceModel {
@@ -4107,8 +4120,22 @@ type ReadingList {
 	visibility: String!
 	ordering: String!
 	creatingUserId: String!
-	"The list's books the user can see, in the list's order"
-	books(limit: Int = null): [Media!]!
+	"""
+	The list's books the user can see, in the list's order: at most 200 at a time, `offset`
+	books in
+	"""
+	books(limit: Int = null, offset: Int = null): [Media!]!
+	"""
+	Whether the user made the list, and so may rename it, change what is in it and who sees
+	it. Anyone else sees it read-only (the server owner can only take a public list of
+	someone else back to private, or delete it)
+	"""
+	canEdit: Boolean!
+	"""
+	Who made the list: their name and avatar. None when they can't be shown any more (a
+	deleted or locked account's lists aren't listed at all)
+	"""
+	creator: ReaderProfile
 	"How many of the list's books the user can see"
 	bookCount: Int!
 }
@@ -4118,10 +4145,23 @@ input ReadingListInput {
 	id: String
 	name: String!
 	description: String
-	"Private (only its owner sees it) when omitted"
+	"""
+	Private (only its owner sees it) when omitted. `PUBLIC` shows the list to everyone on
+	the server; `SHARED` is not offered
+	"""
 	visibility: EntityVisibility
 	"The list's first books, in order"
 	mediaIds: [String!]! = []
+}
+
+"Which reading lists to ask for"
+enum ReadingListScope {
+	"The lists you made and everyone's public lists"
+	ALL
+	"The lists you made"
+	MINE
+	"The public lists other people made"
+	OTHERS
 }
 
 "The different reading modes supported by any Stump reader"
@@ -5166,6 +5206,11 @@ input UpdateReadingListInput {
 	name: String!
 	"Omitted or empty clears it"
 	description: String
+	"""
+	`PUBLIC` shows the list to everyone on the server; `SHARED` is not offered. The server
+	owner can't change anyone else's list but can make it `PRIVATE`: the name and description
+	sent are then ignored
+	"""
 	visibility: EntityVisibility
 }
 
