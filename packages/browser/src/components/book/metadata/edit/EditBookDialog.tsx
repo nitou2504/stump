@@ -73,10 +73,10 @@ function SuggestedInput({
 }
 
 /**
- * Edit a book's main details: title, authors, series, genres (picked from the library's
- * own genres, with suggestions), summary and publication details. Saving writes them into
- * the book file, so they survive rescans and other readers see them; every save is in the
- * book's edit history, where it can be reverted.
+ * Edit a book's main details: title, authors, series, genres (picked from the genres of every
+ * library the user can see, with suggestions), summary and publication details. Saving writes
+ * them into the book file, so they survive rescans and other readers see them; every save is in
+ * the book's edit history, where it can be reverted.
  */
 export default function EditBookDialog({ mediaId, isOpen, onClose, focus }: Props) {
 	const id = useId()

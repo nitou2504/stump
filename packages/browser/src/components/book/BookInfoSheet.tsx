@@ -102,9 +102,10 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 	const metadata = book.metadata
 	const paths = usePaths()
 
-	// the server only sends a file's hashes (and where it is on its disk) to those who manage
-	// libraries; for everyone else they're null and `relativeLibraryPath` is all there is of the
-	// path, so these rows are just left out for them
+	// the server only sends a file's hashes (and where it is on its disk) to the owner and to those
+	// who manage or edit libraries or browse the server's files; for everyone else they're null and
+	// `relativeLibraryPath` is all there is of the path. This sheet shows these rows to those who
+	// manage libraries only, and leaves them out for everyone else
 	const canSeeFile = checkPermission(UserPermission.ManageLibrary)
 	const meta = (key: string) => translate(`shared.bookMetadata.${key}`)
 
