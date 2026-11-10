@@ -1,6 +1,6 @@
 import '@/__mocks__/resizeObserver'
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router'
 
@@ -17,23 +17,34 @@ vi.mock('@/components/sharedLayout', () => ({
 vi.mock('@/components/thumbnail', () => ({
 	ThumbnailImage: ({ src, alt }: { src: string; alt?: string }) => <img src={src} alt={alt} />,
 }))
-vi.mock('@/components/filters', () => ({
-	Search: ({
-		initialValue,
-		placeholder,
-		onChange,
-	}: {
-		initialValue?: string
-		placeholder?: string
-		onChange: (value: string) => void
-	}) => (
-		<input
-			aria-label={placeholder}
-			defaultValue={initialValue}
-			onChange={(event) => onChange(event.target.value)}
-		/>
-	),
-}))
+vi.mock('@/components/filters', async () => {
+	const { useEffect, useRef } = await import('react')
+	return {
+		Search: ({
+			initialValue,
+			placeholder,
+			onChange,
+		}: {
+			initialValue?: string
+			placeholder?: string
+			onChange: (value: string) => void
+		}) => {
+			// like the real box, which reports its value once when it has mounted (its debounced value
+			// starts as the initial one and the previous one doesn't exist yet), and again on a change
+			const first = useRef({ value: initialValue ?? '', report: onChange })
+			useEffect(() => {
+				first.current.report(first.current.value)
+			}, [])
+			return (
+				<input
+					aria-label={placeholder}
+					defaultValue={initialValue}
+					onChange={(event) => onChange(event.target.value)}
+				/>
+			)
+		},
+	}
+})
 
 const dune = { id: 'dune', name: 'Dune', writers: ['Frank Herbert'] }
 const emma = { id: 'emma', name: 'Emma', writers: ['Jane Austen', 'Someone Else'] }
@@ -54,6 +65,16 @@ function renderPage(answers: ReturnType<typeof history>, path = '/reading') {
 
 const finishedSection = () =>
 	screen.findByRole('region', { name: 'readingHistory.finished.heading' })
+
+/**
+ * Lets the page finish what it does once it has mounted. The search box tells its first value
+ * only after it is in the page, and what the page does with it (the address, asking for the
+ * books again) comes a moment later, so the first look at the address would still see the old one
+ */
+const settle = () =>
+	act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 50))
+	})
 
 describe('ReadingHistoryPage', () => {
 	describe("a person's own page", () => {
@@ -207,6 +228,20 @@ describe('ReadingHistoryPage', () => {
 				'dune',
 			)
 
+			// the box tells its value once as it mounts: that is the address's own search, so the page
+			// the address names stays (it was lost, and the first page loaded after a reload or a Back)
+			await settle()
+			expect(screen.getByTestId('location')).toHaveTextContent(
+				/^\/reading\?search=dune&year=2025&page=2$/,
+			)
+			await waitFor(() =>
+				expect(sent(execute, 'ReadingHistoryFinished').at(-1)).toMatchObject({
+					search: 'dune',
+					year: 2025,
+					page: 2,
+				}),
+			)
+
 			// another page: the same search and year, a new page
 			await user.click(await screen.findByText('3'))
 			await waitFor(() =>
@@ -229,6 +264,34 @@ describe('ReadingHistoryPage', () => {
 					search: 'emma',
 					page: 1,
 				}),
+			)
+		})
+
+		it('keeps the page of an address that has no search, when the box tells its first value', async () => {
+			const { execute } = renderPage(
+				history({ years: [{ year: 2025, count: 90 }], totalPages: 5, currentPage: 3 }),
+				'/reading?year=2025&page=3',
+			)
+
+			await finishedSection()
+			await settle()
+			expect(screen.getByTestId('location')).toHaveTextContent(/^\/reading\?year=2025&page=3$/)
+			await waitFor(() =>
+				expect(sent(execute, 'ReadingHistoryFinished').at(-1)).toMatchObject({
+					year: 2025,
+					page: 3,
+				}),
+			)
+		})
+
+		it('keeps the page when the search in the address has spaces around it', async () => {
+			renderPage(history({ totalPages: 4, currentPage: 2 }), '/reading?search=%20dune%20&page=2')
+
+			await finishedSection()
+			await settle()
+			// the box reports the same search, trimmed: nothing changes, so the address stays as it was
+			expect(screen.getByTestId('location')).toHaveTextContent(
+				/^\/reading\?search=%20dune%20&page=2$/,
 			)
 		})
 

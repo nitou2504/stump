@@ -192,7 +192,12 @@ export default function FinishedSection({ userId }: Props) {
 				<Search
 					initialValue={search}
 					placeholder={t('readingHistory.finished.search')}
-					onChange={(value) => change({ search: value.trim() }, { replace: true })}
+					onChange={(value) => {
+						// the box reports its value once when it mounts: that is the address's own search, and
+						// acting on it would start over from the first page, so only a different search counts
+						const next = value.trim()
+						if (next !== search.trim()) change({ search: next }, { replace: true })
+					}}
 					isLoading={isLoading}
 					className="sm:max-w-xs"
 				/>
