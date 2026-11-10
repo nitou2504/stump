@@ -4,6 +4,7 @@ use sea_orm::{prelude::*, ActiveValue::Set, ColumnTrait, IntoActiveModel, QueryF
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	error_message::FORBIDDEN_ACTION,
 	guard::{OptionalFeature, OptionalFeatureGuard, PermissionGuard},
 	input::book_club::{CreateCustomEmojiInput, UpdateCustomEmojiInput},
 	object::custom_emoji::CustomEmoji,
@@ -68,10 +69,10 @@ impl CustomEmojiMutation {
 		Ok(created.into())
 	}
 
-	/// Delete a custom emoji
+	/// Delete a custom emoji. Only the person who uploaded it, or the server owner, can
 	#[graphql(guard = "PermissionGuard::new(&[UserPermission::UploadFile])")]
 	async fn delete_custom_emoji(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
-		let _ = ctx.data::<AuthContext>()?;
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
 		let conn = core.conn.as_ref();
 
@@ -81,6 +82,10 @@ impl CustomEmojiMutation {
 			.one(conn)
 			.await?
 			.ok_or("Custom emoji not found")?;
+
+		if emoji.created_by_id != user.id && !user.is_server_owner {
+			return Err(FORBIDDEN_ACTION.into());
+		}
 
 		let config = core.config.as_ref();
 		let emoji_path = config
@@ -96,7 +101,7 @@ impl CustomEmojiMutation {
 		Ok(true)
 	}
 
-	/// Rename a custom emoji
+	/// Rename a custom emoji. Only the person who uploaded it, or the server owner, can
 	#[graphql(guard = "PermissionGuard::new(&[UserPermission::UploadFile])")]
 	async fn update_custom_emoji(
 		&self,
@@ -104,7 +109,7 @@ impl CustomEmojiMutation {
 		id: ID,
 		input: UpdateCustomEmojiInput,
 	) -> Result<CustomEmoji> {
-		let _ = ctx.data::<AuthContext>()?;
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
 		let emoji_id = id.as_ref().parse::<i32>().map_err(|_| "Invalid emoji ID")?;
@@ -113,6 +118,10 @@ impl CustomEmojiMutation {
 			.one(conn)
 			.await?
 			.ok_or("Custom emoji not found")?;
+
+		if emoji.created_by_id != user.id && !user.is_server_owner {
+			return Err(FORBIDDEN_ACTION.into());
+		}
 
 		let conflict = custom_emoji::Entity::find()
 			.filter(custom_emoji::Column::Name.eq(&input.name))
