@@ -322,6 +322,16 @@ async fn analyse_item(
 	proposal.warnings.extend(lookup.notes());
 	proposal.online_lookups = lookup.sources;
 	proposal.uploader_view = uploader_view.clone();
+	if !uploader_can_file {
+		// the description of a book is shown as Markdown, HTML included, on the screens of
+		// whoever reads the library: what comes from somebody whose text isn't trusted (their
+		// file, an online source) is plain text from here on
+		proposal.metadata.description = proposal
+			.metadata
+			.description
+			.take()
+			.and_then(|d| rules::untrusted_description(&d));
+	}
 
 	// duplicates: the same file, or the same author and title
 	for file in &files {
@@ -1139,6 +1149,10 @@ async fn file_claimed_inner(
 		return Err(CoreError::BadRequest(problems.join("; ")));
 	}
 
+	// a book from somebody who needs approval is filed with a plain description of its own: the
+	// file's (an EPUB's long one is kept otherwise) could carry markup that the library renders
+	let untrusted = !approval::uploader_can_file_directly(conn, &item.user_id).await?;
+
 	let staging = PathBuf::from(&item.staging_dir);
 	let dir = root.join(&destination.relative_dir);
 	{
@@ -1181,6 +1195,14 @@ async fn file_claimed_inner(
 			&decision.metadata,
 			decision.series_kind == Some(IntakeSeriesKind::Manga),
 		);
+		if untrusted {
+			meta.description = decision
+				.metadata
+				.description
+				.as_deref()
+				.and_then(rules::untrusted_description);
+			meta.replace_description = true;
+		}
 		if decision.series_kind.is_some() {
 			meta.series_index = decision.volumes.get(i).copied().flatten();
 			// volumes keep their own title when they have one

@@ -2051,3 +2051,105 @@ async fn test_an_analysis_does_not_tell_a_friend_what_a_folder_of_hidden_books_h
 		Some(IntakeSeriesKind::LightNovel)
 	);
 }
+
+
+/// the text of a file in an EPUB
+fn epub_entry(path: &std::path::Path, name: &str) -> String {
+	use std::io::Read;
+	let mut archive = zip::ZipArchive::new(fs::File::open(path).expect("the EPUB"))
+		.expect("a zip archive");
+	let mut text = String::new();
+	archive
+		.by_name(name)
+		.expect("the entry")
+		.read_to_string(&mut text)
+		.expect("text");
+	text
+}
+
+/// The description of a book is shown, as Markdown with the HTML in it, on the screens of whoever
+/// reads the library. A friend's file carries its own, and an EPUB's long one is kept by a plain
+/// filing: what is shown, and what is filed, is a plain text of its own
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_description_is_plain_in_what_gets_filed() {
+	let world = world().await;
+	let hostile = concat!(
+		"<dc:creator>Eco, Umberto</dc:creator>",
+		r#"<dc:description>&lt;iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"&gt;&lt;/iframe&gt;"#,
+		"A description that is long enough to be kept by a plain filing: it has well over fifteen words in it, so the file's own would stay.",
+		"</dc:description>"
+	);
+	let id = world.ana_uploads_epub("Hostile Description", hostile).await;
+	let items = world.ana_items().await;
+	let item = items
+		.as_array()
+		.expect("items")
+		.iter()
+		.find(|item| item["id"] == id)
+		.expect("her item");
+	let shown = item["proposal"]["metadata"]["description"]
+		.as_str()
+		.expect("a description");
+	assert!(
+		shown.contains("A description that is long enough") && !shown.contains('<'),
+		"she is shown a plain text: {shown}"
+	);
+	// what the approver's own card holds is the plain text too
+	let stored = world.row(&id).await;
+	let decision = stored.decision.expect("a decision");
+	assert!(
+		decision
+			.metadata
+			.description
+			.as_deref()
+			.is_some_and(|d| !d.contains('<') && d.contains("A description that is long")),
+		"{decision:#?}"
+	);
+
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	world.wait_for(&id, IntakeState::Filed).await;
+	let filed = world
+		.library_dir
+		.join("Umberto_Eco/Hostile_Description.epub");
+	assert!(filed.exists(), "the book should be in its author folder");
+	let opf = epub_entry(&filed, "OEBPS/content.opf");
+	for markup in ["iframe", "<script", "srcdoc", "&lt;"] {
+		assert!(!opf.contains(markup), "{markup} was filed:\n{opf}");
+	}
+	assert!(
+		opf.contains("A description that is long enough"),
+		"the plain description is what the file carries:\n{opf}"
+	);
+	assert_eq!(opf.matches("<dc:description>").count(), 1, "{opf}");
+
+	// without a description of its own, the file's is taken out all the same (the owner's own
+	// uploads are not changed: they are trusted)
+	let id = world
+		.ana_uploads_epub(
+			"Only Markup",
+			concat!(
+				"<dc:creator>Eco, Umberto</dc:creator>",
+				r#"<dc:description>&lt;iframe srcdoc="x"&gt;&lt;/iframe&gt;</dc:description>"#
+			),
+		)
+		.await;
+	world.ana_items().await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	world.wait_for(&id, IntakeState::Filed).await;
+	let opf = epub_entry(
+		&world.library_dir.join("Umberto_Eco/Only_Markup.epub"),
+		"OEBPS/content.opf",
+	);
+	assert!(!opf.contains("iframe"), "{opf}");
+	assert!(!opf.contains("dc:description"), "{opf}");
+}

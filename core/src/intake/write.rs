@@ -49,6 +49,11 @@ pub struct FileMetadata {
 	pub language: Option<String>,
 	pub year: Option<i32>,
 	pub description: Option<String>,
+	/// The description above is the only one the file may carry: an EPUB's own `dc:description` is
+	/// replaced by it however long it is, or removed when there is none. For a book that comes
+	/// from somebody whose text isn't trusted: the description is shown as Markdown, with the
+	/// HTML in it, on the screens of everyone who reads the library.
+	pub replace_description: bool,
 	/// big tags, then small tags, then facets
 	pub tags: Vec<String>,
 	pub age_rating: Option<i32>,
@@ -67,6 +72,7 @@ impl FileMetadata {
 			language: meta.language.clone(),
 			year: meta.year,
 			description: meta.description.clone(),
+			replace_description: false,
 			tags: order_tags(&meta.genres),
 			age_rating: meta.age_rating,
 			rating: meta.rating,
@@ -433,8 +439,16 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 		}
 	}
 
-	// a description only when the file has (almost) none
-	if let Some(description) = meta.description.as_deref().filter(|d| !d.trim().is_empty()) {
+	// a description only when the file has (almost) none; for a book of somebody whose text isn't
+	// trusted, the file's own goes whatever it says and there is only the one given
+	let description = meta.description.as_deref().filter(|d| !d.trim().is_empty());
+	if meta.replace_description {
+		remove(&mut body, r"(?s)\s*<dc:description\b[^>]*>.*?</dc:description>");
+		remove(&mut body, r"\s*<dc:description\b[^>]*/>");
+		if let Some(description) = description {
+			add.push(format!("<dc:description>{}</dc:description>", esc(description)));
+		}
+	} else if let Some(description) = description {
 		let re = Regex::new(r"(?s)<dc:description\b[^>]*>(.*?)</dc:description>").expect("valid regex");
 		let words: usize = re
 			.captures_iter(&body)
@@ -857,6 +871,66 @@ mod tests {
 		)
 	}
 
+	/// An OPF whose own description (more than 15 words, so a plain filing would keep it) carries
+	/// markup that the library would render as HTML
+	fn opf_with_a_hostile_description() -> String {
+		r##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Title</dc:title>
+    <dc:creator>Eco, Umberto</dc:creator>
+    <dc:identifier id="uid">urn:isbn:1</dc:identifier>
+    <dc:description>&lt;iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"&gt;&lt;/iframe&gt; a long enough description of a book that says nothing at all but goes on for more than fifteen words</dc:description>
+  </metadata>
+</package>"##
+			.to_string()
+	}
+
+	/// What an uploader who needs approval sent is written over the description in the file, and
+	/// replaces it even when it is long; without one, the file's own is removed
+	#[test]
+	fn an_untrusted_description_replaces_the_files_own_markup() {
+		let opf = opf_with_a_hostile_description();
+		// as a trusted book: the file's own long description is kept, markup and all
+		let kept = edit_opf(
+			&opf,
+			&FileMetadata {
+				description: Some("Plain.".into()),
+				..Default::default()
+			},
+		)
+		.unwrap();
+		assert!(kept.contains("iframe"), "{kept}");
+
+		let replaced = edit_opf(
+			&opf,
+			&FileMetadata {
+				description: Some("Plain.".into()),
+				replace_description: true,
+				..Default::default()
+			},
+		)
+		.unwrap();
+		check_xml(&replaced).unwrap();
+		assert!(!replaced.contains("iframe"), "{replaced}");
+		assert!(!replaced.contains("<script") && !replaced.contains("srcdoc"), "{replaced}");
+		assert_eq!(replaced.matches("<dc:description>").count(), 1, "{replaced}");
+		assert!(replaced.contains("<dc:description>Plain.</dc:description>"));
+
+		// nothing to say: the file's own goes too
+		let removed = edit_opf(
+			&opf,
+			&FileMetadata {
+				replace_description: true,
+				..Default::default()
+			},
+		)
+		.unwrap();
+		check_xml(&removed).unwrap();
+		assert!(!removed.contains("dc:description"), "{removed}");
+		assert!(!removed.contains("iframe"), "{removed}");
+	}
+
 	fn authors(names: &[&str]) -> FileMetadata {
 		FileMetadata {
 			authors: names.iter().map(|n| n.to_string()).collect(),
@@ -967,6 +1041,7 @@ mod tests {
 			language: Some("es".into()),
 			year: Some(1980),
 			description: None,
+			replace_description: false,
 			tags: order_tags(&[
 				"Origin: Italian".into(),
 				"Mystery & Thriller: Historical Mystery".into(),

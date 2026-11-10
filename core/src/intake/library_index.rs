@@ -17,7 +17,8 @@ use models::{
 	shared::intake::IntakeSeriesKind,
 };
 use sea_orm::{
-	prelude::*, DatabaseConnection, FromQueryResult, QuerySelect, Statement,
+	ColumnTrait, DatabaseConnection, FromQueryResult, QueryFilter, QuerySelect,
+	Statement,
 };
 
 use super::{

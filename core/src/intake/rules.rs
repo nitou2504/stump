@@ -41,6 +41,14 @@ pub fn plain_text(text: &str) -> String {
 	out.trim().to_string()
 }
 
+/// The description of a book that comes from somebody whose text isn't trusted (their file, an
+/// online source, what they typed): plain text, no longer than a typed one may be, or nothing
+pub fn untrusted_description(text: &str) -> Option<String> {
+	let text: String = plain_text(text).chars().take(MAX_DESCRIPTION_CHARS).collect();
+	let text = text.trim();
+	(!text.is_empty()).then(|| text.to_string())
+}
+
 fn too_long(what: &str, max: usize, value: &str) -> Option<String> {
 	(value.chars().count() > max)
 		.then(|| format!("{what} can't be longer than {max} characters"))
@@ -120,6 +128,20 @@ pub fn check_age_rating(current: Option<i32>, new: i32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn an_untrusted_description_is_plain_and_short() {
+		let plain =
+			untrusted_description(r#"<iframe srcdoc="<script>x</script>"></iframe>Hello"#)
+				.expect("some text is left");
+		assert!(plain.ends_with("Hello") && !plain.contains(['<', '>']), "{plain}");
+		assert_eq!(untrusted_description("<b></b>  "), None);
+		let long = "a".repeat(MAX_DESCRIPTION_CHARS + 50);
+		assert_eq!(
+			untrusted_description(&long).map(|d| d.chars().count()),
+			Some(MAX_DESCRIPTION_CHARS)
+		);
+	}
 
 	#[test]
 	fn markup_is_removed_from_a_description() {
