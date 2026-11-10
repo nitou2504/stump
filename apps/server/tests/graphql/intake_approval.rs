@@ -1652,3 +1652,74 @@ async fn test_a_file_name_keeps_the_extension_of_its_format() {
 		.await;
 	assert_eq!(response["data"]["intakeReview"]["state"], "READY");
 }
+
+/// an approver sees the queue of the libraries they can use, and of no other
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_approver_only_sees_the_queue_of_libraries_they_can_use() {
+	let world = world().await;
+	let vis = &world.vis;
+	// a library manager with limits: *Hidden* is hidden from them
+	let manager = vis
+		.limited_like_ana(
+			&world.app,
+			"manager",
+			vec![UserPermission::ManageLibrary, UserPermission::AddBooks],
+		)
+		.await;
+	let open = insert_item(
+		&world,
+		&vis.ana.id,
+		IntakeState::PendingApproval,
+		IntakeProposal::default(),
+	)
+	.await;
+	let hidden = insert_item(
+		&world,
+		&vis.ana.id,
+		IntakeState::PendingApproval,
+		IntakeProposal::default(),
+	)
+	.await;
+	intake_item::ActiveModel {
+		library_id: Set(vis.hidden_library.id.clone()),
+		..world.row(&hidden).await.into()
+	}
+	.update(world.app.conn())
+	.await
+	.unwrap();
+
+	let response = world.gql(&manager.token, PENDING, json!({})).await;
+	assert_ok(&response);
+	let queue = &response["data"]["pendingIntakeItems"];
+	assert_eq!(queue["totalCount"], 1, "{response:#}");
+	assert_eq!(queue["nodes"][0]["id"], open);
+	vis.assert_none_hidden(&response);
+	let response = world.gql(&manager.token, PENDING_COUNT, json!({})).await;
+	assert_eq!(response["data"]["pendingIntakeCount"], 1);
+	// they can't approve, send back or change what they can't see: it isn't found
+	for (query, variables) in [
+		(APPROVE, json!({ "ids": [hidden] })),
+		(REJECT, json!({ "id": hidden, "note": "no" })),
+		(
+			REVIEW,
+			json!({ "id": hidden, "input": { "title": "mine now" } }),
+		),
+	] {
+		let response = world.gql(&manager.token, query, variables).await;
+		assert_refused(&response);
+		assert!(
+			errors(&response).contains("not found"),
+			"{query}: {response:#}"
+		);
+	}
+	assert_eq!(world.row(&hidden).await.state, IntakeState::PendingApproval);
+	// the owner sees both
+	let response = world.as_owner(PENDING, json!({})).await;
+	assert_eq!(response["data"]["pendingIntakeItems"]["totalCount"], 2);
+	// and what they can see, they approve (an item with nothing to file only fails, and goes
+	// back to waiting, with the reason)
+	let response = world
+		.gql(&manager.token, APPROVE, json!({ "ids": [open] }))
+		.await;
+	assert_ok(&response);
+}

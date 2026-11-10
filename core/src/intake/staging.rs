@@ -216,11 +216,14 @@ pub async fn create_items(
 		}
 	}
 
-	let mut items = vec![];
+	let mut items: Vec<intake_item::Model> = vec![];
 	for (group, files) in groups {
 		let id = Uuid::new_v4().to_string();
 		let dir = super::staging_dir(ctx, &user.id, &id);
-		tokio::fs::create_dir_all(&dir).await?;
+		if let Err(error) = tokio::fs::create_dir_all(&dir).await {
+			discard_created(conn, &items).await;
+			return Err(error.into());
+		}
 		let name = group.clone().unwrap_or_else(|| {
 			files
 				.first()
@@ -243,6 +246,7 @@ pub async fn create_items(
 			Ok(files) => files,
 			Err(error) => {
 				let _ = tokio::fs::remove_dir_all(&dir).await;
+				discard_created(conn, &items).await;
 				return Err(error);
 			},
 		};
@@ -263,11 +267,23 @@ pub async fn create_items(
 			Ok(model) => items.push(model),
 			Err(error) => {
 				let _ = tokio::fs::remove_dir_all(&dir).await;
+				discard_created(conn, &items).await;
 				return Err(error.into());
 			},
 		}
 	}
 	Ok(items)
+}
+
+/// Takes back the items an upload had made before it failed: a request that failed is one that
+/// made nothing, and an item left behind would wait to be analysed for good
+async fn discard_created(conn: &DatabaseConnection, items: &[intake_item::Model]) {
+	for item in items {
+		let _ = intake_item::Entity::delete_by_id(item.id.clone())
+			.exec(conn)
+			.await;
+		let _ = tokio::fs::remove_dir_all(&item.staging_dir).await;
+	}
 }
 
 /// Puts the files of one item into its staging folder under safe names
