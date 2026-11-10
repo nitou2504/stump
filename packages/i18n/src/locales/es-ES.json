@@ -2996,6 +2996,9 @@
       "pageMargins": "Márgenes de página"
     },
     "bookActions": {
+      "more": "Más",
+      "markAsUnread": "Marcar como no leído",
+      "fileInfo": "Información del archivo",
       "markAsRead": {
         "label": "Marcar como Leído",
         "failure": "No se pudo marcar el libro como leído",

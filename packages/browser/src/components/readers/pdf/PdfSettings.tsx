@@ -1,6 +1,8 @@
 import { buttonVariants, cn } from '@stump/components'
+import { UserPermission } from '@stump/graphql'
 import { Link } from 'react-router'
 
+import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -102,7 +104,10 @@ export function PdfOpenAs({
 }) {
 	const { translate } = useTranslate()
 	const paths = usePaths()
+	const { checkPermission } = useAppContext()
 	const linkClass = cn(buttonVariants({ size: 'sm', variant: 'ghost' }), 'h-8 px-2 text-xs')
+	// the browser's own viewer fetches the original file, which takes the permission to download
+	const canOpenInBrowser = checkPermission(UserPermission.DownloadFile)
 
 	return (
 		<div
@@ -112,12 +117,14 @@ export function PdfOpenAs({
 			<button type="button" className={linkClass} onClick={() => onChange({ reader: 'pages' })}>
 				{translate('shared.pdfReader.openAsPages')}
 			</button>
-			<Link
-				className={linkClass}
-				to={paths.bookReader(bookId, { isPdf: true, isStreaming: false })}
-			>
-				{translate('shared.pdfReader.openInBrowser')}
-			</Link>
+			{canOpenInBrowser && (
+				<Link
+					className={linkClass}
+					to={paths.bookReader(bookId, { isPdf: true, isStreaming: false })}
+				>
+					{translate('shared.pdfReader.openInBrowser')}
+				</Link>
+			)}
 		</div>
 	)
 }

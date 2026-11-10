@@ -1,19 +1,16 @@
 import { parseGraphQLPercentageDecimal } from '@stump/client'
 import { Badge, Heading, Link } from '@stump/components'
-import { FragmentType, graphql, Tag, useFragment, UserPermission } from '@stump/graphql'
-import { ExternalLink, PencilLine, Plus, X } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { FragmentType, graphql, Tag, useFragment } from '@stump/graphql'
+import { ExternalLink, PencilLine, Plus } from 'lucide-react'
+import { Fragment } from 'react'
 
 import ReadMore from '@/components/ReadMore'
 import TagList from '@/components/tags/TagList'
-import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import BookStatRow from './BookStatRow'
-import { EditBookDialog } from './metadata/edit'
 import { getBookPresentation } from './presentation'
-import { useBookProgressMutations } from './useBookReadingActions'
 
 const fragment = graphql(`
 	fragment BookOverviewDetails on Media {
@@ -56,9 +53,14 @@ const fragment = graphql(`
 
 type Props = {
 	fragment: FragmentType<typeof fragment>
+	/**
+	 * Asks the page to open the dialog to edit the book's genres. The pencil by the genres is
+	 * there only when this is given: the page decides who may edit, and owns the one dialog
+	 */
+	onEditGenres?: () => void
 }
 
-export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
+export function BookOverviewDetails({ fragment: fragmentRef, onEditGenres }: Props) {
 	const { translate } = useTranslate()
 
 	const media = useFragment(fragment, fragmentRef)
@@ -74,15 +76,10 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 	const position = metadata?.number ?? metadata?.volume ?? media.seriesPosition
 
 	const isReading = !!media.readProgress
-	const { clearProgress } = useBookProgressMutations()
 	const isPreviouslyCompleted = !!media.readHistory?.length
 	const percentage = parseGraphQLPercentageDecimal(media.readProgress?.percentageCompleted)
 
 	const presentation = getBookPresentation(media.library.config.libraryType)
-
-	const { checkPermission } = useAppContext()
-	const canEdit = checkPermission(UserPermission.EditMetadata)
-	const [editingGenres, setEditingGenres] = useState(false)
 
 	const creatorLink = (name: string, field: 'writers' | 'pencillers') => (
 		<Link
@@ -138,7 +135,7 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 				</div>
 
 				{(isReading || isPreviouslyCompleted) && (
-					<Badge variant="primary" className="gap-1">
+					<Badge variant="primary">
 						{isReading
 							? [
 									translate('shared.readingStatus.READING'),
@@ -147,24 +144,13 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 									.filter(Boolean)
 									.join(' · ')
 							: translate('shared.common.completed')}
-						{isReading && (
-							<button
-								type="button"
-								onClick={() => clearProgress(media.id)}
-								title={translate('shared.bookActions.clearProgress.label')}
-								aria-label={translate('shared.bookActions.clearProgress.label')}
-								className="-mr-1 p-0.5 hover:bg-black/10 rounded-full opacity-60 hover:opacity-100"
-							>
-								<X className="h-3 w-3" />
-							</button>
-						)}
 					</Badge>
 				)}
 			</div>
 
 			<BookStatRow fragment={media} />
 
-			{(genres.length > 0 || tags.length > 0 || canEdit) && (
+			{(genres.length > 0 || tags.length > 0 || !!onEditGenres) && (
 				<div className="gap-1.5 flex flex-wrap items-center">
 					{genres.map((genre) => (
 						<Link
@@ -179,10 +165,10 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 							</Badge>
 						</Link>
 					))}
-					{canEdit && (
+					{onEditGenres && (
 						<button
 							type="button"
-							onClick={() => setEditingGenres(true)}
+							onClick={onEditGenres}
 							aria-label={genres.length ? 'Edit genres' : 'Add genres'}
 							title={genres.length ? 'Edit genres' : 'Add genres'}
 							className="gap-1 px-2 text-xs h-6 pointer-coarse:min-h-10 inline-flex items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -222,15 +208,6 @@ export function BookOverviewDetails({ fragment: fragmentRef }: Props) {
 						</Link>
 					))}
 				</div>
-			)}
-
-			{canEdit && (
-				<EditBookDialog
-					mediaId={media.id}
-					isOpen={editingGenres}
-					onClose={() => setEditingGenres(false)}
-					focus="genres"
-				/>
 			)}
 
 			{!!metadata?.summary && (

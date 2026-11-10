@@ -1,41 +1,16 @@
-import { useGraphQLMutation, useSDK } from '@stump/client'
-import { DropdownItemGroup } from '@stump/components/dropdown/DropdownMenu'
-import { FragmentType, graphql, useFragment, UserPermission } from '@stump/graphql'
-import {
-	BookMinus,
-	BookOpenCheck,
-	BookX,
-	Download,
-	FileSearch,
-	Image,
-	ImagePlus,
-	ImageUp,
-	PencilLine,
-	Send,
-	Trash2,
-} from 'lucide-react'
-import { useState } from 'react'
+import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { useLocation } from 'react-router'
-import { toast } from 'sonner'
 
 import { EntityHeader } from '@/components/sharedLayout'
-import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
-import DeleteHistoryConfirmation from './DeleteHistoryConfirmation'
-import EmailBookDialog from './EmailBookDialog'
-import { EditBookDialog } from './metadata/edit'
-import RemoveBookConfirmation from './RemoveBookConfirmation'
-import { useBookReadingActions } from './useBookReadingActions'
-import { useBookThumbnailActions } from './useBookThumbnailActions'
+import { useBookPermissions } from './useBookPermissions'
 
 const fragment = graphql(`
 	fragment BookHeader on Media {
 		id
 		resolvedName
-		pages
-		extension
 		series {
 			id
 			resolvedName
@@ -44,74 +19,25 @@ const fragment = graphql(`
 			id
 			name
 		}
-		...BookReadingActions
-	}
-`)
-
-const analyzeMutation = graphql(`
-	mutation BookHeaderAnalyze($id: ID!) {
-		analyzeMedia(id: $id)
 	}
 `)
 
 type Props = {
 	fragment: FragmentType<typeof fragment>
-	onInfoClick?: () => void
 }
 
-const MANAGE_PERMISSIONS = [
-	UserPermission.ManageLibrary,
-	UserPermission.EditThumbnails,
-	UserPermission.EditMetadata,
-]
-
-// TODO(i8n): localize analysis
-
-export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
+/**
+ * The title bar of a book's pages: where the book is (library, series) and the way to its manage
+ * page, for the users that page has something for. What can be done to the book is under its
+ * cover (see `BookActions`), the same for everyone.
+ */
+export function BookHeader({ fragment: fragmentRef }: Props) {
 	const book = useFragment(fragment, fragmentRef)
 	const location = useLocation()
 	const paths = usePaths()
 
-	const { t, translate } = useTranslate()
-	const { sdk } = useSDK()
-	const { checkPermission } = useAppContext()
-	const {
-		isReading,
-		isPreviouslyCompleted,
-		isUntouched,
-		completeBook,
-		deleteCurrentSession,
-		deleteReadHistory,
-	} = useBookReadingActions(book)
-
-	const thumbnail = useBookThumbnailActions({
-		bookId: book.id,
-		pages: book.pages,
-		extension: book.extension,
-	})
-	const { mutate: analyze, isPending: isAnalyzing } = useGraphQLMutation(analyzeMutation, {
-		onSuccess: () => toast.success('Analysis started'),
-		onError: (error) => {
-			console.error(error)
-			toast.error('Failed to start analysis')
-		},
-	})
-
-	const [showEmailDialog, setShowEmailDialog] = useState(false)
-	const [showDeleteHistoryConfirmation, setShowDeleteHistoryConfirmation] = useState(false)
-	const [showRemoveConfirmation, setShowRemoveConfirmation] = useState(false)
-	const [showEditDetails, setShowEditDetails] = useState(false)
-
-	const canManage = MANAGE_PERMISSIONS.some((permission) => checkPermission(permission))
-	const canDownload = checkPermission(UserPermission.DownloadFile)
-	const canAnalyze = checkPermission(UserPermission.ManageLibrary)
-	const canEditThumbnail = checkPermission(UserPermission.EditThumbnails)
-	const canEditMetadata = checkPermission(UserPermission.EditMetadata)
-	const canUpload = thumbnail.canUpload
-	// granted per user by an admin (the user's permissions in Settings → Users)
-	const canRemove = checkPermission(UserPermission.RemoveBook)
-	const canEmail =
-		checkPermission(UserPermission.EmailSend) || checkPermission(UserPermission.EmailArbitrarySend)
+	const { translate } = useTranslate()
+	const { canManage } = useBookPermissions()
 
 	const tabs = [
 		{
@@ -119,191 +45,23 @@ export function BookHeader({ fragment: fragmentRef, onInfoClick }: Props) {
 			label: translate('shared.common.overview'),
 			to: paths.bookOverview(book.id),
 		},
-		// The reading timeline page is not implemented on web yet (it only renders an
-		// "under construction" placeholder), so it is not linked here
+		// The reading timeline page is not implemented on web yet, so it is not linked here
 	]
 
-	const actions = [
-		{
-			items: [
-				...(isUntouched || isReading
-					? [
-							{
-								label: translate('shared.bookActions.markAsRead.label'),
-								leftIcon: <BookOpenCheck />,
-								onClick: completeBook,
-							},
-						]
-					: []),
-				...(isReading
-					? [
-							{
-								label: translate('shared.bookActions.clearProgress.label'),
-								leftIcon: <BookMinus />,
-								onClick: deleteCurrentSession,
-							},
-						]
-					: []),
-				...(isPreviouslyCompleted
-					? [
-							{
-								label: translate('shared.bookActions.deleteReadHistory.label'),
-								leftIcon: <BookX />,
-								variant: 'destructive' as const,
-								onClick: () => setShowDeleteHistoryConfirmation(true),
-							},
-						]
-					: []),
-			],
-		},
-		{
-			items: [
-				...(canDownload
-					? [
-							{
-								label: translate('shared.common.download'),
-								leftIcon: <Download />,
-								onClick: () => downloadFile(sdk.media.downloadURL(book.id)),
-							},
-						]
-					: []),
-				...(canEmail
-					? [
-							{
-								label: translate('shared.common.email'),
-								leftIcon: <Send />,
-								onClick: () => setShowEmailDialog(true),
-							},
-						]
-					: []),
-			],
-		},
-		{
-			items: [
-				...(canEditMetadata
-					? [
-							{
-								label: 'Edit details',
-								leftIcon: <PencilLine />,
-								onClick: () => setShowEditDetails(true),
-							},
-						]
-					: []),
-				...(canAnalyze
-					? [
-							{
-								label: translate('shared.bookActions.analyze'),
-								leftIcon: <FileSearch />,
-								disabled: isAnalyzing,
-								onClick: () => analyze({ id: book.id }),
-							},
-						]
-					: []),
-				...(canEditThumbnail
-					? [
-							{
-								label: translate('shared.common.thumbnail'),
-								leftIcon: <Image />,
-								subItems: [
-									{
-										label: t('thumbnailSelector.chooseAPage'),
-										leftIcon: <ImagePlus />,
-										onClick: thumbnail.openPageSelector,
-									},
-									...(canUpload
-										? [
-												{
-													label: t('thumbnailSelector.uploadImage'),
-													leftIcon: <ImageUp />,
-													onClick: thumbnail.openUpload,
-												},
-											]
-										: []),
-								],
-							},
-						]
-					: []),
-			],
-		},
-		{
-			items: canRemove
-				? [
-						{
-							label: 'Remove from library',
-							leftIcon: <Trash2 />,
-							variant: 'destructive' as const,
-							onClick: () => setShowRemoveConfirmation(true),
-						},
-					]
-				: [],
-		},
-	].filter((group) => group.items.length > 0) satisfies DropdownItemGroup[]
-
 	return (
-		<>
-			<EntityHeader
-				name={book.resolvedName}
-				parents={[
-					{
-						label: book.library.name,
-						to: book.series ? paths.library(book.library.id) : paths.libraryBooks(book.library.id),
-					},
-					...(book.series
-						? [{ label: book.series.resolvedName, to: paths.seriesOverview(book.series.id) }]
-						: []),
-				]}
-				tabs={tabs}
-				actions={actions.length ? actions : undefined}
-				settingsLink={canManage ? paths.bookManagement(book.id) : undefined}
-				onInfoClick={onInfoClick}
-			/>
-
-			{canEmail && (
-				<EmailBookDialog
-					mediaId={book.id}
-					isOpen={showEmailDialog}
-					onClose={() => setShowEmailDialog(false)}
-				/>
-			)}
-
-			{canEditThumbnail && thumbnail.dialogs}
-
-			{canEditMetadata && (
-				<EditBookDialog
-					mediaId={book.id}
-					isOpen={showEditDetails}
-					onClose={() => setShowEditDetails(false)}
-				/>
-			)}
-
-			{canRemove && (
-				<RemoveBookConfirmation
-					bookId={book.id}
-					name={book.resolvedName}
-					fallbackPath={
-						book.series ? paths.seriesOverview(book.series.id) : paths.libraryBooks(book.library.id)
-					}
-					isOpen={showRemoveConfirmation}
-					onClose={() => setShowRemoveConfirmation(false)}
-				/>
-			)}
-
-			<DeleteHistoryConfirmation
-				name={book.resolvedName}
-				isOpen={showDeleteHistoryConfirmation}
-				onCancel={() => setShowDeleteHistoryConfirmation(false)}
-				onConfirm={() => {
-					deleteReadHistory()
-					setShowDeleteHistoryConfirmation(false)
-				}}
-			/>
-		</>
+		<EntityHeader
+			name={book.resolvedName}
+			parents={[
+				{
+					label: book.library.name,
+					to: book.series ? paths.library(book.library.id) : paths.libraryBooks(book.library.id),
+				},
+				...(book.series
+					? [{ label: book.series.resolvedName, to: paths.seriesOverview(book.series.id) }]
+					: []),
+			]}
+			tabs={tabs}
+			settingsLink={canManage ? paths.bookManagement(book.id) : undefined}
+		/>
 	)
-}
-
-const downloadFile = (url: string) => {
-	const anchor = document.createElement('a')
-	anchor.href = url
-	anchor.download = ''
-	anchor.click()
 }

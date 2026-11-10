@@ -3427,6 +3427,9 @@
       "ABANDONED": "Abandoned"
     },
     "bookActions": {
+      "more": "More",
+      "markAsUnread": "Mark as Unread",
+      "fileInfo": "File Info",
       "analyze": "Analyze",
       "readFromBeginning": "Read from Beginning",
       "readIncognito": "Read Incognito",

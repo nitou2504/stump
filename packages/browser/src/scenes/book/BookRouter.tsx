@@ -21,11 +21,7 @@ export default function BookRouter() {
 					path=":id/manage"
 					element={
 						<UserPermissionRouteGuard
-							permissions={[
-								UserPermission.ManageLibrary,
-								UserPermission.EditThumbnails,
-								UserPermission.EditMetadata,
-							]}
+							permissions={[UserPermission.EditMetadata, UserPermission.MetadataFetchRecordManage]}
 							enforceAll={false}
 						/>
 					}

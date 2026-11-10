@@ -12,9 +12,9 @@ const query = graphql(`
 				writers
 			}
 			...BookHeader
+			...BookActions
 			...BookOverviewDetails
 			...BookInfoSheet
-			...BookReadingActions
 			library {
 				config {
 					libraryType

@@ -1,8 +1,15 @@
 import { EBOOK_EXTENSION, PDF_EXTENSION, useGraphQLMutation } from '@stump/client'
-import { extractErrorMessage, FragmentType, graphql, useFragment } from '@stump/graphql'
+import {
+	extractErrorMessage,
+	FragmentType,
+	graphql,
+	useFragment,
+	UserPermission,
+} from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
+import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -85,6 +92,7 @@ export function useBookReadingActions(data: BookReadingActionsRef) {
 	const book = useFragment(fragment, data)
 	const paths = usePaths()
 	const mutations = useBookProgressMutations()
+	const { checkPermission } = useAppContext()
 
 	const isReading = !!book.readProgress
 	const isPreviouslyCompleted = !!book.readHistory?.length
@@ -106,9 +114,11 @@ export function useBookReadingActions(data: BookReadingActionsRef) {
 		resume: getResumeLink(),
 		fromBeginning: readFromBeginning(),
 		incognito: readFromBeginning(true),
-		nativePdf: PDF_EXTENSION.test(book.extension)
-			? paths.bookReader(book.id, { isPdf: true, isStreaming: false })
-			: undefined,
+		// the browser's own viewer fetches the original file, which takes the permission to download
+		nativePdf:
+			PDF_EXTENSION.test(book.extension) && checkPermission(UserPermission.DownloadFile)
+				? paths.bookReader(book.id, { isPdf: true, isStreaming: false })
+				: undefined,
 	}
 
 	return {
