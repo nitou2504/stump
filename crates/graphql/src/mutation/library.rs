@@ -180,10 +180,9 @@ impl LibraryMutation {
 		})
 	}
 
-	/// Clear the scan history for a specific library
-	#[graphql(
-		guard = "PermissionGuard::new(&[UserPermission::ReadJobs, UserPermission::ManageLibrary])"
-	)]
+	/// Clear the scan history for a specific library. Wiping records is a library manager's job:
+	/// being able to read jobs isn't enough
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
 	async fn clear_scan_history(&self, ctx: &Context<'_>, id: ID) -> Result<u64> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
@@ -870,8 +869,11 @@ impl LibraryMutation {
 	///
 	/// The server owner cannot be excluded from a library, nor can the user performing the action exclude
 	/// themselves.
+	///
+	/// This decides who sees what, so it takes both permissions: managing the library and managing the
+	/// users (reading the users, or managing the library alone, is not enough)
 	#[graphql(
-		guard = "PermissionGuard::new(&[UserPermission::ManageLibrary, UserPermission::ReadUsers])"
+		guard = "PermissionGuard::all(&[UserPermission::ManageLibrary, UserPermission::ManageUsers])"
 	)]
 	async fn update_library_excluded_users(
 		&self,

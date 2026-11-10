@@ -53,20 +53,37 @@ impl Guard for SelfGuard {
 
 /// Guard that checks if the user has the required permissions to perform an action.
 /// If the user does not have the required permissions, an error is returned.
+///
+/// [`PermissionGuard::new`] lets in a user with **any one** of the permissions, which suits
+/// an action that more than one permission is meant to allow. When an action needs several
+/// of them at once (changing who may see a library takes both the library and the users),
+/// use [`PermissionGuard::all`]: listing them in `new` would let in anyone with only one.
 pub struct PermissionGuard {
 	permissions: Vec<UserPermission>,
+	require_all: bool,
 }
 
 impl PermissionGuard {
+	/// The user needs any one of the permissions
 	pub fn new(permissions: &[UserPermission]) -> Self {
 		Self {
 			permissions: permissions.to_vec(),
+			require_all: false,
+		}
+	}
+
+	/// The user needs every one of the permissions (an empty list lets in nobody)
+	pub fn all(permissions: &[UserPermission]) -> Self {
+		Self {
+			permissions: permissions.to_vec(),
+			require_all: true,
 		}
 	}
 
 	pub fn one(permission: UserPermission) -> Self {
 		Self {
 			permissions: vec![permission],
+			require_all: false,
 		}
 	}
 }
@@ -79,10 +96,17 @@ impl Guard for PermissionGuard {
 			return Ok(());
 		}
 
-		let authorized = self
-			.permissions
-			.iter()
-			.any(|p| user.permissions.contains(p));
+		let authorized = if self.require_all {
+			!self.permissions.is_empty()
+				&& self
+					.permissions
+					.iter()
+					.all(|p| user.permissions.contains(p))
+		} else {
+			self.permissions
+				.iter()
+				.any(|p| user.permissions.contains(p))
+		};
 		let permitted = authorized && !user.is_locked;
 
 		if permitted {
