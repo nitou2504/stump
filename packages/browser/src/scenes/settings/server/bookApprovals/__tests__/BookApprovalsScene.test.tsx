@@ -37,6 +37,11 @@ vi.mock('@/scenes/intake/hooks', () => ({
 	usePendingIntake: () => queue,
 	useUploaderAgeLimit: () => null,
 }))
+// the limits of the people who add books are for those who manage users: not what is tested here
+vi.mock('@/context', async (importOriginal) => ({
+	...(await importOriginal<typeof import('@/context')>()),
+	useAppContext: () => ({ checkPermission: () => false }),
+}))
 vi.mock('@stump/client', async (importOriginal) => ({
 	...(await importOriginal<typeof import('@stump/client')>()),
 	useGraphQL: () => ({

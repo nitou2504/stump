@@ -9191,6 +9191,26 @@ export type IntakeUploaderAgeQueryVariables = Exact<{
 
 export type IntakeUploaderAgeQuery = { __typename?: 'Query', userById: { __typename?: 'User', id: string, ageRestriction?: { __typename?: 'AgeRestriction', age: number, restrictOnUnset: boolean } | null } };
 
+export type IntakeLimitUsersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeLimitUsersQuery = { __typename?: 'Query', users: { __typename?: 'PaginatedUserResponse', nodes: Array<{ __typename?: 'User', id: string, username: string, isServerOwner: boolean, permissions: Array<UserPermission> }> } };
+
+export type UserIntakeLimitsQueryVariables = Exact<{
+  userId: Scalars['ID']['input'];
+}>;
+
+
+export type UserIntakeLimitsQuery = { __typename?: 'Query', userIntakeLimits: { __typename?: 'UserIntakeLimits', userId: string, maxFileMb?: number | null, maxFilesPerRequest?: number | null, quotaMb?: number | null, maxItems?: number | null, effective: { __typename?: 'IntakeLimitValues', maxFileBytes: number, maxFilesPerRequest: number, quotaBytes: number, maxItems: number } } };
+
+export type UpdateUserIntakeLimitsMutationVariables = Exact<{
+  userId: Scalars['ID']['input'];
+  input: UserIntakeLimitsInput;
+}>;
+
+
+export type UpdateUserIntakeLimitsMutation = { __typename?: 'Mutation', updateUserIntakeLimits: { __typename?: 'UserIntakeLimits', userId: string, maxFileMb?: number | null, maxFilesPerRequest?: number | null, quotaMb?: number | null, maxItems?: number | null, effective: { __typename?: 'IntakeLimitValues', maxFileBytes: number, maxFilesPerRequest: number, quotaBytes: number, maxItems: number } } };
+
 export type IntakeSubmitMutationVariables = Exact<{
   ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
 }>;
@@ -17877,6 +17897,52 @@ export const IntakeUploaderAgeDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<IntakeUploaderAgeQuery, IntakeUploaderAgeQueryVariables>;
+export const IntakeLimitUsersDocument = new TypedDocumentString(`
+    query IntakeLimitUsers {
+  users(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      username
+      isServerOwner
+      permissions
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeLimitUsersQuery, IntakeLimitUsersQueryVariables>;
+export const UserIntakeLimitsDocument = new TypedDocumentString(`
+    query UserIntakeLimits($userId: ID!) {
+  userIntakeLimits(userId: $userId) {
+    userId
+    maxFileMb
+    maxFilesPerRequest
+    quotaMb
+    maxItems
+    effective {
+      maxFileBytes
+      maxFilesPerRequest
+      quotaBytes
+      maxItems
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<UserIntakeLimitsQuery, UserIntakeLimitsQueryVariables>;
+export const UpdateUserIntakeLimitsDocument = new TypedDocumentString(`
+    mutation UpdateUserIntakeLimits($userId: ID!, $input: UserIntakeLimitsInput!) {
+  updateUserIntakeLimits(userId: $userId, input: $input) {
+    userId
+    maxFileMb
+    maxFilesPerRequest
+    quotaMb
+    maxItems
+    effective {
+      maxFileBytes
+      maxFilesPerRequest
+      quotaBytes
+      maxItems
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateUserIntakeLimitsMutation, UpdateUserIntakeLimitsMutationVariables>;
 export const IntakeSubmitDocument = new TypedDocumentString(`
     mutation IntakeSubmit($ids: [ID!]!) {
   intakeSubmit(ids: $ids) {

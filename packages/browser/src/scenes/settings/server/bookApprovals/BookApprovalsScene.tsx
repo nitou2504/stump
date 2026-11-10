@@ -13,6 +13,7 @@ import { intakeLibrariesQuery } from '@/scenes/intake/queries'
 import { approvableInBulk } from '@/scenes/intake/reviewState'
 
 import ReviewCard from './ReviewCard'
+import UserLimits from './UserLimits'
 
 export const APPROVALS_PAGE_SIZE = 20
 
@@ -139,6 +140,8 @@ export default function BookApprovalsScene() {
 					/>
 				)}
 			</section>
+
+			<UserLimits />
 
 			<AcceptAllSheet
 				items={approvable}

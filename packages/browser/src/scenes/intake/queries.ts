@@ -1,4 +1,9 @@
-import { graphql, IntakeItemFieldsFragment, IntakeUploadLimitsQuery } from '@stump/graphql'
+import {
+	graphql,
+	IntakeItemFieldsFragment,
+	IntakeUploadLimitsQuery,
+	UserIntakeLimitsQuery,
+} from '@stump/graphql'
 
 /**
  * Everything the inbox shows of an item: the same for the user's own inbox and for the queue of
@@ -270,6 +275,59 @@ export const intakeUploaderAgeQuery = graphql(`
 			ageRestriction {
 				age
 				restrictOnUnset
+			}
+		}
+	}
+`)
+
+/** The people the upload limits are for: those who can add books (the owner is never held to them) */
+export const intakeLimitUsersQuery = graphql(`
+	query IntakeLimitUsers {
+		users(pagination: { none: { unpaginated: true } }) {
+			nodes {
+				id
+				username
+				isServerOwner
+				permissions
+			}
+		}
+	}
+`)
+
+/** What a person may upload: the limits they were given, and what applies to them now */
+export const userIntakeLimitsQuery = graphql(`
+	query UserIntakeLimits($userId: ID!) {
+		userIntakeLimits(userId: $userId) {
+			userId
+			maxFileMb
+			maxFilesPerRequest
+			quotaMb
+			maxItems
+			effective {
+				maxFileBytes
+				maxFilesPerRequest
+				quotaBytes
+				maxItems
+			}
+		}
+	}
+`)
+
+export type UserIntakeLimitsData = NonNullable<UserIntakeLimitsQuery['userIntakeLimits']>
+
+export const updateUserIntakeLimitsMutation = graphql(`
+	mutation UpdateUserIntakeLimits($userId: ID!, $input: UserIntakeLimitsInput!) {
+		updateUserIntakeLimits(userId: $userId, input: $input) {
+			userId
+			maxFileMb
+			maxFilesPerRequest
+			quotaMb
+			maxItems
+			effective {
+				maxFileBytes
+				maxFilesPerRequest
+				quotaBytes
+				maxItems
 			}
 		}
 	}

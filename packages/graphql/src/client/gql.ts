@@ -290,6 +290,9 @@ type Documents = {
     "\n\tquery PendingIntakeItems($libraryId: ID, $page: Int! = 1, $pageSize: Int! = 20) {\n\t\tpendingIntakeItems(libraryId: $libraryId, page: $page, pageSize: $pageSize) {\n\t\t\ttotalCount\n\t\t\tnodes {\n\t\t\t\t...IntakeItemFields\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PendingIntakeItemsDocument,
     "\n\tquery PendingIntakeCount {\n\t\tpendingIntakeCount\n\t}\n": typeof types.PendingIntakeCountDocument,
     "\n\tquery IntakeUploaderAge($userId: ID!) {\n\t\tuserById(id: $userId) {\n\t\t\tid\n\t\t\tageRestriction {\n\t\t\t\tage\n\t\t\t\trestrictOnUnset\n\t\t\t}\n\t\t}\n\t}\n": typeof types.IntakeUploaderAgeDocument,
+    "\n\tquery IntakeLimitUsers {\n\t\tusers(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tisServerOwner\n\t\t\t\tpermissions\n\t\t\t}\n\t\t}\n\t}\n": typeof types.IntakeLimitUsersDocument,
+    "\n\tquery UserIntakeLimits($userId: ID!) {\n\t\tuserIntakeLimits(userId: $userId) {\n\t\t\tuserId\n\t\t\tmaxFileMb\n\t\t\tmaxFilesPerRequest\n\t\t\tquotaMb\n\t\t\tmaxItems\n\t\t\teffective {\n\t\t\t\tmaxFileBytes\n\t\t\t\tmaxFilesPerRequest\n\t\t\t\tquotaBytes\n\t\t\t\tmaxItems\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UserIntakeLimitsDocument,
+    "\n\tmutation UpdateUserIntakeLimits($userId: ID!, $input: UserIntakeLimitsInput!) {\n\t\tupdateUserIntakeLimits(userId: $userId, input: $input) {\n\t\t\tuserId\n\t\t\tmaxFileMb\n\t\t\tmaxFilesPerRequest\n\t\t\tquotaMb\n\t\t\tmaxItems\n\t\t\teffective {\n\t\t\t\tmaxFileBytes\n\t\t\t\tmaxFilesPerRequest\n\t\t\t\tquotaBytes\n\t\t\t\tmaxItems\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UpdateUserIntakeLimitsDocument,
     "\n\tmutation IntakeSubmit($ids: [ID!]!) {\n\t\tintakeSubmit(ids: $ids) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": typeof types.IntakeSubmitDocument,
     "\n\tmutation IntakeWithdraw($ids: [ID!]!) {\n\t\tintakeWithdraw(ids: $ids) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": typeof types.IntakeWithdrawDocument,
     "\n\tmutation IntakeApprove($ids: [ID!]!) {\n\t\tintakeApprove(ids: $ids) {\n\t\t\tid\n\t\t\tstate\n\t\t\terror\n\t\t}\n\t}\n": typeof types.IntakeApproveDocument,
@@ -712,6 +715,9 @@ const documents: Documents = {
     "\n\tquery PendingIntakeItems($libraryId: ID, $page: Int! = 1, $pageSize: Int! = 20) {\n\t\tpendingIntakeItems(libraryId: $libraryId, page: $page, pageSize: $pageSize) {\n\t\t\ttotalCount\n\t\t\tnodes {\n\t\t\t\t...IntakeItemFields\n\t\t\t}\n\t\t}\n\t}\n": types.PendingIntakeItemsDocument,
     "\n\tquery PendingIntakeCount {\n\t\tpendingIntakeCount\n\t}\n": types.PendingIntakeCountDocument,
     "\n\tquery IntakeUploaderAge($userId: ID!) {\n\t\tuserById(id: $userId) {\n\t\t\tid\n\t\t\tageRestriction {\n\t\t\t\tage\n\t\t\t\trestrictOnUnset\n\t\t\t}\n\t\t}\n\t}\n": types.IntakeUploaderAgeDocument,
+    "\n\tquery IntakeLimitUsers {\n\t\tusers(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tisServerOwner\n\t\t\t\tpermissions\n\t\t\t}\n\t\t}\n\t}\n": types.IntakeLimitUsersDocument,
+    "\n\tquery UserIntakeLimits($userId: ID!) {\n\t\tuserIntakeLimits(userId: $userId) {\n\t\t\tuserId\n\t\t\tmaxFileMb\n\t\t\tmaxFilesPerRequest\n\t\t\tquotaMb\n\t\t\tmaxItems\n\t\t\teffective {\n\t\t\t\tmaxFileBytes\n\t\t\t\tmaxFilesPerRequest\n\t\t\t\tquotaBytes\n\t\t\t\tmaxItems\n\t\t\t}\n\t\t}\n\t}\n": types.UserIntakeLimitsDocument,
+    "\n\tmutation UpdateUserIntakeLimits($userId: ID!, $input: UserIntakeLimitsInput!) {\n\t\tupdateUserIntakeLimits(userId: $userId, input: $input) {\n\t\t\tuserId\n\t\t\tmaxFileMb\n\t\t\tmaxFilesPerRequest\n\t\t\tquotaMb\n\t\t\tmaxItems\n\t\t\teffective {\n\t\t\t\tmaxFileBytes\n\t\t\t\tmaxFilesPerRequest\n\t\t\t\tquotaBytes\n\t\t\t\tmaxItems\n\t\t\t}\n\t\t}\n\t}\n": types.UpdateUserIntakeLimitsDocument,
     "\n\tmutation IntakeSubmit($ids: [ID!]!) {\n\t\tintakeSubmit(ids: $ids) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": types.IntakeSubmitDocument,
     "\n\tmutation IntakeWithdraw($ids: [ID!]!) {\n\t\tintakeWithdraw(ids: $ids) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": types.IntakeWithdrawDocument,
     "\n\tmutation IntakeApprove($ids: [ID!]!) {\n\t\tintakeApprove(ids: $ids) {\n\t\t\tid\n\t\t\tstate\n\t\t\terror\n\t\t}\n\t}\n": types.IntakeApproveDocument,
@@ -1959,6 +1965,18 @@ export function graphql(source: "\n\tquery PendingIntakeCount {\n\t\tpendingInta
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tquery IntakeUploaderAge($userId: ID!) {\n\t\tuserById(id: $userId) {\n\t\t\tid\n\t\t\tageRestriction {\n\t\t\t\tage\n\t\t\t\trestrictOnUnset\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').IntakeUploaderAgeDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery IntakeLimitUsers {\n\t\tusers(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tisServerOwner\n\t\t\t\tpermissions\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').IntakeLimitUsersDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery UserIntakeLimits($userId: ID!) {\n\t\tuserIntakeLimits(userId: $userId) {\n\t\t\tuserId\n\t\t\tmaxFileMb\n\t\t\tmaxFilesPerRequest\n\t\t\tquotaMb\n\t\t\tmaxItems\n\t\t\teffective {\n\t\t\t\tmaxFileBytes\n\t\t\t\tmaxFilesPerRequest\n\t\t\t\tquotaBytes\n\t\t\t\tmaxItems\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').UserIntakeLimitsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation UpdateUserIntakeLimits($userId: ID!, $input: UserIntakeLimitsInput!) {\n\t\tupdateUserIntakeLimits(userId: $userId, input: $input) {\n\t\t\tuserId\n\t\t\tmaxFileMb\n\t\t\tmaxFilesPerRequest\n\t\t\tquotaMb\n\t\t\tmaxItems\n\t\t\teffective {\n\t\t\t\tmaxFileBytes\n\t\t\t\tmaxFilesPerRequest\n\t\t\t\tquotaBytes\n\t\t\t\tmaxItems\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateUserIntakeLimitsDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
