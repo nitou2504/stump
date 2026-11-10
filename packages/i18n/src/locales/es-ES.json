@@ -1433,9 +1433,11 @@
       "privacy": {
         "label": "Compartir mi lectura",
         "switch": "Dejar que todas las personas de este servidor vean mi lectura",
-        "privateTitle": "Solo tú puedes ver esta página",
-        "sharedTitle": "Todas las personas de este servidor pueden ver esta página",
-        "description": "Ven lo que estás leyendo ahora y los libros que has terminado, solo los que ellas mismas pueden leer. Nunca ven cuánto tiempo lees, tus marcadores ni tus notas. Puedes desactivarlo cuando quieras.",
+        "private": "Privada",
+        "shared": "Compartida",
+        "privateLabel": "Mi lectura es privada",
+        "sharedLabel": "Mi lectura está compartida con todas las personas de este servidor",
+        "description": "Ven lo que lees ahora y lo que has terminado, solo de libros que ellas mismas pueden leer. Nunca ven cuánto tiempo lees, tus marcadores ni tus notas. Puedes desactivarlo cuando quieras.",
         "cardDescription": "Quién puede ver lo que lees y lo que has terminado",
         "saveFailed": "No se pudo cambiar quién ve tu lectura"
       },

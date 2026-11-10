@@ -9,7 +9,7 @@ import FinishedSection from './FinishedSection'
 import { useReader, useReadingPeople } from './graphql'
 import ReaderSwitcher from './ReaderSwitcher'
 import ReadingNowSection from './ReadingNowSection'
-import { ReadingPrivacyStrip } from './ReadingPrivacy'
+import { ReadingPrivacyControl } from './ReadingPrivacy'
 
 type Props = {
 	/** A friend's id (`/reading/:userId`), or nothing for the person's own page (`/reading`) */
@@ -38,15 +38,18 @@ export default function ReadingHistoryPage({ userId }: Props) {
 				<title>Stump | {t('readingHistory.helmet')}</title>
 			</Helmet>
 
-			<CollectionSceneHeader title={title} />
+			<CollectionSceneHeader
+				title={title}
+				// who sees the page is the person's to change, on their own page only; it is a chip in the
+				// header so the page itself starts with the reading
+				endActions={isOwnPage ? <ReadingPrivacyControl /> : undefined}
+			/>
 
 			<SceneContainer className="gap-8">
 				<ReaderSwitcher
 					friends={people?.readersSharingHistory ?? []}
 					current={isOwnPage ? undefined : userId}
 				/>
-
-				{isOwnPage && <ReadingPrivacyStrip />}
 
 				{error ? (
 					<GenericEmptyState
