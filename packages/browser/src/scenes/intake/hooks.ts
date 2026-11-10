@@ -35,6 +35,8 @@ import {
 	type PendingFile,
 	planUploads,
 	pollInterval,
+	unreadableExtensions,
+	unreadableTitle,
 	type UploadBatch,
 	uploadPercent,
 	uploadProblem,
@@ -120,7 +122,7 @@ export function usePendingIntakeCount(enabled: boolean) {
 
 /**
  * The age limit of the person who uploaded a book, when the viewer may read it (the server owner
- * and those who read users do; for anybody else there is nobody to ask, and no warning)
+ * and those who manage users do; for anybody else there is nobody to ask, and no warning)
  */
 export function useUploaderAgeLimit(userId?: string): AgeLimit | null {
 	const { data } = useGraphQL(
@@ -323,10 +325,22 @@ export type UploadEntry = UploadBatch & {
 	status: UploadStatus
 	progress: number
 	error?: string
+	/** Why a queued upload is waiting, when it is not just its turn (the server asked to slow down) */
+	note?: string
 }
 
 /** Those who file books themselves have the room for two uploads at a time; everybody else's is one */
 const PARALLEL_UPLOADS_FOR_APPROVERS = 2
+
+/**
+ * A proxy in front of Stump limits how fast requests may come (each loose book is one), and
+ * answers a 429 without Stump's own message when it does. That lifts after a moment, so the
+ * upload goes back in the queue and the queue waits, at least this long (or as long as the
+ * answer says, up to the longest), and tries the same book a few times before it gives up.
+ */
+export const PROXY_RETRY_MIN_SECS = 6
+export const PROXY_RETRY_MAX_SECS = 60
+export const PROXY_RETRIES = 5
 
 const modeParam = (mode: IntakeUploadMode) => mode.toLowerCase() as 'auto' | 'books' | 'series'
 
@@ -343,6 +357,14 @@ export function useIntakeUploader(libraryId?: string, limits?: IntakeLimitsData)
 	const [entries, setEntries] = useState<UploadEntry[]>([])
 	const active = useRef(0)
 	const queue = useRef<UploadEntry[]>([])
+	// while a proxy asks to slow down, nothing new is started; how often each upload was held back
+	const pausedUntil = useRef(0)
+	const retries = useRef(new Map<string, number>())
+	const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
+	useEffect(() => {
+		const pending = timers.current
+		return () => pending.forEach(clearTimeout)
+	}, [])
 	// bumped when an upload finishes or files are added, to start the next uploads
 	const [tick, setTick] = useState(0)
 	// the latest limits, for uploads that start later than the render that queued them
@@ -376,6 +398,7 @@ export function useIntakeUploader(libraryId?: string, limits?: IntakeLimitsData)
 	)
 
 	const pump = useCallback(() => {
+		if (Date.now() < pausedUntil.current) return
 		const parallel = limitsRef.current?.canFileDirectly ? PARALLEL_UPLOADS_FOR_APPROVERS : 1
 		while (active.current < parallel && queue.current.length) {
 			const next = queue.current.shift()
@@ -387,15 +410,39 @@ export function useIntakeUploader(libraryId?: string, limits?: IntakeLimitsData)
 				continue
 			}
 			active.current += 1
-			update(next.key, { status: 'uploading' })
+			update(next.key, { note: undefined, status: 'uploading' })
 			send(next, libraryId)
 				.then(() => update(next.key, { progress: 100, status: 'done' }))
-				.catch((error: unknown) =>
+				.catch((error: unknown) => {
+					const failure = intakeUploadErrorOf(error)
+					const tries = retries.current.get(next.key) ?? 0
+					if (!failure.throttledByProxy || tries >= PROXY_RETRIES) {
+						update(next.key, { error: failure.message, status: 'error' })
+						return
+					}
+					// the book is not at fault: it goes first in the queue again, and the queue waits
+					retries.current.set(next.key, tries + 1)
+					const wait = Math.min(
+						PROXY_RETRY_MAX_SECS,
+						Math.max(PROXY_RETRY_MIN_SECS, Math.ceil(failure.retryAfterSecs ?? 0)),
+					)
+					pausedUntil.current = Date.now() + wait * 1000
+					queue.current.unshift(next)
 					update(next.key, {
-						error: intakeUploadErrorOf(error).message,
-						status: 'error',
-					}),
-				)
+						note: `The server is busy: trying again in ${wait} seconds`,
+						progress: 0,
+						status: 'queued',
+					})
+					// a hair longer than the pause, so the wake-up is never before it ends
+					const timer = setTimeout(
+						() => {
+							timers.current.delete(timer)
+							setTick((t) => t + 1)
+						},
+						wait * 1000 + 20,
+					)
+					timers.current.add(timer)
+				})
 				.finally(() => {
 					active.current -= 1
 					void refresh()
@@ -414,10 +461,21 @@ export function useIntakeUploader(libraryId?: string, limits?: IntakeLimitsData)
 				progress: 0,
 				status: 'queued',
 			}))
-			if (!batches.length) {
-				toast.error('No books found', {
-					description: 'Pick EPUB, PDF, CBZ or CBR files, folders of them, or a .zip',
+			// archives with no reader are not sent: the person hears why, whatever else was picked
+			const unreadable = unreadableExtensions(files)
+			if (unreadable.length) {
+				toast.error(unreadableTitle(unreadable), {
+					description: batches.length
+						? 'The other books are added'
+						: 'It reads EPUB, PDF, CBZ and CBR files, folders of them, or a .zip of those',
 				})
+			}
+			if (!batches.length) {
+				if (!unreadable.length) {
+					toast.error('No books found', {
+						description: 'Pick EPUB, PDF, CBZ or CBR files, folders of them, or a .zip',
+					})
+				}
 				return
 			}
 			setEntries((prev) => [...batches, ...prev])

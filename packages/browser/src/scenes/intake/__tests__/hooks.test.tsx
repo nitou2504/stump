@@ -4,7 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { PropsWithChildren } from 'react'
 
-import { useIntakeActions, useIntakeInbox, useIntakeUploader } from '../hooks'
+import {
+	PROXY_RETRIES,
+	PROXY_RETRY_MAX_SECS,
+	PROXY_RETRY_MIN_SECS,
+	useIntakeActions,
+	useIntakeInbox,
+	useIntakeUploader,
+} from '../hooks'
 import {
 	intakeAcceptMutation,
 	intakeApproveMutation,
@@ -267,6 +274,39 @@ describe('useIntakeUploader', () => {
 		expect(sdk.intake.upload).not.toHaveBeenCalled()
 	})
 
+	it('says that Stump can’t read a .cb7, instead of leaving it out without a word', () => {
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('manga.cb7') }]))
+
+		expect(toast.error).toHaveBeenCalledTimes(1)
+		expect(toast.error).toHaveBeenCalledWith('Stump can’t read .cb7 files', {
+			description: expect.stringContaining('It reads EPUB, PDF, CBZ and CBR'),
+		})
+		expect(result.current.entries).toHaveLength(0)
+		expect(sdk.intake.upload).not.toHaveBeenCalled()
+	})
+
+	it('adds the books of a pick that had files Stump can’t read, and says what was left out', async () => {
+		const { result } = setup()
+
+		act(() =>
+			result.current.add([
+				{ file: file('a.epub') },
+				{ file: file('b.7z') },
+				{ file: file('c.cbt'), relativePath: 'Folder/c.cbt' },
+				{ file: file('d.7z') },
+			]),
+		)
+
+		// each kind once, and the books that can be read still go
+		expect(toast.error).toHaveBeenCalledWith('Stump can’t read .7z and .cbt files', {
+			description: 'The other books are added',
+		})
+		await waitFor(() => expect(result.current.entries.map((e) => e.label)).toEqual(['a.epub']))
+		await waitFor(() => expect(sdk.intake.upload).toHaveBeenCalledTimes(1))
+	})
+
 	it('forgets the finished uploads and keeps the rest', async () => {
 		const { result } = setup(limits({ maxFileBytes: 50 * MB }))
 		act(() => result.current.add([{ file: file('huge.cbz', 80) }, { file: file('ok.epub') }]))
@@ -275,6 +315,132 @@ describe('useIntakeUploader', () => {
 		act(() => result.current.clearFinished())
 
 		expect(result.current.entries.map((e) => e.status)).toEqual(['error'])
+	})
+})
+
+describe('useIntakeUploader behind a proxy that limits how fast requests come', () => {
+	/** What the proxy answers: a 429 that carries no message of Stump's */
+	const slowDown = (retryAfterSecs?: number) =>
+		new IntakeUploadError('Too many requests: wait a moment and try again', 429, { retryAfterSecs })
+	const statuses = (result: ReturnType<typeof setup>['result']) =>
+		result.current.entries.map((e) => e.status)
+	/** Lets the time pass, and the promises that wait for it */
+	const pass = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+	/** Lets the chain of promises of an upload (the session, the request, what follows) run out */
+	const settle = async () => {
+		for (let i = 0; i < 8; i += 1) await pass(0)
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		vi.useFakeTimers()
+		sdk.auth.me.mockResolvedValue({})
+		sdk.intake.upload.mockResolvedValue({ items: [] })
+	})
+	afterEach(() => vi.useRealTimers())
+
+	it('puts the book back and tries again after a pause, one at a time and in the same order', async () => {
+		sdk.intake.upload.mockRejectedValueOnce(slowDown())
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('a.epub') }, { file: file('b.epub') }]))
+		await pass(0)
+
+		// a was refused: it waits, with the reason, and b does not go in its place
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(1)
+		const first = result.current.entries.find((e) => e.label === 'a.epub')
+		expect(first?.status).toBe('queued')
+		expect(first?.note).toBe(`The server is busy: trying again in ${PROXY_RETRY_MIN_SECS} seconds`)
+		expect(first?.error).toBeUndefined()
+
+		await pass(PROXY_RETRY_MIN_SECS * 1000 - 100)
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(1)
+		await pass(200)
+
+		// a goes first again, then b
+		await settle()
+		expect(statuses(result)).toEqual(['done', 'done'])
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(3)
+		const sent = sdk.intake.upload.mock.calls.map(([call]) => call.files[0].name)
+		expect(sent).toEqual(['a.epub', 'a.epub', 'b.epub'])
+		expect(result.current.entries.every((e) => e.note === undefined)).toBe(true)
+	})
+
+	it('waits as long as the answer asks, up to a minute', async () => {
+		sdk.intake.upload.mockRejectedValueOnce(slowDown(20)).mockRejectedValueOnce(slowDown(3600))
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('a.epub') }]))
+		await pass(0)
+		expect(result.current.entries[0]?.note).toContain('20 seconds')
+		await pass(19_000)
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(1)
+		await pass(1_100)
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(2)
+
+		// an hour is more than anybody waits at a page: a minute, then again
+		expect(result.current.entries[0]?.note).toContain(`${PROXY_RETRY_MAX_SECS} seconds`)
+		await pass(PROXY_RETRY_MAX_SECS * 1000 + 100)
+		await settle()
+		expect(statuses(result)).toEqual(['done'])
+	})
+
+	it('gives up after a few tries and says what the proxy said', async () => {
+		sdk.intake.upload.mockRejectedValue(slowDown())
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('a.epub') }]))
+		for (let i = 0; i <= PROXY_RETRIES; i += 1) await pass(PROXY_RETRY_MIN_SECS * 1000 + 100)
+
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(PROXY_RETRIES + 1)
+		expect(statuses(result)).toEqual(['error'])
+		expect(result.current.entries[0]?.error).toBe('Too many requests: wait a moment and try again')
+	})
+
+	it('does not try again what Stump itself refused, even with a 429', async () => {
+		sdk.intake.upload.mockRejectedValue(
+			new IntakeUploadError('An upload can hold 2 files at most', 429, { fromServer: true }),
+		)
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('a.epub') }]))
+		await pass(0)
+
+		expect(statuses(result)).toEqual(['error'])
+		expect(result.current.entries[0]?.error).toBe('An upload can hold 2 files at most')
+		await pass(PROXY_RETRY_MAX_SECS * 1000)
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not try again after any other refusal', async () => {
+		sdk.intake.upload.mockRejectedValue(
+			new IntakeUploadError('The server could not be reached', 502),
+		)
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('a.epub') }]))
+		await pass(0)
+		await pass(PROXY_RETRY_MAX_SECS * 1000)
+
+		expect(statuses(result)).toEqual(['error'])
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(1)
+	})
+
+	it('keeps files that are added while it waits behind the book that is held back', async () => {
+		sdk.intake.upload.mockRejectedValueOnce(slowDown())
+		const { result } = setup()
+
+		act(() => result.current.add([{ file: file('a.epub') }]))
+		await pass(0)
+		act(() => result.current.add([{ file: file('b.epub') }]))
+		await pass(100)
+		expect(sdk.intake.upload).toHaveBeenCalledTimes(1)
+
+		await pass(PROXY_RETRY_MIN_SECS * 1000)
+		await settle()
+		expect(statuses(result)).toEqual(['done', 'done'])
+		const sent = sdk.intake.upload.mock.calls.map(([call]) => call.files[0].name)
+		expect(sent).toEqual(['a.epub', 'a.epub', 'b.epub'])
 	})
 })
 

@@ -141,6 +141,8 @@ export default function IntakeDropZone({ onFiles, entries, onClearFinished, disa
 										<span className="text-xs text-destructive">{entry.error}</span>
 									) : entry.status === 'uploading' ? (
 										<ProgressBar value={entry.progress} size="sm" className="mt-1" />
+									) : entry.note ? (
+										<span className="text-xs text-muted-foreground">{entry.note}</span>
 									) : null}
 								</div>
 								<span className="text-xs shrink-0 text-muted-foreground">

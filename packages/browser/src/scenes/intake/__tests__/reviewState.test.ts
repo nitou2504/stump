@@ -37,6 +37,8 @@ import {
 	tagWhy,
 	toggleGenre,
 	typedSeriesKind,
+	unreadableExtensions,
+	unreadableTitle,
 	type UploadLimits,
 	uploadPercent,
 	uploadProblem,
@@ -521,5 +523,38 @@ describe('what "Approve all" takes', () => {
 
 	it('leaves out a book that failed before', () => {
 		expect(approvableInBulk(waiting({ error: 'Could not be written' }))).toBe(false)
+	})
+})
+
+describe('archives Stump has no reader for', () => {
+	const pick = (...names: string[]) =>
+		names.map((name) => ({
+			file: new File([''], name.split('/').pop() ?? name),
+			relativePath: name.includes('/') ? name : undefined,
+		}))
+
+	it('finds the kinds among what was picked, each once, whatever the case', () => {
+		expect(unreadableExtensions(pick('a.cb7', 'b.CB7', 'c.7z', 'd.epub', 'e.cbt'))).toEqual([
+			'cb7',
+			'7z',
+			'cbt',
+		])
+	})
+
+	it('finds them inside a picked folder, and not in hidden files', () => {
+		expect(unreadableExtensions(pick('Folder/v1.cb7', 'Folder/.hidden.7z'))).toEqual(['cb7'])
+	})
+
+	it('finds nothing in books Stump reads, or in files that are not books at all', () => {
+		expect(
+			unreadableExtensions(pick('a.epub', 'b.pdf', 'c.cbz', 'd.cbr', 'e.zip', 'notes.txt')),
+		).toEqual([])
+		expect(unreadableExtensions([])).toEqual([])
+	})
+
+	it('says what it can’t read', () => {
+		expect(unreadableTitle(['cb7'])).toBe('Stump can’t read .cb7 files')
+		expect(unreadableTitle(['cb7', '7z'])).toBe('Stump can’t read .cb7 and .7z files')
+		expect(unreadableTitle(['cb7', '7z', 'cbt'])).toBe('Stump can’t read .cb7, .7z and .cbt files')
 	})
 })

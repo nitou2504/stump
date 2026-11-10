@@ -46,12 +46,41 @@ export type IntakeUploadResponse = {
  */
 export class IntakeUploadError extends Error {
 	readonly status?: number
+	/**
+	 * Whether Stump itself said it (an answer with a `message`): its limits are certain and trying
+	 * again changes nothing. Without it the answer came from a proxy in front of Stump, or never
+	 * came
+	 */
+	readonly fromServer: boolean
+	/** The seconds the answer asked to wait before trying again (`Retry-After`), when it said */
+	readonly retryAfterSecs?: number
 
-	constructor(message: string, status?: number) {
+	constructor(
+		message: string,
+		status?: number,
+		options: { fromServer?: boolean; retryAfterSecs?: number } = {},
+	) {
 		super(message)
 		this.name = 'IntakeUploadError'
 		this.status = status
+		this.fromServer = options.fromServer ?? false
+		this.retryAfterSecs = options.retryAfterSecs
 	}
+
+	/**
+	 * A 429 from a proxy in front of Stump (a rate limit on requests, which lifts after a moment),
+	 * not one of Stump's own limits on files and items (which a new try does not change)
+	 */
+	get throttledByProxy() {
+		return this.status === 429 && !this.fromServer
+	}
+}
+
+/** The seconds of a `Retry-After` header, when it is a number of them */
+function retryAfterSecs(headers: unknown): number | undefined {
+	const value = (headers as Record<string, unknown> | undefined)?.['retry-after']
+	const secs = typeof value === 'string' || typeof value === 'number' ? Number(value) : Number.NaN
+	return Number.isFinite(secs) && secs >= 0 ? secs : undefined
 }
 
 /** What to say for a status when the answer carries no message of the server's (a proxy's page) */
@@ -73,13 +102,18 @@ export function intakeUploadErrorOf(error: unknown): IntakeUploadError {
 	if (isAxiosError(error)) {
 		const status = error.response?.status
 		const data = error.response?.data as { message?: unknown } | undefined
+		const wait = retryAfterSecs(error.response?.headers)
 		if (typeof data?.message === 'string' && data.message) {
-			return new IntakeUploadError(data.message, status)
+			return new IntakeUploadError(data.message, status, {
+				fromServer: true,
+				retryAfterSecs: wait,
+			})
 		}
 		if (status !== undefined) {
 			return new IntakeUploadError(
 				STATUS_MESSAGES[status] ?? `The upload failed (${status})`,
 				status,
+				{ retryAfterSecs: wait },
 			)
 		}
 		// no answer at all: the connection broke, or the browser gave up

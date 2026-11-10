@@ -15,9 +15,9 @@ function setup(post: ReturnType<typeof vi.fn>) {
 }
 
 /** What axios throws for an answer with a status */
-const refusal = (status: number, data: unknown) => ({
+const refusal = (status: number, data: unknown, headers?: Record<string, string>) => ({
 	isAxiosError: true,
-	response: { data, status },
+	response: { data, headers, status },
 })
 
 describe('IntakeAPI.upload', () => {
@@ -124,6 +124,36 @@ describe('intakeUploadErrorOf', () => {
 		expect(lost.message).toBe('The connection was lost')
 		expect(cancelled.message).toBe('The upload was cancelled')
 		expect(lost.status).toBeUndefined()
+	})
+
+	it('knows when it was Stump that said no and when it was a proxy in front of it', () => {
+		const stump = intakeUploadErrorOf(
+			refusal(429, { message: 'An upload can hold 50 files at most', status: 429 }),
+		)
+		const proxy = intakeUploadErrorOf(refusal(429, '<html>429 Too Many Requests</html>'))
+
+		expect(stump.fromServer).toBe(true)
+		expect(proxy.fromServer).toBe(false)
+		// only a proxy's rate limit lifts by itself
+		expect(stump.throttledByProxy).toBe(false)
+		expect(proxy.throttledByProxy).toBe(true)
+		expect(intakeUploadErrorOf(refusal(413, '<html>too big</html>')).throttledByProxy).toBe(false)
+		expect(intakeUploadErrorOf({ code: 'ERR_NETWORK', isAxiosError: true }).throttledByProxy).toBe(
+			false,
+		)
+	})
+
+	it('reads how long a proxy asks to wait, when it says in seconds', () => {
+		const asked = intakeUploadErrorOf(refusal(429, undefined, { 'retry-after': '20' }))
+		const date = intakeUploadErrorOf(
+			refusal(429, undefined, { 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' }),
+		)
+		const silent = intakeUploadErrorOf(refusal(429, undefined))
+
+		expect(asked.retryAfterSecs).toBe(20)
+		// a date is not read: the uploader's own pause is used
+		expect(date.retryAfterSecs).toBeUndefined()
+		expect(silent.retryAfterSecs).toBeUndefined()
 	})
 
 	it('keeps an error that is already one of ours', () => {

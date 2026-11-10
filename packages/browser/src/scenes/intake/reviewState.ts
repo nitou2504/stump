@@ -410,6 +410,37 @@ export function extensionOf(name: string) {
 	return dot === -1 ? '' : name.slice(dot + 1).toLowerCase()
 }
 
+/**
+ * Archives of books that Stump has no reader for. They are not uploaded (the server would refuse
+ * them with the same words), and the person is told, instead of the file just not being there
+ */
+export const UNREADABLE_EXTENSIONS = ['cb7', 'cbt', '7z'] as const
+
+/** The unreadable kinds among picked files (`cb7`, `7z`), each once, in the order they are met */
+export function unreadableExtensions(entries: PendingFile[]): string[] {
+	const found: string[] = []
+	for (const { file, relativePath } of entries) {
+		const name = relativePath || file.name
+		const base = name.split('/').pop() ?? name
+		if (!base || base.startsWith('.')) continue
+		const extension = extensionOf(base)
+		if (
+			(UNREADABLE_EXTENSIONS as readonly string[]).includes(extension) &&
+			!found.includes(extension)
+		) {
+			found.push(extension)
+		}
+	}
+	return found
+}
+
+/** `Stump can't read .cb7 files`, `Stump can't read .cb7 and .7z files` */
+export function unreadableTitle(extensions: string[]): string {
+	const names = extensions.map((extension) => `.${extension}`)
+	const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+	return `Stump can’t read ${list} files`
+}
+
 /** Whether a picked file is a book the intake takes (hidden files and extras are skipped) */
 export function isIntakeFile(name: string) {
 	const base = name.split('/').pop() ?? name
