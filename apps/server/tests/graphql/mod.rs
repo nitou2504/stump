@@ -2,6 +2,7 @@ mod annotations;
 mod book_removal;
 mod data_scoping;
 mod deleted_books;
+mod friend_visibility;
 mod home_arrangement;
 mod image_upload;
 mod intake;
