@@ -15,6 +15,7 @@ pub mod library_index;
 pub mod limits;
 pub mod lookup;
 pub mod naming;
+pub mod probe;
 pub mod rules;
 pub mod scope;
 pub mod staging;

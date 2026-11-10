@@ -40,7 +40,8 @@ pub enum WriteError {
 pub type WriteResult<T> = Result<T, WriteError>;
 
 /// The values written into a book file, derived from the reviewed metadata
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct FileMetadata {
 	pub title: Option<String>,
 	pub authors: Vec<String>,
