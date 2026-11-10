@@ -30,6 +30,7 @@ pub mod metadata_edit;
 pub mod metadata_fetch_record;
 pub mod missing_entity;
 pub mod notifier;
+pub mod reader_profile;
 pub mod reading_list;
 pub mod reading_list_item;
 pub mod reading_session;
