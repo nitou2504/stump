@@ -19,15 +19,17 @@ pub mod write;
 
 use std::{
 	collections::BTreeSet,
-	path::{Path, PathBuf},
+	path::{Component, Path, PathBuf},
 };
 
 use models::{
 	entity::{
-		intake_item, library, library_config, library_intake_settings, media, user,
+		intake_item, library, library_config,
+		library_intake_settings::{self, typed_series_kind},
+		media, user,
 	},
 	shared::{
-		enums::OrganizationMode,
+		enums::{LibraryType, OrganizationMode},
 		intake::{
 			IntakeDecision, IntakeDestination, IntakeDestinationFile, IntakeDuplicate,
 			IntakeFile, IntakeKind, IntakeMetadata, IntakeProposal, IntakeResult,
@@ -63,17 +65,43 @@ pub fn staging_dir(ctx: &Ctx, user_id: &str, item_id: &str) -> PathBuf {
 	staging_root(ctx).join(user_id).join(item_id)
 }
 
-/// The intake settings of a library (its stored row, or the defaults)
+/// The intake settings of a library (its stored row, or the defaults of its type)
 pub async fn settings_for(
 	conn: &DatabaseConnection,
 	library_id: &str,
+) -> CoreResult<library_intake_settings::Model> {
+	let (library, config) = load_library(conn, library_id).await?;
+	settings_of(conn, &library.id, library_type_in(config.as_ref())).await
+}
+
+/// The settings of a library whose type is known: its stored row, or the defaults of the type
+async fn settings_of(
+	conn: &DatabaseConnection,
+	library_id: &str,
+	library_type: LibraryType,
 ) -> CoreResult<library_intake_settings::Model> {
 	Ok(
 		library_intake_settings::Entity::find_by_id(library_id.to_string())
 			.one(conn)
 			.await?
-			.unwrap_or_else(|| library_intake_settings::Model::defaults_for(library_id)),
+			.unwrap_or_else(|| {
+				library_intake_settings::Model::defaults_for(library_id, library_type)
+			}),
 	)
+}
+
+/// The type of a library; one without a configuration is a mixed library, as its default says
+pub fn library_type_in(config: Option<&library_config::Model>) -> LibraryType {
+	config.map(|c| c.library_type).unwrap_or_default()
+}
+
+/// The type of the library with this id
+pub async fn library_type_of(
+	conn: &DatabaseConnection,
+	library_id: &str,
+) -> CoreResult<LibraryType> {
+	let (_, config) = load_library(conn, library_id).await?;
+	Ok(library_type_in(config.as_ref()))
 }
 
 pub(crate) async fn load_library(
@@ -106,10 +134,20 @@ pub async fn analyse(ctx: &Ctx, item_id: &str, online: Option<bool>) -> CoreResu
 		Ok(()) => Ok(()),
 		Err(error) => {
 			tracing::warn!(?error, item_id, "Intake analysis failed");
-			let mut active = item.into_active_model();
-			active.state = Set(IntakeState::Failed);
-			active.error = Set(Some(format!("Analysis failed: {error}")));
-			active.update(conn).await?;
+			// the failure is stored under the same rule as an outcome: an item moved to another
+			// library meanwhile (it is analysed there), discarded or filed keeps its own state
+			let failed = intake_item::ActiveModel {
+				state: Set(IntakeState::Failed),
+				error: Set(Some(format!("Analysis failed: {error}"))),
+				..Default::default()
+			};
+			if let Err(write_error) = store_outcome(conn, &item, failed).await {
+				tracing::warn!(
+					?write_error,
+					item_id,
+					"Couldn't store the failure of an intake analysis"
+				);
+			}
 			Err(error)
 		},
 	}
@@ -121,8 +159,9 @@ async fn analyse_item(
 	online: Option<bool>,
 ) -> CoreResult<()> {
 	let conn = ctx.conn.as_ref();
-	let (library, _) = load_library(conn, &item.library_id).await?;
-	let settings = settings_for(conn, &item.library_id).await?;
+	let (library, config) = load_library(conn, &item.library_id).await?;
+	let library_type = library_type_in(config.as_ref());
+	let settings = settings_of(conn, &library.id, library_type).await?;
 	let root = PathBuf::from(&library.path);
 	let index = library_index(
 		conn,
@@ -227,6 +266,7 @@ async fn analyse_item(
 		series_hint,
 		group_name,
 		similar,
+		library_type,
 	});
 	proposal.looked_up_online = lookup.found();
 	proposal.warnings.extend(lookup.notes());
@@ -281,19 +321,49 @@ async fn analyse_item(
 	let destination = compute_destination(&root, &settings, &files, &decision);
 	let state = state_for(&proposal, &decision, &destination);
 
-	let mut active = item.clone().into_active_model();
-	active.files = Set(intake_files(files));
-	active.proposal = Set(Some(proposal));
-	active.decision = Set(Some(decision));
-	active.destination = Set(Some(destination));
-	active.state = Set(state);
-	active.error = Set(None);
-	active.update(conn).await?;
+	// the item may have been moved to another library, discarded or filed while this ran, or
+	// answered by another analysis: then this outcome is dropped, not stored over it
+	store_outcome(
+		conn,
+		item,
+		intake_item::ActiveModel {
+			files: Set(intake_files(files)),
+			proposal: Set(Some(proposal)),
+			decision: Set(Some(decision)),
+			destination: Set(Some(destination)),
+			state: Set(state),
+			error: Set(None),
+			..Default::default()
+		},
+	)
+	.await?;
 	Ok(())
 }
 
 fn intake_files(files: Vec<IntakeFile>) -> models::shared::intake::IntakeFiles {
 	models::shared::intake::IntakeFiles(files)
+}
+
+/// Stores what an analysis found in the item it started with, in one statement: the item must
+/// still be in the library the analysis read and still be waiting for an analysis. Checking first
+/// and writing after would leave a gap for the item to be moved, discarded or filed, and a failed
+/// check would be read as a move. `Ok(false)`: the item moved, was discarded or filed, or another
+/// analysis answered first, so the outcome is dropped. A database error is an error.
+async fn store_outcome(
+	conn: &DatabaseConnection,
+	item: &intake_item::Model,
+	mut outcome: intake_item::ActiveModel,
+) -> CoreResult<bool> {
+	// an update of many rows doesn't run the model's `before_save`
+	outcome.updated_at = Set(chrono::Utc::now().into());
+	let stored = intake_item::Entity::update_many()
+		.set(outcome)
+		.filter(intake_item::Column::Id.eq(item.id.clone()))
+		.filter(intake_item::Column::LibraryId.eq(item.library_id.clone()))
+		.filter(intake_item::Column::State.eq(IntakeState::Analysing))
+		.exec(conn)
+		.await?;
+	Ok(stored.rows_affected > 0)
 }
 
 /// The proposal's best choices
@@ -371,6 +441,28 @@ pub fn default_file_names(
 		.collect()
 }
 
+/// A folder inside `dir`, relative to the library root. An empty `dir` (a manga or light novel
+/// library keeps its series folders at its root) gives the folder itself: joining the two with a
+/// `/` would make an absolute path, which leaves the library when it is joined to the root.
+fn join_relative(dir: &str, name: &str) -> String {
+	let dir = dir.trim().trim_matches('/');
+	if dir.is_empty() {
+		name.to_string()
+	} else {
+		format!("{dir}/{name}")
+	}
+}
+
+/// Whether a path relative to the library root stays inside it: a plain, relative path made of
+/// ordinary components (no `..`, no leading `/`, no drive)
+pub fn stays_in_library(relative: &str) -> bool {
+	let path = Path::new(relative);
+	!relative.is_empty()
+		&& path
+			.components()
+			.all(|component| matches!(component, Component::Normal(_)))
+}
+
 /// Where a decision puts each file, relative to the library root
 pub fn compute_destination(
 	root: &Path,
@@ -380,23 +472,27 @@ pub fn compute_destination(
 ) -> IntakeDestination {
 	let relative_dir = match decision.series_kind {
 		Some(IntakeSeriesKind::Manga) => {
-			format!("{}/{}", settings.manga_dir, decision.folder)
+			join_relative(&settings.manga_dir, &decision.folder)
 		},
 		Some(IntakeSeriesKind::LightNovel) => {
-			format!("{}/{}", settings.light_novel_dir, decision.folder)
+			join_relative(&settings.light_novel_dir, &decision.folder)
 		},
 		None => decision.folder.clone(),
 	};
 	let dir = root.join(&relative_dir);
+	// the folder and the file names come from the uploader: only plain ones are looked up on the
+	// disk, so no name can ask whether some other path exists (the problems say what is wrong
+	// with the others, and they block the filing)
+	let inside = is_plain_component(&decision.folder) && stays_in_library(&relative_dir);
 	IntakeDestination {
-		dir_exists: !decision.folder.is_empty() && dir.is_dir(),
+		dir_exists: inside && dir.is_dir(),
 		files: files
 			.iter()
 			.zip(decision.file_names.iter())
 			.map(|(file, name)| IntakeDestinationFile {
 				original_name: file.original_name.clone(),
-				relative_path: format!("{relative_dir}/{name}"),
-				exists: dir.join(name).exists(),
+				relative_path: join_relative(&relative_dir, name),
+				exists: inside && is_plain_component(name) && dir.join(name).exists(),
 			})
 			.collect(),
 		relative_dir,
@@ -427,6 +523,9 @@ pub fn decision_problems(
 	let mut problems = vec![];
 	if !is_plain_component(&decision.folder) {
 		problems.push("Choose a folder".to_string());
+	} else if !stays_in_library(&destination.relative_dir) {
+		// the folder is fine, so the library's own folder setting is what leaves the library
+		problems.push("The folder is outside the library".to_string());
 	}
 	if decision.series_kind.is_none() {
 		if decision
@@ -475,6 +574,33 @@ fn set_text(
 	value
 }
 
+/// Whether the uploader can still change an item (review it, move it to another library): it
+/// is waiting for them. An allow-list on purpose: a state added later is refused here until
+/// someone decides that it belongs.
+pub fn is_open_for_changes(state: IntakeState) -> bool {
+	matches!(
+		state,
+		IntakeState::NeedsReview | IntakeState::Ready | IntakeState::Failed
+	)
+}
+
+/// Whether an item can be analysed again: the ones open for changes, and one still marked as
+/// being analysed (an analysis that never answered, across a restart, would leave it there
+/// for good)
+pub fn can_reanalyse(state: IntakeState) -> bool {
+	is_open_for_changes(state) || state == IntakeState::Analysing
+}
+
+/// Why an item in this state can't be changed
+pub fn closed_for_changes(state: IntakeState, what: &str) -> CoreError {
+	CoreError::BadRequest(match state {
+		IntakeState::Filed | IntakeState::Discarded => {
+			"This item is no longer in the inbox".to_string()
+		},
+		state => format!("An item that is {state} can't be {what}"),
+	})
+}
+
 /// Applies the uploader's review to an item and recomputes its destination and state
 pub async fn apply_review(
 	ctx: &Ctx,
@@ -482,17 +608,15 @@ pub async fn apply_review(
 	input: IntakeReviewInput,
 ) -> CoreResult<intake_item::Model> {
 	let conn = ctx.conn.as_ref();
-	if matches!(
-		item.state,
-		IntakeState::Filed | IntakeState::Discarded | IntakeState::Analysing
-	) {
+	if !is_open_for_changes(item.state) {
 		return Err(CoreError::BadRequest(format!(
 			"An item that is {} can't be changed",
 			item.state
 		)));
 	}
-	let (library, _) = load_library(conn, &item.library_id).await?;
-	let settings = settings_for(conn, &item.library_id).await?;
+	let (library, config) = load_library(conn, &item.library_id).await?;
+	let library_type = library_type_in(config.as_ref());
+	let settings = settings_of(conn, &library.id, library_type).await?;
 	let files = item.files.0.clone();
 	let mut decision = item.decision.clone().unwrap_or_default();
 	let old_names = default_file_names(&files, &decision);
@@ -545,6 +669,10 @@ pub async fn apply_review(
 	if input.clear_series_kind {
 		decision.series_kind = None;
 	} else if let Some(kind) = input.series_kind {
+		decision.series_kind = Some(kind);
+	}
+	// a manga or light novel library only holds series of its own kind
+	if let Some(kind) = typed_series_kind(library_type) {
 		decision.series_kind = Some(kind);
 	}
 	if let Some(volumes) = input.volumes {
@@ -673,6 +801,26 @@ fn suffixed(name: &str, n: usize) -> String {
 	}
 }
 
+/// Moves an item to another library and sets it to be analysed there from scratch. Its staged
+/// files stay where they are: staging doesn't depend on the library. The caller checks that the
+/// user may use the library, then runs the analysis.
+pub async fn change_library(
+	ctx: &Ctx,
+	item: intake_item::Model,
+	library_id: &str,
+) -> CoreResult<intake_item::Model> {
+	if !is_open_for_changes(item.state) {
+		return Err(closed_for_changes(item.state, "moved to another library"));
+	}
+	let conn = ctx.conn.as_ref();
+	let (library, _) = load_library(conn, library_id).await?;
+	let mut active = item.into_active_model();
+	active.library_id = Set(library.id);
+	active.state = Set(IntakeState::Analysing);
+	active.error = Set(None);
+	Ok(active.update(conn).await?)
+}
+
 /// Files a reviewed item into its library
 pub async fn file_item(
 	ctx: &Ctx,
@@ -690,7 +838,8 @@ pub async fn file_item(
 		.clone()
 		.ok_or_else(|| CoreError::BadRequest("The item has no decision".into()))?;
 	let (library, config) = load_library(conn, &item.library_id).await?;
-	let settings = settings_for(conn, &item.library_id).await?;
+	let settings =
+		settings_of(conn, &library.id, library_type_in(config.as_ref())).await?;
 	let root = PathBuf::from(&library.path);
 	let files = item.files.0.clone();
 	let destination = compute_destination(&root, &settings, &files, &decision);
@@ -880,7 +1029,11 @@ mod tests {
 	use super::*;
 
 	fn settings() -> library_intake_settings::Model {
-		library_intake_settings::Model::defaults_for("lib")
+		library_intake_settings::Model::defaults_for("lib", LibraryType::Book)
+	}
+
+	fn manga_settings() -> library_intake_settings::Model {
+		library_intake_settings::Model::defaults_for("manga", LibraryType::Manga)
 	}
 
 	fn file(name: &str, format: &str, volume: Option<f64>) -> IntakeFile {
@@ -949,6 +1102,94 @@ mod tests {
 		assert!(decision_problems(&decision, &destination).is_empty());
 	}
 
+	/// a manga library keeps its series folders in the root: an empty folder setting must never
+	/// produce `/Series`, which is an absolute path and leaves the library once joined to the root
+	#[test]
+	fn a_manga_library_files_series_directly_in_its_root() {
+		let root = Path::new("/manga");
+		let files = vec![
+			file("b1.cbz", "cbz", Some(1.0)),
+			file("b2.cbz", "cbz", Some(2.0)),
+		];
+		let mut decision = IntakeDecision {
+			metadata: IntakeMetadata {
+				series: Some("Berserk".into()),
+				..Default::default()
+			},
+			series_kind: Some(IntakeSeriesKind::Manga),
+			folder: "Berserk".into(),
+			volumes: vec![Some(1.0), Some(2.0)],
+			..Default::default()
+		};
+		decision.file_names = default_file_names(&files, &decision);
+		let destination = compute_destination(root, &manga_settings(), &files, &decision);
+		assert_eq!(destination.relative_dir, "Berserk");
+		assert_eq!(
+			destination.files[0].relative_path,
+			"Berserk/Berserk v01.cbz"
+		);
+		assert_eq!(
+			destination.files[1].relative_path,
+			"Berserk/Berserk v02.cbz"
+		);
+		for relative in std::iter::once(&destination.relative_dir)
+			.chain(destination.files.iter().map(|f| &f.relative_path))
+		{
+			assert!(!relative.starts_with('/'), "{relative}");
+			assert!(stays_in_library(relative), "{relative}");
+			assert!(root.join(relative).starts_with(root), "{relative}");
+		}
+		assert!(decision_problems(&decision, &destination).is_empty());
+
+		// a light novel aimed at the same library goes to the same place: both kinds sit at
+		// its root, and no `_Manga` or `_Novela ligera` folder is part of its paths
+		decision.series_kind = Some(IntakeSeriesKind::LightNovel);
+		let destination = compute_destination(root, &manga_settings(), &files, &decision);
+		assert_eq!(destination.relative_dir, "Berserk");
+	}
+
+	#[test]
+	fn joins_folders_without_leaving_the_library() {
+		assert_eq!(join_relative("", "Berserk"), "Berserk");
+		assert_eq!(join_relative("  ", "Berserk"), "Berserk");
+		assert_eq!(join_relative("/", "Berserk"), "Berserk");
+		assert_eq!(join_relative("_Manga", "Berserk"), "_Manga/Berserk");
+		assert_eq!(join_relative("/_Manga/", "Berserk"), "_Manga/Berserk");
+		assert!(stays_in_library("Berserk"));
+		assert!(stays_in_library("_Manga/Berserk/v01.cbz"));
+		for outside in ["", "/Berserk", "../Berserk", "a/../../b", "./a", "/"] {
+			assert!(!stays_in_library(outside), "{outside:?}");
+		}
+	}
+
+	/// a folder setting that leaves the library (however it got into the database) blocks the filing
+	#[test]
+	fn a_folder_that_leaves_the_library_is_a_problem() {
+		let files = vec![file("b1.cbz", "cbz", Some(1.0))];
+		let mut decision = IntakeDecision {
+			metadata: IntakeMetadata {
+				series: Some("Berserk".into()),
+				..Default::default()
+			},
+			series_kind: Some(IntakeSeriesKind::Manga),
+			folder: "Berserk".into(),
+			volumes: vec![Some(1.0)],
+			..Default::default()
+		};
+		decision.file_names = default_file_names(&files, &decision);
+		let mut escaping = settings();
+		escaping.manga_dir = "../elsewhere".into();
+		let destination =
+			compute_destination(Path::new("/lib"), &escaping, &files, &decision);
+		assert_eq!(destination.relative_dir, "../elsewhere/Berserk");
+		assert!(decision_problems(&decision, &destination)
+			.contains(&"The folder is outside the library".to_string()));
+		escaping.manga_dir = "_Manga".into();
+		let destination =
+			compute_destination(Path::new("/lib"), &escaping, &files, &decision);
+		assert!(decision_problems(&decision, &destination).is_empty());
+	}
+
 	#[test]
 	fn volumes_named_like_their_series_get_a_volume_title() {
 		assert_eq!(
@@ -994,5 +1235,200 @@ mod tests {
 			dir.path(),
 			&dir.path().join("New_Author")
 		));
+	}
+
+	/// every state is decided here: a state added later doesn't compile until someone says
+	/// whether the uploader can still change an item in it
+	#[test]
+	fn only_the_states_that_wait_for_the_uploader_are_open_for_changes() {
+		use sea_orm::strum::IntoEnumIterator;
+
+		fn expected(state: IntakeState) -> (bool, bool) {
+			// (open for changes, can be analysed again)
+			match state {
+				IntakeState::NeedsReview | IntakeState::Ready | IntakeState::Failed => {
+					(true, true)
+				},
+				IntakeState::Analysing => (false, true),
+				IntakeState::Filed | IntakeState::Discarded => (false, false),
+			}
+		}
+		for state in IntakeState::iter() {
+			let (open, again) = expected(state);
+			assert_eq!(is_open_for_changes(state), open, "{state}");
+			assert_eq!(can_reanalyse(state), again, "{state}");
+		}
+		// what an uploader is told
+		assert!(matches!(
+			closed_for_changes(IntakeState::Filed, "moved to another library"),
+			CoreError::BadRequest(m) if m == "This item is no longer in the inbox"
+		));
+		assert!(matches!(
+			closed_for_changes(IntakeState::Analysing, "moved to another library"),
+			CoreError::BadRequest(m)
+				if m == "An item that is ANALYSING can't be moved to another library"
+		));
+	}
+
+	/// a file or folder name from the uploader is only looked up on the disk when it stays in the
+	/// folder: otherwise the `exists` flag would say whether any path on the server exists
+	#[test]
+	fn a_name_that_leaves_its_folder_is_never_looked_up() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("library");
+		std::fs::create_dir_all(root.join("Berserk")).unwrap();
+		std::fs::write(dir.path().join("secret.txt"), b"x").unwrap();
+		std::fs::write(root.join("Berserk/Berserk v01.cbz"), b"x").unwrap();
+
+		let files = vec![file("b1.cbz", "cbz", Some(1.0))];
+		let decision_with = |folder: &str, name: &str| IntakeDecision {
+			metadata: IntakeMetadata {
+				series: Some("Berserk".into()),
+				..Default::default()
+			},
+			series_kind: Some(IntakeSeriesKind::Manga),
+			folder: folder.into(),
+			file_names: vec![name.into()],
+			volumes: vec![Some(1.0)],
+			..Default::default()
+		};
+
+		// the control: a plain folder and name are looked up
+		let decision = decision_with("Berserk", "Berserk v01.cbz");
+		let found = compute_destination(&root, &manga_settings(), &files, &decision);
+		assert!(found.dir_exists);
+		assert!(found.files[0].exists);
+
+		// a name that climbs out of the folder is not, and is a problem of its own
+		let decision = decision_with("Berserk", "../../secret.txt");
+		let climbing = compute_destination(&root, &manga_settings(), &files, &decision);
+		assert!(root.join("Berserk").join("../../secret.txt").exists());
+		assert!(!climbing.files[0].exists);
+		assert!(decision_problems(&decision, &climbing)
+			.contains(&"Invalid file name '../../secret.txt'".to_string()));
+
+		// nor is a folder that is not a plain name
+		for folder in ["..", "../library", "Berserk/..", ""] {
+			let decision = decision_with(folder, "Berserk v01.cbz");
+			let escaping =
+				compute_destination(&root, &manga_settings(), &files, &decision);
+			assert!(!escaping.dir_exists, "{folder:?}");
+			assert!(!escaping.files[0].exists, "{folder:?}");
+			assert!(
+				!decision_problems(&decision, &escaping).is_empty(),
+				"{folder:?}"
+			);
+		}
+	}
+
+	async fn analysing_item(
+		conn: &DatabaseConnection,
+		user_id: &str,
+		library_id: &str,
+	) -> intake_item::Model {
+		let item = intake_item::ActiveModel {
+			id: Set(uuid::Uuid::new_v4().to_string()),
+			user_id: Set(user_id.to_string()),
+			library_id: Set(library_id.to_string()),
+			state: Set(IntakeState::Analysing),
+			kind: Set(IntakeKind::Book),
+			name: Set("Book.epub".to_string()),
+			staging_dir: Set("/tmp/intake-test".to_string()),
+			files: Set(models::shared::intake::IntakeFiles(vec![])),
+			..Default::default()
+		};
+		item.insert(conn).await.unwrap()
+	}
+
+	fn found(state: IntakeState) -> intake_item::ActiveModel {
+		intake_item::ActiveModel {
+			state: Set(state),
+			decision: Set(Some(IntakeDecision::default())),
+			error: Set(None),
+			..Default::default()
+		}
+	}
+
+	/// an analysis answers into the item it started with, once, and only while the item waits for
+	/// it: never into an item that moved, was discarded or filed, or already has an answer
+	#[tokio::test]
+	async fn an_outcome_is_stored_only_in_the_item_that_waits_for_it() {
+		use ::tests::{db::test_database, fake_data};
+
+		let conn = test_database().await;
+		let user = fake_data::User::new("uploader").insert(&conn).await;
+		let here = fake_data::Library::default().insert(&conn).await;
+		let there = fake_data::Library::default().insert(&conn).await;
+		let row = |id: String| {
+			let conn = conn.clone();
+			async move {
+				intake_item::Entity::find_by_id(id)
+					.one(&conn)
+					.await
+					.unwrap()
+					.unwrap()
+			}
+		};
+
+		// the plain case: stored, with the state and a fresh `updated_at`
+		let item = analysing_item(&conn, &user.id, &here.id).await;
+		assert!(store_outcome(&conn, &item, found(IntakeState::Ready))
+			.await
+			.unwrap());
+		let stored = row(item.id.clone()).await;
+		assert_eq!(stored.state, IntakeState::Ready);
+		assert!(stored.decision.is_some());
+		assert!(stored.updated_at >= item.updated_at);
+
+		// it has its answer: another analysis that finishes later is dropped, as is a failure
+		assert!(
+			!store_outcome(&conn, &item, found(IntakeState::NeedsReview))
+				.await
+				.unwrap()
+		);
+		let failed = intake_item::ActiveModel {
+			state: Set(IntakeState::Failed),
+			error: Set(Some("Analysis failed: late".into())),
+			..Default::default()
+		};
+		assert!(!store_outcome(&conn, &item, failed).await.unwrap());
+		let stored = row(item.id.clone()).await;
+		assert_eq!(stored.state, IntakeState::Ready);
+		assert!(stored.error.is_none());
+
+		// moved to another library meanwhile: the analysis there owns the item
+		let item = analysing_item(&conn, &user.id, &here.id).await;
+		let mut moved = item.clone().into_active_model();
+		moved.library_id = Set(there.id.clone());
+		moved.update(&conn).await.unwrap();
+		assert!(!store_outcome(&conn, &item, found(IntakeState::Ready))
+			.await
+			.unwrap());
+		let stored = row(item.id.clone()).await;
+		assert_eq!(
+			(stored.library_id.as_str(), stored.state),
+			(there.id.as_str(), IntakeState::Analysing)
+		);
+		assert!(stored.decision.is_none());
+
+		// discarded or filed meanwhile: an analysis that ends later doesn't bring it back
+		for closed in [IntakeState::Discarded, IntakeState::Filed] {
+			let item = analysing_item(&conn, &user.id, &here.id).await;
+			let mut gone = item.clone().into_active_model();
+			gone.state = Set(closed);
+			gone.update(&conn).await.unwrap();
+			assert!(!store_outcome(&conn, &item, found(IntakeState::Ready))
+				.await
+				.unwrap());
+			assert_eq!(row(item.id.clone()).await.state, closed);
+		}
+
+		// a database that fails is an error to report, not an item that moved
+		let item = analysing_item(&conn, &user.id, &here.id).await;
+		let closed = conn.clone();
+		conn.close().await.unwrap();
+		assert!(store_outcome(&closed, &item, found(IntakeState::Ready))
+			.await
+			.is_err());
 	}
 }

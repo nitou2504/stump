@@ -64,10 +64,12 @@ export default function IntakeScene() {
 		}
 	}, [libraryId, requested, setParams])
 
-	const busy = actions.isReviewing || actions.isAccepting
+	const busy = actions.isReviewing || actions.isAccepting || actions.isChangingLibrary
 	const cardProps = {
 		isBusy: busy,
+		libraries,
 		onAccept: actions.acceptItem,
+		onChangeLibrary: actions.changeLibrary,
 		onDiscard: actions.discard,
 		onReanalyse: actions.reanalyse,
 		onReview: actions.reviewItem,

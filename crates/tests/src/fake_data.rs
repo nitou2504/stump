@@ -3,7 +3,7 @@ use models::entity::user::{AuthUser, LoginUser};
 use models::entity::{
 	library, library_config, media, media_metadata, reading_session, series, user,
 };
-use models::shared::enums::{FileStatus, ReadingStatus};
+use models::shared::enums::{FileStatus, LibraryType, ReadingStatus};
 use rand::distr::SampleString;
 use rust_decimal::prelude::FromPrimitive;
 use sea_orm::{prelude::*, ActiveModelTrait, ActiveValue, DbConn};
@@ -156,6 +156,8 @@ pub struct Library {
 	pub id: Option<String>,
 	pub name: Option<String>,
 	pub path: Option<String>,
+	/// the type in its configuration (the configuration's default when `None`)
+	pub library_type: Option<LibraryType>,
 }
 
 impl Library {
@@ -171,13 +173,17 @@ impl Library {
 
 		let path = self.path.clone().unwrap_or_else(|| format!("/tmp/{name}"));
 
-		let config = library_config::ActiveModel {
+		let mut config = library_config::ActiveModel {
 			library_id: sea_orm::Set(Some(id.clone())),
 			..Default::default()
+		};
+		if let Some(library_type) = self.library_type {
+			config.library_type = sea_orm::Set(library_type);
 		}
-		.insert(db)
-		.await
-		.expect("could not insert library config");
+		let config = config
+			.insert(db)
+			.await
+			.expect("could not insert library config");
 
 		let model = library::ActiveModel {
 			id: sea_orm::Set(id.clone()),

@@ -12,9 +12,15 @@ use std::{
 	time::{Duration, Instant},
 };
 
+use models::{
+	entity::library_intake_settings::typed_series_kind, shared::intake::IntakeSeriesKind,
+};
 use sea_orm::{DatabaseConnection, FromQueryResult, Statement};
 
-use super::naming::{folder_keys, name_keys, name_tokens, NameKeys};
+use super::{
+	library_type_of,
+	naming::{folder_keys, name_keys, name_tokens, NameKeys},
+};
 use crate::CoreResult;
 
 /// How long a built index is kept for the next analyses
@@ -166,6 +172,16 @@ pub async fn library_index(
 	Ok(index)
 }
 
+/// The key of a series folder in the book counts: `<dir>/<name>`, or the name alone where the
+/// kind's folder setting is empty (the series folder sits in the library root)
+fn series_key(dir: &str, name: &str) -> String {
+	if dir.is_empty() {
+		name.to_string()
+	} else {
+		format!("{dir}/{name}")
+	}
+}
+
 fn list_folders(dir: &Path) -> Vec<String> {
 	let Ok(entries) = std::fs::read_dir(dir) else {
 		return vec![];
@@ -212,19 +228,42 @@ async fn build_index(
 	.await?;
 
 	let root_owned = root.to_path_buf();
-	let manga_root = root.join(manga_dir);
-	let light_novel_root = root.join(light_novel_dir);
+	// a kind whose folder setting is empty keeps its series folders directly in the library
+	// root (a manga or light novel library): the root then lists the series of the library's
+	// own kind, and no author folders
+	let typed = typed_series_kind(library_type_of(conn, library_id).await?);
+	let (manga_setting, light_novel_setting) =
+		(manga_dir.to_string(), light_novel_dir.to_string());
 	let (folder_names, manga_names, light_novel_names) =
 		tokio::task::spawn_blocking(move || {
-			let folders: Vec<String> = list_folders(&root_owned)
-				.into_iter()
-				.filter(|n| !n.starts_with('_'))
-				.collect();
-			(
-				folders,
-				list_folders(&manga_root),
-				list_folders(&light_novel_root),
-			)
+			let manga_at_root = manga_setting.is_empty();
+			let light_novel_at_root = light_novel_setting.is_empty();
+			// the root's own series folders: not the sub-folder the other kind lives in
+			let root_series = || -> Vec<String> {
+				list_folders(&root_owned)
+					.into_iter()
+					.filter(|n| *n != manga_setting && *n != light_novel_setting)
+					.collect()
+			};
+			let authors = if manga_at_root || light_novel_at_root {
+				vec![]
+			} else {
+				list_folders(&root_owned)
+					.into_iter()
+					.filter(|n| !n.starts_with('_'))
+					.collect()
+			};
+			let manga = match (manga_at_root, typed) {
+				(true, Some(IntakeSeriesKind::LightNovel)) => vec![],
+				(true, _) => root_series(),
+				(false, _) => list_folders(&root_owned.join(&manga_setting)),
+			};
+			let light_novel = match (light_novel_at_root, typed) {
+				(true, Some(IntakeSeriesKind::Manga)) => vec![],
+				(true, _) => root_series(),
+				(false, _) => list_folders(&root_owned.join(&light_novel_setting)),
+			};
+			(authors, manga, light_novel)
 		})
 		.await
 		.map_err(|e| crate::CoreError::InternalError(e.to_string()))?;
@@ -251,11 +290,16 @@ async fn build_index(
 		let folder = (components.len() >= 2).then(|| components.remove(0));
 		if let Some(folder) = &folder {
 			*folder_book_counts.entry(folder.clone()).or_default() += 1;
-			// series folders: <manga_dir>/<Series>/<file>
+			// series folders: <manga_dir>/<Series>/<file>, or <Series>/<file> where the
+			// kind's folder setting is empty
 			if (folder == manga_dir || folder == light_novel_dir) && components.len() >= 2
 			{
 				*series_book_counts
-					.entry(format!("{folder}/{}", components[0]))
+					.entry(series_key(folder, &components[0]))
+					.or_default() += 1;
+			} else if manga_dir.is_empty() || light_novel_dir.is_empty() {
+				*series_book_counts
+					.entry(series_key("", folder))
 					.or_default() += 1;
 			}
 		}
@@ -365,7 +409,7 @@ async fn build_index(
 			.map(|name| FolderInfo {
 				keys: folder_keys(&name),
 				books: series_book_counts
-					.get(&format!("{dir}/{name}"))
+					.get(&series_key(dir, &name))
 					.copied()
 					.unwrap_or(0),
 				name,
@@ -841,5 +885,73 @@ mod tests {
 			best.reason
 		);
 		assert_eq!(index.author_folders[best.folder].books, 2);
+	}
+
+	/// A manga library keeps one folder per series in its root: the index lists them as manga
+	/// series (with their book counts), no light novel series and no author folders
+	#[tokio::test]
+	async fn indexes_the_series_folders_of_a_manga_library_root() {
+		use ::tests::fake_data;
+		use models::{entity::media_metadata, shared::enums::LibraryType};
+		use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+		let conn = ::tests::db::test_database().await;
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("manga");
+		for folder in ["Berserk", "Dr. Stone", ".hidden"] {
+			std::fs::create_dir_all(root.join(folder)).unwrap();
+		}
+		let library = fake_data::Library {
+			path: Some(root.to_string_lossy().into_owned()),
+			library_type: Some(LibraryType::Manga),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+
+		let series = fake_data::Series {
+			library_id: Some(library.id.clone()),
+			..Default::default()
+		}
+		.insert(&conn)
+		.await;
+		for rel in [
+			"Berserk/Berserk v01.cbz",
+			"Berserk/Berserk v02.cbz",
+			"Dr. Stone/Dr. Stone v01.cbz",
+		] {
+			let book = fake_data::Media {
+				series_id: series.id.clone(),
+				path: Some(root.join(rel).to_string_lossy().into_owned()),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await;
+			media_metadata::ActiveModel {
+				media_id: Set(Some(book.id)),
+				title: Set(Some(rel.to_string())),
+				..Default::default()
+			}
+			.insert(&conn)
+			.await
+			.unwrap();
+		}
+
+		let index = build_index(&conn, &library.id, &root, "", "")
+			.await
+			.unwrap();
+		let manga: Vec<(&str, i32)> = index
+			.manga_folders
+			.iter()
+			.map(|f| (f.name.as_str(), f.books))
+			.collect();
+		assert_eq!(manga, vec![("Berserk", 2), ("Dr. Stone", 1)]);
+		assert!(index.light_novel_folders.is_empty());
+		assert!(index.author_folders.is_empty());
+		// the series are found by name, as in any library
+		let found = index.match_series_folder("Berserk", false);
+		assert_eq!(found.len(), 1, "{found:?}");
+		assert_eq!(index.manga_folders[found[0].0].name, "Berserk");
+		assert!(index.match_series_folder("Berserk", true).is_empty());
 	}
 }

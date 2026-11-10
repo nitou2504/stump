@@ -7,7 +7,11 @@ use std::{
 
 use async_graphql::{Context, InputObject, Object, Result, Upload, ID};
 use models::{
-	entity::{intake_item, library, library_intake_settings, user::AuthUser},
+	entity::{
+		intake_item, library,
+		library_intake_settings::{self, typed_series_kind},
+		user::AuthUser,
+	},
 	shared::{
 		enums::UserPermission,
 		intake::{IntakeFile, IntakeFiles, IntakeKind, IntakeReviewInput, IntakeState},
@@ -340,14 +344,38 @@ impl IntakeMutation {
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let item = own_item(ctx, user, &id).await?;
-		if matches!(item.state, IntakeState::Filed | IntakeState::Discarded) {
-			return Err("This item is no longer in the inbox".into());
+		if !core_intake::can_reanalyse(item.state) {
+			return Err(
+				core_intake::closed_for_changes(item.state, "analysed again").into(),
+			);
 		}
 		let mut active = item.into_active_model();
 		active.state = Set(IntakeState::Analysing);
 		active.error = Set(None);
 		let item = active.update(core.conn.as_ref()).await?;
 		spawn_analysis(core, vec![item.id.clone()], online);
+		Ok(item.into())
+	}
+
+	/// Moves an item to another library (one the user can use) and analyses it again there: the
+	/// proposal, the folder and the file names are made for the library the item is in
+	#[graphql(guard = "PermissionGuard::one(UserPermission::AddBooks)")]
+	async fn intake_change_library(
+		&self,
+		ctx: &Context<'_>,
+		id: ID,
+		library_id: ID,
+	) -> Result<IntakeItem> {
+		let AuthContext { user, .. } = ctx.data()?;
+		let core = ctx.data::<CoreContext>()?;
+		let item = own_item(ctx, user, &id).await?;
+		let library = library::Entity::find_for_user(user)
+			.filter(library::Column::Id.eq(library_id.to_string()))
+			.one(core.conn.as_ref())
+			.await?
+			.ok_or("Library not found")?;
+		let item = core_intake::change_library(core, item, &library.id).await?;
+		spawn_analysis(core, vec![item.id.clone()], None);
 		Ok(item.into())
 	}
 
@@ -401,9 +429,21 @@ impl IntakeMutation {
 			.one(conn)
 			.await?
 			.ok_or("Library not found")?;
-		let plain = |dir: &str| core_intake::naming::is_plain_component(dir);
+		// a manga or light novel library may keep its series folders in its root: an empty folder
+		let typed =
+			typed_series_kind(core_intake::library_type_of(conn, &library.id).await?)
+				.is_some();
+		let plain = |dir: &str| {
+			core_intake::naming::is_plain_component(dir)
+				|| (typed && dir.trim().is_empty())
+		};
 		if !plain(&input.manga_dir) || !plain(&input.light_novel_dir) {
-			return Err("Series folders must be a single folder name".into());
+			let message = if typed {
+				"Series folders must be empty or a single folder name"
+			} else {
+				"Series folders must be a single folder name"
+			};
+			return Err(message.into());
 		}
 		let model = library_intake_settings::Model {
 			library_id: library.id.clone(),

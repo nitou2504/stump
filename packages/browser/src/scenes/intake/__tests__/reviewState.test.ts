@@ -1,7 +1,12 @@
-import { IntakeKind, IntakeSource, IntakeState, IntakeUploadMode } from '@stump/graphql'
+import {
+	IntakeSeriesKind,
+	IntakeSource,
+	IntakeState,
+	IntakeUploadMode,
+	LibraryType,
+} from '@stump/graphql'
 import { describe, expect, it } from 'vitest'
 
-import type { IntakeItemData } from '../queries'
 import {
 	acceptableIds,
 	chosenTags,
@@ -22,73 +27,11 @@ import {
 	tagKind,
 	tagWhy,
 	toggleGenre,
+	typedSeriesKind,
 	uploadPercent,
 	weakGuesses,
 } from '../reviewState'
-
-const item = (overrides: Partial<IntakeItemData> = {}): IntakeItemData => ({
-	createdAt: '2026-11-01T00:00:00Z',
-	decision: {
-		fileNames: ['El_nombre_de_la_rosa.epub'],
-		folder: 'Umberto_Eco',
-		metadata: {
-			authors: ['Umberto Eco'],
-			genres: ['Historical Fiction'],
-			sources: [{ field: 'title', source: IntakeSource.File }],
-			title: 'El nombre de la rosa',
-		},
-		volumes: [null],
-	},
-	destination: {
-		dirExists: true,
-		files: [
-			{
-				exists: false,
-				originalName: 'rosa.epub',
-				relativePath: 'Umberto_Eco/El_nombre_de_la_rosa.epub',
-			},
-		],
-		relativeDir: 'Umberto_Eco',
-	},
-	files: [{ format: 'epub', originalName: 'rosa.epub', size: 1000 }],
-	id: 'a',
-	kind: IntakeKind.Book,
-	libraryId: 'lib',
-	libraryName: 'Biblioteca',
-	mediaIds: [],
-	name: 'rosa.epub',
-	problems: [],
-	proposal: {
-		authorFolders: [],
-		confidence: 0.9,
-		duplicates: [],
-		genreSuggestions: [
-			{
-				confidence: 0.8,
-				kind: 'GENRE',
-				libraryCount: 40,
-				reasons: ['3 of 4 books by this author have it'],
-				selected: true,
-				value: 'Historical Fiction',
-			},
-			{
-				confidence: 0.3,
-				kind: 'FACET',
-				libraryCount: 12,
-				reasons: ['2 books with a similar description have it'],
-				selected: false,
-				value: 'Origin: Italian',
-			},
-		],
-		lookedUpOnline: true,
-		metadata: { authors: ['Umberto Eco'], genres: [], sources: [], subjects: [] },
-		seriesFolders: [],
-		similarBooks: [],
-		warnings: [],
-	},
-	state: IntakeState.Ready,
-	...overrides,
-})
+import { item } from './fixtures'
 
 describe('intake review state', () => {
 	it('labels sources and finds a field source', () => {
@@ -310,5 +253,27 @@ describe('intake review state', () => {
 		expect(uploadPercent(50, 200)).toBe(25)
 		expect(uploadPercent(10)).toBe(0)
 		expect(uploadPercent(300, 200)).toBe(100)
+	})
+})
+
+describe('typedSeriesKind', () => {
+	it('is the kind of series a manga or light novel library holds', () => {
+		expect(typedSeriesKind(LibraryType.Manga)).toBe(IntakeSeriesKind.Manga)
+		expect(typedSeriesKind(LibraryType.LightNovel)).toBe(IntakeSeriesKind.LightNovel)
+	})
+
+	it('is null for the libraries that file books under their author', () => {
+		for (const type of [
+			LibraryType.Book,
+			LibraryType.Mixed,
+			LibraryType.Comic,
+			LibraryType.Manhwa,
+			LibraryType.WebNovel,
+			LibraryType.Webtoon,
+		]) {
+			expect(typedSeriesKind(type)).toBeNull()
+		}
+		expect(typedSeriesKind(undefined)).toBeNull()
+		expect(typedSeriesKind(null)).toBeNull()
 	})
 })

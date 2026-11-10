@@ -7,6 +7,7 @@ import {
 	cn,
 	DropdownMenu,
 	Link,
+	NativeSelect,
 } from '@stump/components'
 import { IntakeKind, IntakeReviewInput, IntakeSeriesKind, IntakeState } from '@stump/graphql'
 import {
@@ -40,12 +41,16 @@ import {
 	parseAuthors,
 	parseNumber,
 	SERIES_KIND_LABELS,
+	typedSeriesKind,
 } from './reviewState'
 import TagPicker from './TagPicker'
 import { useTagReviewStore } from './tagReviewStore'
 
 type Props = {
 	item: IntakeItemData
+	/** The libraries the user may add books to (an item can be moved to any of them) */
+	libraries: Array<{ id: string; name: string }>
+	onChangeLibrary: (id: string, libraryId: string) => void
 	onReview: (id: string, input: IntakeReviewInput) => void
 	/** Files the item with these tags (sent first when they differ from the server's) */
 	onAccept: (item: IntakeItemData, genres: string[]) => void
@@ -87,6 +92,8 @@ const STATE_BADGE: Partial<
 /** One inbox item to review: what it is, where it goes, its tags, and what blocks it */
 export default function IntakeItemCard({
 	item,
+	libraries,
+	onChangeLibrary,
 	onReview,
 	onAccept,
 	onDiscard,
@@ -98,6 +105,10 @@ export default function IntakeItemCard({
 	const meta = decision?.metadata
 	const isSeriesItem = item.kind === IntakeKind.Series
 	const seriesKind = decision?.seriesKind ?? null
+	// a manga or light novel library holds series of its own kind only: nothing to choose
+	const libraryHoldsOneKind = typedSeriesKind(item.libraryType) !== null
+	// a library of its own for what the item looks like, when the user may use one
+	const suggested = item.suggestedLibrary
 	const filedAsSeries = isSeriesItem || !!seriesKind
 	const attention = needsAttention(item)
 	const ready = isReady(item)
@@ -150,8 +161,17 @@ export default function IntakeItemCard({
 						)}
 					</div>
 					<span className="text-xs truncate text-muted-foreground" title={item.name}>
-						{item.name} · {item.libraryName}
+						{item.name}
+						{libraries.length < 2 && ` · ${item.libraryName}`}
 					</span>
+					{libraries.length > 1 && (
+						<LibrarySwitch
+							value={item.libraryId}
+							libraries={libraries}
+							disabled={isBusy}
+							onChange={(libraryId) => onChangeLibrary(item.id, libraryId)}
+						/>
+					)}
 				</div>
 				<DropdownMenu
 					align="end"
@@ -234,12 +254,16 @@ export default function IntakeItemCard({
 								onSelect={(folder) => review({ folder })}
 								disabled={isBusy}
 							/>
-							<SeriesKindSwitch
-								isSeriesItem={isSeriesItem}
-								value={seriesKind}
-								disabled={isBusy}
-								onChange={(kind) => review(kind ? { seriesKind: kind } : { clearSeriesKind: true })}
-							/>
+							{!libraryHoldsOneKind && (
+								<SeriesKindSwitch
+									isSeriesItem={isSeriesItem}
+									value={seriesKind}
+									disabled={isBusy}
+									onChange={(kind) =>
+										review(kind ? { seriesKind: kind } : { clearSeriesKind: true })
+									}
+								/>
+							)}
 						</div>
 					</div>
 
@@ -434,6 +458,20 @@ export default function IntakeItemCard({
 						</ul>
 					)}
 
+					{suggested && (
+						<div className="gap-2 text-xs flex flex-wrap items-center">
+							<Button
+								size="xs"
+								variant="secondary"
+								disabled={isBusy}
+								onClick={() => onChangeLibrary(item.id, suggested.id)}
+							>
+								Move to {suggested.name}
+							</Button>
+							<span className="text-muted-foreground">It is analysed again there</span>
+						</div>
+					)}
+
 					{item.problems.length > 0 && (
 						<Alert variant="destructive">
 							<CircleAlert />
@@ -479,6 +517,38 @@ export default function IntakeItemCard({
 				</Button>
 			</div>
 		</article>
+	)
+}
+
+/** Moves the item to another library: the server analyses it again for that library */
+function LibrarySwitch({
+	value,
+	libraries,
+	onChange,
+	disabled,
+}: {
+	value: string
+	libraries: Array<{ id: string; name: string }>
+	onChange: (libraryId: string) => void
+	disabled?: boolean
+}) {
+	return (
+		<label
+			className="gap-2 text-xs mt-1 flex items-center text-muted-foreground"
+			title="Moving a book to another library analyses it again there"
+		>
+			Library
+			<NativeSelect
+				size="sm"
+				className="text-base md:text-sm w-auto"
+				value={value}
+				disabled={disabled}
+				options={libraries.map((library) => ({ label: library.name, value: library.id }))}
+				onChange={(e) => {
+					if (e.target.value !== value) onChange(e.target.value)
+				}}
+			/>
+		</label>
 	)
 }
 

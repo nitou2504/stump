@@ -7,6 +7,11 @@ export const intakeItemsQuery = graphql(`
 			id
 			libraryId
 			libraryName
+			libraryType
+			suggestedLibrary {
+				id
+				name
+			}
 			state
 			kind
 			name
@@ -182,6 +187,16 @@ export const intakeReanalyseMutation = graphql(`
 		intakeReanalyse(id: $id, online: $online) {
 			id
 			state
+		}
+	}
+`)
+
+export const intakeChangeLibraryMutation = graphql(`
+	mutation IntakeChangeLibrary($id: ID!, $libraryId: ID!) {
+		intakeChangeLibrary(id: $id, libraryId: $libraryId) {
+			id
+			state
+			libraryId
 		}
 	}
 `)

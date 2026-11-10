@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { SettingsSection } from '@/components/sharedLayout'
+import { typedSeriesKind } from '@/scenes/intake/reviewState'
 import { useLibraryContext } from '@/scenes/library/context'
 
 const query = graphql(`
@@ -15,6 +16,13 @@ const query = graphql(`
 			mangaDir
 			lightNovelDir
 			onlineLookup
+		}
+		libraryById(id: $libraryId) {
+			id
+			config {
+				id
+				libraryType
+			}
 		}
 	}
 `)
@@ -38,6 +46,8 @@ export default function AddBooksSettingsScene() {
 	const queryKey = ['libraryIntakeSettings', libraryId]
 	const { data, error } = useGraphQL(query, queryKey, { libraryId })
 	const settings = data?.libraryIntakeSettings
+	// a manga or light novel library holds series only, a folder each in its root
+	const holdsOneKind = typedSeriesKind(data?.libraryById?.config.libraryType) !== null
 
 	const [draft, setDraft] = useState<Draft>()
 	useEffect(() => {
@@ -86,22 +96,28 @@ export default function AddBooksSettingsScene() {
 		<div className="gap-10 flex flex-col">
 			<SettingsSection
 				title="Series folders"
-				description="Manga and light novels get a folder per series. Other books go to their author’s folder."
+				description={
+					holdsOneKind
+						? 'Every book added here is a series: each gets a folder of its own in the library.'
+						: 'Manga and light novels get a folder per series. Other books go to their author’s folder.'
+				}
 			>
-				<div className="gap-4 sm:grid-cols-2 grid">
-					<Input
-						label="Manga folder"
-						value={draft.mangaDir}
-						onChange={(e) => setDraft({ ...draft, mangaDir: e.target.value })}
-						fullWidth
-					/>
-					<Input
-						label="Light novel folder"
-						value={draft.lightNovelDir}
-						onChange={(e) => setDraft({ ...draft, lightNovelDir: e.target.value })}
-						fullWidth
-					/>
-				</div>
+				{!holdsOneKind && (
+					<div className="gap-4 sm:grid-cols-2 grid">
+						<Input
+							label="Manga folder"
+							value={draft.mangaDir}
+							onChange={(e) => setDraft({ ...draft, mangaDir: e.target.value })}
+							fullWidth
+						/>
+						<Input
+							label="Light novel folder"
+							value={draft.lightNovelDir}
+							onChange={(e) => setDraft({ ...draft, lightNovelDir: e.target.value })}
+							fullWidth
+						/>
+					</div>
+				)}
 			</SettingsSection>
 
 			<SettingsSection title="Online lookups">
