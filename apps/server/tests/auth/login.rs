@@ -4,13 +4,29 @@ use axum::http::StatusCode;
 use serde_json::json;
 
 use super::{
-	insert_user, is_locked, lock, one_password_check, tracked, FAILED_ATTEMPTS_TO_LOCK,
+	insert_user, is_locked, lock, one_password_check, sessions_of, sign_in, tracked,
+	FAILED_ATTEMPTS_TO_LOCK,
 };
 use crate::common::TestApp;
 
 async fn login(app: &TestApp, username: &str, password: &str) -> StatusCode {
 	app.server
 		.post("/api/v2/auth/login")
+		.json(&json!({ "username": username, "password": password }))
+		.await
+		.status_code()
+}
+
+/// A sign-in that came through the public edge, which marks the sign-ins it passes on with this
+/// header (and strips it from every other request)
+async fn login_through_the_edge(
+	app: &TestApp,
+	username: &str,
+	password: &str,
+) -> StatusCode {
+	app.server
+		.post("/api/v2/auth/login")
+		.add_header("x-edge-public", "1")
 		.json(&json!({ "username": username, "password": password }))
 		.await
 		.status_code()
@@ -104,6 +120,118 @@ async fn an_unknown_username_takes_as_long_to_refuse_as_a_wrong_password() {
 
 	let start = Instant::now();
 	let status = login(&app, "nobody", "wrong").await;
+	let elapsed = start.elapsed();
+
+	assert_eq!(status, StatusCode::UNAUTHORIZED);
+	assert!(
+		elapsed >= one_check / 2,
+		"refused in {elapsed:?}, a password check takes {one_check:?}"
+	);
+}
+
+/// the owner's username is easy to guess, so the owner doesn't sign in through the public edge:
+/// the right password is refused there like a wrong one, and nothing is signed in
+#[tokio::test]
+async fn the_owner_cannot_sign_in_through_the_public_edge() {
+	let app = TestApp::new().await;
+	let owner = insert_user(&app, "owner", "secret", true).await;
+
+	for password in ["secret", "wrong"] {
+		assert_eq!(
+			login_through_the_edge(&app, "owner", password).await,
+			StatusCode::UNAUTHORIZED,
+			"through the edge, tried {password:?}"
+		);
+	}
+
+	assert_eq!(
+		sessions_of(&app, &owner.id).await,
+		0,
+		"nobody was signed in"
+	);
+	// both are on record as failures, none as a success
+	assert_eq!(tracked(&app, &owner, false).await, 2);
+	assert_eq!(tracked(&app, &owner, true).await, 0);
+}
+
+/// the same sign-in from home (no header) works, and however many were refused at the edge, they
+/// never lock the owner
+#[tokio::test]
+async fn the_owner_signs_in_from_home_and_the_edge_never_locks_them() {
+	let app = TestApp::new().await;
+	let owner = insert_user(&app, "owner", "secret", true).await;
+
+	assert_eq!(login(&app, "owner", "secret").await, StatusCode::OK);
+
+	for _ in 0..FAILED_ATTEMPTS_TO_LOCK + 3 {
+		assert_eq!(
+			login_through_the_edge(&app, "owner", "secret").await,
+			StatusCode::UNAUTHORIZED
+		);
+	}
+
+	assert!(!is_locked(&app, &owner).await);
+	assert_eq!(login(&app, "owner", "secret").await, StatusCode::OK);
+}
+
+/// friends and everyone else sign in through the edge as usual
+#[tokio::test]
+async fn other_users_sign_in_through_the_public_edge() {
+	let app = TestApp::new().await;
+	insert_user(&app, "owner", "secret", true).await;
+	let reader = insert_user(&app, "reader", "secret", false).await;
+
+	assert_eq!(
+		login_through_the_edge(&app, "reader", "secret").await,
+		StatusCode::OK
+	);
+	assert_eq!(tracked(&app, &reader, true).await, 1);
+
+	// a wrong password is still a wrong password for them, and counts towards their lock
+	assert_eq!(
+		login_through_the_edge(&app, "reader", "wrong").await,
+		StatusCode::UNAUTHORIZED
+	);
+	assert_eq!(tracked(&app, &reader, false).await, 1);
+}
+
+/// the check comes before the shortcut for someone who already holds a session: an owner who
+/// signed in at home is refused through the edge, and not at home
+#[tokio::test]
+async fn an_owner_with_a_session_is_refused_through_the_public_edge_too() {
+	let app = TestApp::new().await;
+	insert_user(&app, "owner", "secret", true).await;
+	let signed_in = sign_in(&app, "owner", "secret").await;
+	let body = json!({ "username": "owner", "password": "secret" });
+
+	let at_home = app
+		.server
+		.post("/api/v2/auth/login")
+		.add_header("cookie", signed_in.cookie.clone())
+		.json(&body)
+		.await;
+	assert_eq!(at_home.status_code(), StatusCode::OK);
+
+	let through_the_edge = app
+		.server
+		.post("/api/v2/auth/login")
+		.add_header("cookie", signed_in.cookie.clone())
+		.add_header("x-edge-public", "1")
+		.json(&body)
+		.await;
+	assert_eq!(through_the_edge.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+/// it is refused after the same work as a wrong password, so how long it takes doesn't say that
+/// this is the owner
+#[tokio::test]
+async fn the_owner_takes_as_long_to_refuse_through_the_public_edge_as_a_wrong_password() {
+	let app = TestApp::new().await;
+	insert_user(&app, "owner", "secret", true).await;
+	let one_check = one_password_check(&app);
+
+	let start = Instant::now();
+	let status = login_through_the_edge(&app, "owner", "secret").await;
 	let elapsed = start.elapsed();
 
 	assert_eq!(status, StatusCode::UNAUTHORIZED);

@@ -1,6 +1,6 @@
 use axum::{
 	extract::{Query, Request, State},
-	http::{Response, StatusCode},
+	http::{HeaderMap, Response, StatusCode},
 	middleware,
 	response::IntoResponse,
 	routing::{get, post},
@@ -48,6 +48,10 @@ const FAILED_LOGINS_BEFORE_LOCK: u64 = 9;
 /// A success, or a refusal of a locked account, is tracked once an hour for a client that signs in
 /// with every request (OPDS Basic auth)
 const BASIC_AUTH_TRACKING_INTERVAL_HOURS: i64 = 1;
+
+/// The header the public edge (the proxy that is the only way in from the internet) adds to the
+/// sign-ins that come through it, and strips from every other request. Only its presence counts
+const EDGE_PUBLIC_HEADER: &str = "x-edge-public";
 
 pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 	Router::new().nest(
@@ -307,6 +311,7 @@ async fn login(
 	session: Session,
 	State(state): State<AppState>,
 	HostExtractor(details): HostExtractor,
+	headers: HeaderMap,
 	Query(AuthenticationOptions {
 		generate_token,
 		create_session,
@@ -342,6 +347,28 @@ async fn login(
 		verify_dummy_password(password, &config).await;
 		return Err(APIError::Unauthorized);
 	};
+
+	// The owner signs in from home only. Their username is easy to guess, and the public edge's
+	// limits can only slow down guessing at their password, so a sign-in as the owner that comes
+	// through the edge is refused whatever the password is, before it is even checked. It is
+	// refused like a wrong password, after the same work (so it takes as long, and doesn't say
+	// that this is the owner), and recorded, without ever counting towards a lock: the owner is
+	// never locked by failed sign-ins, and this one wasn't a guess
+	if user.is_server_owner && headers.contains_key(EDGE_PUBLIC_HEADER) {
+		verify_dummy_password(password, &config).await;
+		if let Err(error) = handle_login_attempt(
+			state.conn.as_ref(),
+			&user,
+			user_agent.to_string(),
+			client_ip,
+			false,
+		)
+		.await
+		{
+			error!(?error, "Failed to track login attempt!");
+		}
+		return Err(APIError::Unauthorized);
+	}
 
 	match session.get::<String>(SESSION_USER_KEY).await? {
 		Some(user_id) if user_id == user.id && !user.is_locked => {
