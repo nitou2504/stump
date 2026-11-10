@@ -501,9 +501,11 @@ pub async fn accept(
 	}
 	let claimed = reload(ctx.conn.as_ref(), &item.id).await?;
 	let task_ctx = ctx.clone();
-	tokio::spawn(async move { file_claimed(&task_ctx, claimed, IntakeState::Ready).await })
-		.await
-		.map_err(|error| CoreError::InternalError(error.to_string()))?
+	tokio::spawn(
+		async move { file_claimed(&task_ctx, claimed, IntakeState::Ready).await },
+	)
+	.await
+	.map_err(|error| CoreError::InternalError(error.to_string()))?
 }
 
 /// Puts back what a restart interrupted. An item that was being filed waits for approval again

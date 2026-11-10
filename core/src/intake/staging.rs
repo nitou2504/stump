@@ -181,7 +181,7 @@ fn read_pack_in(
 					too_much.to_string()
 				} else {
 					format!("{name} is larger than the maximum upload size")
-				}))
+				}));
 			},
 			Err(error) => return Err(error.into()),
 		};
@@ -541,9 +541,13 @@ mod tests {
 		// the same pack fits a room that is big enough, and its books are readable
 		let mut zip = zip_of(&entries);
 		let books =
-			books_in_zip_within(&mut zip, 10 * MIB, 50_000, dir.path(), "too much").unwrap();
+			books_in_zip_within(&mut zip, 10 * MIB, 50_000, dir.path(), "too much")
+				.unwrap();
 		assert_eq!(books.len(), 50);
-		assert_eq!(read_back(books.into_iter().nth(3).unwrap().1), vec![3u8; 1000]);
+		assert_eq!(
+			read_back(books.into_iter().nth(3).unwrap().1),
+			vec![3u8; 1000]
+		);
 		// a lying zip is stopped by the room too, while it is being read
 		let honest = zip_of(&[("bomb.epub", &vec![0u8; 3 * MIB as usize], true)]);
 		let mut lying = declaring(honest, 100);

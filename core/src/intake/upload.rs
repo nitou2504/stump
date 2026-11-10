@@ -581,29 +581,31 @@ impl IncomingUpload {
 					let mut zip = std::fs::File::open(path)?;
 					// what is said when the room is used up is told as what it is: the quota is
 					// too much (413), the disk is not open (503)
-					let books = books_in_zip_within(&mut zip, max_file, left, &dir, &message)
-						.map_err(|error| match error {
-							CoreError::BadRequest(said) if said == message => {
-								if said == POOR_DISK {
-									UploadError::Unavailable(said)
-								} else {
-									UploadError::TooLarge(said)
-								}
-							},
-							other => other.into(),
-						})?;
+					let books =
+						books_in_zip_within(&mut zip, max_file, left, &dir, &message)
+							.map_err(|error| match error {
+								CoreError::BadRequest(said) if said == message => {
+									if said == POOR_DISK {
+										UploadError::Unavailable(said)
+									} else {
+										UploadError::TooLarge(said)
+									}
+								},
+								other => other.into(),
+							})?;
 					// the name of a book says nothing about what it is: look at its first bytes
 					let mut sniffed = Vec::with_capacity(books.len());
 					for (name, mut book, size) in books {
-						let format =
-							sniff_pack_book(&name, &mut book).map_err(|error| match error {
+						let format = sniff_pack_book(&name, &mut book).map_err(
+							|error| match error {
 								UploadError::UnsupportedType(message) => {
 									UploadError::UnsupportedType(format!(
 										"{pack_name}/{name}: {message}"
 									))
 								},
 								other => other,
-							})?;
+							},
+						)?;
 						sniffed.push((name, book, size, format));
 					}
 					Ok::<_, UploadError>(sniffed)

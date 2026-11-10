@@ -232,7 +232,12 @@ impl World {
 
 	/// The same, with `noise` bytes of a stored entry added to the book (a book that takes a
 	/// moment to copy: two of them are copied at once)
-	async fn ana_uploads_big_epub(&self, title: &str, metadata: &str, noise: usize) -> String {
+	async fn ana_uploads_big_epub(
+		&self,
+		title: &str,
+		metadata: &str,
+		noise: usize,
+	) -> String {
 		let path = self
 			.tmp
 			.path()
@@ -366,8 +371,8 @@ impl World {
 fn write_unique_epub(path: &std::path::Path, title: &str, metadata: &str) {
 	use std::io::{Cursor, Write};
 	fixtures::write_test_epub(path, title, metadata);
-	let mut input =
-		zip::ZipArchive::new(Cursor::new(fs::read(path).expect("the EPUB"))).expect("a zip");
+	let mut input = zip::ZipArchive::new(Cursor::new(fs::read(path).expect("the EPUB")))
+		.expect("a zip");
 	let mut out = zip::ZipWriter::new(fs::File::create(path).expect("the EPUB"));
 	out.start_file(
 		"0-seed.txt",
@@ -2187,7 +2192,6 @@ async fn test_a_friends_description_is_plain_in_what_gets_filed() {
 	assert!(!opf.contains("dc:description"), "{opf}");
 }
 
-
 /// two books that file under one name are each filed whole, whichever copies first: the second
 /// takes the next name, and neither holds the bytes of the other. The books are big, so that
 /// their copies overlap: with one temporary name for both, the one that was linked first would
@@ -2221,7 +2225,10 @@ async fn test_two_books_with_one_name_are_each_filed_whole() {
 	}
 	let mut editions = vec![];
 	for name in ["Twin.epub", "Twin_2.epub"] {
-		let opf = epub_entry(&world.library_dir.join("Umberto_Eco").join(name), "OEBPS/content.opf");
+		let opf = epub_entry(
+			&world.library_dir.join("Umberto_Eco").join(name),
+			"OEBPS/content.opf",
+		);
 		editions.push(if opf.contains("First edition") {
 			"first"
 		} else if opf.contains("Second edition") {
@@ -2231,7 +2238,11 @@ async fn test_two_books_with_one_name_are_each_filed_whole() {
 		});
 	}
 	editions.sort();
-	assert_eq!(editions, ["first", "second"], "each file holds its own book");
+	assert_eq!(
+		editions,
+		["first", "second"],
+		"each file holds its own book"
+	);
 	// no temporary copy is left in the folder
 	assert!(
 		names_in(&world.library_dir.join("Umberto_Eco"))
@@ -2281,7 +2292,11 @@ async fn test_what_was_read_before_an_approval_does_not_undo_it() {
 		.expect_err("so is a move");
 	assert!(error.to_string().contains("changed while"), "{error}");
 	let row = world.row(&id).await;
-	assert_eq!(row.state, IntakeState::Filed, "it is not waiting again, to be filed twice");
+	assert_eq!(
+		row.state,
+		IntakeState::Filed,
+		"it is not waiting again, to be filed twice"
+	);
 	assert_ne!(
 		row.decision.and_then(|d| d.metadata.title).as_deref(),
 		Some("Too late")
@@ -2337,7 +2352,10 @@ async fn test_an_accept_that_is_dropped_does_not_leave_the_book_filing() {
 	.await;
 	assert_eq!(response.status_code(), 200, "{}", response.text());
 	let body: Value = response.json();
-	let id = body["items"][0]["id"].as_str().expect("an item").to_string();
+	let id = body["items"][0]["id"]
+		.as_str()
+		.expect("an item")
+		.to_string();
 	let row = world.wait_for_analysis(&id).await;
 	let ready = intake_item::ActiveModel {
 		state: Set(IntakeState::Ready),
@@ -2384,7 +2402,12 @@ async fn test_a_copy_added_since_the_book_was_looked_at_is_not_filed_silently() 
 		.await;
 		assert_eq!(response.status_code(), 200, "{}", response.text());
 		let body: Value = response.json();
-		ids.push(body["items"][0]["id"].as_str().expect("an item").to_string());
+		ids.push(
+			body["items"][0]["id"]
+				.as_str()
+				.expect("an item")
+				.to_string(),
+		);
 	}
 	world.ana_items().await;
 	assert_ok(
@@ -2498,5 +2521,8 @@ async fn test_the_reason_a_book_was_not_filed_says_nothing_of_the_library() {
 		.iter()
 		.find(|item| item["id"] == id)
 		.expect("her item");
-	assert!(!hers.to_string().contains("already in the library"), "{hers:#}");
+	assert!(
+		!hers.to_string().contains("already in the library"),
+		"{hers:#}"
+	);
 }

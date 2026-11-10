@@ -1399,7 +1399,9 @@ async fn unseen_duplicates(
 	// books of the library (a book that was filed here has the hash of the file as it was
 	// written, so only a copy added some other way is found like this)
 	for book in media::Entity::find()
-		.filter(media::Column::Hash.is_in(hashed.iter().map(|(hash, _)| String::from(*hash))))
+		.filter(
+			media::Column::Hash.is_in(hashed.iter().map(|(hash, _)| String::from(*hash))),
+		)
 		.filter(media::Column::DeletedAt.is_null())
 		.all(conn)
 		.await?
@@ -1417,7 +1419,8 @@ async fn unseen_duplicates(
 		let others = intake_item::Entity::find()
 			.filter(intake_item::Column::Id.ne(item.id.clone()))
 			.filter(
-				intake_item::Column::State.is_in([IntakeState::Filing, IntakeState::Filed]),
+				intake_item::Column::State
+					.is_in([IntakeState::Filing, IntakeState::Filed]),
 			)
 			.filter(sea_orm::sea_query::Expr::cust_with_values(
 				"CAST(files AS TEXT) LIKE ?",
@@ -1438,7 +1441,11 @@ async fn unseen_duplicates(
 					.is_some_and(|r| r.paths.iter().any(|p| Path::new(p).exists())),
 			};
 			if still_there {
-				note(format!("intake:{}", other.id), other.name.clone(), file_name);
+				note(
+					format!("intake:{}", other.id),
+					other.name.clone(),
+					file_name,
+				);
 			}
 		}
 	}
@@ -1576,7 +1583,10 @@ mod tests {
 		let dir = tempfile::tempdir().unwrap();
 		let library = dir.path().join("library");
 		std::fs::create_dir_all(&library).unwrap();
-		let (first, second) = (dir.path().join("first.epub"), dir.path().join("second.epub"));
+		let (first, second) = (
+			dir.path().join("first.epub"),
+			dir.path().join("second.epub"),
+		);
 		std::fs::write(&first, vec![1u8; 8192]).unwrap();
 		std::fs::write(&second, vec![2u8; 8192]).unwrap();
 		let target = library.join("Book.epub");

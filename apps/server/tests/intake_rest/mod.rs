@@ -635,7 +635,10 @@ async fn test_a_book_in_a_pack_is_what_its_name_says() {
 		message(&response)
 	);
 	assert!(rest.items().await.is_empty());
-	assert!(!rest.staged().iter().any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
+	assert!(!rest
+		.staged()
+		.iter()
+		.any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
 
 	let comic = zip_bytes(&[("page-1.png", b"png", false)]);
 	let pack = zip_bytes(&[
@@ -668,7 +671,11 @@ async fn test_a_pack_is_unpacked_only_as_far_as_the_quota_goes() {
 		.map(|(name, bytes)| (name.as_str(), bytes.as_slice(), true))
 		.collect();
 	let pack = zip_bytes(&entries);
-	assert!(pack.len() < 100 * 1024, "the premise: a small zip ({})", pack.len());
+	assert!(
+		pack.len() < 100 * 1024,
+		"the premise: a small zip ({})",
+		pack.len()
+	);
 	let response = rest.upload(&UploadBody::new().file("Saga.zip", pack)).await;
 	assert_eq!(response.status_code(), 413, "{}", response.text());
 	assert!(
@@ -677,7 +684,10 @@ async fn test_a_pack_is_unpacked_only_as_far_as_the_quota_goes() {
 		message(&response)
 	);
 	assert!(rest.items().await.is_empty());
-	assert!(!rest.staged().iter().any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
+	assert!(!rest
+		.staged()
+		.iter()
+		.any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
 }
 
 /// the unpacking stops when the room runs out: what comes after it in the zip is not read. The
