@@ -258,7 +258,7 @@ async fn catalog(Extension(req): Extension<AuthContext>) -> APIResult<Xml> {
 			Utc::now().into(),
 			"Shelves".to_string(),
 			None,
-			Some(String::from("Browse your smart lists")),
+			Some(String::from("Browse shelves")),
 			None,
 			Some(vec![OpdsLink {
 				link_type: OpdsLinkType::Navigation,
@@ -272,7 +272,7 @@ async fn catalog(Extension(req): Extension<AuthContext>) -> APIResult<Xml> {
 			Utc::now().into(),
 			"Reading lists".to_string(),
 			None,
-			Some(String::from("Browse your reading lists")),
+			Some(String::from("Browse reading lists")),
 			None,
 			Some(vec![OpdsLink {
 				link_type: OpdsLinkType::Navigation,
@@ -548,7 +548,8 @@ async fn get_smart_list_books(
 	smart_list_books_feed(&ctx, &req, id, pagination, params).await
 }
 
-/// A handler for GET /opds/v1.2/reading-lists, the user's own reading lists
+/// A handler for GET /opds/v1.2/reading-lists, the user's own reading lists and the public ones of
+/// other people
 async fn get_reading_lists(
 	State(ctx): State<AppState>,
 	Extension(req): Extension<AuthContext>,
