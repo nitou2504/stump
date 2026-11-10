@@ -4,9 +4,15 @@
 
 use std::collections::HashMap;
 
-use models::shared::intake::{
-	IntakeFolderCandidate, IntakeGenreSuggestion, IntakeKind, IntakeMetadata,
-	IntakeProposal, IntakeSeriesKind, IntakeSimilarBook, IntakeSource,
+use models::{
+	entity::library_intake_settings::typed_series_kind,
+	shared::{
+		enums::LibraryType,
+		intake::{
+			IntakeFolderCandidate, IntakeGenreSuggestion, IntakeKind, IntakeMetadata,
+			IntakeProposal, IntakeSeriesKind, IntakeSimilarBook, IntakeSource,
+		},
+	},
 };
 
 use super::{
@@ -192,6 +198,8 @@ pub struct Inputs<'a> {
 	pub group_name: Option<String>,
 	/// `(media_id, cosine)` of books with similar descriptions
 	pub similar: Vec<(u32, f32)>,
+	/// The type of the library the item is for
+	pub library_type: LibraryType,
 }
 
 /// Merges online records into the file's metadata: the file wins, then Open Library, then
@@ -746,6 +754,38 @@ pub fn detect_series_kind(
 	None
 }
 
+/// A note for the uploader when what the item looks like doesn't fit the library's type: a
+/// manga or light novel library holds series of its own kind only, and a book or mixed library
+/// would file manga and light novels in sub-folders. Never blocks. It speaks of this library
+/// alone: which other libraries exist (and may be hidden from the uploader) isn't for a
+/// proposal to say.
+pub fn library_fit_warning(
+	library_type: LibraryType,
+	detected: Option<IntakeSeriesKind>,
+) -> Option<String> {
+	let words = |kind: IntakeSeriesKind| match kind {
+		IntakeSeriesKind::Manga => ("manga", "a manga"),
+		IntakeSeriesKind::LightNovel => ("a light novel", "a light novel"),
+	};
+	match (typed_series_kind(library_type), detected) {
+		(Some(typed), found) if found != Some(typed) => {
+			let (looks_like, library) = words(typed);
+			Some(format!(
+				"This doesn't look like {looks_like}, but this is {library} library"
+			))
+		},
+		(None, Some(found))
+			if matches!(library_type, LibraryType::Book | LibraryType::Mixed) =>
+		{
+			let (looks_like, library) = words(found);
+			Some(format!(
+				"This looks like {looks_like}, but this isn't {library} library"
+			))
+		},
+		_ => None,
+	}
+}
+
 /// Builds the whole proposal
 pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 	let Inputs {
@@ -757,6 +797,7 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 		series_hint,
 		group_name,
 		similar,
+		library_type,
 	} = inputs;
 	let mut meta = file_meta;
 	merge_online(&mut meta, &online);
@@ -767,8 +808,11 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 		}
 	}
 
-	let series_kind = detect_series_kind(kind, &formats, &meta, series_hint, index);
+	let detected = detect_series_kind(kind, &formats, &meta, series_hint, index);
+	// a manga or light novel library files everything as a series of its own kind
+	let series_kind = typed_series_kind(library_type).or(detected);
 	let mut warnings = vec![];
+	warnings.extend(library_fit_warning(library_type, detected));
 
 	let author_folders = if series_kind.is_none() {
 		author_folder_candidates(index, &meta.authors)
@@ -1090,5 +1134,55 @@ mod tests {
 				.map(|s| s.selected),
 			Some(true)
 		);
+	}
+
+	/// a note when the item doesn't fit the library's type, naming only this library
+	#[test]
+	fn says_when_an_item_does_not_fit_the_library() {
+		use IntakeSeriesKind::{LightNovel, Manga};
+
+		// a book or mixed library would file manga and light novels in sub-folders
+		for library_type in [LibraryType::Book, LibraryType::Mixed] {
+			assert_eq!(
+				library_fit_warning(library_type, Some(Manga)).as_deref(),
+				Some("This looks like manga, but this isn't a manga library")
+			);
+			assert_eq!(
+				library_fit_warning(library_type, Some(LightNovel)).as_deref(),
+				Some(
+					"This looks like a light novel, but this isn't a light novel library"
+				)
+			);
+			assert_eq!(library_fit_warning(library_type, None), None);
+		}
+		// the other types have no opinion
+		for library_type in [
+			LibraryType::Comic,
+			LibraryType::Manhwa,
+			LibraryType::WebNovel,
+			LibraryType::Webtoon,
+		] {
+			assert_eq!(library_fit_warning(library_type, Some(Manga)), None);
+		}
+		// a manga or light novel library holds its own kind of series only
+		assert_eq!(library_fit_warning(LibraryType::Manga, Some(Manga)), None);
+		assert_eq!(
+			library_fit_warning(LibraryType::LightNovel, Some(LightNovel)),
+			None
+		);
+		for found in [None, Some(LightNovel)] {
+			assert_eq!(
+				library_fit_warning(LibraryType::Manga, found).as_deref(),
+				Some("This doesn't look like manga, but this is a manga library")
+			);
+		}
+		for found in [None, Some(Manga)] {
+			assert_eq!(
+				library_fit_warning(LibraryType::LightNovel, found).as_deref(),
+				Some(
+					"This doesn't look like a light novel, but this is a light novel library"
+				)
+			);
+		}
 	}
 }

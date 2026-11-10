@@ -19,15 +19,17 @@ pub mod write;
 
 use std::{
 	collections::BTreeSet,
-	path::{Path, PathBuf},
+	path::{Component, Path, PathBuf},
 };
 
 use models::{
 	entity::{
-		intake_item, library, library_config, library_intake_settings, media, user,
+		intake_item, library, library_config,
+		library_intake_settings::{self, typed_series_kind},
+		media, user,
 	},
 	shared::{
-		enums::OrganizationMode,
+		enums::{LibraryType, OrganizationMode},
 		intake::{
 			IntakeDecision, IntakeDestination, IntakeDestinationFile, IntakeDuplicate,
 			IntakeFile, IntakeKind, IntakeMetadata, IntakeProposal, IntakeResult,
@@ -63,17 +65,43 @@ pub fn staging_dir(ctx: &Ctx, user_id: &str, item_id: &str) -> PathBuf {
 	staging_root(ctx).join(user_id).join(item_id)
 }
 
-/// The intake settings of a library (its stored row, or the defaults)
+/// The intake settings of a library (its stored row, or the defaults of its type)
 pub async fn settings_for(
 	conn: &DatabaseConnection,
 	library_id: &str,
+) -> CoreResult<library_intake_settings::Model> {
+	let (library, config) = load_library(conn, library_id).await?;
+	settings_of(conn, &library.id, library_type_in(config.as_ref())).await
+}
+
+/// The settings of a library whose type is known: its stored row, or the defaults of the type
+async fn settings_of(
+	conn: &DatabaseConnection,
+	library_id: &str,
+	library_type: LibraryType,
 ) -> CoreResult<library_intake_settings::Model> {
 	Ok(
 		library_intake_settings::Entity::find_by_id(library_id.to_string())
 			.one(conn)
 			.await?
-			.unwrap_or_else(|| library_intake_settings::Model::defaults_for(library_id)),
+			.unwrap_or_else(|| {
+				library_intake_settings::Model::defaults_for(library_id, library_type)
+			}),
 	)
+}
+
+/// The type of a library; one without a configuration is a mixed library, as its default says
+pub fn library_type_in(config: Option<&library_config::Model>) -> LibraryType {
+	config.map(|c| c.library_type).unwrap_or_default()
+}
+
+/// The type of the library with this id
+pub async fn library_type_of(
+	conn: &DatabaseConnection,
+	library_id: &str,
+) -> CoreResult<LibraryType> {
+	let (_, config) = load_library(conn, library_id).await?;
+	Ok(library_type_in(config.as_ref()))
 }
 
 pub(crate) async fn load_library(
@@ -106,6 +134,11 @@ pub async fn analyse(ctx: &Ctx, item_id: &str, online: Option<bool>) -> CoreResu
 		Ok(()) => Ok(()),
 		Err(error) => {
 			tracing::warn!(?error, item_id, "Intake analysis failed");
+			// an item moved to another library meanwhile is being analysed there: that
+			// analysis owns its state now
+			if !still_in_library(conn, &item).await {
+				return Err(error);
+			}
 			let mut active = item.into_active_model();
 			active.state = Set(IntakeState::Failed);
 			active.error = Set(Some(format!("Analysis failed: {error}")));
@@ -121,8 +154,9 @@ async fn analyse_item(
 	online: Option<bool>,
 ) -> CoreResult<()> {
 	let conn = ctx.conn.as_ref();
-	let (library, _) = load_library(conn, &item.library_id).await?;
-	let settings = settings_for(conn, &item.library_id).await?;
+	let (library, config) = load_library(conn, &item.library_id).await?;
+	let library_type = library_type_in(config.as_ref());
+	let settings = settings_of(conn, &library.id, library_type).await?;
 	let root = PathBuf::from(&library.path);
 	let index = library_index(
 		conn,
@@ -227,6 +261,7 @@ async fn analyse_item(
 		series_hint,
 		group_name,
 		similar,
+		library_type,
 	});
 	proposal.looked_up_online = lookup.found();
 	proposal.warnings.extend(lookup.notes());
@@ -281,6 +316,10 @@ async fn analyse_item(
 	let destination = compute_destination(&root, &settings, &files, &decision);
 	let state = state_for(&proposal, &decision, &destination);
 
+	// the item may have been moved to another library while this ran: its analysis there wins
+	if !still_in_library(conn, item).await {
+		return Ok(());
+	}
 	let mut active = item.clone().into_active_model();
 	active.files = Set(intake_files(files));
 	active.proposal = Set(Some(proposal));
@@ -294,6 +333,16 @@ async fn analyse_item(
 
 fn intake_files(files: Vec<IntakeFile>) -> models::shared::intake::IntakeFiles {
 	models::shared::intake::IntakeFiles(files)
+}
+
+/// Whether the item is still in the library an analysis started with
+async fn still_in_library(conn: &DatabaseConnection, item: &intake_item::Model) -> bool {
+	intake_item::Entity::find_by_id(item.id.clone())
+		.one(conn)
+		.await
+		.ok()
+		.flatten()
+		.is_some_and(|current| current.library_id == item.library_id)
 }
 
 /// The proposal's best choices
@@ -371,6 +420,28 @@ pub fn default_file_names(
 		.collect()
 }
 
+/// A folder inside `dir`, relative to the library root. An empty `dir` (a manga or light novel
+/// library keeps its series folders at its root) gives the folder itself: joining the two with a
+/// `/` would make an absolute path, which leaves the library when it is joined to the root.
+fn join_relative(dir: &str, name: &str) -> String {
+	let dir = dir.trim().trim_matches('/');
+	if dir.is_empty() {
+		name.to_string()
+	} else {
+		format!("{dir}/{name}")
+	}
+}
+
+/// Whether a path relative to the library root stays inside it: a plain, relative path made of
+/// ordinary components (no `..`, no leading `/`, no drive)
+pub fn stays_in_library(relative: &str) -> bool {
+	let path = Path::new(relative);
+	!relative.is_empty()
+		&& path
+			.components()
+			.all(|component| matches!(component, Component::Normal(_)))
+}
+
 /// Where a decision puts each file, relative to the library root
 pub fn compute_destination(
 	root: &Path,
@@ -380,10 +451,10 @@ pub fn compute_destination(
 ) -> IntakeDestination {
 	let relative_dir = match decision.series_kind {
 		Some(IntakeSeriesKind::Manga) => {
-			format!("{}/{}", settings.manga_dir, decision.folder)
+			join_relative(&settings.manga_dir, &decision.folder)
 		},
 		Some(IntakeSeriesKind::LightNovel) => {
-			format!("{}/{}", settings.light_novel_dir, decision.folder)
+			join_relative(&settings.light_novel_dir, &decision.folder)
 		},
 		None => decision.folder.clone(),
 	};
@@ -395,7 +466,7 @@ pub fn compute_destination(
 			.zip(decision.file_names.iter())
 			.map(|(file, name)| IntakeDestinationFile {
 				original_name: file.original_name.clone(),
-				relative_path: format!("{relative_dir}/{name}"),
+				relative_path: join_relative(&relative_dir, name),
 				exists: dir.join(name).exists(),
 			})
 			.collect(),
@@ -427,6 +498,9 @@ pub fn decision_problems(
 	let mut problems = vec![];
 	if !is_plain_component(&decision.folder) {
 		problems.push("Choose a folder".to_string());
+	} else if !stays_in_library(&destination.relative_dir) {
+		// the folder is fine, so the library's own folder setting is what leaves the library
+		problems.push("The folder is outside the library".to_string());
 	}
 	if decision.series_kind.is_none() {
 		if decision
@@ -491,8 +565,9 @@ pub async fn apply_review(
 			item.state
 		)));
 	}
-	let (library, _) = load_library(conn, &item.library_id).await?;
-	let settings = settings_for(conn, &item.library_id).await?;
+	let (library, config) = load_library(conn, &item.library_id).await?;
+	let library_type = library_type_in(config.as_ref());
+	let settings = settings_of(conn, &library.id, library_type).await?;
 	let files = item.files.0.clone();
 	let mut decision = item.decision.clone().unwrap_or_default();
 	let old_names = default_file_names(&files, &decision);
@@ -545,6 +620,10 @@ pub async fn apply_review(
 	if input.clear_series_kind {
 		decision.series_kind = None;
 	} else if let Some(kind) = input.series_kind {
+		decision.series_kind = Some(kind);
+	}
+	// a manga or light novel library only holds series of its own kind
+	if let Some(kind) = typed_series_kind(library_type) {
 		decision.series_kind = Some(kind);
 	}
 	if let Some(volumes) = input.volumes {
@@ -673,6 +752,28 @@ fn suffixed(name: &str, n: usize) -> String {
 	}
 }
 
+/// Moves an item to another library and sets it to be analysed there from scratch. Its staged
+/// files stay where they are: staging doesn't depend on the library. The caller checks that the
+/// user may use the library, then runs the analysis.
+pub async fn change_library(
+	ctx: &Ctx,
+	item: intake_item::Model,
+	library_id: &str,
+) -> CoreResult<intake_item::Model> {
+	if matches!(item.state, IntakeState::Filed | IntakeState::Discarded) {
+		return Err(CoreError::BadRequest(
+			"This item is no longer in the inbox".into(),
+		));
+	}
+	let conn = ctx.conn.as_ref();
+	let (library, _) = load_library(conn, library_id).await?;
+	let mut active = item.into_active_model();
+	active.library_id = Set(library.id);
+	active.state = Set(IntakeState::Analysing);
+	active.error = Set(None);
+	Ok(active.update(conn).await?)
+}
+
 /// Files a reviewed item into its library
 pub async fn file_item(
 	ctx: &Ctx,
@@ -690,7 +791,8 @@ pub async fn file_item(
 		.clone()
 		.ok_or_else(|| CoreError::BadRequest("The item has no decision".into()))?;
 	let (library, config) = load_library(conn, &item.library_id).await?;
-	let settings = settings_for(conn, &item.library_id).await?;
+	let settings =
+		settings_of(conn, &library.id, library_type_in(config.as_ref())).await?;
 	let root = PathBuf::from(&library.path);
 	let files = item.files.0.clone();
 	let destination = compute_destination(&root, &settings, &files, &decision);
@@ -880,7 +982,11 @@ mod tests {
 	use super::*;
 
 	fn settings() -> library_intake_settings::Model {
-		library_intake_settings::Model::defaults_for("lib")
+		library_intake_settings::Model::defaults_for("lib", LibraryType::Book)
+	}
+
+	fn manga_settings() -> library_intake_settings::Model {
+		library_intake_settings::Model::defaults_for("manga", LibraryType::Manga)
 	}
 
 	fn file(name: &str, format: &str, volume: Option<f64>) -> IntakeFile {
@@ -946,6 +1052,94 @@ mod tests {
 			destination.files[1].relative_path,
 			"_Manga/Yotsuba&!/Yotsuba&! v16.cbz"
 		);
+		assert!(decision_problems(&decision, &destination).is_empty());
+	}
+
+	/// a manga library keeps its series folders in the root: an empty folder setting must never
+	/// produce `/Series`, which is an absolute path and leaves the library once joined to the root
+	#[test]
+	fn a_manga_library_files_series_directly_in_its_root() {
+		let root = Path::new("/manga");
+		let files = vec![
+			file("b1.cbz", "cbz", Some(1.0)),
+			file("b2.cbz", "cbz", Some(2.0)),
+		];
+		let mut decision = IntakeDecision {
+			metadata: IntakeMetadata {
+				series: Some("Berserk".into()),
+				..Default::default()
+			},
+			series_kind: Some(IntakeSeriesKind::Manga),
+			folder: "Berserk".into(),
+			volumes: vec![Some(1.0), Some(2.0)],
+			..Default::default()
+		};
+		decision.file_names = default_file_names(&files, &decision);
+		let destination = compute_destination(root, &manga_settings(), &files, &decision);
+		assert_eq!(destination.relative_dir, "Berserk");
+		assert_eq!(
+			destination.files[0].relative_path,
+			"Berserk/Berserk v01.cbz"
+		);
+		assert_eq!(
+			destination.files[1].relative_path,
+			"Berserk/Berserk v02.cbz"
+		);
+		for relative in std::iter::once(&destination.relative_dir)
+			.chain(destination.files.iter().map(|f| &f.relative_path))
+		{
+			assert!(!relative.starts_with('/'), "{relative}");
+			assert!(stays_in_library(relative), "{relative}");
+			assert!(root.join(relative).starts_with(root), "{relative}");
+		}
+		assert!(decision_problems(&decision, &destination).is_empty());
+
+		// a light novel aimed at the same library goes to the same place: both kinds sit at
+		// its root, and no `_Manga` or `_Novela ligera` folder is part of its paths
+		decision.series_kind = Some(IntakeSeriesKind::LightNovel);
+		let destination = compute_destination(root, &manga_settings(), &files, &decision);
+		assert_eq!(destination.relative_dir, "Berserk");
+	}
+
+	#[test]
+	fn joins_folders_without_leaving_the_library() {
+		assert_eq!(join_relative("", "Berserk"), "Berserk");
+		assert_eq!(join_relative("  ", "Berserk"), "Berserk");
+		assert_eq!(join_relative("/", "Berserk"), "Berserk");
+		assert_eq!(join_relative("_Manga", "Berserk"), "_Manga/Berserk");
+		assert_eq!(join_relative("/_Manga/", "Berserk"), "_Manga/Berserk");
+		assert!(stays_in_library("Berserk"));
+		assert!(stays_in_library("_Manga/Berserk/v01.cbz"));
+		for outside in ["", "/Berserk", "../Berserk", "a/../../b", "./a", "/"] {
+			assert!(!stays_in_library(outside), "{outside:?}");
+		}
+	}
+
+	/// a folder setting that leaves the library (however it got into the database) blocks the filing
+	#[test]
+	fn a_folder_that_leaves_the_library_is_a_problem() {
+		let files = vec![file("b1.cbz", "cbz", Some(1.0))];
+		let mut decision = IntakeDecision {
+			metadata: IntakeMetadata {
+				series: Some("Berserk".into()),
+				..Default::default()
+			},
+			series_kind: Some(IntakeSeriesKind::Manga),
+			folder: "Berserk".into(),
+			volumes: vec![Some(1.0)],
+			..Default::default()
+		};
+		decision.file_names = default_file_names(&files, &decision);
+		let mut escaping = settings();
+		escaping.manga_dir = "../elsewhere".into();
+		let destination =
+			compute_destination(Path::new("/lib"), &escaping, &files, &decision);
+		assert_eq!(destination.relative_dir, "../elsewhere/Berserk");
+		assert!(decision_problems(&decision, &destination)
+			.contains(&"The folder is outside the library".to_string()));
+		escaping.manga_dir = "_Manga".into();
+		let destination =
+			compute_destination(Path::new("/lib"), &escaping, &files, &decision);
 		assert!(decision_problems(&decision, &destination).is_empty());
 	}
 
