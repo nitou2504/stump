@@ -134,15 +134,20 @@ pub async fn analyse(ctx: &Ctx, item_id: &str, online: Option<bool>) -> CoreResu
 		Ok(()) => Ok(()),
 		Err(error) => {
 			tracing::warn!(?error, item_id, "Intake analysis failed");
-			// an item moved to another library meanwhile is being analysed there: that
-			// analysis owns its state now
-			if !still_in_library(conn, &item).await {
-				return Err(error);
+			// the failure is stored under the same rule as an outcome: an item moved to another
+			// library meanwhile (it is analysed there), discarded or filed keeps its own state
+			let failed = intake_item::ActiveModel {
+				state: Set(IntakeState::Failed),
+				error: Set(Some(format!("Analysis failed: {error}"))),
+				..Default::default()
+			};
+			if let Err(write_error) = store_outcome(conn, &item, failed).await {
+				tracing::warn!(
+					?write_error,
+					item_id,
+					"Couldn't store the failure of an intake analysis"
+				);
 			}
-			let mut active = item.into_active_model();
-			active.state = Set(IntakeState::Failed);
-			active.error = Set(Some(format!("Analysis failed: {error}")));
-			active.update(conn).await?;
 			Err(error)
 		},
 	}
@@ -316,18 +321,22 @@ async fn analyse_item(
 	let destination = compute_destination(&root, &settings, &files, &decision);
 	let state = state_for(&proposal, &decision, &destination);
 
-	// the item may have been moved to another library while this ran: its analysis there wins
-	if !still_in_library(conn, item).await {
-		return Ok(());
-	}
-	let mut active = item.clone().into_active_model();
-	active.files = Set(intake_files(files));
-	active.proposal = Set(Some(proposal));
-	active.decision = Set(Some(decision));
-	active.destination = Set(Some(destination));
-	active.state = Set(state);
-	active.error = Set(None);
-	active.update(conn).await?;
+	// the item may have been moved to another library, discarded or filed while this ran, or
+	// answered by another analysis: then this outcome is dropped, not stored over it
+	store_outcome(
+		conn,
+		item,
+		intake_item::ActiveModel {
+			files: Set(intake_files(files)),
+			proposal: Set(Some(proposal)),
+			decision: Set(Some(decision)),
+			destination: Set(Some(destination)),
+			state: Set(state),
+			error: Set(None),
+			..Default::default()
+		},
+	)
+	.await?;
 	Ok(())
 }
 
@@ -335,14 +344,26 @@ fn intake_files(files: Vec<IntakeFile>) -> models::shared::intake::IntakeFiles {
 	models::shared::intake::IntakeFiles(files)
 }
 
-/// Whether the item is still in the library an analysis started with
-async fn still_in_library(conn: &DatabaseConnection, item: &intake_item::Model) -> bool {
-	intake_item::Entity::find_by_id(item.id.clone())
-		.one(conn)
-		.await
-		.ok()
-		.flatten()
-		.is_some_and(|current| current.library_id == item.library_id)
+/// Stores what an analysis found in the item it started with, in one statement: the item must
+/// still be in the library the analysis read and still be waiting for an analysis. Checking first
+/// and writing after would leave a gap for the item to be moved, discarded or filed, and a failed
+/// check would be read as a move. `Ok(false)`: the item moved, was discarded or filed, or another
+/// analysis answered first, so the outcome is dropped. A database error is an error.
+async fn store_outcome(
+	conn: &DatabaseConnection,
+	item: &intake_item::Model,
+	mut outcome: intake_item::ActiveModel,
+) -> CoreResult<bool> {
+	// an update of many rows doesn't run the model's `before_save`
+	outcome.updated_at = Set(chrono::Utc::now().into());
+	let stored = intake_item::Entity::update_many()
+		.set(outcome)
+		.filter(intake_item::Column::Id.eq(item.id.clone()))
+		.filter(intake_item::Column::LibraryId.eq(item.library_id.clone()))
+		.filter(intake_item::Column::State.eq(IntakeState::Analysing))
+		.exec(conn)
+		.await?;
+	Ok(stored.rows_affected > 0)
 }
 
 /// The proposal's best choices
@@ -459,15 +480,19 @@ pub fn compute_destination(
 		None => decision.folder.clone(),
 	};
 	let dir = root.join(&relative_dir);
+	// the folder and the file names come from the uploader: only plain ones are looked up on the
+	// disk, so no name can ask whether some other path exists (the problems say what is wrong
+	// with the others, and they block the filing)
+	let inside = is_plain_component(&decision.folder) && stays_in_library(&relative_dir);
 	IntakeDestination {
-		dir_exists: !decision.folder.is_empty() && dir.is_dir(),
+		dir_exists: inside && dir.is_dir(),
 		files: files
 			.iter()
 			.zip(decision.file_names.iter())
 			.map(|(file, name)| IntakeDestinationFile {
 				original_name: file.original_name.clone(),
 				relative_path: join_relative(&relative_dir, name),
-				exists: dir.join(name).exists(),
+				exists: inside && is_plain_component(name) && dir.join(name).exists(),
 			})
 			.collect(),
 		relative_dir,
@@ -549,6 +574,33 @@ fn set_text(
 	value
 }
 
+/// Whether the uploader can still change an item (review it, move it to another library): it
+/// is waiting for them. An allow-list on purpose: a state added later is refused here until
+/// someone decides that it belongs.
+pub fn is_open_for_changes(state: IntakeState) -> bool {
+	matches!(
+		state,
+		IntakeState::NeedsReview | IntakeState::Ready | IntakeState::Failed
+	)
+}
+
+/// Whether an item can be analysed again: the ones open for changes, and one still marked as
+/// being analysed (an analysis that never answered, across a restart, would leave it there
+/// for good)
+pub fn can_reanalyse(state: IntakeState) -> bool {
+	is_open_for_changes(state) || state == IntakeState::Analysing
+}
+
+/// Why an item in this state can't be changed
+pub fn closed_for_changes(state: IntakeState, what: &str) -> CoreError {
+	CoreError::BadRequest(match state {
+		IntakeState::Filed | IntakeState::Discarded => {
+			"This item is no longer in the inbox".to_string()
+		},
+		state => format!("An item that is {state} can't be {what}"),
+	})
+}
+
 /// Applies the uploader's review to an item and recomputes its destination and state
 pub async fn apply_review(
 	ctx: &Ctx,
@@ -556,10 +608,7 @@ pub async fn apply_review(
 	input: IntakeReviewInput,
 ) -> CoreResult<intake_item::Model> {
 	let conn = ctx.conn.as_ref();
-	if matches!(
-		item.state,
-		IntakeState::Filed | IntakeState::Discarded | IntakeState::Analysing
-	) {
+	if !is_open_for_changes(item.state) {
 		return Err(CoreError::BadRequest(format!(
 			"An item that is {} can't be changed",
 			item.state
@@ -760,10 +809,8 @@ pub async fn change_library(
 	item: intake_item::Model,
 	library_id: &str,
 ) -> CoreResult<intake_item::Model> {
-	if matches!(item.state, IntakeState::Filed | IntakeState::Discarded) {
-		return Err(CoreError::BadRequest(
-			"This item is no longer in the inbox".into(),
-		));
+	if !is_open_for_changes(item.state) {
+		return Err(closed_for_changes(item.state, "moved to another library"));
 	}
 	let conn = ctx.conn.as_ref();
 	let (library, _) = load_library(conn, library_id).await?;
@@ -1188,5 +1235,200 @@ mod tests {
 			dir.path(),
 			&dir.path().join("New_Author")
 		));
+	}
+
+	/// every state is decided here: a state added later doesn't compile until someone says
+	/// whether the uploader can still change an item in it
+	#[test]
+	fn only_the_states_that_wait_for_the_uploader_are_open_for_changes() {
+		use sea_orm::strum::IntoEnumIterator;
+
+		fn expected(state: IntakeState) -> (bool, bool) {
+			// (open for changes, can be analysed again)
+			match state {
+				IntakeState::NeedsReview | IntakeState::Ready | IntakeState::Failed => {
+					(true, true)
+				},
+				IntakeState::Analysing => (false, true),
+				IntakeState::Filed | IntakeState::Discarded => (false, false),
+			}
+		}
+		for state in IntakeState::iter() {
+			let (open, again) = expected(state);
+			assert_eq!(is_open_for_changes(state), open, "{state}");
+			assert_eq!(can_reanalyse(state), again, "{state}");
+		}
+		// what an uploader is told
+		assert!(matches!(
+			closed_for_changes(IntakeState::Filed, "moved to another library"),
+			CoreError::BadRequest(m) if m == "This item is no longer in the inbox"
+		));
+		assert!(matches!(
+			closed_for_changes(IntakeState::Analysing, "moved to another library"),
+			CoreError::BadRequest(m)
+				if m == "An item that is ANALYSING can't be moved to another library"
+		));
+	}
+
+	/// a file or folder name from the uploader is only looked up on the disk when it stays in the
+	/// folder: otherwise the `exists` flag would say whether any path on the server exists
+	#[test]
+	fn a_name_that_leaves_its_folder_is_never_looked_up() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("library");
+		std::fs::create_dir_all(root.join("Berserk")).unwrap();
+		std::fs::write(dir.path().join("secret.txt"), b"x").unwrap();
+		std::fs::write(root.join("Berserk/Berserk v01.cbz"), b"x").unwrap();
+
+		let files = vec![file("b1.cbz", "cbz", Some(1.0))];
+		let decision_with = |folder: &str, name: &str| IntakeDecision {
+			metadata: IntakeMetadata {
+				series: Some("Berserk".into()),
+				..Default::default()
+			},
+			series_kind: Some(IntakeSeriesKind::Manga),
+			folder: folder.into(),
+			file_names: vec![name.into()],
+			volumes: vec![Some(1.0)],
+			..Default::default()
+		};
+
+		// the control: a plain folder and name are looked up
+		let decision = decision_with("Berserk", "Berserk v01.cbz");
+		let found = compute_destination(&root, &manga_settings(), &files, &decision);
+		assert!(found.dir_exists);
+		assert!(found.files[0].exists);
+
+		// a name that climbs out of the folder is not, and is a problem of its own
+		let decision = decision_with("Berserk", "../../secret.txt");
+		let climbing = compute_destination(&root, &manga_settings(), &files, &decision);
+		assert!(root.join("Berserk").join("../../secret.txt").exists());
+		assert!(!climbing.files[0].exists);
+		assert!(decision_problems(&decision, &climbing)
+			.contains(&"Invalid file name '../../secret.txt'".to_string()));
+
+		// nor is a folder that is not a plain name
+		for folder in ["..", "../library", "Berserk/..", ""] {
+			let decision = decision_with(folder, "Berserk v01.cbz");
+			let escaping =
+				compute_destination(&root, &manga_settings(), &files, &decision);
+			assert!(!escaping.dir_exists, "{folder:?}");
+			assert!(!escaping.files[0].exists, "{folder:?}");
+			assert!(
+				!decision_problems(&decision, &escaping).is_empty(),
+				"{folder:?}"
+			);
+		}
+	}
+
+	async fn analysing_item(
+		conn: &DatabaseConnection,
+		user_id: &str,
+		library_id: &str,
+	) -> intake_item::Model {
+		let item = intake_item::ActiveModel {
+			id: Set(uuid::Uuid::new_v4().to_string()),
+			user_id: Set(user_id.to_string()),
+			library_id: Set(library_id.to_string()),
+			state: Set(IntakeState::Analysing),
+			kind: Set(IntakeKind::Book),
+			name: Set("Book.epub".to_string()),
+			staging_dir: Set("/tmp/intake-test".to_string()),
+			files: Set(models::shared::intake::IntakeFiles(vec![])),
+			..Default::default()
+		};
+		item.insert(conn).await.unwrap()
+	}
+
+	fn found(state: IntakeState) -> intake_item::ActiveModel {
+		intake_item::ActiveModel {
+			state: Set(state),
+			decision: Set(Some(IntakeDecision::default())),
+			error: Set(None),
+			..Default::default()
+		}
+	}
+
+	/// an analysis answers into the item it started with, once, and only while the item waits for
+	/// it: never into an item that moved, was discarded or filed, or already has an answer
+	#[tokio::test]
+	async fn an_outcome_is_stored_only_in_the_item_that_waits_for_it() {
+		use ::tests::{db::test_database, fake_data};
+
+		let conn = test_database().await;
+		let user = fake_data::User::new("uploader").insert(&conn).await;
+		let here = fake_data::Library::default().insert(&conn).await;
+		let there = fake_data::Library::default().insert(&conn).await;
+		let row = |id: String| {
+			let conn = conn.clone();
+			async move {
+				intake_item::Entity::find_by_id(id)
+					.one(&conn)
+					.await
+					.unwrap()
+					.unwrap()
+			}
+		};
+
+		// the plain case: stored, with the state and a fresh `updated_at`
+		let item = analysing_item(&conn, &user.id, &here.id).await;
+		assert!(store_outcome(&conn, &item, found(IntakeState::Ready))
+			.await
+			.unwrap());
+		let stored = row(item.id.clone()).await;
+		assert_eq!(stored.state, IntakeState::Ready);
+		assert!(stored.decision.is_some());
+		assert!(stored.updated_at >= item.updated_at);
+
+		// it has its answer: another analysis that finishes later is dropped, as is a failure
+		assert!(
+			!store_outcome(&conn, &item, found(IntakeState::NeedsReview))
+				.await
+				.unwrap()
+		);
+		let failed = intake_item::ActiveModel {
+			state: Set(IntakeState::Failed),
+			error: Set(Some("Analysis failed: late".into())),
+			..Default::default()
+		};
+		assert!(!store_outcome(&conn, &item, failed).await.unwrap());
+		let stored = row(item.id.clone()).await;
+		assert_eq!(stored.state, IntakeState::Ready);
+		assert!(stored.error.is_none());
+
+		// moved to another library meanwhile: the analysis there owns the item
+		let item = analysing_item(&conn, &user.id, &here.id).await;
+		let mut moved = item.clone().into_active_model();
+		moved.library_id = Set(there.id.clone());
+		moved.update(&conn).await.unwrap();
+		assert!(!store_outcome(&conn, &item, found(IntakeState::Ready))
+			.await
+			.unwrap());
+		let stored = row(item.id.clone()).await;
+		assert_eq!(
+			(stored.library_id.as_str(), stored.state),
+			(there.id.as_str(), IntakeState::Analysing)
+		);
+		assert!(stored.decision.is_none());
+
+		// discarded or filed meanwhile: an analysis that ends later doesn't bring it back
+		for closed in [IntakeState::Discarded, IntakeState::Filed] {
+			let item = analysing_item(&conn, &user.id, &here.id).await;
+			let mut gone = item.clone().into_active_model();
+			gone.state = Set(closed);
+			gone.update(&conn).await.unwrap();
+			assert!(!store_outcome(&conn, &item, found(IntakeState::Ready))
+				.await
+				.unwrap());
+			assert_eq!(row(item.id.clone()).await.state, closed);
+		}
+
+		// a database that fails is an error to report, not an item that moved
+		let item = analysing_item(&conn, &user.id, &here.id).await;
+		let closed = conn.clone();
+		conn.close().await.unwrap();
+		assert!(store_outcome(&closed, &item, found(IntakeState::Ready))
+			.await
+			.is_err());
 	}
 }

@@ -344,8 +344,10 @@ impl IntakeMutation {
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let item = own_item(ctx, user, &id).await?;
-		if matches!(item.state, IntakeState::Filed | IntakeState::Discarded) {
-			return Err("This item is no longer in the inbox".into());
+		if !core_intake::can_reanalyse(item.state) {
+			return Err(
+				core_intake::closed_for_changes(item.state, "analysed again").into(),
+			);
 		}
 		let mut active = item.into_active_model();
 		active.state = Set(IntakeState::Analysing);
