@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 
 import type { UploadEntry } from './hooks'
-import type { PendingFile } from './reviewState'
+import { formatBytes, type PendingFile } from './reviewState'
 
 type Props = {
 	onFiles: (files: PendingFile[], folderMode: IntakeUploadMode) => void
@@ -21,13 +21,6 @@ function relativePathOf(file: File): string | undefined {
 	const cleaned = raw.replace(/^\.?\/+/, '')
 	return cleaned.includes('/') ? cleaned : undefined
 }
-
-const formatSize = (bytes: number) =>
-	bytes >= 1024 * 1024 * 1024
-		? `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
-		: bytes >= 1024 * 1024
-			? `${(bytes / 1024 / 1024).toFixed(1)} MB`
-			: `${Math.max(1, Math.round(bytes / 1024))} KB`
 
 /**
  * Drop books, folders of volumes or .zip packs here. Each upload goes to the inbox and is
@@ -153,7 +146,7 @@ export default function IntakeDropZone({ onFiles, entries, onClearFinished, disa
 								<span className="text-xs shrink-0 text-muted-foreground">
 									{entry.status === 'uploading'
 										? `${entry.progress}%`
-										: formatSize(entry.totalBytes)}
+										: formatBytes(entry.totalBytes)}
 								</span>
 							</li>
 						))}

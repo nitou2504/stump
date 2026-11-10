@@ -9090,10 +9090,15 @@ export type UpdateHomeArrangementMutationVariables = Exact<{
 
 export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHomeArrangement: { __typename?: 'HomeArrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'DiscoverBooks', name?: string | null } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } };
 
+export type IntakeItemFieldsFragment = { __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, libraryType: LibraryType, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, submittedAt?: any | null, reviewedAt?: any | null, reviewNote?: string | null, problems: Array<string>, mediaIds: Array<string>, suggestedLibrary?: { __typename?: 'IntakeSuggestedLibrary', id: string, name: string } | null, uploader?: { __typename?: 'ReaderProfile', id: string, username: string, avatarUrl?: string | null } | null, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null } & { ' $fragmentName'?: 'IntakeItemFieldsFragment' };
+
 export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, libraryType: LibraryType, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, suggestedLibrary?: { __typename?: 'IntakeSuggestedLibrary', id: string, name: string } | null, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null }> };
+export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<(
+    { __typename?: 'IntakeItem' }
+    & { ' $fragmentRefs'?: { 'IntakeItemFieldsFragment': IntakeItemFieldsFragment } }
+  )> };
 
 export type IntakeLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -9166,6 +9171,64 @@ export type IntakeDiscardMutationVariables = Exact<{
 
 
 export type IntakeDiscardMutation = { __typename?: 'Mutation', intakeDiscard: number };
+
+export type IntakeUploadLimitsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeUploadLimitsQuery = { __typename?: 'Query', intakeUploadLimits: { __typename?: 'IntakeUploadLimits', maxRequestBytes: number, maxFileBytes: number, maxFilesPerRequest: number, quotaBytes: number, usedBytes: number, maxItems: number, openItems: number, quotaApplies: boolean, canFileDirectly: boolean, uploadsOpen: boolean, closedReason?: string | null } };
+
+export type PendingIntakeItemsQueryVariables = Exact<{
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  page?: Scalars['Int']['input'];
+  pageSize?: Scalars['Int']['input'];
+}>;
+
+
+export type PendingIntakeItemsQuery = { __typename?: 'Query', pendingIntakeItems: { __typename?: 'IntakeItemPage', totalCount: number, nodes: Array<(
+      { __typename?: 'IntakeItem' }
+      & { ' $fragmentRefs'?: { 'IntakeItemFieldsFragment': IntakeItemFieldsFragment } }
+    )> } };
+
+export type PendingIntakeCountQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PendingIntakeCountQuery = { __typename?: 'Query', pendingIntakeCount: number };
+
+export type IntakeUploaderAgeQueryVariables = Exact<{
+  userId: Scalars['ID']['input'];
+}>;
+
+
+export type IntakeUploaderAgeQuery = { __typename?: 'Query', userById: { __typename?: 'User', id: string, ageRestriction?: { __typename?: 'AgeRestriction', age: number, restrictOnUnset: boolean } | null } };
+
+export type IntakeSubmitMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeSubmitMutation = { __typename?: 'Mutation', intakeSubmit: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
+
+export type IntakeWithdrawMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeWithdrawMutation = { __typename?: 'Mutation', intakeWithdraw: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
+
+export type IntakeApproveMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeApproveMutation = { __typename?: 'Mutation', intakeApprove: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState, error?: string | null }> };
+
+export type IntakeRejectMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  note: Scalars['String']['input'];
+}>;
+
+
+export type IntakeRejectMutation = { __typename?: 'Mutation', intakeReject: { __typename?: 'IntakeItem', id: string, state: IntakeState, reviewNote?: string | null } };
 
 export type LibrariesSceneQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -11714,6 +11777,135 @@ export const RecentlyAddedBookFragmentDoc = new TypedDocumentString(`
   }
 }
     `, {"fragmentName":"RecentlyAddedBook"}) as unknown as TypedDocumentString<RecentlyAddedBookFragment, unknown>;
+export const IntakeItemFieldsFragmentDoc = new TypedDocumentString(`
+    fragment IntakeItemFields on IntakeItem {
+  id
+  libraryId
+  libraryName
+  libraryType
+  suggestedLibrary {
+    id
+    name
+  }
+  state
+  kind
+  name
+  error
+  createdAt
+  filedAt
+  submittedAt
+  reviewedAt
+  reviewNote
+  uploader {
+    id
+    username
+    avatarUrl
+  }
+  problems
+  mediaIds
+  files {
+    originalName
+    size
+    format
+    volume
+    title
+  }
+  proposal {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      isbn
+      subjects
+      genres
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    authorFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    seriesFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    genreSuggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    duplicates {
+      mediaId
+      path
+      title
+      reason
+      fileName
+    }
+    warnings
+    confidence
+    lookedUpOnline
+  }
+  decision {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      genres
+      ageRating
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    folder
+    fileNames
+    volumes
+  }
+  destination {
+    relativeDir
+    dirExists
+    files {
+      originalName
+      relativePath
+      exists
+    }
+  }
+  result {
+    paths
+    notes
+  }
+}
+    `, {"fragmentName":"IntakeItemFields"}) as unknown as TypedDocumentString<IntakeItemFieldsFragment, unknown>;
 export const LibrarySettingsConfigFragmentDoc = new TypedDocumentString(`
     fragment LibrarySettingsConfig on Library {
   config {
@@ -17327,125 +17519,136 @@ export const UpdateHomeArrangementDocument = new TypedDocumentString(`
 export const IntakeItemsDocument = new TypedDocumentString(`
     query IntakeItems {
   intakeItems {
-    id
-    libraryId
-    libraryName
-    libraryType
-    suggestedLibrary {
-      id
-      name
-    }
-    state
-    kind
-    name
-    error
-    createdAt
-    filedAt
-    problems
-    mediaIds
-    files {
-      originalName
-      size
-      format
-      volume
-      title
-    }
-    proposal {
-      metadata {
-        title
-        authors
-        series
-        seriesIndex
-        language
-        year
-        publisher
-        description
-        isbn
-        subjects
-        genres
-        sources {
-          field
-          source
-        }
-      }
-      seriesKind
-      authorFolders {
-        folder
-        books
-        confidence
-        reason
-        isNew
-      }
-      seriesFolders {
-        folder
-        books
-        confidence
-        reason
-        isNew
-      }
-      genreSuggestions {
-        value
-        confidence
-        reasons
-        libraryCount
-        selected
-        kind
-      }
-      similarBooks {
-        mediaId
-        title
-        authors
-        genres
-        reason
-      }
-      duplicates {
-        mediaId
-        path
-        title
-        reason
-        fileName
-      }
-      warnings
-      confidence
-      lookedUpOnline
-    }
-    decision {
-      metadata {
-        title
-        authors
-        series
-        seriesIndex
-        language
-        year
-        publisher
-        genres
-        ageRating
-        sources {
-          field
-          source
-        }
-      }
-      seriesKind
-      folder
-      fileNames
-      volumes
-    }
-    destination {
-      relativeDir
-      dirExists
-      files {
-        originalName
-        relativePath
-        exists
-      }
-    }
-    result {
-      paths
-      notes
-    }
+    ...IntakeItemFields
   }
 }
-    `) as unknown as TypedDocumentString<IntakeItemsQuery, IntakeItemsQueryVariables>;
+    fragment IntakeItemFields on IntakeItem {
+  id
+  libraryId
+  libraryName
+  libraryType
+  suggestedLibrary {
+    id
+    name
+  }
+  state
+  kind
+  name
+  error
+  createdAt
+  filedAt
+  submittedAt
+  reviewedAt
+  reviewNote
+  uploader {
+    id
+    username
+    avatarUrl
+  }
+  problems
+  mediaIds
+  files {
+    originalName
+    size
+    format
+    volume
+    title
+  }
+  proposal {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      isbn
+      subjects
+      genres
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    authorFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    seriesFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    genreSuggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    duplicates {
+      mediaId
+      path
+      title
+      reason
+      fileName
+    }
+    warnings
+    confidence
+    lookedUpOnline
+  }
+  decision {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      genres
+      ageRating
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    folder
+    fileNames
+    volumes
+  }
+  destination {
+    relativeDir
+    dirExists
+    files {
+      originalName
+      relativePath
+      exists
+    }
+  }
+  result {
+    paths
+    notes
+  }
+}`) as unknown as TypedDocumentString<IntakeItemsQuery, IntakeItemsQueryVariables>;
 export const IntakeLibrariesDocument = new TypedDocumentString(`
     query IntakeLibraries {
   intakeLibraries {
@@ -17528,6 +17731,209 @@ export const IntakeDiscardDocument = new TypedDocumentString(`
   intakeDiscard(ids: $ids)
 }
     `) as unknown as TypedDocumentString<IntakeDiscardMutation, IntakeDiscardMutationVariables>;
+export const IntakeUploadLimitsDocument = new TypedDocumentString(`
+    query IntakeUploadLimits {
+  intakeUploadLimits {
+    maxRequestBytes
+    maxFileBytes
+    maxFilesPerRequest
+    quotaBytes
+    usedBytes
+    maxItems
+    openItems
+    quotaApplies
+    canFileDirectly
+    uploadsOpen
+    closedReason
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeUploadLimitsQuery, IntakeUploadLimitsQueryVariables>;
+export const PendingIntakeItemsDocument = new TypedDocumentString(`
+    query PendingIntakeItems($libraryId: ID, $page: Int! = 1, $pageSize: Int! = 20) {
+  pendingIntakeItems(libraryId: $libraryId, page: $page, pageSize: $pageSize) {
+    totalCount
+    nodes {
+      ...IntakeItemFields
+    }
+  }
+}
+    fragment IntakeItemFields on IntakeItem {
+  id
+  libraryId
+  libraryName
+  libraryType
+  suggestedLibrary {
+    id
+    name
+  }
+  state
+  kind
+  name
+  error
+  createdAt
+  filedAt
+  submittedAt
+  reviewedAt
+  reviewNote
+  uploader {
+    id
+    username
+    avatarUrl
+  }
+  problems
+  mediaIds
+  files {
+    originalName
+    size
+    format
+    volume
+    title
+  }
+  proposal {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      isbn
+      subjects
+      genres
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    authorFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    seriesFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    genreSuggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    duplicates {
+      mediaId
+      path
+      title
+      reason
+      fileName
+    }
+    warnings
+    confidence
+    lookedUpOnline
+  }
+  decision {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      genres
+      ageRating
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    folder
+    fileNames
+    volumes
+  }
+  destination {
+    relativeDir
+    dirExists
+    files {
+      originalName
+      relativePath
+      exists
+    }
+  }
+  result {
+    paths
+    notes
+  }
+}`) as unknown as TypedDocumentString<PendingIntakeItemsQuery, PendingIntakeItemsQueryVariables>;
+export const PendingIntakeCountDocument = new TypedDocumentString(`
+    query PendingIntakeCount {
+  pendingIntakeCount
+}
+    `) as unknown as TypedDocumentString<PendingIntakeCountQuery, PendingIntakeCountQueryVariables>;
+export const IntakeUploaderAgeDocument = new TypedDocumentString(`
+    query IntakeUploaderAge($userId: ID!) {
+  userById(id: $userId) {
+    id
+    ageRestriction {
+      age
+      restrictOnUnset
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeUploaderAgeQuery, IntakeUploaderAgeQueryVariables>;
+export const IntakeSubmitDocument = new TypedDocumentString(`
+    mutation IntakeSubmit($ids: [ID!]!) {
+  intakeSubmit(ids: $ids) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeSubmitMutation, IntakeSubmitMutationVariables>;
+export const IntakeWithdrawDocument = new TypedDocumentString(`
+    mutation IntakeWithdraw($ids: [ID!]!) {
+  intakeWithdraw(ids: $ids) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeWithdrawMutation, IntakeWithdrawMutationVariables>;
+export const IntakeApproveDocument = new TypedDocumentString(`
+    mutation IntakeApprove($ids: [ID!]!) {
+  intakeApprove(ids: $ids) {
+    id
+    state
+    error
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeApproveMutation, IntakeApproveMutationVariables>;
+export const IntakeRejectDocument = new TypedDocumentString(`
+    mutation IntakeReject($id: ID!, $note: String!) {
+  intakeReject(id: $id, note: $note) {
+    id
+    state
+    reviewNote
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeRejectMutation, IntakeRejectMutationVariables>;
 export const LibrariesSceneDocument = new TypedDocumentString(`
     query LibrariesScene {
   libraries(pagination: {none: {unpaginated: true}}) {

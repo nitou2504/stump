@@ -1,4 +1,4 @@
-import { cn, Input } from '@stump/components'
+import { cn, Input, TextArea } from '@stump/components'
 import { IntakeSource } from '@stump/graphql'
 import { useEffect, useState } from 'react'
 
@@ -88,6 +88,66 @@ export function ReviewField({
 					} else if (e.key === 'Escape') {
 						setDraft(value)
 					}
+				}}
+			/>
+		</label>
+	)
+}
+
+type TextProps = {
+	label: string
+	value: string
+	/** Called when the user leaves the field with a changed value */
+	onCommit: (value: string) => void
+	source?: IntakeSource
+	placeholder?: string
+	disabled?: boolean
+	className?: string
+	rows?: number
+	hint?: string
+	/** Saving longer than this is refused by the server: the field stops there */
+	maxLength?: number
+}
+
+/** A labelled text area that saves on blur, for the description of a book */
+export function ReviewTextArea({
+	label,
+	value,
+	onCommit,
+	source,
+	placeholder,
+	disabled,
+	className,
+	rows = 3,
+	hint,
+	maxLength,
+}: TextProps) {
+	const [draft, setDraft] = useState(value)
+
+	// follow the server's value (e.g. after a re-analysis) unless the user is typing
+	useEffect(() => {
+		setDraft(value)
+	}, [value])
+
+	return (
+		<label className={cn('gap-1 min-w-0 flex flex-col', className)}>
+			<span className="gap-1.5 text-xs flex items-center text-muted-foreground">
+				{label}
+				<SourceBadge source={source} />
+			</span>
+			<TextArea
+				value={draft}
+				rows={rows}
+				placeholder={placeholder}
+				disabled={disabled}
+				title={hint}
+				maxLength={maxLength}
+				onChange={(e) => setDraft(e.target.value)}
+				onBlur={() => {
+					if (draft.trim() !== value.trim()) onCommit(draft)
+				}}
+				onKeyDown={(e) => {
+					if (e.key === 'Escape') setDraft(value)
 				}}
 			/>
 		</label>

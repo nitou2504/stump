@@ -14,6 +14,8 @@ type Props = {
 	onClose: () => void
 	onConfirm: (entries: Entry[]) => void
 	isPending?: boolean
+	/** What confirming does with the books: add them to the library, or send them for approval */
+	verb?: 'add' | 'send'
 }
 
 /**
@@ -21,12 +23,20 @@ type Props = {
  * that will be written into it (guessed ones highlighted), with every tag untickable before
  * confirming.
  */
-export default function AcceptAllSheet({ items, open, onClose, onConfirm, isPending }: Props) {
+export default function AcceptAllSheet({
+	items,
+	open,
+	onClose,
+	onConfirm,
+	isPending,
+	verb = 'add',
+}: Props) {
+	const books = `${items.length} ${items.length === 1 ? 'book' : 'books'}`
 	return (
 		<Sheet
 			open={open}
 			onClose={onClose}
-			title={`Add ${items.length} ${items.length === 1 ? 'book' : 'books'}`}
+			title={verb === 'send' ? `Send ${books} for approval` : `Add ${books}`}
 			description="Untick any genre that doesn’t fit."
 			contentClassName="flex w-full flex-col sm:max-w-lg"
 		>
@@ -36,13 +46,14 @@ export default function AcceptAllSheet({ items, open, onClose, onConfirm, isPend
 					onClose={onClose}
 					onConfirm={onConfirm}
 					isPending={isPending}
+					verb={verb}
 				/>
 			)}
 		</Sheet>
 	)
 }
 
-function AcceptAllList({ items, onClose, onConfirm, isPending }: Omit<Props, 'open'>) {
+function AcceptAllList({ items, onClose, onConfirm, isPending, verb }: Omit<Props, 'open'>) {
 	const reviewed = useTagReviewStore((store) => store.reviewed)
 	const [selection, setSelection] = useState<Record<string, string[]>>(() =>
 		Object.fromEntries(items.map((item) => [item.id, effectiveGenres(item, !!reviewed[item.id])])),
@@ -126,7 +137,7 @@ function AcceptAllList({ items, onClose, onConfirm, isPending }: Omit<Props, 'op
 					disabled={isPending || !items.length}
 					isLoading={isPending}
 				>
-					Add {items.length} {items.length === 1 ? 'book' : 'books'}
+					{verb === 'send' ? 'Send' : 'Add'} {items.length} {items.length === 1 ? 'book' : 'books'}
 				</Button>
 			</div>
 		</>
