@@ -140,6 +140,31 @@ impl SaveSmartListInput {
 	}
 }
 
+impl SaveSmartListInput {
+	/// The list as the server owner changes it when it isn't theirs: the only thing they may do is
+	/// take it back from the public (moderation). Its name, description, rules, grouping and saved
+	/// views stay as its creator made them, whatever else the input says, so nothing the owner
+	/// writes can end up in a friend's list (or show them what is hidden from them, or push the
+	/// list over the limits that hold for them)
+	pub fn apply_as_moderator(
+		self,
+		model: models::entity::smart_list::Model,
+	) -> Result<models::entity::smart_list::ActiveModel> {
+		if self.visibility != EntityVisibility::Private {
+			return Err(ONLY_MAKE_PRIVATE.into());
+		}
+
+		let mut active_model: models::entity::smart_list::ActiveModel = model.into();
+		active_model.visibility = Set(EntityVisibility::Private);
+		Ok(active_model)
+	}
+}
+
+/// What the server owner gets for changing a public list of someone else in any way but back to
+/// private
+pub const ONLY_MAKE_PRIVATE: &str =
+	"A smart list of someone else can only be made private, or deleted";
+
 /// A list is private or public: there's no one in between (nothing offers `SHARED`, so the
 /// per-person access rules it needs are never written)
 pub fn list_visibility(visibility: EntityVisibility) -> Result<EntityVisibility> {
@@ -262,6 +287,55 @@ mod tests {
 		assert!(input("Some list", EntityVisibility::Private)
 			.into_active_model("42", &limits)
 			.is_ok());
+	}
+
+	fn stored_list(creator_id: &str) -> models::entity::smart_list::Model {
+		models::entity::smart_list::Model {
+			id: "list".to_string(),
+			name: "Her shelf".to_string(),
+			description: Some("What she reads".to_string()),
+			filters: b"[]".to_vec(),
+			joiner: SmartListJoiner::Or,
+			default_grouping: SmartListGrouping::BySeries,
+			visibility: EntityVisibility::Public,
+			creator_id: creator_id.to_string(),
+		}
+	}
+
+	#[test]
+	fn the_owner_takes_a_list_of_someone_else_back_to_private_and_nothing_more() {
+		// whatever else the input says, the list stays as its creator made it
+		let rewritten = SaveSmartListInput {
+			filters: vec![SmartListFilterGroupInput {
+				groups: vec![],
+				joiner: SmartListGroupJoiner::Or,
+			}],
+			description: Some("Written by the owner".to_string()),
+			joiner: SmartListJoiner::And,
+			default_grouping: SmartListGrouping::ByLibrary,
+			..input("Taken", EntityVisibility::Private)
+		};
+		let model = rewritten.apply_as_moderator(stored_list("7")).unwrap();
+		assert_eq!(model.visibility.clone().unwrap(), EntityVisibility::Private);
+		// nothing but the visibility is written
+		assert!(model.name.is_unchanged());
+		assert!(model.description.is_unchanged());
+		assert!(model.filters.is_unchanged());
+		assert!(model.joiner.is_unchanged());
+		assert!(model.default_grouping.is_unchanged());
+		assert!(model.creator_id.is_unchanged());
+		assert_eq!(model.name.unwrap(), "Her shelf");
+	}
+
+	#[test]
+	fn the_owner_cannot_keep_a_list_of_someone_else_public_while_changing_it() {
+		for visibility in [EntityVisibility::Public, EntityVisibility::Shared] {
+			let error = input("Moderated", visibility)
+				.apply_as_moderator(stored_list("7"))
+				.err()
+				.expect("only back to private is allowed");
+			assert_eq!(error.message, ONLY_MAKE_PRIVATE);
+		}
 	}
 
 	#[test]

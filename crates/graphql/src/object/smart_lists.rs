@@ -41,9 +41,10 @@ impl From<smart_list::Model> for SmartList {
 
 #[ComplexObject]
 impl SmartList {
-	/// The list's rules, as JSON. Only who may change the list gets them: they name paths,
+	/// The list's rules, as JSON. Only the user who made the list gets them: they name paths,
 	/// libraries and tags, so they would show people a list is made of things they may not see.
-	/// Anyone else gets `[]`: what the list holds for them is what `books` and `items` give
+	/// Anyone else, the server owner too, gets `[]`: what the list holds for them is what
+	/// `books` and `items` give
 	async fn filters(&self, ctx: &Context<'_>) -> Result<String> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		if !self.model.is_editable_by(user) {
@@ -55,9 +56,9 @@ impl SmartList {
 		Ok(serde_json::to_string(&filters)?)
 	}
 
-	/// Whether the user may change the list (its rules, its name, who sees it, its saved views)
-	/// and delete it: the user who made it, and the server owner for a public list of someone
-	/// else. Anyone else sees it read-only
+	/// Whether the user made the list, and so may change it (its rules, its name, who sees it,
+	/// its saved views) and delete it. Anyone else sees it read-only (the server owner can only
+	/// take a public list of someone else back to private, or delete it)
 	async fn can_edit(&self, ctx: &Context<'_>) -> Result<bool> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		Ok(self.model.is_editable_by(user))

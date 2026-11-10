@@ -8,7 +8,7 @@ use crate::{
 };
 use async_graphql::{Context, Object, Result, ID};
 use models::{
-	entity::smart_list,
+	entity::{smart_list, user::AuthUser},
 	shared::enums::{EntityVisibility, UserPermission},
 };
 use sea_orm::{prelude::*, ActiveModelTrait, Set, TransactionTrait};
@@ -59,6 +59,10 @@ impl SmartListMutation {
 		Ok(SmartList::from(inserted_smart_list))
 	}
 
+	/// Changes a smart list. Its creator changes anything about it, within the limits that hold
+	/// for them. The server owner, for a public list of someone else, can only take it back to
+	/// private (`visibility: PRIVATE`: the rest of the input is not applied); anyone else gets
+	/// the same answer as for a list they can't see
 	#[graphql(guard = "PermissionGuard::one(UserPermission::AccessSmartList)")]
 	async fn update_smart_list(
 		&self,
@@ -70,19 +74,23 @@ impl SmartListMutation {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
 
-		// Only its creator (or the server owner) may change a list, even a PUBLIC one. The
-		// same answer as for a list they can't see, so this doesn't tell what exists
-		let existing = smart_list::Entity::find_by_id_for_edit(user, id.clone())
-			.one(&txn)
-			.await?
-			.ok_or(NOT_FOUND.to_string())?;
+		// Only its creator may change a list, even a PUBLIC one. The same answer as for a list
+		// they can't see, so this doesn't tell what exists
+		let (existing, rights) = get_editable(user, &id, &txn).await?;
 
-		// The list stays its creator's, also when the server owner edits it. The limits are the
-		// editor's: the owner moderating a friend's list has none
-		let mut active_model = input
-			.into_active_model(&existing.creator_id, &SmartListLimits::for_user(user))?;
-		active_model.id = Set(id.to_string());
-		let updated = active_model.update(&txn).await?;
+		let updated = match rights {
+			Rights::Creator => {
+				// the limits are the creator's own (the server owner has none)
+				let mut active_model = input.into_active_model(
+					&existing.creator_id,
+					&SmartListLimits::for_user(user),
+				)?;
+				active_model.id = Set(id.to_string());
+				active_model.update(&txn).await?
+			},
+			// the list stays what its creator made it; it is only taken back from the public
+			Rights::Moderator => input.apply_as_moderator(existing)?.update(&txn).await?,
+		};
 		txn.commit().await?;
 
 		Ok(updated.into())
@@ -146,20 +154,51 @@ impl SmartListMutation {
 		Ok(changed.into_iter().map(SmartList::from).collect())
 	}
 
+	/// Deletes a smart list: its creator can, and so can the server owner for a public list of
+	/// someone else (moderation)
 	#[graphql(guard = "PermissionGuard::one(UserPermission::AccessSmartList)")]
 	async fn delete_smart_list(&self, ctx: &Context<'_>, id: ID) -> Result<SmartList> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
 
-		let smart_list = smart_list::Entity::find_by_id_for_edit(user, id.clone())
-			.one(&txn)
-			.await?
-			.ok_or("Smart list not found".to_string())?;
+		let (smart_list, _) = get_editable(user, &id, &txn).await?;
 
 		smart_list.clone().delete(&txn).await?;
 		txn.commit().await?;
 
 		Ok(SmartList::from(smart_list))
 	}
+}
+
+/// What a user may do with a list they can change in some way
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rights {
+	/// They made it: they change it, and who sees it, and delete it
+	Creator,
+	/// They are the server owner and it's someone else's public list: they may take it back to
+	/// private or delete it, nothing else
+	Moderator,
+}
+
+/// A list the user may change in some way, and what they may do with it. A list they may not
+/// change at all, one they can't see and one that doesn't exist are the same ("not found")
+async fn get_editable<C: ConnectionTrait>(
+	user: &AuthUser,
+	id: &ID,
+	conn: &C,
+) -> Result<(smart_list::Model, Rights)> {
+	let smart_list = smart_list::Entity::find_by_id_for_edit(user, id.clone())
+		.one(conn)
+		.await?
+		.ok_or(NOT_FOUND)?;
+
+	let rights = if smart_list.is_editable_by(user) {
+		Rights::Creator
+	} else if smart_list.is_moderated_by(user) {
+		Rights::Moderator
+	} else {
+		return Err(NOT_FOUND.into());
+	};
+	Ok((smart_list, rights))
 }

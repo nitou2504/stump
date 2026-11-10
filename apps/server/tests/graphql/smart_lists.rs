@@ -23,6 +23,8 @@ use crate::common::{
 
 const NOT_FOUND: &str = "Smart list not found";
 const EITHER: &str = "A smart list is either private or public";
+const ONLY_PRIVATE: &str =
+	"A smart list of someone else can only be made private, or deleted";
 
 async fn world() -> (TestApp, VisibilityFixture) {
 	let app = TestApp::new_with_default_user().await;
@@ -452,7 +454,7 @@ async fn the_lists_of_a_deleted_or_locked_user_are_not_shown() {
 // ---------------------------------------------------------------------------------------
 
 /// A public list stays its maker's: ana can't rewrite it, delete it, or give it a saved view, and
-/// nothing about the list changes; the server owner can moderate a public list of hers
+/// nothing about the list changes
 #[tokio::test]
 async fn only_the_maker_changes_a_list_and_it_stays_hers() {
 	let (app, world) = world().await;
@@ -494,27 +496,139 @@ async fn only_the_maker_changes_a_list_and_it_stays_hers() {
 		.expect("should query the views");
 	assert!(views.is_empty(), "{views:?}");
 
-	// hers, she changes, and it stays hers whoever edits it
-	let hers = create(&app, ana, "Hers", "PUBLIC", None).await;
-	let data = ok(
+	// hers, she changes (the rules too, and she gets them back), and it stays hers
+	let hers = create(
 		&app,
 		ana,
-		UPDATE,
-		json!({ "id": hers, "input": input("Hers, renamed", "PUBLIC") }),
+		"Hers",
+		"PUBLIC",
+		Some(rules_naming_the_hidden_library(&world)),
 	)
 	.await;
+	let mut changed = input("Hers, renamed", "PUBLIC");
+	changed["filters"] = rules_naming_the_hidden_library(&world);
+	let data = ok(&app, ana, UPDATE, json!({ "id": hers, "input": changed })).await;
 	assert_eq!(data["updateSmartList"]["name"], "Hers, renamed");
+	assert_eq!(data["updateSmartList"]["canEdit"], true);
+	let data = ok(&app, ana, ONE, json!({ "id": hers })).await;
+	assert_eq!(data["smartListById"]["canEdit"], true, "{data}");
+	assert_ne!(data["smartListById"]["filters"], "[]", "{data}");
+}
+
+const ONE: &str = r#"
+	query One($id: ID!) { smartListById(id: $id) { id name canEdit filters } }
+"#;
+
+/// The server owner moderates the public list of someone else, and only that: she can take it back
+/// to private or delete it. She doesn't change what is in it (anything she writes would sit in a
+/// friend's list: paths of books hidden from her, or more than her limits allow), doesn't read its
+/// rules and doesn't give it a saved view; a private list of a friend is out of her reach
+#[tokio::test]
+async fn the_owner_takes_a_public_list_of_a_friend_back_to_private_or_deletes_it() {
+	let (app, world) = world().await;
+	let ana = &world.ana.token;
+	let owner = &world.owner_token;
+	let hers = create(
+		&app,
+		ana,
+		"Hers",
+		"PUBLIC",
+		Some(rules_naming_the_hidden_library(&world)),
+	)
+	.await;
+	let before = stored(&app, &hers).await.expect("there");
+
+	// she sees it read-only, and the rules are not hers to read (they are ana's)
+	let data = ok(&app, owner, ONE, json!({ "id": hers })).await;
+	assert_eq!(data["smartListById"]["canEdit"], false, "{data}");
+	assert_eq!(data["smartListById"]["filters"], "[]", "{data}");
+	let data = ok(&app, ana, ONE, json!({ "id": hers })).await;
+	assert_eq!(data["smartListById"]["canEdit"], true, "{data}");
+
+	// anything but back to private is refused, and the list is as ana left it
+	let mut rewritten = input("Moderated", "PUBLIC");
+	rewritten["description"] = json!("Written by the owner");
+	rewritten["filters"] = json!([]);
+	let response = run(
+		&app,
+		owner,
+		UPDATE,
+		json!({ "id": hers, "input": rewritten }),
+	)
+	.await;
+	assert_eq!(error_message(&response), ONLY_PRIVATE, "{response}");
+	let response = run(
+		&app,
+		owner,
+		UPDATE,
+		json!({ "id": hers, "input": input("Moderated", "SHARED") }),
+	)
+	.await;
+	assert_eq!(error_message(&response), ONLY_PRIVATE, "{response}");
+	let response = run(
+		&app,
+		owner,
+		CREATE_VIEW,
+		json!({ "input": {
+			"name": "Owner's view",
+			"listId": hers,
+			"bookColumns": [],
+			"groupColumns": [],
+			"bookSorting": [],
+			"groupSorting": [],
+		}}),
+	)
+	.await;
+	assert_eq!(error_message(&response), NOT_FOUND, "{response}");
+	assert_eq!(stored(&app, &hers).await.expect("there"), before);
+	let views = smart_list_view::Entity::find_by_list_id(&hers)
+		.all(app.conn())
+		.await
+		.expect("should query the views");
+	assert!(views.is_empty(), "{views:?}");
+
+	// back to private it goes, as ana made it: whatever else the owner sends is not applied
+	let mut rewritten = input("Moderated", "PRIVATE");
+	rewritten["description"] = json!("Written by the owner");
+	rewritten["joiner"] = json!("OR");
+	rewritten["defaultGrouping"] = json!("BY_SERIES");
 	let data = ok(
 		&app,
-		&world.owner_token,
+		owner,
 		UPDATE,
-		json!({ "id": hers, "input": input("Moderated", "PRIVATE") }),
+		json!({ "id": hers, "input": rewritten }),
 	)
 	.await;
 	assert_eq!(data["updateSmartList"]["visibility"], "PRIVATE");
-	let list = stored(&app, &hers).await.expect("still there");
-	assert_eq!(list.name, "Moderated");
-	assert_eq!(list.creator_id, world.ana.id, "it is still hers");
+	assert_eq!(data["updateSmartList"]["name"], "Hers");
+	assert_eq!(data["updateSmartList"]["canEdit"], false);
+	assert_eq!(
+		stored(&app, &hers).await.expect("still there"),
+		smart_list::Model {
+			visibility: models::shared::enums::EntityVisibility::Private,
+			..before
+		},
+		"only the visibility changed, and it is still ana's"
+	);
+
+	// private, it is out of the owner's reach like any private list of a friend
+	let response = run(&app, owner, DELETE, json!({ "id": hers })).await;
+	assert_eq!(error_message(&response), NOT_FOUND, "{response}");
+	let response = run(
+		&app,
+		owner,
+		UPDATE,
+		json!({ "id": hers, "input": input("Taken", "PRIVATE") }),
+	)
+	.await;
+	assert_eq!(error_message(&response), NOT_FOUND, "{response}");
+	assert!(stored(&app, &hers).await.is_some());
+
+	// a public one she may delete
+	let other = create(&app, ana, "Hers too", "PUBLIC", None).await;
+	let data = ok(&app, owner, DELETE, json!({ "id": other })).await;
+	assert_eq!(data["deleteSmartList"]["id"], other);
+	assert!(stored(&app, &other).await.is_none());
 }
 
 async fn app_owner_id(app: &TestApp) -> String {

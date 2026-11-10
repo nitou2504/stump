@@ -3140,6 +3140,10 @@ export type Mutation = {
    */
   deleteReadingSession: Scalars['Boolean']['output'];
   deleteScheduledJob: Scalars['Boolean']['output'];
+  /**
+   * Deletes a smart list: its creator can, and so can the server owner for a public list of
+   * someone else (moderation)
+   */
   deleteSmartList: SmartList;
   deleteSmartListView: SmartListView;
   /**
@@ -3447,6 +3451,12 @@ export type Mutation = {
    * will be generated based on the library's thumbnail configuration.
    */
   updateSeriesThumbnail: Series;
+  /**
+   * Changes a smart list. Its creator changes anything about it, within the limits that hold
+   * for them. The server owner, for a public list of someone else, can only take it back to
+   * private (`visibility: PRIVATE`: the rest of the input is not applied); anyone else gets
+   * the same answer as for a list they can't see
+   */
   updateSmartList: SmartList;
   updateSmartListView: SmartListView;
   /** Update the status of a suggestion (Admin+) */
@@ -6638,9 +6648,9 @@ export type SmartList = {
   __typename?: 'SmartList';
   books: Array<Media>;
   /**
-   * Whether the user may change the list (its rules, its name, who sees it, its saved views)
-   * and delete it: the user who made it, and the server owner for a public list of someone
-   * else. Anyone else sees it read-only
+   * Whether the user made the list, and so may change it (its rules, its name, who sees it,
+   * its saved views) and delete it. Anyone else sees it read-only (the server owner can only
+   * take a public list of someone else back to private, or delete it)
    */
   canEdit: Scalars['Boolean']['output'];
   /**
@@ -6652,9 +6662,10 @@ export type SmartList = {
   defaultGrouping: SmartListGrouping;
   description?: Maybe<Scalars['String']['output']>;
   /**
-   * The list's rules, as JSON. Only who may change the list gets them: they name paths,
+   * The list's rules, as JSON. Only the user who made the list gets them: they name paths,
    * libraries and tags, so they would show people a list is made of things they may not see.
-   * Anyone else gets `[]`: what the list holds for them is what `books` and `items` give
+   * Anyone else, the server owner too, gets `[]`: what the list holds for them is what
+   * `books` and `items` give
    */
   filters: Scalars['String']['output'];
   id: Scalars['String']['output'];

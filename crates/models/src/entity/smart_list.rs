@@ -120,12 +120,21 @@ pub struct Model {
 impl ActiveModelBehavior for ActiveModel {}
 
 impl Model {
-	/// Whether the user may change or delete this list: the user who made it, and the server
-	/// owner for a public list of someone else (moderation: a friend's private list is out of
-	/// reach, see [`Entity::find_by_id_for_edit`])
+	/// Whether the user made the list: they change its rules, name, description, grouping and
+	/// saved views, and who sees it, and they delete it. Everybody else reads it, the server owner
+	/// too: the owner's part in someone else's public list is moderation only (see
+	/// [`Model::is_moderated_by`])
 	pub fn is_editable_by(&self, user: &AuthUser) -> bool {
 		self.creator_id == user.id
-			|| (user.is_server_owner && self.visibility == EntityVisibility::Public)
+	}
+
+	/// Whether the user is the server owner and the list is a public list of someone else. They
+	/// may take it back to private or delete it, nothing else: what is in the list stays what its
+	/// creator made (a friend's private list is out of reach, see [`Entity::find_by_id_for_edit`])
+	pub fn is_moderated_by(&self, user: &AuthUser) -> bool {
+		user.is_server_owner
+			&& self.creator_id != user.id
+			&& self.visibility == EntityVisibility::Public
 	}
 }
 
@@ -254,17 +263,30 @@ impl Entity {
 		)
 	}
 
-	/// A smart list the user may change or delete: one they created, or, for the server
-	/// owner, any list they can see (a friend's PRIVATE list stays out of reach).
-	/// Seeing a list is wider than this (a PUBLIC list is for everyone), so
-	/// [`Entity::find_by_id`] isn't enough before an edit
+	/// A smart list the user may change the visibility of or delete: one they created, or, for
+	/// the server owner, a public list of someone else (moderation: take it back to private, or
+	/// delete it). A friend's PRIVATE list stays out of reach, and so does any other change to a
+	/// friend's list: for that see [`Entity::find_by_id_for_creator`]. Seeing a list is wider
+	/// than this (a PUBLIC list is for everyone), so [`Entity::find_by_id`] isn't enough before
+	/// an edit
 	pub fn find_by_id_for_edit(user: &AuthUser, id: ID) -> Select<Self> {
 		let select = Self::find_by_id(user, id);
 		if user.is_server_owner {
-			select
+			select.filter(
+				Condition::any()
+					.add(Column::CreatorId.eq(user.id.clone()))
+					.add(Column::Visibility.eq(EntityVisibility::Public)),
+			)
 		} else {
 			select.filter(Column::CreatorId.eq(user.id.clone()))
 		}
+	}
+
+	/// A smart list the user made, and so may change: its rules, name, description, grouping and
+	/// saved views. The server owner doesn't change what is in someone else's list, so for them
+	/// this is only their own lists
+	pub fn find_by_id_for_creator(user: &AuthUser, id: ID) -> Select<Self> {
+		Self::find_by_id(user, id).filter(Column::CreatorId.eq(user.id.clone()))
 	}
 }
 
@@ -297,12 +319,28 @@ mod tests {
 		assert!(!list("7", EntityVisibility::Public).is_editable_by(&user));
 		assert!(!list("7", EntityVisibility::Private).is_editable_by(&user));
 
-		// the server owner moderates the public lists of others, and a friend's private list is
-		// out of reach
+		// the server owner changes their own lists, and nobody else's: not even a public one
 		user.is_server_owner = true;
 		assert!(list("42", EntityVisibility::Private).is_editable_by(&user));
-		assert!(list("7", EntityVisibility::Public).is_editable_by(&user));
+		assert!(list("42", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Public).is_editable_by(&user));
 		assert!(!list("7", EntityVisibility::Private).is_editable_by(&user));
+	}
+
+	#[test]
+	fn test_is_moderated_by() {
+		let mut user = get_default_user();
+		user.is_server_owner = false;
+		// only the server owner moderates
+		assert!(!list("7", EntityVisibility::Public).is_moderated_by(&user));
+		assert!(!list("42", EntityVisibility::Public).is_moderated_by(&user));
+
+		// the public lists of others, and nothing else: not their own, not a private one
+		user.is_server_owner = true;
+		assert!(list("7", EntityVisibility::Public).is_moderated_by(&user));
+		assert!(!list("7", EntityVisibility::Private).is_moderated_by(&user));
+		assert!(!list("42", EntityVisibility::Public).is_moderated_by(&user));
+		assert!(!list("42", EntityVisibility::Private).is_moderated_by(&user));
 	}
 
 	#[test]
