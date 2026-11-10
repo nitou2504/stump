@@ -55,6 +55,7 @@ mod m20261107_000000_user_reader_settings;
 mod m20261108_000000_reading_lists;
 mod m20261109_000000_user_discover_rules;
 mod m20261110_000000_user_sharing_settings;
+mod m20261111_000000_smart_list_members;
 
 pub struct Migrator;
 
@@ -116,6 +117,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261108_000000_reading_lists::Migration),
 			Box::new(m20261109_000000_user_discover_rules::Migration),
 			Box::new(m20261110_000000_user_sharing_settings::Migration),
+			Box::new(m20261111_000000_smart_list_members::Migration),
 		]
 	}
 }

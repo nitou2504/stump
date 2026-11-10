@@ -274,6 +274,15 @@ impl Entity {
 		apply_age_restriction_filter(select, user.age_restriction.clone())
 	}
 
+	/// Every book of the catalog, the removed ones too, with the joins [`Entity::find_for_user`]
+	/// makes and none of its filters. It is what a smart list's rules are worked out over to find
+	/// the list's members, before the limits of whoever reads the list are applied (see
+	/// [`crate::catalog_revision`]): never read books from it for a user
+	pub fn find_catalog() -> Select<Entity> {
+		let select = Entity::find().left_join(media_metadata::Entity);
+		apply_series_metadata_join(select)
+	}
+
 	pub fn apply_for_user(user: &AuthUser, select: Select<Entity>) -> Select<Entity> {
 		let select = select.left_join(media_metadata::Entity);
 		let select = apply_series_metadata_join(select);

@@ -3,6 +3,7 @@ mod tests {
 	pub mod common;
 }
 
+pub mod catalog_revision;
 pub mod domain;
 pub mod entity;
 pub mod error;
