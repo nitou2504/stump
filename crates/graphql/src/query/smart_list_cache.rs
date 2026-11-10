@@ -530,9 +530,11 @@ pub struct WarmerConfig {
 
 impl Default for WarmerConfig {
 	fn default() -> Self {
+		// a scan that adds books is caught up with 4 to 6 seconds after it ends, and working
+		// every list out takes about 3 seconds on a library of 9,000 books: within 10 seconds
 		Self {
-			poll: Duration::from_secs(5),
-			quiet: Duration::from_secs(5),
+			poll: Duration::from_secs(2),
+			quiet: Duration::from_secs(4),
 			backstop: Duration::from_secs(24 * 60 * 60),
 		}
 	}
