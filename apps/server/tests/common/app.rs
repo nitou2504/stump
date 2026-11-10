@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum_test::{TestResponse, TestServer};
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
-use stump_core::{Ctx, StumpCore};
+use stump_core::{config::StumpConfig, Ctx, StumpCore};
 use stump_server::config::session::get_session_layer;
 use stump_server::routers;
 use tests::db::test_database;
@@ -20,9 +20,16 @@ pub struct TestApp {
 
 impl TestApp {
 	pub async fn new() -> Self {
+		Self::new_with_config(|_| {}).await
+	}
+
+	/// like [`TestApp::new`], with the server's configuration changed first
+	pub async fn new_with_config(change: impl FnOnce(&mut StumpConfig)) -> Self {
 		let db = test_database().await;
 
-		let ctx = Ctx::for_testing(db);
+		let mut config = StumpConfig::debug();
+		change(&mut config);
+		let ctx = Ctx::for_testing_with_config(db, config);
 		let core = StumpCore::from_ctx(ctx);
 
 		core.init_server_config()
@@ -54,7 +61,14 @@ impl TestApp {
 	/// creates a new instance of [TestApp] and also creates the initial admin user, setting the access token for the app
 	/// to be used in consecutive requests
 	pub async fn new_with_default_user() -> Self {
-		let app = Self::new().await;
+		Self::new_with_default_user_and_config(|_| {}).await
+	}
+
+	/// like [`TestApp::new_with_default_user`], with the server's configuration changed first
+	pub async fn new_with_default_user_and_config(
+		change: impl FnOnce(&mut StumpConfig),
+	) -> Self {
+		let app = Self::new_with_config(change).await;
 		let token = app.create_initial_account().await;
 		*app.access_token.write().await = Some(token);
 		app

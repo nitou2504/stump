@@ -6,6 +6,7 @@ mod friend_visibility;
 mod home_arrangement;
 mod image_upload;
 mod intake;
+mod intake_approval;
 mod media;
 mod metadata_batch;
 mod next_in_series;
