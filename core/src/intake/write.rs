@@ -273,6 +273,62 @@ pub(crate) fn remove_matches(body: &mut String, pattern: &str) {
 	}
 }
 
+/// What Stump's EPUB reader takes as a book's description wherever it finds it in the OPF:
+/// elements called `description`, `summary` or `synopsis` (with the `dc:` prefix or without, in
+/// any case), and `meta` elements named so (`name` or `property`, with `calibre:` or without), as
+/// a pair or empty. The empty ones go first: the pattern of a pair, from an empty element, would
+/// run on to the next closing tag and take what is between.
+const DESCRIPTION_ELEMENTS: [&str; 4] = [
+	r"(?i)\s*<(?:dc:)?(?:description|summary|synopsis)\b[^>]*/>",
+	r"(?is)\s*<(?:dc:)?(?:description|summary|synopsis)\b[^>]*>.*?</(?:dc:)?(?:description|summary|synopsis)\s*>",
+	r#"(?i)\s*<meta\b[^>]*\b(?:name|property)\s*=\s*["'](?:calibre:)?(?:description|summary|synopsis)["'][^>]*/>"#,
+	r#"(?is)\s*<meta\b[^>]*\b(?:name|property)\s*=\s*["'](?:calibre:)?(?:description|summary|synopsis)["'][^>]*>.*?</meta\s*>"#,
+];
+
+/// Takes out of `text` every element Stump's reader would read as a description
+pub(crate) fn remove_descriptions(text: &mut String) {
+	for pattern in DESCRIPTION_ELEMENTS {
+		remove_matches(text, pattern);
+	}
+}
+
+/// The descriptions `text` holds, one entry for each element Stump's reader would take as one
+/// ([`DESCRIPTION_ELEMENTS`]): what the element says. Each pattern looks at what the ones before
+/// it left, so an element is counted once, and an empty one doesn't take what comes after it
+pub(crate) fn descriptions_in(text: &str) -> Vec<String> {
+	let content =
+		Regex::new(r#"(?i)\bcontent\s*=\s*["']([^"']*)["']"#).expect("valid regex");
+	let inner = Regex::new(r"(?s)^\s*<[^>]*>(.*)</[^>]*>\s*$").expect("valid regex");
+	let mut rest = text.to_string();
+	let mut found = vec![];
+	for pattern in DESCRIPTION_ELEMENTS {
+		let Ok(re) = Regex::new(pattern) else {
+			continue;
+		};
+		for element in re.find_iter(&rest) {
+			let element = element.as_str();
+			let held = if element.trim_end().ends_with("/>") {
+				content.captures(element).map(|c| c[1].to_string())
+			} else {
+				inner.captures(element).map(|c| c[1].to_string())
+			};
+			found.push(held.unwrap_or_default());
+		}
+		rest = re.replace_all(&rest, "").into_owned();
+	}
+	found
+}
+
+/// The words of every description in `text` together: a file with a long description in a form
+/// the writers don't write (`<description xmlns="http://purl.org/dc/elements/1.1/">`, a calibre
+/// `meta`) has one as much as a file with a `dc:description` has
+pub(crate) fn description_words(text: &str) -> usize {
+	descriptions_in(text)
+		.iter()
+		.map(|d| d.split_whitespace().count())
+		.sum()
+}
+
 /// Edits the OPF text: the reviewed values replace what the file had
 pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	// the XML declaration must say UTF-8, the encoding we write
@@ -288,6 +344,9 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	let mut head = caps[1].to_string();
 	let mut body = caps[2].to_string();
 	let tail = caps[3].to_string();
+	// what is around the metadata block: edited only to take descriptions out of it
+	let mut before = opf[..whole.start()].to_string();
+	let mut after = opf[whole.end()..].to_string();
 	let package = Regex::new(r"<package\b[^>]*>")
 		.expect("valid regex")
 		.find(&opf)
@@ -309,7 +368,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 
 	// title
 	if let Some(title) = meta.title.as_deref().filter(|t| !t.trim().is_empty()) {
-		let re = Regex::new(r"(?s)(<dc:title\b[^>]*>)(.*?)(</dc:title>)").expect("valid regex");
+		let re = Regex::new(r"(?s)(<(?:dc:)?title\b[^>]*>)(.*?)(</(?:dc:)?title>)").expect("valid regex");
 		if let Some(c) = re.captures(&body) {
 			let current = html_unescape(c[2].trim());
 			if current != title {
@@ -317,7 +376,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 				body = body.replacen(c.get(0).expect("match").as_str(), &replaced, 1);
 			}
 		} else {
-			remove(&mut body, r"\s*<dc:title\b[^>]*/>");
+			remove(&mut body, r"\s*<(?:dc:)?title\b[^>]*/>");
 			add.insert(0, format!("<dc:title>{}</dc:title>", esc(title)));
 		}
 	}
@@ -325,7 +384,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	// creators: replaced when the reviewed authors differ from the file's
 	if !meta.authors.is_empty() {
 		let creator =
-			Regex::new(r"(?s)<dc:creator\b([^>]*)>(.*?)</dc:creator>").expect("valid regex");
+			Regex::new(r"(?s)<(?:dc:)?creator\b([^>]*)>(.*?)</(?:dc:)?creator>").expect("valid regex");
 		let current: Vec<String> = creator
 			.captures_iter(&body)
 			.filter(|c| !c[1].contains("role=\"") || c[1].contains("aut"))
@@ -333,7 +392,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 			.collect();
 		if current != meta.authors {
 			let ids = refined_ids(
-				Regex::new(r#"<dc:creator\b[^>]*\bid=["']([^"']+)["']"#)
+				Regex::new(r#"<(?:dc:)?creator\b[^>]*\bid=["']([^"']+)["']"#)
 					.expect("valid regex")
 					.captures_iter(&body)
 					.map(|c| c[1].to_string()),
@@ -348,8 +407,8 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 					&format!(r#"\s*<meta\b[^>]*refines=["']#{}["'][^>]*/>"#, regex::escape(&id)),
 				);
 			}
-			remove(&mut body, r"(?s)\s*<dc:creator\b[^>]*>.*?</dc:creator>");
-			remove(&mut body, r"\s*<dc:creator\b[^>]*/>");
+			remove(&mut body, r"(?s)\s*<(?:dc:)?creator\b[^>]*>.*?</(?:dc:)?creator>");
+			remove(&mut body, r"\s*<(?:dc:)?creator\b[^>]*/>");
 			for (i, author) in meta.authors.iter().enumerate() {
 				if epub3 {
 					let id = format!("intake-creator-{}", i + 1);
@@ -371,8 +430,8 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 
 	// tags own dc:subject (plus the first big tag as bcurator:shelf)
 	if !meta.tags.is_empty() {
-		remove(&mut body, r"\s*<dc:subject\b[^>]*>[^<]*</dc:subject>");
-		remove(&mut body, r"\s*<dc:subject\b[^>]*/>");
+		remove(&mut body, r"\s*<(?:dc:)?subject\b[^>]*>[^<]*</(?:dc:)?subject>");
+		remove(&mut body, r"\s*<(?:dc:)?subject\b[^>]*/>");
 		remove(&mut body, r#"\s*<meta name="bcurator:(?:estante|shelf)" content="[^"]*"\s*/>"#);
 		for tag in &meta.tags {
 			add.push(format!("<dc:subject>{}</dc:subject>", esc(tag)));
@@ -424,32 +483,36 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 
 	// language: one plain code
 	if let Some(language) = meta.language.as_deref().filter(|l| !l.is_empty()) {
-		let re = Regex::new(r"<dc:language\b[^>]*>([^<]*)</dc:language>").expect("valid regex");
+		let re = Regex::new(r"<(?:dc:)?language\b[^>]*>([^<]*)</(?:dc:)?language>").expect("valid regex");
 		let current: Vec<String> = re.captures_iter(&body).map(|c| c[1].trim().to_string()).collect();
 		if current != [language.to_string()] {
-			remove(&mut body, r"\s*<dc:language\b[^>]*>[^<]*</dc:language>");
-			remove(&mut body, r"\s*<dc:language\b[^>]*/>");
+			remove(&mut body, r"\s*<(?:dc:)?language\b[^>]*>[^<]*</(?:dc:)?language>");
+			remove(&mut body, r"\s*<(?:dc:)?language\b[^>]*/>");
 			add.push(format!("<dc:language>{}</dc:language>", esc(language)));
 		}
 	}
 
-	// a description only when the file has (almost) none
+	// a description only when the file has (almost) none. Every description the reader would
+	// find counts, whatever its form: with the `dc:` prefix or without (an OPF may declare the
+	// Dublin Core namespace as its default one), a calibre `meta`, in the metadata or anywhere
+	// else in the OPF (the reader does not stop at the end of the metadata block). Replacing
+	// takes them all out first, so the file ends with the one description and a scan reads it
+	// once, however many times the book is filed
 	if let Some(description) = meta.description.as_deref().filter(|d| !d.trim().is_empty()) {
-		let re = Regex::new(r"(?s)<dc:description\b[^>]*>(.*?)</dc:description>").expect("valid regex");
-		let words: usize = re
-			.captures_iter(&body)
-			.map(|c| c[1].split_whitespace().count())
-			.sum();
+		let words = description_words(&body)
+			+ description_words(&before)
+			+ description_words(&after);
 		if words < 15 {
-			remove(&mut body, r"(?s)\s*<dc:description\b[^>]*>.*?</dc:description>");
-			remove(&mut body, r"\s*<dc:description\b[^>]*/>");
+			remove_descriptions(&mut body);
+			remove_descriptions(&mut before);
+			remove_descriptions(&mut after);
 			add.push(format!("<dc:description>{}</dc:description>", esc(description)));
 		}
 	}
 
 	// a publication year only when the file has no publication date
 	if let Some(year) = meta.year {
-		let re = Regex::new(r"<dc:date\b([^>]*)>([^<]*)</dc:date>").expect("valid regex");
+		let re = Regex::new(r"<(?:dc:)?date\b([^>]*)>([^<]*)</(?:dc:)?date>").expect("valid regex");
 		let has_date = re
 			.captures_iter(&body)
 			.any(|c| !c[1].to_lowercase().contains("modification") && c[2].trim().len() >= 4);
@@ -464,18 +527,16 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 		add.push(format!("<meta name=\"typicalAgeRange\" content=\"{value}\"/>"));
 	}
 
-	if add.is_empty() && body == caps[2] && head == caps[1] {
+	if add.is_empty()
+		&& body == caps[2]
+		&& head == caps[1]
+		&& before == opf[..whole.start()]
+		&& after == opf[whole.end()..]
+	{
 		return Ok(opf);
 	}
 	let body = format!("{}\n    {}\n  ", body.trim_end(), add.join("\n    "));
-	Ok(format!(
-		"{}{}{}{}{}",
-		&opf[..whole.start()],
-		head,
-		body,
-		tail,
-		&opf[whole.end()..]
-	))
+	Ok(format!("{before}{head}{body}{tail}{after}"))
 }
 
 pub(crate) fn html_unescape(s: &str) -> String {
@@ -1174,5 +1235,164 @@ mod tests {
 		let third = read_trailer(&mut file).unwrap();
 		assert_eq!(third.size, 20_002);
 		assert_eq!(third.root, "1 0 R");
+	}
+
+	// ---- descriptions an OPF carries in forms the writer did not recognise: the description of a
+	// ---- book filed was written twice, and the reader joined both
+
+	/// A text of `words` words that is nobody's: `word1 word2 ...`
+	fn some_words(words: usize) -> String {
+		(1..=words)
+			.map(|i| format!("word{i}"))
+			.collect::<Vec<_>>()
+			.join(" ")
+	}
+
+	/// An OPF whose description has no `dc:` prefix: the Dublin Core namespace is the element's
+	/// own default one (the other fields keep the prefix, as in the books that showed it)
+	fn opf_with_a_native_description(description: &str) -> String {
+		format!(
+			r##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>Title</dc:title>
+    <dc:creator>Someone</dc:creator>
+    <description xmlns="http://purl.org/dc/elements/1.1/">{description}</description>
+    <dc:identifier id="uid">urn:isbn:1</dc:identifier>
+  </metadata>
+</package>"##
+		)
+	}
+
+	fn described(text: &str) -> FileMetadata {
+		FileMetadata {
+			description: Some(text.to_string()),
+			..Default::default()
+		}
+	}
+
+	#[test]
+	fn a_long_description_without_the_prefix_is_the_files_own_and_stays_alone() {
+		let text = some_words(40);
+		let opf = opf_with_a_native_description(&text);
+		// the reviewed one is the same text, or another: the file has a description, so the file's
+		// own stays and nothing is added next to it
+		for reviewed in [
+			text.clone(),
+			"another description of the same book".to_string(),
+		] {
+			let new = edit_opf(&opf, &described(&reviewed)).expect("the OPF is edited");
+			assert_eq!(descriptions_in(&new), vec![text.clone()], "{new}");
+		}
+	}
+
+	#[test]
+	fn a_short_description_without_the_prefix_is_replaced_by_the_reviewed_one() {
+		let opf = opf_with_a_native_description("just a few words");
+		let new = edit_opf(&opf, &described(&some_words(40))).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert_eq!(descriptions_in(&new), vec![some_words(40)], "{new}");
+		assert!(new.contains("<dc:description>"));
+	}
+
+	#[test]
+	fn a_book_filed_again_is_not_changed_again() {
+		for native in [some_words(40), "a few words".to_string()] {
+			let meta = described(&some_words(40));
+			let first = edit_opf(&opf_with_a_native_description(&native), &meta).unwrap();
+			let second = edit_opf(&first, &meta).unwrap();
+			assert_eq!(second, first);
+			assert_eq!(descriptions_in(&second).len(), 1);
+		}
+	}
+
+	#[test]
+	fn every_form_the_reader_takes_for_a_description_counts() {
+		let text = some_words(40);
+		let forms = [
+			format!("<dc:description>{text}</dc:description>"),
+			format!("<description>{text}</description>"),
+			format!("<dc:summary>{text}</dc:summary>"),
+			format!(r#"<meta name="calibre:description" content="{text}"/>"#),
+			format!(r#"<meta property="description">{text}</meta>"#),
+		];
+		for form in forms {
+			let opf = opf_with_a_native_description("").replace(
+				"<description xmlns=\"http://purl.org/dc/elements/1.1/\"></description>",
+				&form,
+			);
+			assert_eq!(descriptions_in(&opf), vec![text.clone()], "{form}");
+			let new = edit_opf(&opf, &described("a reviewed description")).unwrap();
+			assert_eq!(descriptions_in(&new), vec![text.clone()], "{form}: {new}");
+			assert!(!new.contains("a reviewed description"), "{form}");
+		}
+	}
+
+	#[test]
+	fn an_empty_description_element_does_not_take_what_comes_after_it() {
+		let opf = opf_with_a_native_description("").replace(
+			"<description xmlns=\"http://purl.org/dc/elements/1.1/\"></description>",
+			&format!("<dc:description/><dc:title>Kept</dc:title><dc:description>{}</dc:description>", some_words(3)),
+		);
+		assert_eq!(descriptions_in(&opf), vec![String::new(), some_words(3)]);
+		let new = edit_opf(&opf, &described(&some_words(40))).unwrap();
+		assert_eq!(descriptions_in(&new), vec![some_words(40)], "{new}");
+		assert!(new.contains("<dc:title>Kept</dc:title>"), "{new}");
+	}
+
+	#[test]
+	fn descriptions_around_the_metadata_block_count_and_go_with_the_rest() {
+		// the reader does not stop at the end of the metadata block
+		let opf = opf_with_a_native_description("two short words").replace(
+			"  <metadata",
+			"  <description>three more words</description>\n  <metadata",
+		);
+		assert_eq!(descriptions_in(&opf).len(), 2);
+		let new = edit_opf(&opf, &described(&some_words(40))).unwrap();
+		check_xml(&new).unwrap();
+		assert_eq!(descriptions_in(&new), vec![some_words(40)], "{new}");
+	}
+
+	#[test]
+	fn the_fields_a_tool_wrote_without_the_prefix_are_replaced_not_doubled() {
+		let dc = r#" xmlns="http://purl.org/dc/elements/1.1/""#;
+		let opf = format!(
+			r##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <title{dc}>Old title</title>
+    <creator{dc}>Old Author</creator>
+    <subject{dc}>Old subject</subject>
+    <language{dc}>fr</language>
+    <date{dc}>1999</date>
+    <dc:identifier id="uid">urn:isbn:1</dc:identifier>
+  </metadata>
+</package>"##
+		);
+		let meta = FileMetadata {
+			title: Some("New title".into()),
+			authors: vec!["New Author".into()],
+			tags: vec!["New subject".into()],
+			language: Some("es".into()),
+			year: Some(2020),
+			..Default::default()
+		};
+		let new = edit_opf(&opf, &meta).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		for old in ["Old title", "Old Author", "Old subject", ">fr<"] {
+			assert!(!new.contains(old), "{old} is still there: {new}");
+		}
+		let count = |name: &str| {
+			Regex::new(&format!(r"<(?:dc:)?{name}\b"))
+				.unwrap()
+				.find_iter(&new)
+				.count()
+		};
+		for name in ["title", "creator", "subject", "language"] {
+			assert_eq!(count(name), 1, "{name}: {new}");
+		}
+		// the file has a publication date (without the prefix): a year is only for a file with none
+		assert_eq!(count("date"), 1, "{new}");
+		assert!(new.contains(">1999<") && !new.contains(">2020<"), "{new}");
 	}
 }
