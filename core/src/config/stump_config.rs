@@ -428,7 +428,8 @@ mod tests {
 	#[test]
 	fn test_archive_limits_defaults_and_env_override() {
 		let dir = tempfile::tempdir().expect("should create temp dir");
-		let config = StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+		let config =
+			StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
 		assert_eq!(config.archive_max_entry_mb, 256);
 		assert_eq!(config.archive_max_xml_mb, 16);
 		assert_eq!(config.archive_max_unpacked_mb, 4096);
@@ -441,8 +442,8 @@ mod tests {
 			],
 			|| {
 				let dir = tempfile::tempdir().expect("should create temp dir");
-				let config =
-					StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+				let config = StumpConfig::load(dir.path().to_path_buf())
+					.expect("should load config");
 				assert_eq!(config.archive_max_entry_mb, 64);
 				assert_eq!(config.archive_max_xml_mb, 16);
 				assert_eq!(config.archive_max_pack_books, 20);

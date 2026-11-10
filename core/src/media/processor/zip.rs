@@ -495,7 +495,8 @@ mod tests {
 
 		let path = dir.join("bomb.cbz");
 		let mut writer = zip::ZipWriter::new(File::create(&path).unwrap());
-		let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+		let options =
+			SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 		writer.start_file("001.jpg", options).unwrap();
 		writer.write_all(b"not really a picture").unwrap();
 		writer.start_file("ComicInfo.xml", options).unwrap();

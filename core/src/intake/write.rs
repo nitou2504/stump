@@ -186,7 +186,8 @@ pub fn write_epub(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 	let (opf_name, opf) = {
 		let mut archive = ZipArchive::new(File::open(path)?)?;
 		let name = opf_path(&mut archive)?;
-		let bytes = bounded::read_capped(archive.by_name(&name)?, bounded::max_xml_bytes())?;
+		let bytes =
+			bounded::read_capped(archive.by_name(&name)?, bounded::max_xml_bytes())?;
 		let text = String::from_utf8_lossy(&bytes)
 			.trim_end_matches('\0')
 			.to_string();
@@ -216,9 +217,11 @@ pub fn write_epub(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 		// the rewritten file must open and carry the new OPF
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
 		// what was written is `new_opf`: reading more than that back is a mismatch
-		let text =
-			bounded::read_to_string_capped(check.by_name(&opf_name)?, new_opf.len() as u64)
-				.map_err(|_| WriteError::Invalid("rewritten EPUB check failed".into()))?;
+		let text = bounded::read_to_string_capped(
+			check.by_name(&opf_name)?,
+			new_opf.len() as u64,
+		)
+		.map_err(|_| WriteError::Invalid("rewritten EPUB check failed".into()))?;
 		if text != new_opf {
 			return Err(WriteError::Invalid("rewritten EPUB check failed".into()));
 		}
@@ -382,10 +385,12 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	// series
 	if let Some(series) = meta.series.as_deref().filter(|s| !s.trim().is_empty()) {
 		let ids = refined_ids(
-			Regex::new(r#"<meta[^>]*property=["']belongs-to-collection["'][^>]*id=["']([^"']+)["']"#)
-				.expect("valid regex")
-				.captures_iter(&body)
-				.map(|c| c[1].to_string()),
+			Regex::new(
+				r#"<meta[^>]*property=["']belongs-to-collection["'][^>]*id=["']([^"']+)["']"#,
+			)
+			.expect("valid regex")
+			.captures_iter(&body)
+			.map(|c| c[1].to_string()),
 		);
 		for id in ids {
 			remove(
@@ -556,8 +561,11 @@ pub fn write_cbz(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 				.filter(|n| n.eq_ignore_ascii_case("comicinfo.xml"))
 				.count();
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
-		let text = bounded::read_to_string_capped(check.by_name("ComicInfo.xml")?, info.len() as u64)
-			.map_err(|_| WriteError::Invalid("rewritten CBZ check failed".into()))?;
+		let text = bounded::read_to_string_capped(
+			check.by_name("ComicInfo.xml")?,
+			info.len() as u64,
+		)
+		.map_err(|_| WriteError::Invalid("rewritten CBZ check failed".into()))?;
 		if check.len() != original_count + 1 || text != info {
 			return Err(WriteError::Invalid("rewritten CBZ check failed".into()));
 		}

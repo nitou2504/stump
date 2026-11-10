@@ -60,7 +60,10 @@ fn from_mb(mb: u64, default: u64) -> u64 {
 
 /// Sets the caps from the configuration (sizes in MB, 0 = the default). Called once at start-up
 pub fn configure(entry_mb: u64, xml_mb: u64, unpacked_mb: u64, pack_books: u64) {
-	MAX_ENTRY_BYTES.store(from_mb(entry_mb, DEFAULT_MAX_ENTRY_BYTES), Ordering::Relaxed);
+	MAX_ENTRY_BYTES.store(
+		from_mb(entry_mb, DEFAULT_MAX_ENTRY_BYTES),
+		Ordering::Relaxed,
+	);
 	MAX_XML_BYTES.store(from_mb(xml_mb, DEFAULT_MAX_XML_BYTES), Ordering::Relaxed);
 	MAX_UNPACKED_BYTES.store(
 		from_mb(unpacked_mb, DEFAULT_MAX_UNPACKED_BYTES),
@@ -103,7 +106,11 @@ pub struct TooLarge(pub u64);
 
 impl std::fmt::Display for TooLarge {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "an archive entry is larger than the limit of {} bytes", self.0)
+		write!(
+			f,
+			"an archive entry is larger than the limit of {} bytes",
+			self.0
+		)
 	}
 }
 
@@ -116,9 +123,7 @@ fn too_large(cap: u64) -> io::Error {
 /// Whether `error` is a read, copy or declared size past its cap, and not a damaged archive
 /// (those are `InvalidData` as well: a bad checksum, a bad stream)
 pub fn is_too_large(error: &io::Error) -> bool {
-	error
-		.get_ref()
-		.is_some_and(|inner| inner.is::<TooLarge>())
+	error.get_ref().is_some_and(|inner| inner.is::<TooLarge>())
 }
 
 /// Fails when an entry declares more than `cap` bytes. Declared sizes are what the file says
@@ -135,7 +140,9 @@ pub fn check_declared(declared: u64, cap: u64) -> io::Result<()> {
 /// to one (declared sizes: what a bomb says about itself, and a bomb that lies is stopped by
 /// the caps on what is actually read)
 pub fn check_ratio(uncompressed: u64, compressed: u64) -> io::Result<()> {
-	if uncompressed >= RATIO_CHECK_MIN_BYTES && uncompressed / compressed.max(1) > MAX_RATIO {
+	if uncompressed >= RATIO_CHECK_MIN_BYTES
+		&& uncompressed / compressed.max(1) > MAX_RATIO
+	{
 		return Err(io::Error::new(
 			io::ErrorKind::InvalidData,
 			format!(
@@ -177,14 +184,22 @@ pub fn read_capped_with_capacity<R: Read>(
 /// [`read_capped`] as UTF-8 text, like `Read::read_to_string` (invalid UTF-8 is an
 /// `InvalidData` error)
 pub fn read_to_string_capped<R: Read>(reader: R, cap: u64) -> io::Result<String> {
-	String::from_utf8(read_capped(reader, cap)?)
-		.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "stream did not contain valid UTF-8"))
+	String::from_utf8(read_capped(reader, cap)?).map_err(|_| {
+		io::Error::new(
+			io::ErrorKind::InvalidData,
+			"stream did not contain valid UTF-8",
+		)
+	})
 }
 
 /// Copies all of `reader` to `writer`, up to `cap` bytes, and returns how many. A stream with
 /// more than `cap` bytes is an `InvalidData` error (and `writer` has had `cap + 1` of them:
 /// the caller drops what it wrote)
-pub fn copy_capped<R: Read, W: Write>(reader: R, writer: &mut W, cap: u64) -> io::Result<u64> {
+pub fn copy_capped<R: Read, W: Write>(
+	reader: R,
+	writer: &mut W,
+	cap: u64,
+) -> io::Result<u64> {
 	let copied = io::copy(&mut reader.take(cap.saturating_add(1)), writer)?;
 	if copied > cap {
 		return Err(too_large(cap));
@@ -236,7 +251,9 @@ mod tests {
 		assert!(is_too_large(&check_declared(4, 3).unwrap_err()));
 		let damaged = io::Error::new(io::ErrorKind::InvalidData, "Invalid checksum");
 		assert!(!is_too_large(&damaged));
-		assert!(!is_too_large(&io::Error::from(io::ErrorKind::UnexpectedEof)));
+		assert!(!is_too_large(&io::Error::from(
+			io::ErrorKind::UnexpectedEof
+		)));
 	}
 
 	#[test]

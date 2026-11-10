@@ -73,7 +73,10 @@ pub fn create_zip_archive(
 
 #[cfg(test)]
 mod tests {
-	use std::{fs, io::{Read, Write}};
+	use std::{
+		fs,
+		io::{Read, Write},
+	};
 
 	use tempfile::TempDir;
 

@@ -136,7 +136,10 @@ fn zip_bytes(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
 			CompressionMethod::Stored
 		};
 		writer
-			.start_file(*name, SimpleFileOptions::default().compression_method(method))
+			.start_file(
+				*name,
+				SimpleFileOptions::default().compression_method(method),
+			)
 			.unwrap();
 		writer.write_all(bytes).unwrap();
 	}
@@ -382,7 +385,10 @@ async fn test_upload_a_zip_pack_of_books() {
 	)
 	.await;
 	assert_no_errors(&response);
-	assert_eq!(response["data"]["intakeUpload"].as_array().unwrap().len(), 1);
+	assert_eq!(
+		response["data"]["intakeUpload"].as_array().unwrap().len(),
+		1
+	);
 
 	let items = analysed_items(app, &uploader.token).await;
 	assert_eq!(items.as_array().unwrap().len(), 1, "{items:#}");
@@ -409,14 +415,20 @@ async fn test_a_zip_bomb_pack_is_refused() {
 
 	// 5 MiB of zeros: a few KiB of deflate
 	let bomb = zip_bytes(&[("bomb.epub", &vec![0u8; 5 * 1024 * 1024], true)]);
-	assert!(bomb.len() < 64 * 1024, "the pack is small: {} bytes", bomb.len());
+	assert!(
+		bomb.len() < 64 * 1024,
+		"the pack is small: {} bytes",
+		bomb.len()
+	);
 	let response = post_multipart(
 		app,
 		&uploader.token,
 		upload_form_as(&fixture.library_id, bomb, "bomb.zip", "application/zip"),
 	)
 	.await;
-	let message = response["errors"][0]["message"].as_str().unwrap_or_default();
+	let message = response["errors"][0]["message"]
+		.as_str()
+		.unwrap_or_default();
 	assert!(
 		message.contains("inflates far more"),
 		"the bomb should be refused: {response:#}"
@@ -427,7 +439,10 @@ async fn test_a_zip_bomb_pack_is_refused() {
 		.await;
 	assert_no_errors(&response);
 	assert!(
-		response["data"]["intakeItems"].as_array().unwrap().is_empty(),
+		response["data"]["intakeItems"]
+			.as_array()
+			.unwrap()
+			.is_empty(),
 		"nothing is staged: {response:#}"
 	);
 }

@@ -772,7 +772,8 @@ fn write_epub_changes(path: &Path, changes: &FileChanges) -> WriteResult<()> {
 	let (opf_name, opf) = {
 		let mut archive = ZipArchive::new(File::open(path)?)?;
 		let name = opf_path(&mut archive)?;
-		let bytes = bounded::read_capped(archive.by_name(&name)?, bounded::max_xml_bytes())?;
+		let bytes =
+			bounded::read_capped(archive.by_name(&name)?, bounded::max_xml_bytes())?;
 		let text = String::from_utf8_lossy(&bytes)
 			.trim_end_matches('\0')
 			.to_string();
@@ -795,9 +796,11 @@ fn write_epub_changes(path: &Path, changes: &FileChanges) -> WriteResult<()> {
 	.and_then(|_| {
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
 		// what was written is `new_opf`: reading more than that back is a mismatch
-		let text =
-			bounded::read_to_string_capped(check.by_name(&opf_name)?, new_opf.len() as u64)
-				.map_err(|_| WriteError::Invalid("rewritten EPUB check failed".into()))?;
+		let text = bounded::read_to_string_capped(
+			check.by_name(&opf_name)?,
+			new_opf.len() as u64,
+		)
+		.map_err(|_| WriteError::Invalid("rewritten EPUB check failed".into()))?;
 		if text != new_opf {
 			return Err(WriteError::Invalid("rewritten EPUB check failed".into()));
 		}
@@ -2127,8 +2130,8 @@ pub async fn suggest_for_book(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::io::Read;
 	use crate::intake::write::{pdf_keywords, write_cbz, write_epub};
+	use std::io::Read;
 
 	fn model() -> media_metadata::Model {
 		media_metadata::Model {

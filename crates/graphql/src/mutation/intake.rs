@@ -129,7 +129,9 @@ fn read_pack(
 		let size = match bounded::copy_capped(&mut entry, &mut book, max_size) {
 			Ok(size) => size,
 			Err(error) if bounded::is_too_large(&error) => {
-				return Err(format!("{name} is larger than the maximum upload size").into())
+				return Err(
+					format!("{name} is larger than the maximum upload size").into()
+				)
 			},
 			Err(error) => return Err(error.into()),
 		};
@@ -457,7 +459,10 @@ mod tests {
 					CompressionMethod::Stored
 				};
 				writer
-					.start_file(*name, SimpleFileOptions::default().compression_method(method))
+					.start_file(
+						*name,
+						SimpleFileOptions::default().compression_method(method),
+					)
 					.unwrap();
 				writer.write_all(bytes).unwrap();
 			}
@@ -519,7 +524,11 @@ mod tests {
 	fn a_book_over_the_maximum_is_refused() {
 		let mut zip = zip_of(&[("big.epub", &vec![7u8; 2000], false)]);
 		let error = read_pack(&mut zip, 1000, 100 * MIB, 10).unwrap_err();
-		assert!(error.message.contains("big.epub is larger than"), "{}", error.message);
+		assert!(
+			error.message.contains("big.epub is larger than"),
+			"{}",
+			error.message
+		);
 	}
 
 	#[test]
@@ -532,18 +541,29 @@ mod tests {
 			let mut archive = ZipArchive::new(&mut lying).unwrap();
 			let mut entry = archive.by_index(0).unwrap();
 			assert_eq!(entry.size(), 100);
-			assert_eq!(std::io::copy(&mut entry, &mut std::io::sink()).unwrap(), 3 * MIB);
+			assert_eq!(
+				std::io::copy(&mut entry, &mut std::io::sink()).unwrap(),
+				3 * MIB
+			);
 		}
 		lying.rewind().unwrap();
 		let error = read_pack(&mut lying, MIB, 100 * MIB, 10).unwrap_err();
-		assert!(error.message.contains("bomb.epub is larger than"), "{}", error.message);
+		assert!(
+			error.message.contains("bomb.epub is larger than"),
+			"{}",
+			error.message
+		);
 	}
 
 	#[test]
 	fn a_book_that_inflates_a_thousand_to_one_is_refused() {
 		let mut zip = zip_of(&[("zeros.pdf", &vec![0u8; 5 * MIB as usize], true)]);
 		let error = read_pack(&mut zip, 10 * MIB, 100 * MIB, 10).unwrap_err();
-		assert!(error.message.contains("inflates far more"), "{}", error.message);
+		assert!(
+			error.message.contains("inflates far more"),
+			"{}",
+			error.message
+		);
 	}
 
 	#[test]
@@ -558,19 +578,30 @@ mod tests {
 			("b.epub", &vec![2u8; 1000], false),
 		]);
 		let error = read_pack(&mut zip, 10 * MIB, 1500, 10).unwrap_err();
-		assert!(error.message.contains("unpacks to more than"), "{}", error.message);
+		assert!(
+			error.message.contains("unpacks to more than"),
+			"{}",
+			error.message
+		);
 	}
 
 	#[test]
 	fn a_pack_with_too_many_books_is_refused() {
-		let entries: Vec<(String, Vec<u8>)> =
-			(0..3).map(|i| (format!("{i}.epub"), vec![i as u8; 10])).collect();
-		let entries: Vec<(&str, &[u8], bool)> =
-			entries.iter().map(|(n, b)| (n.as_str(), b.as_slice(), false)).collect();
+		let entries: Vec<(String, Vec<u8>)> = (0..3)
+			.map(|i| (format!("{i}.epub"), vec![i as u8; 10]))
+			.collect();
+		let entries: Vec<(&str, &[u8], bool)> = entries
+			.iter()
+			.map(|(n, b)| (n.as_str(), b.as_slice(), false))
+			.collect();
 		let mut zip = zip_of(&entries);
 		assert!(read_pack(&mut zip, 10 * MIB, 100 * MIB, 3).is_ok());
 		let mut zip = zip_of(&entries);
 		let error = read_pack(&mut zip, 10 * MIB, 100 * MIB, 2).unwrap_err();
-		assert!(error.message.contains("more than 2 books"), "{}", error.message);
+		assert!(
+			error.message.contains("more than 2 books"),
+			"{}",
+			error.message
+		);
 	}
 }
