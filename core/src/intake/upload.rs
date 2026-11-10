@@ -228,6 +228,35 @@ async fn open_items(conn: &DatabaseConnection, user_id: &str) -> Result<u64, DbE
 		.await
 }
 
+/// A figure made of two things that an upload moves from one to the other: the room that
+/// uploads arriving right now hold, and what is stored in the database. An upload stores its
+/// items first and gives its room back after, so the room is read FIRST: an upload that ends
+/// between the two reads is then counted in both (too many for a moment, which only makes the
+/// check stricter), never in neither. Read the other way round, the items that were stored just
+/// after the database was read and released just before the room was read would not count.
+async fn held_then_stored(
+	held: impl FnOnce() -> u64,
+	stored: impl std::future::Future<Output = Result<u64, DbErr>>,
+) -> Result<u64, DbErr> {
+	let held = held();
+	Ok(stored.await?.saturating_add(held))
+}
+
+/// The open items of a user, and the items that uploads of theirs are about to make
+async fn items_in_use(conn: &DatabaseConnection, user_id: &str) -> Result<u64, DbErr> {
+	held_then_stored(|| reserved_items_by(user_id), open_items(conn, user_id)).await
+}
+
+/// The bytes of a user's inbox, and the bytes that uploads of theirs are receiving
+async fn bytes_in_use(conn: &DatabaseConnection, user_id: &str) -> Result<u64, DbErr> {
+	held_then_stored(|| reserved_by(user_id), inbox_bytes(conn, Some(user_id))).await
+}
+
+/// The bytes of every inbox of the server, and the bytes that uploads are receiving
+async fn bytes_in_use_by_all(conn: &DatabaseConnection) -> Result<u64, DbErr> {
+	held_then_stored(reserved_total, inbox_bytes(conn, None)).await
+}
+
 /// A file name for display and for the library, from what the client sent: no control
 /// characters, no path separators that lead anywhere, at most 255 bytes
 pub fn clean_name(name: &str) -> String {
@@ -415,29 +444,21 @@ impl IncomingUpload {
 
 		let reservation = {
 			let _admission = ADMISSION.lock().await;
-			let everybody = inbox_bytes(conn, None)
-				.await?
-				.saturating_add(reserved_total());
+			let everybody = bytes_in_use_by_all(conn).await?;
 			if everybody.saturating_add(declared_len) > total_max_bytes(&ctx.config) {
 				return Err(UploadError::Unavailable(
 					"The inboxes of the server are full: uploads are paused".to_string(),
 				));
 			}
 			if !approver {
-				let used = inbox_bytes(conn, Some(&user.id))
-					.await?
-					.saturating_add(reserved_by(&user.id));
+				let used = bytes_in_use(conn, &user.id).await?;
 				if used.saturating_add(declared_len) > limits.quota_bytes {
 					return Err(UploadError::TooLarge(format!(
 						"Your inbox can hold {} MB and this would go over it: remove books you no longer need",
 						limits.quota_bytes / MIB
 					)));
 				}
-				if open_items(conn, &user.id)
-					.await?
-					.saturating_add(reserved_items_by(&user.id))
-					>= limits.max_items
-				{
+				if items_in_use(conn, &user.id).await? >= limits.max_items {
 					return Err(UploadError::TooMany(format!(
 						"You have {} books waiting already: file, send or remove some first",
 						limits.max_items
@@ -524,14 +545,17 @@ impl IncomingUpload {
 		}
 		if !self.approver {
 			let conn = self.ctx.conn.as_ref();
-			let used = inbox_bytes(conn, Some(&self.user.id)).await?;
-			let others =
-				reserved_by(&self.user.id).saturating_sub(self._reservation.bytes);
+			// what they hold, and what their other uploads bring (this upload's own room is
+			// not "other")
+			let in_use = held_then_stored(
+				|| reserved_by(&self.user.id).saturating_sub(self._reservation.bytes),
+				inbox_bytes(conn, Some(&self.user.id)),
+			)
+			.await?;
 			let left = self
 				.limits
 				.quota_bytes
-				.saturating_sub(used)
-				.saturating_sub(others)
+				.saturating_sub(in_use)
 				.saturating_sub(plain_bytes);
 			if left <= room {
 				room = left;
@@ -648,20 +672,19 @@ impl IncomingUpload {
 			let staged_total: u64 = staged.iter().map(|s| s.size.max(0) as u64).sum();
 			let wanted = count_items(mode, &staged) as u64;
 			let _admission = ADMISSION.lock().await;
-			let others =
-				reserved_by(&self.user.id).saturating_sub(self._reservation.bytes);
-			let used = inbox_bytes(conn, Some(&self.user.id)).await?;
-			if used.saturating_add(others).saturating_add(staged_total)
-				> self.limits.quota_bytes
-			{
+			let in_use = held_then_stored(
+				|| reserved_by(&self.user.id).saturating_sub(self._reservation.bytes),
+				inbox_bytes(conn, Some(&self.user.id)),
+			)
+			.await?;
+			if in_use.saturating_add(staged_total) > self.limits.quota_bytes {
 				return Err(UploadError::TooLarge(format!(
 					"This is more than your inbox can hold ({} MB)",
 					self.limits.quota_bytes / MIB
 				)));
 			}
-			if open_items(conn, &self.user.id)
+			if items_in_use(conn, &self.user.id)
 				.await?
-				.saturating_add(reserved_items_by(&self.user.id))
 				.saturating_add(wanted)
 				> self.limits.max_items
 			{
@@ -712,6 +735,47 @@ pub async fn remove_incoming(ctx: &Ctx) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// An upload that ends while the two reads are being made moves its items from the room it
+	/// held to the rows of the database. Whichever read is made first, the other one is made
+	/// right after it, with that move in between: the room must be read first, or the items
+	/// that moved are in neither figure.
+	#[tokio::test]
+	async fn the_room_held_is_read_before_the_rows() {
+		use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
+
+		let held = AtomicU64::new(1); // one item is about to be stored
+		let rows = AtomicU64::new(0); // and is not yet
+		let moved = AtomicBool::new(false);
+		// after the first read, the upload ends: its row is stored, its room given back
+		let after_first_read = || {
+			if !moved.swap(true, SeqCst) {
+				rows.store(1, SeqCst);
+				held.store(0, SeqCst);
+			}
+		};
+		let counted = held_then_stored(
+			|| {
+				let read = held.load(SeqCst);
+				after_first_read();
+				read
+			},
+			async {
+				let read = rows.load(SeqCst);
+				after_first_read();
+				Ok(read)
+			},
+		)
+		.await
+		.expect("a figure");
+		assert!(
+			counted >= 1,
+			"the item that moved between the reads is in neither figure ({counted})"
+		);
+		// and the sum is the plain sum when nothing moves
+		let plain = held_then_stored(|| 3, async { Ok(4) }).await.unwrap();
+		assert_eq!(plain, 7);
+	}
 
 	#[test]
 	fn a_file_is_what_its_name_says() {
