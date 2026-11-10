@@ -26,8 +26,8 @@ impl SmartListViewMutation {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
 
-		// Ensure the user has access to the smart list
-		let _ = smart_list::Entity::find_by_id(user, input.list_id.clone())
+		// A list's views are part of the list: only who may change it may add one
+		let _ = smart_list::Entity::find_by_id_for_edit(user, input.list_id.clone())
 			.one(&txn)
 			.await?
 			.ok_or("Smart list not found".to_string())?;
@@ -52,6 +52,12 @@ impl SmartListViewMutation {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
+
+		// A list's views are part of the list: only who may change it may change one
+		let _ = smart_list::Entity::find_by_id_for_edit(user, input.list_id.clone())
+			.one(&txn)
+			.await?
+			.ok_or("Smart list not found".to_string())?;
 
 		let smart_list_view = smart_list_view::Entity::find_by_user_list_id_name(
 			user,
@@ -82,6 +88,12 @@ impl SmartListViewMutation {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
+
+		// A list's views are part of the list: only who may change it may delete one
+		let _ = smart_list::Entity::find_by_id_for_edit(user, id.clone())
+			.one(&txn)
+			.await?
+			.ok_or("Smart list not found".to_string())?;
 
 		let smart_list_view =
 			smart_list_view::Entity::find_by_user_list_id_name(user, &id, &name)

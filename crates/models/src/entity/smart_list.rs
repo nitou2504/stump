@@ -228,6 +228,19 @@ impl Entity {
 				.add(Column::Id.eq(id.to_string())),
 		)
 	}
+
+	/// A smart list the user may change or delete: one they created, or, for the server
+	/// owner, any list they can see (a friend's PRIVATE list stays out of reach).
+	/// Seeing a list is wider than this (a PUBLIC list is for everyone), so
+	/// [`Entity::find_by_id`] isn't enough before an edit
+	pub fn find_by_id_for_edit(user: &AuthUser, id: ID) -> Select<Self> {
+		let select = Self::find_by_id(user, id);
+		if user.is_server_owner {
+			select
+		} else {
+			select.filter(Column::CreatorId.eq(user.id.clone()))
+		}
+	}
 }
 
 #[cfg(test)]

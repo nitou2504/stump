@@ -41,12 +41,15 @@ impl SmartListMutation {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
 
-		let _ = smart_list::Entity::find_by_id(user, id.clone())
+		// Only its creator (or the server owner) may change a list, even a PUBLIC one. The
+		// same answer as for a list they can't see, so this doesn't tell what exists
+		let existing = smart_list::Entity::find_by_id_for_edit(user, id.clone())
 			.one(&txn)
 			.await?
 			.ok_or("Smart list not found".to_string())?;
 
-		let mut active_model = input.into_active_model(&user.id)?;
+		// The list stays its creator's, also when the server owner edits it
+		let mut active_model = input.into_active_model(&existing.creator_id)?;
 		active_model.id = Set(id.to_string());
 		let updated = active_model.update(&txn).await?;
 		txn.commit().await?;
@@ -60,7 +63,7 @@ impl SmartListMutation {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let txn = conn.begin().await?;
 
-		let smart_list = smart_list::Entity::find_by_id(user, id.clone())
+		let smart_list = smart_list::Entity::find_by_id_for_edit(user, id.clone())
 			.one(&txn)
 			.await?
 			.ok_or("Smart list not found".to_string())?;
