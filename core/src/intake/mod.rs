@@ -1008,14 +1008,20 @@ fn place_file(source: &Path, target: &Path) -> std::io::Result<()> {
 	let dir = target
 		.parent()
 		.ok_or_else(|| std::io::Error::other("no parent folder"))?;
-	let tmp = dir.join(format!(
-		".{}.intake",
-		target
-			.file_name()
-			.map(|n| n.to_string_lossy())
-			.unwrap_or_default()
-	));
-	std::fs::copy(source, &tmp)?;
+	// a name of its own for every filing: two filings that file the same name (two editions of a
+	// title, one file twice, two approvers) must not copy into the same temporary file, or the
+	// book that is linked could hold the bytes of the other. Only the start of the book's name is
+	// in it (to know what a left-over is): a name near the limit of the file system would not fit
+	// with the rest.
+	let start: String = target
+		.file_name()
+		.map(|n| n.to_string_lossy().chars().take(40).collect())
+		.unwrap_or_default();
+	let tmp = dir.join(format!(".{start}.{}.intake", Uuid::new_v4().simple()));
+	if let Err(error) = std::fs::copy(source, &tmp) {
+		let _ = std::fs::remove_file(&tmp);
+		return Err(error);
+	}
 	if let Ok(meta) = std::fs::metadata(dir) {
 		// the files of a folder get its permissions without the execute bits
 		use std::os::unix::fs::PermissionsExt;
@@ -1243,25 +1249,35 @@ async fn file_claimed_inner(
 		let name = decision.file_names.get(i).cloned().unwrap_or_default();
 		let mut target = dir.join(&name);
 		let mut n = 2;
-		while target.exists() {
-			target = dir.join(suffixed(&name, n));
-			n += 1;
-		}
-		// Written down BEFORE the file is put there. If the server stops between the two, trying
-		// again finds a recorded path with no file and places it again under the same name;
-		// written down afterwards, a file placed just before the stop would be unknown to the
-		// next try, which would copy it a second time as `_2`.
-		paths.push(target.to_string_lossy().into_owned());
-		record_progress(conn, &item.id, &paths, &notes).await?;
-		let (from, to) = (staged.clone(), target.clone());
-		let put = tokio::task::spawn_blocking(move || place_file(&from, &to))
-			.await
-			.map_err(|e| CoreError::InternalError(e.to_string()))?;
-		if let Err(error) = put {
-			// not placed: the record names only files that are there
-			paths.pop();
-			let _ = record_progress(conn, &item.id, &paths, &notes).await;
-			return Err(error.into());
+		loop {
+			while target.exists() {
+				target = dir.join(suffixed(&name, n));
+				n += 1;
+			}
+			// Written down BEFORE the file is put there. If the server stops between the two,
+			// trying again finds a recorded path with no file and places it again under the same
+			// name; written down afterwards, a file placed just before the stop would be unknown
+			// to the next try, which would copy it a second time as `_2`.
+			paths.push(target.to_string_lossy().into_owned());
+			record_progress(conn, &item.id, &paths, &notes).await?;
+			let (from, to) = (staged.clone(), target.clone());
+			let put = tokio::task::spawn_blocking(move || place_file(&from, &to))
+				.await
+				.map_err(|e| CoreError::InternalError(e.to_string()))?;
+			match put {
+				Ok(()) => break,
+				// another filing took the name since it was looked at (nothing was replaced):
+				// the next one is free
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					paths.pop();
+				},
+				Err(error) => {
+					// not placed: the record names only files that are there
+					paths.pop();
+					let _ = record_progress(conn, &item.id, &paths, &notes).await;
+					return Err(error.into());
+				},
+			}
 		}
 	}
 
@@ -1403,6 +1419,62 @@ pub async fn recently_filed(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Two filings of one name each copy into a temporary file of their own: a copy that is half
+	/// made isn't written into by the other, the linked book is whole, and the one that finds the
+	/// name taken replaces nothing and leaves nothing behind
+	#[test]
+	fn filings_of_one_name_do_not_share_a_temporary_file() {
+		let dir = tempfile::tempdir().unwrap();
+		let library = dir.path().join("library");
+		std::fs::create_dir_all(&library).unwrap();
+		let (first, second) = (dir.path().join("first.epub"), dir.path().join("second.epub"));
+		std::fs::write(&first, vec![1u8; 8192]).unwrap();
+		std::fs::write(&second, vec![2u8; 8192]).unwrap();
+		let target = library.join("Book.epub");
+		// another filing's copy of this very name, half made, where the one fixed temporary name
+		// of the old way would have been
+		let theirs = library.join(".Book.epub.intake");
+		std::fs::write(&theirs, b"half of somebody else's book").unwrap();
+
+		place_file(&first, &target).unwrap();
+		assert_eq!(std::fs::read(&target).unwrap(), vec![1u8; 8192]);
+		assert_eq!(
+			std::fs::read(&theirs).unwrap(),
+			b"half of somebody else's book",
+			"a copy being made by somebody else is not touched"
+		);
+
+		let error = place_file(&second, &target).unwrap_err();
+		assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+		assert_eq!(
+			std::fs::read(&target).unwrap(),
+			vec![1u8; 8192],
+			"the book that is there is not replaced"
+		);
+		let mut left: Vec<String> = std::fs::read_dir(&library)
+			.unwrap()
+			.filter_map(Result::ok)
+			.map(|e| e.file_name().to_string_lossy().into_owned())
+			.collect();
+		left.sort();
+		assert_eq!(left, [".Book.epub.intake", "Book.epub"]);
+	}
+
+	/// The temporary name has room for the longest name a folder takes: a book whose name is near
+	/// the limit of the file system is filed like any other
+	#[test]
+	fn a_file_name_near_the_limit_still_has_a_temporary_name_that_fits() {
+		let dir = tempfile::tempdir().unwrap();
+		let source = dir.path().join("source.epub");
+		std::fs::write(&source, b"book").unwrap();
+		let target = dir.path().join(format!("{}.epub", "é".repeat(120)));
+		assert!(target.file_name().unwrap().len() <= 255);
+		place_file(&source, &target).unwrap();
+		assert_eq!(std::fs::read(&target).unwrap(), b"book");
+		let others = std::fs::read_dir(dir.path()).unwrap().count();
+		assert_eq!(others, 2, "the source and the book, no temporary file left");
+	}
 
 	fn settings() -> library_intake_settings::Model {
 		library_intake_settings::Model::defaults_for("lib", LibraryType::Book)

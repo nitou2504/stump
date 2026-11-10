@@ -14,8 +14,8 @@ use models::{
 	shared::intake::{
 		IntakeDecision, IntakeDestination, IntakeDestinationFile, IntakeDuplicate,
 		IntakeFile, IntakeFiles, IntakeFolderCandidate, IntakeGenreSuggestion,
-		IntakeKind, IntakeMetadata, IntakeProposal, IntakeSeriesKind, IntakeSimilarBook,
-		IntakeState, IntakeUploaderView,
+		IntakeKind, IntakeMetadata, IntakeProposal, IntakeReviewInput, IntakeSeriesKind,
+		IntakeSimilarBook, IntakeState, IntakeUploaderView,
 	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set};
@@ -231,7 +231,7 @@ impl World {
 			.tmp
 			.path()
 			.join(format!("{}.epub", title.replace(' ', "_")));
-		fixtures::write_test_epub(&path, title, metadata);
+		write_unique_epub(&path, title, metadata);
 		let bytes = fs::read(path).expect("epub bytes");
 		let response = post_upload(
 			&self.app,
@@ -317,9 +317,10 @@ impl World {
 			}
 			tokio::time::sleep(Duration::from_millis(100)).await;
 		}
+		let row = self.row(id).await;
 		panic!(
-			"the item never became {state}: it is {}",
-			self.row(id).await.state
+			"the item never became {state}: it is {} ({:?})",
+			row.state, row.error
 		);
 	}
 
@@ -349,6 +350,29 @@ impl World {
 		}
 		panic!("analysis did not finish");
 	}
+}
+
+/// An EPUB like the fixture's whose first bytes are its own. The hash of a small book is made of
+/// its first bytes, and the fixture's books all start alike: two of them would be the same file
+fn write_unique_epub(path: &std::path::Path, title: &str, metadata: &str) {
+	use std::io::{Cursor, Write};
+	fixtures::write_test_epub(path, title, metadata);
+	let mut input =
+		zip::ZipArchive::new(Cursor::new(fs::read(path).expect("the EPUB"))).expect("a zip");
+	let mut out = zip::ZipWriter::new(fs::File::create(path).expect("the EPUB"));
+	out.start_file(
+		"0-seed.txt",
+		zip::write::SimpleFileOptions::default()
+			.compression_method(zip::CompressionMethod::Stored),
+	)
+	.expect("an entry");
+	out.write_all(format!("{title}|{metadata}|{}", "x".repeat(300)).as_bytes())
+		.expect("the seed");
+	for i in 0..input.len() {
+		out.raw_copy_file(input.by_index_raw(i).expect("an entry"))
+			.expect("a copy");
+	}
+	out.finish().expect("the zip");
 }
 
 fn assert_ok(response: &Value) {
@@ -2153,3 +2177,56 @@ async fn test_a_friends_description_is_plain_in_what_gets_filed() {
 	assert!(!opf.contains("iframe"), "{opf}");
 	assert!(!opf.contains("dc:description"), "{opf}");
 }
+
+
+/// two books that file under one name are each filed whole, whichever copies first: the second
+/// takes the next name, and neither holds the bytes of the other
+#[tokio::test(flavor = "multi_thread")]
+async fn test_two_books_with_one_name_are_each_filed_whole() {
+	let world = world().await;
+	let mut ids = vec![];
+	for edition in ["First", "Second"] {
+		ids.push(
+			world
+				.ana_uploads_epub(
+					"Twin",
+					&format!(
+						"<dc:creator>Eco, Umberto</dc:creator><dc:description>The {edition} edition of the twin book.</dc:description>"
+					),
+				)
+				.await,
+		);
+	}
+	world.ana_items().await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": ids }))
+			.await,
+	);
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": ids })).await);
+	for id in &ids {
+		world.wait_for(id, IntakeState::Filed).await;
+	}
+	let mut editions = vec![];
+	for name in ["Twin.epub", "Twin_2.epub"] {
+		let opf = epub_entry(&world.library_dir.join("Umberto_Eco").join(name), "OEBPS/content.opf");
+		editions.push(if opf.contains("First edition") {
+			"first"
+		} else if opf.contains("Second edition") {
+			"second"
+		} else {
+			"neither"
+		});
+	}
+	editions.sort();
+	assert_eq!(editions, ["first", "second"], "each file holds its own book");
+	// no temporary copy is left in the folder
+	assert!(
+		names_in(&world.library_dir.join("Umberto_Eco"))
+			.iter()
+			.all(|name| !name.ends_with(".intake")),
+		"{:?}",
+		names_in(&world.library_dir.join("Umberto_Eco"))
+	);
+}
+
