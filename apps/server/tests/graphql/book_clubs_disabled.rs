@@ -17,7 +17,7 @@ use models::{
 	entity::{book_club, book_club_member},
 	shared::{book_club::BookClubMemberRole, enums::UserPermission},
 };
-use sea_orm::{prelude::*, ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::{json, Value};
 
 use crate::common::{
