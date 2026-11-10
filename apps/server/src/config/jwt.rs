@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use models::entity::{refresh_token, server_config};
+use models::entity::{refresh_token, server_config, user};
 use sea_orm::{prelude::*, ActiveValue, IntoActiveModel, QuerySelect};
 use serde::{Deserialize, Serialize};
 use stump_core::config::StumpConfig;
@@ -219,25 +219,63 @@ pub(crate) async fn extract_user_from_jwt(
 	Ok(token_data.claims.sub)
 }
 
-/// Exchange a refresh token for a new access token, if the refresh token is valid
+/// How long a refresh token that was exchanged keeps working. Exchanging it hands out a new pair,
+/// but a client that sends several requests at once (the mobile app does) finds its access token
+/// about to expire in each of them and exchanges the same refresh token from each; the ones that
+/// come after the first must not be refused, or the client would lose its sign-in.
+const USED_REFRESH_TOKEN_GRACE_SECONDS: i64 = 30;
+
+/// Exchange a refresh token for a new access token and refresh token pair, if the refresh token
+/// is valid and its user may still sign in (not deleted, not locked).
+///
+/// The refresh token is used up: it stops working after a short grace period, so one that was
+/// copied can't be renewed for ever next to the client it was taken from.
 pub(crate) async fn exchange_refresh_token(
 	jti: &str,
 	state: AppState,
 ) -> APIResult<JwtTokenPair> {
+	let conn = state.conn.as_ref();
 	let refresh_token = refresh_token::Entity::find()
 		.filter(refresh_token::Column::Id.eq(jti))
-		.one(state.conn.as_ref())
+		.one(conn)
 		.await?
 		.ok_or(APIError::Unauthorized)?;
 
-	if refresh_token.expires_at < Utc::now() {
+	let now = Utc::now();
+	if refresh_token.expires_at < now {
 		let active_model = refresh_token.into_active_model();
-		let _ = active_model.delete(state.conn.as_ref()).await;
+		let _ = active_model.delete(conn).await;
 		return Err(APIError::Unauthorized);
 	}
 
-	let user_id = &refresh_token.user_id;
-	let jwt_pair = create_jwt_auth(user_id, &state.conn, &state.config).await?;
+	let user_may_sign_in = user::Entity::find_by_id(refresh_token.user_id.clone())
+		.filter(user::Column::DeletedAt.is_null())
+		.one(conn)
+		.await?
+		.is_some_and(|user| !user.is_locked);
+	if !user_may_sign_in {
+		tracing::error!(user_id = ?refresh_token.user_id, "Refresh token of a deleted or locked user");
+		let active_model = refresh_token.into_active_model();
+		let _ = active_model.delete(conn).await;
+		return Err(APIError::Unauthorized);
+	}
+
+	let user_id = refresh_token.user_id.clone();
+
+	// use it up, and forget the ones of the user that have run out
+	let grace_ends_at = now + Duration::seconds(USED_REFRESH_TOKEN_GRACE_SECONDS);
+	if refresh_token.expires_at > grace_ends_at {
+		let mut active_model = refresh_token.into_active_model();
+		active_model.expires_at = ActiveValue::Set(grace_ends_at.into());
+		active_model.update(conn).await?;
+	}
+	let _ = refresh_token::Entity::delete_many()
+		.filter(refresh_token::Column::UserId.eq(user_id.clone()))
+		.filter(refresh_token::Column::ExpiresAt.lt(DateTime::<FixedOffset>::from(now)))
+		.exec(conn)
+		.await;
+
+	let jwt_pair = create_jwt_auth(&user_id, &state.conn, &state.config).await?;
 	tracing::debug!(?user_id, "Exchanged refresh token for new JWT");
 
 	Ok(jwt_pair)

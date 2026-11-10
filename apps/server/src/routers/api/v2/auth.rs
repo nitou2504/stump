@@ -15,7 +15,7 @@ use models::{
 		user::{self, AuthUser, LoginUser},
 		user_login_activity,
 	},
-	services::user::create_user_with_preferences,
+	services::user::{create_user_with_preferences, revoke_user_sessions},
 	shared::image::ImageRef,
 };
 use reqwest::header;
@@ -45,8 +45,9 @@ use crate::{
 /// Failed logins in the last 24 hours after which the next failed one locks the account
 const FAILED_LOGINS_BEFORE_LOCK: u64 = 9;
 
-/// A success is tracked once an hour for a client that signs in with every request (OPDS Basic auth)
-const BASIC_AUTH_SUCCESS_TRACKING_INTERVAL_HOURS: i64 = 1;
+/// A success, or a refusal of a locked account, is tracked once an hour for a client that signs in
+/// with every request (OPDS Basic auth)
+const BASIC_AUTH_TRACKING_INTERVAL_HOURS: i64 = 1;
 
 pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 	Router::new().nest(
@@ -114,12 +115,11 @@ async fn lock_account(conn: &DatabaseConnection, user_id: String) -> APIResult<(
 		.rows_affected;
 	tracing::debug!(?affected_rows, "Locked user account");
 
-	let deleted_sessions = session::Entity::delete_many()
-		.filter(session::Column::UserId.eq(user_id))
-		.exec(conn)
-		.await?
-		.rows_affected;
-	tracing::debug!(?deleted_sessions, "Removed all sessions for locked user");
+	let deleted_sessions = revoke_user_sessions(conn, &user_id, None).await?.len();
+	tracing::debug!(
+		?deleted_sessions,
+		"Removed all sessions and refresh tokens for locked user"
+	);
 
 	Ok(())
 }
@@ -164,7 +164,7 @@ async fn handle_login_attempt(
 ///
 /// The server owner is never locked by failures: anyone who knows the username could lock the
 /// owner out by guessing, and the owner is who unlocks everyone else. Their attempts are still
-/// tracked.
+/// tracked. A locked account is not locked again, but a failure on it is tracked too.
 async fn track_login_attempt(
 	conn: &DatabaseConnection,
 	for_user: &user::LoginUser,
@@ -176,21 +176,25 @@ async fn track_login_attempt(
 	// TODO: make this configurable via environment variable so knowledgeable attackers can't bypass this
 	let twenty_four_hours_ago = today - Duration::hours(24);
 
-	let should_lock_account = !success && !for_user.is_server_owner && {
-		user_login_activity::Entity::find()
-			.filter(
-				user_login_activity::Column::UserId
-					.eq(for_user.id.clone())
-					.and(
-						user_login_activity::Column::Timestamp
-							.gte(twenty_four_hours_ago)
-							.and(user_login_activity::Column::Timestamp.lte(today)),
-					)
-					.and(user_login_activity::Column::AuthenticationSuccessful.eq(false)),
-			)
-			.count(conn)
-			.await? >= FAILED_LOGINS_BEFORE_LOCK
-	};
+	let should_lock_account =
+		!success && !for_user.is_server_owner && !for_user.is_locked && {
+			user_login_activity::Entity::find()
+				.filter(
+					user_login_activity::Column::UserId
+						.eq(for_user.id.clone())
+						.and(
+							user_login_activity::Column::Timestamp
+								.gte(twenty_four_hours_ago)
+								.and(user_login_activity::Column::Timestamp.lte(today)),
+						)
+						.and(
+							user_login_activity::Column::AuthenticationSuccessful
+								.eq(false),
+						),
+				)
+				.count(conn)
+				.await? >= FAILED_LOGINS_BEFORE_LOCK
+		};
 
 	let login_track_result =
 		handle_login_attempt(conn, for_user, user_agent, client_ip, success).await;
@@ -207,9 +211,10 @@ async fn track_login_attempt(
 }
 
 /// Tracks an OPDS HTTP Basic auth attempt like [`track_login_attempt`]. A reader sends the
-/// credentials with every request, so a success is tracked only when the user hasn't signed in
-/// from that address with that client in the last hour (a row for every request would swell
-/// the login activity); failures are always tracked.
+/// credentials with every request, so a success, or a refusal of a locked account, is tracked
+/// only when the user hasn't had the same from that address with that client in the last hour (a
+/// row for every request would swell the login activity). Failures that count towards the lock
+/// are always tracked.
 pub(crate) async fn track_basic_auth_attempt(
 	conn: &DatabaseConnection,
 	for_user: &user::LoginUser,
@@ -217,24 +222,25 @@ pub(crate) async fn track_basic_auth_attempt(
 	client_ip: std::net::IpAddr,
 	success: bool,
 ) -> APIResult<()> {
-	if success {
-		let since: DateTime<FixedOffset> = (Utc::now()
-			- Duration::hours(BASIC_AUTH_SUCCESS_TRACKING_INTERVAL_HOURS))
-		.into();
-		let signed_in_recently = user_login_activity::Entity::find()
+	if success || for_user.is_locked {
+		let since: DateTime<FixedOffset> =
+			(Utc::now() - Duration::hours(BASIC_AUTH_TRACKING_INTERVAL_HOURS)).into();
+		let tracked_recently = user_login_activity::Entity::find()
 			.filter(
 				user_login_activity::Column::UserId
 					.eq(for_user.id.clone())
 					.and(user_login_activity::Column::IpAddress.eq(client_ip.to_string()))
 					.and(user_login_activity::Column::UserAgent.eq(user_agent.clone()))
-					.and(user_login_activity::Column::AuthenticationSuccessful.eq(true))
+					.and(
+						user_login_activity::Column::AuthenticationSuccessful.eq(success),
+					)
 					.and(user_login_activity::Column::Timestamp.gte(since)),
 			)
 			.one(conn)
 			.await?
 			.is_some();
 
-		if signed_in_recently {
+		if tracked_recently {
 			return Ok(());
 		}
 	}
@@ -333,7 +339,7 @@ async fn login(
 		.await?
 	else {
 		// an unknown username must take as long to refuse as a wrong password
-		verify_dummy_password(&password, &config);
+		verify_dummy_password(password, &config).await;
 		return Err(APIError::Unauthorized);
 	};
 
@@ -369,16 +375,26 @@ async fn login(
 			"Broken account! User {} has no password set and is not an OIDC user",
 			user.username
 		);
+		verify_dummy_password(password, &config).await;
 		return Err(APIError::Unauthorized);
 	}
 
-	let provided_valid_credentials = verify_password(&user.hashed_password, &password)?;
-
-	if user.is_locked && provided_valid_credentials {
+	if user.is_locked {
+		// the same answer whatever the password is, so a locked account can't be used to check
+		// guesses; the attempt is recorded
+		track_login_attempt(
+			state.conn.as_ref(),
+			&user,
+			user_agent.to_string(),
+			client_ip,
+			false,
+		)
+		.await?;
 		return Err(APIError::AccountLocked);
-	} else if user.is_locked {
-		return Err(APIError::Unauthorized);
 	}
+
+	let provided_valid_credentials =
+		verify_password(user.hashed_password.clone(), password).await?;
 
 	track_login_attempt(
 		state.conn.as_ref(),

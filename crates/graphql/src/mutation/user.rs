@@ -19,7 +19,10 @@ use models::{
 		user::{self, AuthUser},
 		user_discover_rules, user_login_activity, user_preferences, user_reader_settings,
 	},
-	services::user::{create_user_with_preferences, NewAgeRestriction},
+	services::user::{
+		create_user_with_preferences, revoke_user_api_keys, revoke_user_sessions,
+		NewAgeRestriction,
+	},
 	shared::{
 		arrangement::{Arrangement, HomeArrangement},
 		discover::DiscoverRules,
@@ -219,6 +222,10 @@ impl UserMutation {
 		let updated_user =
 			update_user(user, user.id.clone(), conn, config, &input).await?;
 
+		if input.password.is_some() {
+			revoke_other_sessions(ctx, &user.id, conn).await?;
+		}
+
 		Ok(updated_user)
 	}
 
@@ -300,6 +307,8 @@ impl UserMutation {
 
 		if !is_self {
 			remove_all_session_for_user(id.to_string(), conn).await?;
+		} else if input.password.is_some() {
+			revoke_other_sessions(ctx, &user.id, conn).await?;
 		}
 
 		Ok(updated_user)
@@ -340,7 +349,14 @@ impl UserMutation {
 		} else {
 			let mut active_model = existing_user.into_active_model();
 			active_model.deleted_at = Set(Some(chrono::Utc::now().into()));
-			active_model.update(conn).await?.try_into_model()?
+			let deleted_user = active_model.update(conn).await?.try_into_model()?;
+
+			// a deleted user is refused everywhere, but nothing they hold should be left behind:
+			// no cookie, no refresh token and no API key (a hard delete removes them with the user)
+			remove_all_session_for_user(id.to_string(), conn).await?;
+			revoke_user_api_keys(conn, id.as_str()).await?;
+
+			deleted_user
 		};
 
 		tracing::debug!(?deleted_user, "Deleted user");
@@ -379,12 +395,12 @@ impl UserMutation {
 		let mut active_model = model.into_active_model();
 		active_model.is_locked = Set(lock);
 
+		let updated_user = active_model.update(conn).await?;
+
 		if lock {
-			// Delete all sessions for this user if they are being locked
+			// Delete all sessions and refresh tokens for this user if they are being locked
 			remove_all_session_for_user(id.to_string(), conn).await?;
 		}
-
-		let updated_user = active_model.update(conn).await?;
 
 		Ok(User::from(updated_user))
 	}
@@ -532,17 +548,34 @@ impl UserMutation {
 	}
 }
 
+/// Signs a user out everywhere: removes their sessions and their refresh tokens
 async fn remove_all_session_for_user(
 	id: String,
 	conn: &DatabaseConnection,
 ) -> Result<Vec<session::Model>> {
-	let removed_sessions = session::Entity::delete_many()
-		.filter(session::Column::UserId.eq(id.clone()))
-		.exec_with_returning(conn)
-		.await?;
+	let removed_sessions = revoke_user_sessions(conn, &id, None).await?;
 
 	tracing::debug!(?removed_sessions, "Removed sessions for user");
 	Ok(removed_sessions)
+}
+
+/// Signs a user out everywhere but the session this request came with (if it came with one),
+/// for a user who just changed their own password: other browsers and apps must sign in again
+async fn revoke_other_sessions(
+	ctx: &Context<'_>,
+	user_id: &str,
+	conn: &DatabaseConnection,
+) -> Result<()> {
+	let current_session_id = ctx
+		.data_opt::<Session>()
+		.and_then(|session| session.id())
+		.map(|id| id.to_string());
+
+	let removed_sessions =
+		revoke_user_sessions(conn, user_id, current_session_id.as_deref()).await?;
+
+	tracing::debug!(?removed_sessions, "Removed the other sessions of user");
+	Ok(())
 }
 
 async fn update_user_preferences_by_id(

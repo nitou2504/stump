@@ -1,33 +1,16 @@
 use std::time::Instant;
 
 use axum::http::StatusCode;
-use axum_test::TestResponse;
-use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{Duration, Utc};
-use models::entity::{user, user_login_activity};
-use sea_orm::{
-	prelude::DateTimeWithTimeZone, sea_query::Expr, ColumnTrait, EntityTrait, QueryFilter,
-};
+use models::entity::user_login_activity;
+use sea_orm::{prelude::DateTimeWithTimeZone, sea_query::Expr, EntityTrait};
 use tests::fake_data;
 
 use super::{
-	insert_user, is_locked, one_password_check, tracked, FAILED_ATTEMPTS_TO_LOCK,
+	basic, catalog, insert_user, is_locked, lock, me_with_cookie, one_password_check,
+	soft_delete, tracked, FAILED_ATTEMPTS_TO_LOCK,
 };
 use crate::common::TestApp;
-
-/// an OPDS 1.2 request signed in with HTTP Basic auth
-async fn catalog(app: &TestApp, username: &str, password: &str) -> TestResponse {
-	app.server
-		.get("/opds/v1.2/catalog")
-		.add_header(
-			"Authorization",
-			format!(
-				"Basic {}",
-				STANDARD.encode(format!("{username}:{password}"))
-			),
-		)
-		.await
-}
 
 #[tokio::test]
 async fn basic_auth_signs_in() {
@@ -62,17 +45,70 @@ async fn failed_basic_auth_is_tracked_and_locks_other_users() {
 		FAILED_ATTEMPTS_TO_LOCK as u64
 	);
 
-	// locked: the right password is refused, and nothing more is tracked
+	// locked: refused the same way whatever the password is
 	catalog(&app, "reader", "secret")
 		.await
 		.assert_status(StatusCode::FORBIDDEN);
 	catalog(&app, "reader", "wrong")
 		.await
-		.assert_status(StatusCode::UNAUTHORIZED);
+		.assert_status(StatusCode::FORBIDDEN);
+	// (this client's failures of the last hour are on record already)
 	assert_eq!(
 		tracked(&app, &reader, false).await,
 		FAILED_ATTEMPTS_TO_LOCK as u64
 	);
+}
+
+/// a locked account answers every password the same, so it can't be used to check guesses; the
+/// refusals are on record, once an hour for each client (a reader repeats its request)
+#[tokio::test]
+async fn a_locked_account_answers_the_same_to_every_password() {
+	let app = TestApp::new().await;
+	let reader = insert_user(&app, "reader", "secret", false).await;
+	lock(&app, &reader).await;
+
+	for password in ["secret", "wrong", "secret"] {
+		catalog(&app, "reader", password)
+			.await
+			.assert_status(StatusCode::FORBIDDEN);
+	}
+	assert_eq!(tracked(&app, &reader, false).await, 1);
+	assert_eq!(tracked(&app, &reader, true).await, 0);
+
+	// another client (a different user agent) is on record as well
+	user_login_activity::Entity::update_many()
+		.col_expr(
+			user_login_activity::Column::UserAgent,
+			Expr::value("KOReader"),
+		)
+		.exec(app.conn())
+		.await
+		.unwrap();
+	catalog(&app, "reader", "wrong")
+		.await
+		.assert_status(StatusCode::FORBIDDEN);
+	assert_eq!(tracked(&app, &reader, false).await, 2);
+}
+
+/// `X-Stump-Save-Session` makes the server keep the sign-in in a session, so the cookie alone
+/// signs the next requests in. The session held the whole user instead of its id, which the
+/// session store refuses: every such request failed with a 500.
+#[tokio::test]
+async fn basic_auth_can_save_a_session() {
+	let app = TestApp::new().await;
+	let reader = insert_user(&app, "reader", "secret", false).await;
+
+	let response = app
+		.server
+		.get("/opds/v1.2/catalog")
+		.add_header("Authorization", basic("reader", "secret"))
+		.add_header("X-Stump-Save-Session", "true")
+		.await;
+	response.assert_status_ok();
+
+	let cookie = format!("stump_session={}", response.cookie("stump_session").value());
+	me_with_cookie(&app, &cookie).await.assert_status_ok();
+	assert_eq!(super::sessions_of(&app, &reader.id).await, 1);
 }
 
 #[tokio::test]
@@ -98,13 +134,7 @@ async fn failed_basic_auth_never_locks_the_server_owner() {
 async fn basic_auth_ignores_deleted_users() {
 	let app = TestApp::new().await;
 	let reader = insert_user(&app, "reader", "secret", false).await;
-	let deleted_at: DateTimeWithTimeZone = Utc::now().into();
-	user::Entity::update_many()
-		.col_expr(user::Column::DeletedAt, Expr::value(deleted_at))
-		.filter(user::Column::Id.eq(reader.id.clone()))
-		.exec(app.conn())
-		.await
-		.unwrap();
+	soft_delete(&app, &reader).await;
 
 	catalog(&app, "reader", "secret")
 		.await

@@ -341,6 +341,11 @@ async fn callback(
 		(user, true)
 	};
 
+	if user_model.deleted_at.is_some() {
+		tracing::warn!(user_id = %user_model.id, "Deleted user attempted login via OIDC");
+		return Err(APIError::Unauthorized);
+	}
+
 	if user_model.is_locked {
 		tracing::warn!(user_id = %user_model.id, "Locked user attempted login via OIDC");
 		return Err(APIError::Forbidden("Account is locked".to_string()));

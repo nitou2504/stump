@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde_json::json;
 
 use super::{
-	insert_user, is_locked, one_password_check, tracked, FAILED_ATTEMPTS_TO_LOCK,
+	insert_user, is_locked, lock, one_password_check, tracked, FAILED_ATTEMPTS_TO_LOCK,
 };
 use crate::common::TestApp;
 
@@ -64,6 +64,25 @@ async fn failed_logins_lock_other_users() {
 
 	// the right password doesn't get in any more
 	assert_eq!(login(&app, "reader", "secret").await, StatusCode::FORBIDDEN);
+}
+
+/// a locked account must not tell a right password from a wrong one, or guesses could be checked
+/// against it; every attempt is on record, none as a success
+#[tokio::test]
+async fn a_locked_account_answers_the_same_to_every_password() {
+	let app = TestApp::new().await;
+	let reader = insert_user(&app, "reader", "secret", false).await;
+	lock(&app, &reader).await;
+
+	for password in ["secret", "wrong", "secret", "wrong"] {
+		assert_eq!(
+			login(&app, "reader", password).await,
+			StatusCode::FORBIDDEN,
+			"locked, tried {password:?}"
+		);
+	}
+	assert_eq!(tracked(&app, &reader, false).await, 4);
+	assert_eq!(tracked(&app, &reader, true).await, 0);
 }
 
 #[tokio::test]

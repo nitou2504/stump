@@ -1,9 +1,11 @@
 use sea_orm::{
-	ActiveModelTrait, ActiveValue::Set, DbErr, IntoActiveModel, TransactionSession,
-	TransactionTrait,
+	ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
+	IntoActiveModel, QueryFilter, TransactionSession, TransactionTrait,
 };
 
-use crate::entity::{age_restriction, user, user_preferences};
+use crate::entity::{
+	age_restriction, api_key, refresh_token, session, user, user_preferences,
+};
 
 /// Age restriction params for the to-be-created user
 pub struct NewAgeRestriction {
@@ -52,4 +54,48 @@ where
 	txn.commit().await?;
 
 	Ok(user_model)
+}
+
+/// Signs a user out everywhere: removes their sessions (the cookies stop working) and their
+/// refresh tokens (each one would mint new access tokens for as long as it lives). The session
+/// `keep_session_id` stays when given, for a user who changes their own password and should not
+/// be signed out of the place they changed it from. Returns the sessions removed.
+///
+/// An access token already handed out can't be recalled, but a deleted or locked user is refused
+/// with it on every request, and it runs out on its own.
+pub async fn revoke_user_sessions<C>(
+	conn: &C,
+	user_id: &str,
+	keep_session_id: Option<&str>,
+) -> Result<Vec<session::Model>, DbErr>
+where
+	C: ConnectionTrait,
+{
+	let mut delete_sessions =
+		session::Entity::delete_many().filter(session::Column::UserId.eq(user_id));
+	if let Some(keep_session_id) = keep_session_id {
+		delete_sessions =
+			delete_sessions.filter(session::Column::SessionId.ne(keep_session_id));
+	}
+	let removed_sessions = delete_sessions.exec_with_returning(conn).await?;
+
+	refresh_token::Entity::delete_many()
+		.filter(refresh_token::Column::UserId.eq(user_id))
+		.exec(conn)
+		.await?;
+
+	Ok(removed_sessions)
+}
+
+/// Removes the API keys of a user. A deleted user's keys are refused anyway; this makes sure
+/// nothing brings them back. Returns how many were removed.
+pub async fn revoke_user_api_keys<C>(conn: &C, user_id: &str) -> Result<u64, DbErr>
+where
+	C: ConnectionTrait,
+{
+	Ok(api_key::Entity::delete_many()
+		.filter(api_key::Column::UserId.eq(user_id))
+		.exec(conn)
+		.await?
+		.rows_affected)
 }

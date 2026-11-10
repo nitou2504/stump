@@ -272,6 +272,16 @@ pub async fn validate_api_key(
 		.await?
 		.ok_or(APIError::Unauthorized)?;
 
+	if user.is_locked {
+		tracing::error!(
+			username = &user.username,
+			"User is locked, denying API key authentication"
+		);
+		return Err(APIError::Forbidden(
+			api_error_message::LOCKED_ACCOUNT.to_string(),
+		));
+	}
+
 	let api_key_permissions = api_key.permissions.clone();
 
 	// Note: we check as a precaution. If a user had the permission revoked, that logic should also
@@ -333,7 +343,11 @@ async fn handle_bearer_auth(
 	let user_id = extract_user_from_jwt(&token, conn).await?;
 
 	let fetched_user = user::LoginUser::find()
-		.filter(user::Column::Id.eq(user_id.clone()))
+		.filter(
+			user::Column::Id
+				.eq(user_id.clone())
+				.and(user::Column::DeletedAt.is_null()),
+		)
 		.into_model::<user::LoginUser>()
 		.one(conn)
 		.await?;
@@ -398,31 +412,32 @@ async fn handle_basic_auth(
 			&decoded_credentials.username
 		);
 		// an unknown username must take as long to refuse as a wrong password
-		verify_dummy_password(&decoded_credentials.password, &ctx.config);
+		verify_dummy_password(decoded_credentials.password, &ctx.config).await;
 		return Err(APIError::Unauthorized);
 	};
 
 	if user.hashed_password.is_empty() {
 		// no password to check (an OIDC account): refuse like a wrong password, not with an error
-		verify_dummy_password(&decoded_credentials.password, &ctx.config);
+		verify_dummy_password(decoded_credentials.password, &ctx.config).await;
 		return Err(APIError::Unauthorized);
 	}
 
-	let is_match = verify_password(&user.hashed_password, &decoded_credentials.password)?;
-
 	if user.is_locked {
-		return if is_match {
-			tracing::error!(
-				username = &user.username,
-				"User is locked, denying authentication"
-			);
-			Err(APIError::Forbidden(
-				api_error_message::LOCKED_ACCOUNT.to_string(),
-			))
-		} else {
-			Err(APIError::Unauthorized)
-		};
+		// the same answer whatever the password is, so a locked account can't be used to check
+		// guesses; the attempt is recorded (once an hour for each client, since readers repeat it)
+		tracing::error!(
+			username = &user.username,
+			"User is locked, denying authentication"
+		);
+		track_basic_auth_attempt(conn, &user, user_agent, client_ip, false).await?;
+		return Err(APIError::Forbidden(
+			api_error_message::LOCKED_ACCOUNT.to_string(),
+		));
 	}
+
+	let is_match =
+		verify_password(user.hashed_password.clone(), decoded_credentials.password)
+			.await?;
 
 	track_basic_auth_attempt(conn, &user, user_agent, client_ip, is_match).await?;
 
@@ -435,10 +450,8 @@ async fn handle_basic_auth(
 	if save_session {
 		tracing::trace!("Saving session for user");
 		enforce_max_sessions(&user, conn).await?;
-		if let Err(error) = session
-			.insert(SESSION_USER_KEY, AuthUser::from(user.clone()))
-			.await
-		{
+		// the session store keeps the user's id: anything else makes it fail with a 500
+		if let Err(error) = session.insert(SESSION_USER_KEY, user.id.clone()).await {
 			tracing::error!(error = ?error, "Failed to save session");
 		}
 	}

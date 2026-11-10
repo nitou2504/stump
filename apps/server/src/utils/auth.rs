@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
-use models::entity::user::{AuthUser, LoginUser};
-use sea_orm::DatabaseConnection;
+use models::entity::user::{self, AuthUser, LoginUser};
+use sea_orm::{ColumnTrait, DatabaseConnection, QueryFilter};
 use stump_core::config::StumpConfig;
 use tower_sessions::Session;
 
@@ -22,26 +22,36 @@ pub fn hash_password(password: &str, config: &StumpConfig) -> Result<String, Aut
 	Ok(bcrypt::hash(password, config.password_hash_cost)?)
 }
 
-/// Verify a password against a hash using the bcrypt algorithm
-pub fn verify_password(hash: &str, password: &str) -> Result<bool, AuthError> {
-	Ok(bcrypt::verify(password, hash)?)
+/// Verify a password against a hash using the bcrypt algorithm. A check takes a quarter of a
+/// second of CPU at the default cost, so it runs on the blocking thread pool: a burst of sign-ins
+/// must not hold up the async workers that serve everybody else.
+pub async fn verify_password(hash: String, password: String) -> Result<bool, APIError> {
+	tokio::task::spawn_blocking(move || bcrypt::verify(password, &hash))
+		.await
+		.map_err(|error| {
+			tracing::error!(?error, "The password check did not finish");
+			APIError::InternalServerError("Failed to check the password".to_string())
+		})?
+		.map_err(APIError::from)
 }
 
 /// Checks a password against a throwaway hash and drops the result. It is for logins that have
 /// no real hash to check (an unknown username): refusing them then takes as long as refusing a
 /// wrong password for a real account, so the response time doesn't show which usernames exist.
-pub fn verify_dummy_password(password: &str, config: &StumpConfig) {
-	let _ = bcrypt::verify(password, dummy_hash(config));
+pub async fn verify_dummy_password(password: String, config: &StumpConfig) {
+	let cost = config.password_hash_cost;
+	let _ = tokio::task::spawn_blocking(move || {
+		let _ = bcrypt::verify(password, dummy_hash(cost));
+	})
+	.await;
 }
 
 /// A hash of a fixed password that nobody uses, made once with the configured cost so it is as
 /// slow to check as the real ones
-fn dummy_hash(config: &StumpConfig) -> &'static str {
+fn dummy_hash(cost: u32) -> &'static str {
 	static DUMMY_HASH: OnceLock<String> = OnceLock::new();
-	DUMMY_HASH.get_or_init(|| {
-		bcrypt::hash("stump-dummy-password", config.password_hash_cost)
-			.unwrap_or_default()
-	})
+	DUMMY_HASH
+		.get_or_init(|| bcrypt::hash("stump-dummy-password", cost).unwrap_or_default())
 }
 
 // TODO(axum-upgrade): rebase with develop to get relevant fixes for this
@@ -71,7 +81,9 @@ pub async fn fetch_session_user(
 	conn: &DatabaseConnection,
 ) -> Result<Option<AuthUser>, APIError> {
 	if let Some(user_id) = session.get::<String>(SESSION_USER_KEY).await? {
+		// a deleted user's cookie stops working even if its session was left behind
 		let user = LoginUser::find_by_id(user_id)
+			.filter(user::Column::DeletedAt.is_null())
 			.into_model::<LoginUser>()
 			.one(conn)
 			.await?
@@ -92,21 +104,26 @@ pub async fn fetch_session_user(
 mod tests {
 	use super::*;
 
-	#[test]
-	fn test_verify_password() {
+	#[tokio::test]
+	async fn test_verify_password() {
 		let hash = bcrypt::hash("password", bcrypt::DEFAULT_COST).unwrap();
-		assert!(verify_password(&hash, "password").unwrap());
+		assert!(verify_password(hash.clone(), "password".into())
+			.await
+			.unwrap());
+		assert!(!verify_password(hash, "passw0rd".into()).await.unwrap());
 	}
 
-	#[test]
-	fn test_dummy_hash_is_a_valid_hash_nobody_matches() {
+	#[tokio::test]
+	async fn test_dummy_hash_is_a_valid_hash_nobody_matches() {
 		let config = StumpConfig::debug();
-		let hash = dummy_hash(&config);
+		let hash = dummy_hash(config.password_hash_cost);
 		assert!(hash.starts_with("$2"), "not a bcrypt hash: {hash:?}");
-		assert!(!verify_password(hash, "password").unwrap());
+		assert!(!verify_password(hash.to_string(), "password".into())
+			.await
+			.unwrap());
 		// the same hash every time, and no panic when used
-		assert_eq!(hash, dummy_hash(&config));
-		verify_dummy_password("password", &config);
+		assert_eq!(hash, dummy_hash(config.password_hash_cost));
+		verify_dummy_password("password".into(), &config).await;
 	}
 
 	#[test]
