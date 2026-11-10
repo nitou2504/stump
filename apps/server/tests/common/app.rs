@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum_test::{TestResponse, TestServer};
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
-use stump_core::{Ctx, StumpCore};
+use stump_core::{config::StumpConfig, Ctx, StumpCore};
 use stump_server::config::session::get_session_layer;
 use stump_server::routers;
 use tests::db::test_database;
@@ -20,9 +20,14 @@ pub struct TestApp {
 
 impl TestApp {
 	pub async fn new() -> Self {
+		Self::with_config(StumpConfig::debug()).await
+	}
+
+	/// like [`TestApp::new`], with the given configuration
+	pub async fn with_config(config: StumpConfig) -> Self {
 		let db = test_database().await;
 
-		let ctx = Ctx::for_testing(db);
+		let ctx = Ctx::for_testing_with_config(db, config);
 		let core = StumpCore::from_ctx(ctx);
 
 		core.init_server_config()

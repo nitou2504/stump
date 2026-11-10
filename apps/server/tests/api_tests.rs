@@ -1,3 +1,4 @@
+mod access;
 mod auth;
 mod common;
 mod epub;
