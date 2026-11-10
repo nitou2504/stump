@@ -1653,6 +1653,10 @@ type Library {
 	"Get series in this library"
 	series(take: Int = null, skip: Int = null): [Series!]!
 	seriesAlphabet: JSONObject!
+	"""
+	The reading stats of the library's books the user can see: their own, or with `allUsers`
+	everyone's (for users who may read users)
+	"""
 	stats(allUsers: Boolean): LibraryStats!
 	genres(sort: OrderDirection = null): [String!]!
 	publishers(sort: OrderDirection = null): [String!]!
@@ -2892,7 +2896,10 @@ type Mutation {
 	This operation will also remove any associated thumbnails of the deleted media and series.
 	"""
 	cleanLibrary(id: ID!): CleanLibraryResponse!
-	"Clear the scan history for a specific library"
+	"""
+	Clear the scan history for a specific library. Wiping records is a library manager's job:
+	being able to read jobs isn't enough
+	"""
 	clearScanHistory(id: ID!): Int!
 	"""
 	Clear the stored directory mtimes for a library, forcing the next scan to do a
@@ -2927,6 +2934,9 @@ type Mutation {
 	
 	The server owner cannot be excluded from a library, nor can the user performing the action exclude
 	themselves.
+	
+	This decides who sees what, so it takes both permissions: managing the library and managing the
+	users (reading the users, or managing the library alone, is not enough)
 	"""
 	updateLibraryExcludedUsers(id: ID!, userIds: [String!]!): Library!
 	deleteLibraryScanHistory(id: ID!): Library!
@@ -3207,9 +3217,9 @@ type Mutation {
 	deleteReadingList(id: String!): ReadingList!
 	"Upload a new custom emoji"
 	uploadCustomEmoji(input: CreateCustomEmojiInput!, upload: Upload!): CustomEmoji!
-	"Delete a custom emoji"
+	"Delete a custom emoji. Only the person who uploaded it, or the server owner, can"
 	deleteCustomEmoji(id: ID!): Boolean!
-	"Rename a custom emoji"
+	"Rename a custom emoji. Only the person who uploaded it, or the server owner, can"
 	updateCustomEmoji(id: ID!, input: UpdateCustomEmojiInput!): CustomEmoji!
 	updateMediaProgress(id: ID!, input: MediaProgressInput!): ReadingSession!
 	"""
@@ -3838,6 +3848,7 @@ type Query {
 	mediaCount: Int!
 	finishedReadingSessionCount: Int!
 	activeReadingSessionCount: Int!
+	"The disk space of the books the user can see"
 	mediaDiskUsage: Int!
 	media(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, orderBy: [MediaOrderBy!]! = [{media: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	mediaById(id: ID!): Media
@@ -3853,7 +3864,7 @@ type Query {
 	e.g. before `editMediaMetadataBatch`. At most 500 paths per call
 	"""
 	mediaByPaths(paths: [String!]!): [MediaPathMatch!]!
-	"Returns the available alphabet for all media in the server"
+	"Returns the available alphabet for the media the user can see"
 	mediaAlphabet: JSONObject!
 	keepReading(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
 	onDeck(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
@@ -3876,11 +3887,12 @@ type Query {
 	"""
 	randomMedia(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, count: Int! = 12, seed: String): [Media!]!
 	recentlyAddedMedia(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
+	"The books that share their file with another book, at most 200 (the first by hash)"
 	duplicateMedia: [Media!]!
 	readingSessionConflictView(mediaId: ID!, branchedSessionId: Int): ReadingSessionConflictResolutionView!
 	libraries(orderBy: [LibraryModelOrderBy!]! = [{field: NAME, direction: ASC}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}, search: String): PaginatedLibraryResponse!
 	libraryById(id: ID!): Library
-	"Returns the available alphabet for all libraries in the server"
+	"Returns the available alphabet for the libraries the user can see"
 	librariesAlphabet: JSONObject!
 	librariesStats: LibraryStats!
 	numberOfLibraries: Int!
@@ -3888,7 +3900,7 @@ type Query {
 	libraryMissingEntities(libraryId: ID!, pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMissingEntityResponse!
 	series(filter: SeriesFilterInput! = {name: null, path: null, libraryId: null, readingStatus: null, libraryType: null, isOneshot: null, metadata: null, library: null, search: null, _and: null, _not: null, _or: null}, orderBy: [SeriesOrderBy!]! = [{series: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedSeriesResponse!
 	seriesById(id: ID!): Series
-	"Returns the available alphabet for all series in the server"
+	"Returns the available alphabet for the series the user can see"
 	seriesAlphabet: JSONObject!
 	numberOfSeries: Int!
 	recentlyAddedSeries(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedSeriesResponse!
@@ -3898,7 +3910,7 @@ type Query {
 	bookmarksByMediaId(id: ID!): [Bookmark!]!
 	"Get all annotations (highlights/notes) for a single book"
 	annotationsByMediaId(id: ID!): [MediaAnnotation!]!
-	"Returns a list of all tags."
+	"Returns the tags the user can see (see [`get_tags`])."
 	tags: [Tag!]!
 	"""
 	The distinct metadata values (genres, writers, ...) of the books visible to the
@@ -4035,7 +4047,11 @@ type Query {
 	smartLists(input: SmartListsInput! = {all: null, mine: true, search: null}): [SmartList!]!
 	smartListById(id: ID!): SmartList
 	smartListMeta(id: ID!): SmartListMeta
-	smartListItems(		id: ID!,		limit: Int = null,
+	smartListItems(		id: ID!,
+		"At most 200 books, also without a limit: page with `offset`"
+		limit: Int = null,
+		"The number of books to skip. The books come in a fixed order, so the pages of a long list follow each other without gaps or repeats"
+		offset: Int = null,
 		"An additional filter narrowing down the list's books, e.g. by genre"
 		filter: MediaFilterInput,
 		"Overrides the list's default grouping, e.g. to view a series-grouped list as plain books"
@@ -4540,6 +4556,7 @@ type Series {
 	was derived from
 	"""
 	stackedThumbnails(take: Int! = 3): [ImageRef!]!
+	"How many books of the series the user can see"
 	mediaCount: Int!
 	mediaAlphabet: JSONObject!
 	upNext(take: Int! = 1, cursor: String): [Media!]!
@@ -4553,6 +4570,10 @@ type Series {
 	qualified URL to the image.
 	"""
 	thumbnail: ImageRef!
+	"""
+	The reading stats of the series' books the user can see: their own, or with `allUsers`
+	everyone's (for users who may read users)
+	"""
 	stats(allUsers: Boolean): SeriesStats!
 }
 
@@ -4999,6 +5020,7 @@ type StumpConfig {
 
 type Subscription {
 	tailLogFile: String!
+	"The events of the server (scans, jobs, new books) the user may see, see [`may_receive`]"
 	readEvents: CoreEvent!
 }
 

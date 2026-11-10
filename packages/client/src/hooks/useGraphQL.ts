@@ -150,6 +150,38 @@ export function useDetachedGraphQL<TResult, TVariables>(
 	return { error, ...rest } as UseQueryResult<TResult>
 }
 
+/**
+ * Same as {@link useGraphQL}, for what takes more than one request, e.g. a list the server only
+ * hands out a page at a time: `fetcher` makes the requests with the sdk and returns what it put
+ * together
+ */
+export function useGraphQLFetcher<TResult>(
+	queryKey: QueryKey,
+	fetcher: (sdk: Api) => Promise<TResult>,
+	options?: Omit<UseQueryOptions<TResult, Error, TResult, QueryKey>, 'queryKey' | 'queryFn'>,
+): UseQueryResult<TResult> {
+	const { sdk } = useSDK()
+	const { onUnauthenticatedResponse, onConnectionWithServerChanged } = useClientContext()
+
+	const { error, ...rest } = useQuery({
+		queryKey,
+		queryFn: () => fetcher(sdk),
+		...options,
+	})
+
+	useEffect(() => {
+		if (!error) return
+		handleError({
+			sdk,
+			error,
+			onUnauthenticatedResponse,
+			onConnectionWithServerChanged,
+		})
+	}, [error, sdk, onUnauthenticatedResponse, onConnectionWithServerChanged])
+
+	return { error, ...rest } as UseQueryResult<TResult>
+}
+
 type UseGraphQLMutationOptions<TResult, TVariables, TContext = unknown> = Omit<
 	UseMutationOptions<
 		TResult,

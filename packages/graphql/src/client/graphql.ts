@@ -1754,6 +1754,10 @@ export type Library = {
   /** Get series in this library */
   series: Array<Series>;
   seriesAlphabet: Scalars['JSONObject']['output'];
+  /**
+   * The reading stats of the library's books the user can see: their own, or with `allUsers`
+   * everyone's (for users who may read users)
+   */
   stats: LibraryStats;
   status: FileStatus;
   tags: Array<Tag>;
@@ -2979,7 +2983,10 @@ export type Mutation = {
   clearLibraryScannedDirectories: Scalars['Int']['output'];
   /** trashes current readthrough, if there is one */
   clearMediaProgress: Scalars['Boolean']['output'];
-  /** Clear the scan history for a specific library */
+  /**
+   * Clear the scan history for a specific library. Wiping records is a library manager's job:
+   * being able to read jobs isn't enough
+   */
   clearScanHistory: Scalars['Int']['output'];
   /**
    * trashes all completed readthroughs for all books in this series, preserving any active
@@ -3039,7 +3046,7 @@ export type Mutation = {
   deleteBookClub: BookClub;
   /** Delete a bookmark by ID, only if the user created it */
   deleteBookmark: Bookmark;
-  /** Delete a custom emoji */
+  /** Delete a custom emoji. Only the person who uploaded it, or the server owner, can */
   deleteCustomEmoji: Scalars['Boolean']['output'];
   deleteEmailDevice: RegisteredEmailDevice;
   deleteEmailer: Emailer;
@@ -3287,7 +3294,7 @@ export type Mutation = {
   updateAnnotation: MediaAnnotation;
   updateApiKey: Apikey;
   updateBookClub: BookClub;
-  /** Rename a custom emoji */
+  /** Rename a custom emoji. Only the person who uploaded it, or the server owner, can */
   updateCustomEmoji: CustomEmoji;
   /**
    * How many days removed books stay in *Deleted books* before the daily purge deletes
@@ -3313,6 +3320,9 @@ export type Mutation = {
    *
    * The server owner cannot be excluded from a library, nor can the user performing the action exclude
    * themselves.
+   *
+   * This decides who sees what, so it takes both permissions: managing the library and managing the
+   * users (reading the users, or managing the library alone, is not enough)
    */
   updateLibraryExcludedUsers: Library;
   /** Changes how the intake files books into a library */
@@ -4988,6 +4998,7 @@ export type Query = {
    * e.g. to preview a change before saving it
    */
   discoverPoolSize: Scalars['Int']['output'];
+  /** The books that share their file with another book, at most 200 (the first by hash) */
   duplicateMedia: Array<Media>;
   emailDeviceById?: Maybe<RegisteredEmailDevice>;
   emailDevices: Array<RegisteredEmailDevice>;
@@ -5032,7 +5043,7 @@ export type Query = {
   keepReading: PaginatedMediaResponse;
   lastVisitedLibrary?: Maybe<Library>;
   libraries: PaginatedLibraryResponse;
-  /** Returns the available alphabet for all libraries in the server */
+  /** Returns the available alphabet for the libraries the user can see */
   librariesAlphabet: Scalars['JSONObject']['output'];
   librariesStats: LibraryStats;
   libraryById?: Maybe<Library>;
@@ -5052,7 +5063,7 @@ export type Query = {
   logs: PaginatedLogResponse;
   me: User;
   media: PaginatedMediaResponse;
-  /** Returns the available alphabet for all media in the server */
+  /** Returns the available alphabet for the media the user can see */
   mediaAlphabet: Scalars['JSONObject']['output'];
   mediaById?: Maybe<Media>;
   mediaByPath?: Maybe<Media>;
@@ -5068,6 +5079,7 @@ export type Query = {
    * and Google Books), for its summary in *Edit details*. Nothing is saved
    */
   mediaDescriptionSuggestions: MediaDescriptions;
+  /** The disk space of the books the user can see */
   mediaDiskUsage: Scalars['Int']['output'];
   /**
    * Tags for a book already in the library: from its author's and series' other books,
@@ -5168,7 +5180,7 @@ export type Query = {
   removedMedia: Array<Media>;
   scheduledJobs: Array<ScheduledJob>;
   series: PaginatedSeriesResponse;
-  /** Returns the available alphabet for all series in the server */
+  /** Returns the available alphabet for the series the user can see */
   seriesAlphabet: Scalars['JSONObject']['output'];
   seriesById?: Maybe<Series>;
   serverConfig: ServerConfigModel;
@@ -5178,7 +5190,7 @@ export type Query = {
   smartListViews: Array<SmartListView>;
   smartLists: Array<SmartList>;
   stumpConfig: StumpConfig;
-  /** Returns a list of all tags. */
+  /** Returns the tags the user can see (see [`get_tags`]). */
   tags: Array<Tag>;
   topReaders: Array<User>;
   uploadConfig: UploadConfig;
@@ -5576,6 +5588,7 @@ export type QuerySmartListItemsArgs = {
   grouping?: InputMaybe<SmartListGrouping>;
   id: Scalars['ID']['input'];
   limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -6099,6 +6112,7 @@ export type Series = {
   /** Get media in this series */
   media: Array<Media>;
   mediaAlphabet: Scalars['JSONObject']['output'];
+  /** How many books of the series the user can see */
   mediaCount: Scalars['Int']['output'];
   metadata?: Maybe<SeriesMetadata>;
   name: Scalars['String']['output'];
@@ -6116,6 +6130,10 @@ export type Series = {
    * was derived from
    */
   stackedThumbnails: Array<ImageRef>;
+  /**
+   * The reading stats of the series' books the user can see: their own, or with `allUsers`
+   * everyone's (for users who may read users)
+   */
   stats: SeriesStats;
   status: FileStatus;
   tags: Array<Tag>;
@@ -6620,6 +6638,7 @@ export type StumpConfig = {
 
 export type Subscription = {
   __typename?: 'Subscription';
+  /** The events of the server (scans, jobs, new books) the user may see, see [`may_receive`] */
   readEvents: CoreEvent;
   tailLogFile: Scalars['String']['output'];
 };
@@ -9539,6 +9558,8 @@ export type JobDataInspectorFragment = JobDataInspector_AnalyzeMediaOutput_Fragm
 
 export type JobDataInspectorLogsQueryVariables = Exact<{
   id: Scalars['String']['input'];
+  page: Scalars['Int']['input'];
+  pageSize: Scalars['Int']['input'];
 }>;
 
 
@@ -9831,6 +9852,8 @@ export type SmartListItemsQueryVariables = Exact<{
   id: Scalars['ID']['input'];
   filter?: InputMaybe<MediaFilterInput>;
   grouping?: InputMaybe<SmartListGrouping>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
 }>;
 
 
@@ -18454,8 +18477,11 @@ export const JobActionMenuDeleteLogsDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<JobActionMenuDeleteLogsMutation, JobActionMenuDeleteLogsMutationVariables>;
 export const JobDataInspectorLogsDocument = new TypedDocumentString(`
-    query JobDataInspectorLogs($id: String!) {
-  logs(filter: {jobId: {eq: $id}}, pagination: {none: {unpaginated: true}}) {
+    query JobDataInspectorLogs($id: String!, $page: Int!, $pageSize: Int!) {
+  logs(
+    filter: {jobId: {eq: $id}}
+    pagination: {offset: {page: $page, pageSize: $pageSize}}
+  ) {
     nodes {
       id
       level
@@ -18964,8 +18990,14 @@ export const UpdateSmartListDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<UpdateSmartListMutation, UpdateSmartListMutationVariables>;
 export const SmartListItemsDocument = new TypedDocumentString(`
-    query SmartListItems($id: ID!, $filter: MediaFilterInput, $grouping: SmartListGrouping) {
-  smartListItems(id: $id, filter: $filter, grouping: $grouping) {
+    query SmartListItems($id: ID!, $filter: MediaFilterInput, $grouping: SmartListGrouping, $limit: Int, $offset: Int) {
+  smartListItems(
+    id: $id
+    filter: $filter
+    grouping: $grouping
+    limit: $limit
+    offset: $offset
+  ) {
     __typename
     ... on SmartListGrouped {
       items {

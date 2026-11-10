@@ -24,6 +24,13 @@ pub fn list_limit(take: Option<u64>) -> u64 {
 	take.unwrap_or(MAX_LIST_SIZE).min(MAX_LIST_SIZE)
 }
 
+/// The number of items a list field skips: the `offset` argument, or none. Never more than an SQL
+/// integer holds: anything larger panics in the sqlx binder, which (with `panic = "abort"`) takes
+/// the whole server down
+pub fn list_offset(offset: Option<u64>) -> u64 {
+	offset.unwrap_or(0).min(i64::MAX as u64)
+}
+
 /// A simple cursor-based pagination input object
 #[derive(Debug, Clone, InputObject)]
 pub struct CursorPagination {
@@ -658,6 +665,13 @@ mod tests {
 			assert_eq!(list_limit(None), MAX_LIST_SIZE);
 			assert_eq!(list_limit(Some(5)), 5);
 			assert_eq!(list_limit(Some(u64::MAX)), MAX_LIST_SIZE);
+		}
+
+		#[test]
+		fn list_offset_starts_at_zero_and_stays_a_sql_integer() {
+			assert_eq!(list_offset(None), 0);
+			assert_eq!(list_offset(Some(300)), 300);
+			assert_eq!(list_offset(Some(u64::MAX)), i64::MAX as u64);
 		}
 	}
 }

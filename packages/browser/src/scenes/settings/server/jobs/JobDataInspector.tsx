@@ -1,6 +1,12 @@
-import { useGraphQL } from '@stump/client'
+import { useGraphQLFetcher } from '@stump/client'
 import { Card, Preformatted, Sheet, Text, usePrevious } from '@stump/components'
-import { FragmentType, graphql, JobTableQuery, useFragment } from '@stump/graphql'
+import {
+	FragmentType,
+	graphql,
+	JobDataInspectorLogsQuery,
+	JobTableQuery,
+	useFragment,
+} from '@stump/graphql'
 import { Api } from '@stump/sdk'
 import { QueryClient } from '@tanstack/react-query'
 
@@ -56,8 +62,11 @@ export type JobDataInspectorFragment = FragmentType<typeof fragment>
 type Job = JobTableQuery['jobs']['nodes'][number]
 
 const logsQuery = graphql(`
-	query JobDataInspectorLogs($id: String!) {
-		logs(filter: { jobId: { eq: $id } }, pagination: { none: { unpaginated: true } }) {
+	query JobDataInspectorLogs($id: String!, $page: Int!, $pageSize: Int!) {
+		logs(
+			filter: { jobId: { eq: $id } }
+			pagination: { offset: { page: $page, pageSize: $pageSize } }
+		) {
 			nodes {
 				id
 				level
@@ -68,10 +77,28 @@ const logsQuery = graphql(`
 	}
 `)
 
+// The server hands out at most 200 log entries at a time (and refuses to give them all at once)
+const JOB_LOGS_PAGE_SIZE = 200
+// A job with more than this many entries (10,000) is cut, rather than read for ever
+const JOB_LOGS_MAX_PAGES = 50
+
+type JobLog = JobDataInspectorLogsQuery['logs']['nodes'][number]
+
+/** All the log entries of a job: page after page, until one comes back that isn't full */
+async function fetchJobLogs(sdk: Api, id: string): Promise<JobLog[]> {
+	const logs: JobLog[] = []
+	for (let page = 1; page <= JOB_LOGS_MAX_PAGES; page++) {
+		const response = await sdk.execute(logsQuery, { id, page, pageSize: JOB_LOGS_PAGE_SIZE })
+		logs.push(...response.logs.nodes)
+		if (response.logs.nodes.length < JOB_LOGS_PAGE_SIZE) break
+	}
+	return logs
+}
+
 export function prefetchJobLogs(sdk: Api, client: QueryClient, jobId: string) {
 	return client.prefetchQuery({
 		queryKey: ['logsForJob', jobId],
-		queryFn: async () => sdk.execute(logsQuery, { id: jobId }),
+		queryFn: () => fetchJobLogs(sdk, jobId),
 	})
 }
 
@@ -89,17 +116,14 @@ export default function JobDataInspector({ job, onClose }: Props) {
 	const fallback = usePrevious(inlineData)
 	const displayedData = inlineData || fallback
 
-	const { data } = useGraphQL(
-		logsQuery,
+	const { data } = useGraphQLFetcher(
 		['logsForJob', job?.id],
-		{
-			id: job?.id ?? '',
-		},
+		(sdk) => fetchJobLogs(sdk, job?.id ?? ''),
 		{
 			enabled: !!job?.id && job.logCount > 0,
 		},
 	)
-	const jobLogs = data?.logs.nodes ?? []
+	const jobLogs = data ?? []
 
 	return (
 		<Sheet

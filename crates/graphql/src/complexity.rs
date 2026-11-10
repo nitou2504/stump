@@ -131,6 +131,49 @@ mod tests {
 		rejected_as_too_complex_with(query, Value::Null).await
 	}
 
+	/// The text of the GraphQL documents, the `graphql(` + backtick + `...` calls, in a source
+	/// file of the web app (`packages/browser/src`): what the web app really sends
+	fn web_documents(file: &str) -> Vec<String> {
+		let path = format!(
+			"{}/../../packages/browser/src/{file}",
+			env!("CARGO_MANIFEST_DIR")
+		);
+		let source = std::fs::read_to_string(&path)
+			.unwrap_or_else(|error| panic!("can't read {path}: {error}"));
+		source
+			.split("graphql(`")
+			.skip(1)
+			.filter_map(|rest| rest.split_once("`)"))
+			.map(|(document, _)| document.to_string())
+			.collect()
+	}
+
+	/// The document of a web source file that starts with `start` (`query Name`, `fragment Name`)
+	fn web_document(file: &str, start: &str) -> String {
+		web_documents(file)
+			.into_iter()
+			.find(|document| document.trim_start().starts_with(start))
+			.unwrap_or_else(|| panic!("{file} has no document starting with {start:?}"))
+	}
+
+	/// A number constant of a web source file: `NAME = 100`
+	fn web_constant(file: &str, name: &str) -> u64 {
+		let path = format!(
+			"{}/../../packages/browser/src/{file}",
+			env!("CARGO_MANIFEST_DIR")
+		);
+		let source = std::fs::read_to_string(&path)
+			.unwrap_or_else(|error| panic!("can't read {path}: {error}"));
+		let (_, rest) = source
+			.split_once(&format!("{name} = "))
+			.unwrap_or_else(|| panic!("{file} has no constant {name}"));
+		rest.chars()
+			.take_while(char::is_ascii_digit)
+			.collect::<String>()
+			.parse()
+			.unwrap_or_else(|_| panic!("{file}: {name} is not a number"))
+	}
+
 	#[tokio::test]
 	async fn refuses_nested_lists_that_blew_up_the_server() {
 		// the one that killed the server: the books of a series, their series, its books
@@ -251,6 +294,36 @@ mod tests {
 		assert_eq!(
 			validation_errors(q_paths, json!({ "p": vec!["/a.epub"; 500] })).await,
 			Vec::<String>::new()
+		);
+	}
+
+	/// The smart list page the web app asks for, as the web app sends it: its document (read from
+	/// the web sources, so that it can't drift from this test) with the page size it uses. A
+	/// smart list is read page by page, because a list holds at most 200 books at a time.
+	#[tokio::test]
+	async fn allows_a_page_of_a_smart_list_as_the_web_app_asks_for_it() {
+		const LIST: &str = "scenes/smartList/graphql.ts";
+		let page_size = web_constant(LIST, "SMART_LIST_PAGE_SIZE");
+		assert!(
+			(1..=MAX_LIST_SIZE).contains(&page_size),
+			"a page of a smart list holds at most {MAX_LIST_SIZE} books: {page_size}"
+		);
+
+		// both groupings are in the one document, and each book costs what BookCard and the
+		// metadata fragments of both of them select
+		let document = [
+			web_document(LIST, "query SmartListItems"),
+			web_document(LIST, "fragment SmartListItemBookMetadata"),
+			web_document("components/book/BookCard.tsx", "fragment BookCard"),
+			web_document("scenes/book/BookMetadata.tsx", "fragment BookMetadata"),
+		]
+		.join("\n");
+		let variables = json!({ "id": "x", "limit": page_size, "offset": 0 });
+		assert_eq!(
+			validation_errors(&document, variables).await,
+			Vec::<String>::new(),
+			"the web app's SmartListItems page is refused: make the page smaller or the \
+			 fragments lighter"
 		);
 	}
 }

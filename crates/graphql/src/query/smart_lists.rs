@@ -11,7 +11,7 @@ use crate::{
 		smart_list_item::SmartListItems,
 		smart_lists::{SmartList, SmartListMeta},
 	},
-	pagination::list_limit,
+	pagination::{list_limit, list_offset},
 };
 use async_graphql::{Context, Object, Result, ID};
 use models::{
@@ -21,7 +21,7 @@ use models::{
 	},
 	shared::enums::UserPermission,
 };
-use sea_orm::{prelude::*, QuerySelect, TransactionTrait};
+use sea_orm::{prelude::*, QueryOrder, QuerySelect, TransactionTrait};
 use std::collections::HashSet;
 
 #[derive(Default, Clone, Copy)]
@@ -133,7 +133,16 @@ impl SmartListsQuery {
 		self,
 		ctx: &Context<'_>,
 		id: ID,
-		#[graphql(default)] limit: Option<u64>,
+		#[graphql(
+			default,
+			desc = "At most 200 books, also without a limit: page with `offset`"
+		)]
+		limit: Option<u64>,
+		#[graphql(
+			default,
+			desc = "The number of books to skip. The books come in a fixed order, so the pages of a long list follow each other without gaps or repeats"
+		)]
+		offset: Option<u64>,
 		#[graphql(
 			desc = "An additional filter narrowing down the list's books, e.g. by genre"
 		)]
@@ -155,18 +164,19 @@ impl SmartListsQuery {
 		let deserialized_filters: Vec<SmartListFilterGroupInput> =
 			serde_json::from_slice(&smart_list.filters)?;
 
-		// at most MAX_LIST_SIZE books, also without a `limit`
-		let books_query = build_books_query(
-			user,
-			smart_list.joiner,
-			&deserialized_filters,
-			Some(list_limit(limit)),
-		);
+		let books_query =
+			build_books_query(user, smart_list.joiner, &deserialized_filters, None);
 		let books_query = match filter {
 			Some(filter) => books_query
 				.filter(media::Column::Id.in_subquery(filtered_media_ids(user, filter))),
 			None => books_query,
 		};
+		// At most MAX_LIST_SIZE books, also without a `limit`. A list longer than that is read
+		// page by page (the web app does), so the order must be the same for every page
+		let books_query = books_query
+			.order_by_asc(media::Column::Id)
+			.offset(list_offset(offset))
+			.limit(list_limit(limit));
 
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()
