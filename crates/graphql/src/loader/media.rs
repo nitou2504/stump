@@ -21,43 +21,6 @@ impl MediaLoader {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct MediaByPathLoaderKey {
-	pub path: String,
-}
-
-impl Loader<MediaByPathLoaderKey> for MediaLoader {
-	type Value = Media;
-	type Error = Arc<sea_orm::error::DbErr>;
-
-	async fn load(
-		&self,
-		keys: &[MediaByPathLoaderKey],
-	) -> Result<HashMap<MediaByPathLoaderKey, Self::Value>, Self::Error> {
-		let paths = keys.iter().map(|k| k.path.clone()).collect::<Vec<_>>();
-
-		let media_list = media::ModelWithMetadata::find()
-			.filter(media::Column::Path.is_in(paths.clone()))
-			.into_model::<media::ModelWithMetadata>()
-			.all(self.conn.as_ref())
-			.await?;
-
-		let paths: HashSet<_> = HashSet::from_iter(paths);
-		let mut result = HashMap::new();
-
-		for media in media_list {
-			if let Some(key) = paths.get(&media.media.path) {
-				result.insert(
-					MediaByPathLoaderKey { path: key.clone() },
-					Media::from(media),
-				);
-			}
-		}
-
-		Ok(result)
-	}
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct MediaByIdLoaderKey {
 	pub id: String,
 }

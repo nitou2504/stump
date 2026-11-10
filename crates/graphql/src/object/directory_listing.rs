@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
-use async_graphql::{
-	dataloader::DataLoader, ComplexObject, Context, Result, SimpleObject,
-};
+use async_graphql::{ComplexObject, Context, Result, SimpleObject};
+use models::entity::media;
+use sea_orm::prelude::*;
 use stump_core::fs_utils::PathUtils;
 
 use crate::{
-	loader::media::{MediaByPathLoaderKey, MediaLoader},
+	data::{AuthContext, CoreContext},
 	object::media::Media,
 };
 
@@ -59,13 +59,17 @@ impl DirectoryListingFile {
 			return Ok(None);
 		}
 
-		let loader = ctx.data::<DataLoader<MediaLoader>>()?;
-		let media = loader
-			.load_one(MediaByPathLoaderKey {
-				path: self.path.clone(),
-			})
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		// Only a book the viewer may see: one in a library hidden from them, above their age
+		// restriction or removed from the library isn't shown, however the file got listed
+		let book = media::ModelWithMetadata::find_for_user(user)
+			.filter(media::Column::Path.eq(self.path.clone()))
+			.into_model::<media::ModelWithMetadata>()
+			.one(conn)
 			.await?;
 
-		Ok(media)
+		Ok(book.map(Media::from))
 	}
 }

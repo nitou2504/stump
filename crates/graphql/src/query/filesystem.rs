@@ -1,29 +1,91 @@
 use std::path::{Path, PathBuf};
 
+use crate::data::{AuthContext, CoreContext};
 use crate::guard::PermissionGuard;
 use crate::input::filesystem::{DirectoryListingIgnoreParams, DirectoryListingInput};
 use crate::object::directory_listing::{DirectoryListing, DirectoryListingFile};
 use crate::pagination::{
-	OffsetPagination, OffsetPaginationInfo, PaginatedResponse, Pagination, PaginationInfo,
-	PaginationValidator,
+	OffsetPagination, OffsetPaginationInfo, PaginatedResponse, Pagination,
+	PaginationInfo, PaginationValidator,
 };
-use async_graphql::{Object, Result};
+use async_graphql::{Context, Object, Result};
 use itertools::Itertools;
-use models::shared::enums::UserPermission;
+use models::{
+	entity::{library, user::AuthUser},
+	shared::enums::UserPermission,
+};
+use sea_orm::{prelude::*, QuerySelect};
 use std::fs::DirEntry;
 use stump_core::fs_utils::PathUtils;
+
+/// Where a user may look on the server's file system
+enum BrowseScope {
+	/// Anywhere: the server owner, and whoever may point a library at any folder (that
+	/// folder is picked with this same explorer)
+	Anywhere,
+	/// Only inside the folders of the libraries the user can see (the file explorer
+	/// permission alone isn't a reason to list `/`, the config folder or `/etc`)
+	Libraries(Vec<PathBuf>),
+}
+
+impl BrowseScope {
+	async fn for_user(user: &AuthUser, conn: &DatabaseConnection) -> Result<Self> {
+		if user.is_server_owner || user.has_permission(UserPermission::EditLibrary) {
+			return Ok(Self::Anywhere);
+		}
+
+		let roots = library::Entity::find_for_user(user)
+			.select_only()
+			.column(library::Column::Path)
+			.into_tuple::<String>()
+			.all(conn)
+			.await?
+			.into_iter()
+			// a library whose folder isn't there has nothing to browse
+			.filter_map(|path| std::fs::canonicalize(path).ok())
+			.collect();
+
+		Ok(Self::Libraries(roots))
+	}
+
+	/// Whether the folder is a library's folder or inside one. It is compared after
+	/// resolving `..` and symbolic links, so a path can't climb out of a library
+	fn allows(&self, path: &Path) -> bool {
+		match self {
+			Self::Anywhere => true,
+			Self::Libraries(roots) => {
+				path.is_absolute()
+					&& std::fs::canonicalize(path).is_ok_and(|resolved| {
+						roots.iter().any(|root| resolved.starts_with(root))
+					})
+			},
+		}
+	}
+
+	fn is_restricted(&self) -> bool {
+		matches!(self, Self::Libraries(_))
+	}
+}
 
 #[derive(Default)]
 pub struct FilesystemQuery;
 
 #[Object]
 impl FilesystemQuery {
-	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)", guard = "PermissionGuard::one(UserPermission::FileExplorer)")]
+	#[graphql(
+		complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)",
+		guard = "PermissionGuard::one(UserPermission::FileExplorer)"
+	)]
 	async fn list_directory(
 		&self,
+		ctx: &Context<'_>,
 		#[graphql(validator(custom = "PaginationValidator"))] pagination: Pagination,
 		input: Option<DirectoryListingInput>,
 	) -> Result<PaginatedResponse<DirectoryListing>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let scope = BrowseScope::for_user(user, conn).await?;
+
 		let params = input.unwrap_or_default();
 		let list_root = params.path.clone().map(PathBuf::from);
 
@@ -34,11 +96,24 @@ impl FilesystemQuery {
 
 		let start_path = match list_root {
 			Some(path) => path,
+			// there is no "everything" to start from for someone who can only look inside
+			// libraries: they say which folder
+			None if scope.is_restricted() => {
+				return Err("Directory does not exist: /".into());
+			},
 			#[cfg(unix)]
 			None => Path::new("/").into(),
 			#[cfg(windows)]
 			None => return windows_fs::get_drive_listing(pagination),
 		};
+
+		// For someone who can only look inside libraries, a folder that isn't there and one
+		// out of their reach get the same answer, so this isn't a way to find what exists
+		if !scope.allows(&start_path) {
+			return Err(
+				format!("Directory does not exist: {}", start_path.display()).into(),
+			);
+		}
 
 		if !start_path.exists() {
 			tracing::error!(?start_path, "Directory does not exist");
@@ -65,11 +140,10 @@ impl FilesystemQuery {
 			start_path.display()
 		);
 
-		Ok(into_paginated_response(
-			start_path.parent(),
-			files,
-			pagination,
-		))
+		// no way up out of a library either
+		let parent = start_path.parent().filter(|parent| scope.allows(parent));
+
+		Ok(into_paginated_response(parent, files, pagination))
 	}
 }
 
