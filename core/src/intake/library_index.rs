@@ -546,6 +546,43 @@ pub struct FolderMatch {
 }
 
 impl LibraryIndex {
+	/// An index that knows these tags and nothing else, for tests
+	#[cfg(test)]
+	pub(crate) fn with_vocabulary(values: &[&str]) -> Self {
+		let vocabulary: Vec<VocabEntry> = values
+			.iter()
+			.map(|value| VocabEntry {
+				value: value.to_string(),
+				norm: norm(value),
+				count: 1,
+				facet: false,
+			})
+			.collect();
+		let vocab_by_norm = vocabulary
+			.iter()
+			.enumerate()
+			.map(|(i, entry)| (entry.norm.clone(), i as u32))
+			.collect();
+		Self {
+			library_id: String::new(),
+			root: PathBuf::new(),
+			built_at: Instant::now(),
+			author_folders: vec![],
+			folder_by_key: HashMap::new(),
+			alias_by_key: HashMap::new(),
+			manga_folders: vec![],
+			light_novel_folders: vec![],
+			vocabulary,
+			vocab_by_norm,
+			small_by_norm: HashMap::new(),
+			books: vec![],
+			books_by_writer: HashMap::new(),
+			books_by_folder: HashMap::new(),
+			books_by_series: HashMap::new(),
+			descriptions: OnceLock::new(),
+		}
+	}
+
 	/// Existing author folders for an author name, best first
 	pub fn match_author_folder(&self, author: &str) -> Vec<FolderMatch> {
 		let keys = name_keys(author);

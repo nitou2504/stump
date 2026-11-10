@@ -160,6 +160,35 @@ pub async fn analyse(ctx: &Ctx, item_id: &str, online: Option<bool>) -> CoreResu
 	}
 }
 
+/// Whether a book is looked up online: it was asked for, the item is a book (not a series of
+/// volumes) and not a comic, and the file isn't tagged well enough already (an author, and two
+/// subjects that the library knows).
+///
+/// That a lookup was made, and what it found, is part of what whoever reads the outcome is shown
+/// (`lookedUpOnline`, its sources), so what the library "knows" is what THEY may see of it:
+/// `viewer_index` is the library as an uploader who may not file books themselves can read it.
+/// Decided on the whole library, it would tell them whether any book holds a subject they guess,
+/// those they can't read included.
+pub(crate) fn lookup_wanted(
+	wants_online: bool,
+	kind: IntakeKind,
+	is_comic: bool,
+	meta: &IntakeMetadata,
+	index: &library_index::LibraryIndex,
+	viewer_index: Option<&library_index::LibraryIndex>,
+) -> bool {
+	let known = viewer_index.unwrap_or(index);
+	let has_good_tags =
+		meta.subjects
+			.iter()
+			.filter(|s| known.vocab_index(&library_index::norm(s)).is_some())
+			.count() >= 2;
+	wants_online
+		&& kind == IntakeKind::Book
+		&& !is_comic
+		&& !(has_good_tags && !meta.authors.is_empty())
+}
+
 async fn analyse_item(
 	ctx: &Ctx,
 	item: &intake_item::Model,
@@ -178,6 +207,30 @@ async fn analyse_item(
 		&settings.light_novel_dir,
 	)
 	.await?;
+
+	// What somebody who may not file books themselves is shown is made from the books they can
+	// read alone: the same analysis over a narrower library (see `scope`). That goes for what
+	// is decided here too, if what is decided shows (that a book was looked up online does): so
+	// their index is made first. The proposal for whoever approves is made from the whole of it.
+	let uploader_can_file =
+		approval::uploader_can_file_directly(conn, &item.user_id).await?;
+	let viewer_index = if uploader_can_file {
+		None
+	} else {
+		let viewer = approval::load_auth_user(conn, &item.user_id).await?;
+		Some(
+			library_index::viewer_index(
+				conn,
+				viewer.as_ref(),
+				&item.user_id,
+				&library.id,
+				&root,
+				&settings.manga_dir,
+				&settings.light_novel_dir,
+			)
+			.await?,
+		)
+	};
 
 	let staging = PathBuf::from(&item.staging_dir);
 	let mut files = item.files.0.clone();
@@ -219,18 +272,15 @@ async fn analyse_item(
 
 	let formats: Vec<String> = files.iter().map(|f| f.format.clone()).collect();
 	let wants_online = online.unwrap_or(settings.online_lookup);
-	let has_good_tags = file_meta
-		.subjects
-		.iter()
-		.filter(|s| index.vocab_index(&library_index::norm(s)).is_some())
-		.count()
-		>= 2;
 	let is_comic = formats.iter().all(|f| f == "cbz" || f == "cbr");
-	let lookup = if wants_online
-		&& item.kind == IntakeKind::Book
-		&& !is_comic
-		&& !(has_good_tags && !file_meta.authors.is_empty())
-	{
+	let lookup = if lookup_wanted(
+		wants_online,
+		item.kind,
+		is_comic,
+		&file_meta,
+		&index,
+		viewer_index.as_deref(),
+	) {
 		let epub = files
 			.iter()
 			.find(|f| f.format == "epub")
@@ -264,30 +314,15 @@ async fn analyse_item(
 	let similar = index.similar_by_description(conn, &description, 10).await;
 	let group_name = (item.kind == IntakeKind::Series).then(|| item.name.clone());
 
-	// What somebody who may not file books themselves is shown is made from the books they can
-	// read alone: the same analysis over a narrower library (see `scope`). The proposal below
-	// is the approver's, made from the whole of it.
-	let uploader_can_file = approval::uploader_can_file_directly(conn, &item.user_id).await?;
-	let uploader_view = if uploader_can_file {
-		None
-	} else {
-		let viewer = approval::load_auth_user(conn, &item.user_id).await?;
-		let viewer_index = library_index::viewer_index(
-			conn,
-			viewer.as_ref(),
-			&item.user_id,
-			&library.id,
-			&root,
-			&settings.manga_dir,
-			&settings.light_novel_dir,
-		)
-		.await?;
+	// The proposal below is the approver's, made from the whole library; the uploader's view is
+	// made over their own index.
+	let uploader_view = if let Some(viewer_index) = &viewer_index {
 		let viewer_similar = viewer_index
 			.similar_by_description(conn, &description, 10)
 			.await;
 		let restricted = build_proposal(Inputs {
 			kind: item.kind,
-			index: &viewer_index,
+			index: viewer_index,
 			file_meta: file_meta.clone(),
 			online: online_records.clone(),
 			formats: formats.clone(),
@@ -305,6 +340,8 @@ async fn analyse_item(
 			warnings,
 			confidence: restricted.confidence,
 		})
+	} else {
+		None
 	};
 
 	let mut proposal = build_proposal(Inputs {
@@ -1611,6 +1648,74 @@ pub async fn recently_filed(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// Whether a book is looked up is decided on the library its reader can read: subjects that
+	/// only books they can't read carry don't make a lookup unnecessary for them, so they can't
+	/// tell from the lookup (shown to them as `lookedUpOnline` and its sources) whether any book
+	/// holds a subject they guess
+	#[test]
+	fn a_lookup_is_decided_on_the_books_its_reader_can_read() {
+		use library_index::LibraryIndex;
+
+		let meta = IntakeMetadata {
+			authors: vec!["Somebody".into()],
+			subjects: vec!["Dark".into(), "Mystery".into(), "Not in any library".into()],
+			..Default::default()
+		};
+		// the whole library knows two of the file's subjects; the uploader can read the books
+		// of only one of them
+		let whole = LibraryIndex::with_vocabulary(&["Dark", "Mystery"]);
+		let readable = LibraryIndex::with_vocabulary(&["Mystery"]);
+		let wanted = |index, viewer| {
+			lookup_wanted(true, IntakeKind::Book, false, &meta, index, viewer)
+		};
+		// whoever approves reads the whole library: two subjects known, nothing to look up
+		assert!(!wanted(&whole, None));
+		// the uploader's outcome is as if the books they can't read weren't there
+		assert!(wanted(&whole, Some(&readable)));
+		assert_eq!(wanted(&whole, Some(&readable)), wanted(&readable, None));
+		// whatever the whole library holds, two subjects they can read skip the lookup
+		let both = LibraryIndex::with_vocabulary(&["Dark", "Mystery"]);
+		assert!(!wanted(&LibraryIndex::with_vocabulary(&[]), Some(&both)));
+		// without an author the lookup is made all the same
+		let anonymous = IntakeMetadata {
+			authors: vec![],
+			..meta.clone()
+		};
+		assert!(lookup_wanted(
+			true,
+			IntakeKind::Book,
+			false,
+			&anonymous,
+			&whole,
+			None
+		));
+		// not asked for, not a book, a comic: never
+		assert!(!lookup_wanted(
+			false,
+			IntakeKind::Book,
+			false,
+			&anonymous,
+			&whole,
+			None
+		));
+		assert!(!lookup_wanted(
+			true,
+			IntakeKind::Series,
+			false,
+			&anonymous,
+			&whole,
+			None
+		));
+		assert!(!lookup_wanted(
+			true,
+			IntakeKind::Book,
+			true,
+			&anonymous,
+			&whole,
+			None
+		));
+	}
 
 	/// Two filings of one name each copy into a temporary file of their own: a copy that is half
 	/// made isn't written into by the other, the linked book is whole, and the one that finds the
