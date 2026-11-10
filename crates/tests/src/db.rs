@@ -1,12 +1,14 @@
 use models::entity::{
 	age_restriction, api_key, book_club, book_club_book, book_club_member, bookmark,
-	held_file, intake_item, kobo_sync_session, last_library_visit, library,
-	library_config, library_exclusion, library_intake_settings, library_tag, media,
-	media_analysis, media_annotation, media_metadata, media_metadata_edit, media_purge,
-	media_tag, post_processing_task, reading_device, reading_list, reading_list_item,
+	custom_emoji, held_file, intake_item, job, kobo_sync_session, last_library_visit,
+	library, library_config, library_exclusion, library_intake_settings,
+	library_scan_record, library_tag, media, media_analysis, media_annotation,
+	media_metadata, media_metadata_edit, media_purge, media_tag, metadata_fetch_record,
+	post_processing_task, reading_device, reading_list, reading_list_item,
 	reading_list_rule, reading_session, refresh_token, series, series_metadata,
-	series_tag, server_config, session, tag, user, user_discover_rules,
-	user_login_activity, user_preferences,
+	series_tag, server_config, session, smart_list, smart_list_access_rule,
+	smart_list_view, tag, user, user_discover_rules, user_login_activity,
+	user_preferences,
 };
 use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, DbErr, Schema};
 pub async fn test_database() -> DbConn {
@@ -64,6 +66,13 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(reading_list::Entity),
 		schema.create_table_from_entity(reading_list_item::Entity),
 		schema.create_table_from_entity(reading_list_rule::Entity),
+		schema.create_table_from_entity(smart_list::Entity),
+		schema.create_table_from_entity(smart_list_access_rule::Entity),
+		schema.create_table_from_entity(smart_list_view::Entity),
+		schema.create_table_from_entity(custom_emoji::Entity),
+		schema.create_table_from_entity(metadata_fetch_record::Entity),
+		schema.create_table_from_entity(job::Entity),
+		schema.create_table_from_entity(library_scan_record::Entity),
 	];
 
 	for stmt in tables {

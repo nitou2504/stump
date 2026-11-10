@@ -292,14 +292,15 @@ async fn test_server_owner_can_set_max_sessions_allowed_on_another_user() {
 	);
 }
 
-/// a user with ManageUsers can set another user's permissions
+/// a user with ManageUsers can set another user's permissions, the ones they hold themselves
+/// (see `permission_guards` for the ones they don't)
 #[tokio::test]
 async fn test_manage_users_can_set_permissions_on_another_user() {
 	let app = TestApp::new_with_default_user().await;
 
 	let manager = CreateTestUser {
 		username: "manager-sets-perms".to_string(),
-		permissions: vec![UserPermission::ManageUsers],
+		permissions: vec![UserPermission::ManageUsers, UserPermission::DownloadFile],
 		..Default::default()
 	}
 	.insert(&app)
