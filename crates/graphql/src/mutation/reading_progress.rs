@@ -6,7 +6,11 @@ use models::{
 	domain::reading_progress::{
 		calculate_logical_date, compute_page_based_percentage, should_extend_session,
 	},
-	entity::{media, reading_session},
+	entity::{
+		media::{self, MediaIdentSelect},
+		reading_session,
+		user::AuthUser,
+	},
 	services::reading_progress::{
 		derive_readthrough_number, get_book_pages, reset_cumulative_elapsed_seconds,
 		upsert_reading_session, NormalizedProgression,
@@ -14,9 +18,9 @@ use models::{
 	shared::enums::ReadingStatus,
 };
 use sea_orm::{
-	prelude::Decimal, ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait,
-	ExprTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
-	TransactionTrait,
+	prelude::Decimal, ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
+	EntityTrait, ExprTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
+	QueryTrait, TransactionTrait,
 };
 
 use crate::{
@@ -27,6 +31,24 @@ use crate::{
 
 #[derive(Default)]
 pub struct ReadProgressMutation;
+
+/// Fails with the same "not found" a read gives when `user` can't see the book (its library is
+/// hidden from them, it is above their age restriction, or it was removed). Writing progress to a
+/// book you can't open isn't yours to do, and the answer would tell a hidden book exists, how many
+/// pages it has, and (for an EPUB) the titles of its chapters.
+async fn ensure_book_is_visible(
+	conn: &impl ConnectionTrait,
+	user: &AuthUser,
+	media_id: &str,
+) -> Result<()> {
+	media::Entity::find_media_ids_for_user(media_id.to_string(), user)
+		.into_model::<MediaIdentSelect>()
+		.one(conn)
+		.await?
+		.ok_or("Media not found")?;
+
+	Ok(())
+}
 
 #[Object]
 impl ReadProgressMutation {
@@ -39,6 +61,8 @@ impl ReadProgressMutation {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
 		let conn = core.conn.as_ref();
+
+		ensure_book_is_visible(conn, user, id.as_str()).await?;
 
 		let reset_elapsed_seconds = input.reset_elapsed_seconds();
 
@@ -99,6 +123,8 @@ impl ReadProgressMutation {
 	) -> Result<ReadingSession> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
+
+		ensure_book_is_visible(core.conn.as_ref(), user, id.as_str()).await?;
 
 		let ancestor = match ancestor_session_id {
 			Some(session_id) => Some(
@@ -269,6 +295,8 @@ impl ReadProgressMutation {
 		let core = ctx.data::<CoreContext>()?;
 
 		let tx = core.conn.begin().await?;
+
+		ensure_book_is_visible(&tx, user, id.as_str()).await?;
 
 		let current_session = reading_session::Entity::find()
 			.filter(

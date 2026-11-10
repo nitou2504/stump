@@ -11,7 +11,7 @@ use models::{
 	},
 	shared::ordering::OrderDirection,
 };
-use sea_orm::{prelude::*, QueryOrder, QuerySelect};
+use sea_orm::{prelude::*, QueryOrder};
 use stump_core::readium::ReadiumManifestGenerator;
 use tokio::task::spawn_blocking;
 
@@ -140,15 +140,16 @@ impl ReadingSession {
 	/// of sessions but more a detail view into a single session, etc.
 	// ^ TODO: at least not until potentially storing the positions in the db
 	async fn chapters_read(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let selection = media::Entity::find_by_id(self.model.media_id.clone())
-			.select_only()
-			.columns(MediaIdentSelect::columns())
-			.filter(media::Column::Extension.like("epub"))
-			.into_model::<MediaIdentSelect>()
-			.one(conn)
-			.await?;
+		// only for a book the user can see: the chapter titles aren't theirs otherwise
+		let selection =
+			media::Entity::find_media_ids_for_user(self.model.media_id.clone(), user)
+				.filter(media::Column::Extension.like("epub"))
+				.into_model::<MediaIdentSelect>()
+				.one(conn)
+				.await?;
 		let Some(book) = selection else {
 			tracing::debug!(
 				?self.model.media_id,

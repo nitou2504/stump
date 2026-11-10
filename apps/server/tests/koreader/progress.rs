@@ -2,7 +2,7 @@ use crate::common::{
 	api_key::create_api_key_for_user, series::setup_single_series_with_n_books, TestApp,
 };
 use models::{
-	entity::{media, reading_device, reading_session, user},
+	entity::{library_exclusion, media, reading_device, reading_session, user},
 	shared::{
 		api_key::APIKeyPermissions,
 		enums::{ReadingStatus, UserPermission},
@@ -240,4 +240,43 @@ async fn test_put_progress_updates_existing_device_name() {
 	.expect("failed to query reading device")
 	.expect("reading device should exist");
 	assert_eq!(device.name, "Kindle Paperwhite");
+}
+
+/// A file hash can't be used to write progress to a book the user can't see: it's "not found", like
+/// for a book that doesn't exist, and nothing is recorded
+#[tokio::test]
+async fn test_put_progress_refuses_a_book_the_user_cannot_see() {
+	let (app, api_key, media, user) = setup().await;
+	let db = app.conn();
+
+	library_exclusion::ActiveModel {
+		user_id: Set(user.id.clone()),
+		library_id: Set(media.library_id.clone()),
+		..Default::default()
+	}
+	.insert(db)
+	.await
+	.expect("should hide the library from the user");
+
+	let koreader_hash = media.koreader_hash.clone().expect("should be set");
+	let response = app
+		.server
+		.put(&format!("/koreader/{}/syncs/progress", api_key))
+		.json(&json!({
+			"document": koreader_hash,
+			"progress": "12",
+			"percentage": 0.5,
+			"device": "Kindle",
+			"device_id": "koreader-device",
+		}))
+		.await;
+
+	assert_eq!(response.status_code(), 404);
+
+	let sessions = reading_session::Entity::find()
+		.filter(reading_session::Column::MediaId.eq(media.id.clone()))
+		.count(db)
+		.await
+		.expect("failed to count the reading sessions");
+	assert_eq!(sessions, 0);
 }

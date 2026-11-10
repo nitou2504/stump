@@ -239,7 +239,9 @@ async fn put_progress(
 	}
 	tracing::debug!(?percentage, book_hash = ?document, "Got PUT KoReader payload");
 
-	let book = media::Entity::find()
+	// a book the user can't see (hidden library, above their age restriction) is "not found" like
+	// anywhere else, so a file hash can't be used to write progress to it
+	let book = media::Entity::find_for_user(&user)
 		.filter(media::Column::KoreaderHash.eq(document.clone()))
 		.one(conn)
 		.await?
