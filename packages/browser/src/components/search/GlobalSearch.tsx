@@ -26,9 +26,9 @@ const mounted: symbol[] = []
 
 /**
  * The title bar's search, on every page with a title bar: the whole server's books and
- * series, with quick results, "See all" and "Surprise me". From tablet width it looks like a
- * search box with its shortcut; on phones it is an icon. List pages keep their own search in
- * the toolbar, which filters only that list.
+ * series, with quick results, "See all" and "Surprise me". It is an icon at every width (the
+ * box it used to be only opened this dialog), and its tooltip names the shortcut. List pages
+ * keep their own search in the toolbar, which filters only that list.
  */
 export default function GlobalSearch({ className }: { className?: string }) {
 	const [open, setOpen] = useState(false)
@@ -63,30 +63,15 @@ export default function GlobalSearch({ className }: { className?: string }) {
 
 	return (
 		<div className={cn('flex shrink-0 items-center', className)}>
-			<button
-				type="button"
+			<IconButton
+				variant="ghost"
+				size="sm"
 				onClick={show}
 				onPointerEnter={loadDialog}
 				onFocus={loadDialog}
 				aria-label="Search the library"
 				aria-keyshortcuts={isApple ? 'Meta+K' : 'Control+K'}
-				className={cn(
-					'h-8 w-48 xl:w-64 gap-2 pr-1.5 pl-2.5 text-sm md:flex hidden items-center rounded-md border border-border text-muted-foreground transition-colors',
-					'hover:border-ring/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-				)}
-			>
-				<SearchIcon className="h-4 w-4 shrink-0" aria-hidden />
-				<span className="min-w-0 flex-1 truncate text-left">Search books, authors…</span>
-				<kbd className="px-1.5 font-medium rounded leading-5 shrink-0 border border-border bg-muted font-sans text-[11px]">
-					{GLOBAL_SEARCH_SHORTCUT}
-				</kbd>
-			</button>
-			<IconButton
-				variant="ghost"
-				size="sm"
-				className="md:hidden"
-				onClick={show}
-				aria-label="Search the library"
+				title={`Search · ${GLOBAL_SEARCH_SHORTCUT}`}
 			>
 				<SearchIcon className="h-4 w-4" />
 			</IconButton>

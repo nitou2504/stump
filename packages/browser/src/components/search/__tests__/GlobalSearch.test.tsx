@@ -9,6 +9,7 @@ import { PropsWithChildren } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 
 import GlobalSearch from '../GlobalSearch'
+import { GLOBAL_SEARCH_SHORTCUT } from '../shortcut'
 
 vi.mock('@/components/thumbnail/ThumbnailImage', () => ({ ThumbnailImage: () => null }))
 
@@ -70,6 +71,16 @@ function setup() {
 }
 
 describe('GlobalSearch', () => {
+	it('is one icon button at every width, and its tooltip names the shortcut', () => {
+		const { Wrapper } = setup()
+		render(<GlobalSearch />, { wrapper: Wrapper })
+		const buttons = screen.getAllByRole('button', { name: 'Search the library' })
+		expect(buttons).toHaveLength(1)
+		expect(buttons[0]).toHaveAttribute('title', `Search · ${GLOBAL_SEARCH_SHORTCUT}`)
+		// the old search box and its hint are gone
+		expect(screen.queryByText('Search books, authors…')).not.toBeInTheDocument()
+	})
+
 	it('opens with Ctrl+K and offers Surprise me before typing', async () => {
 		const user = userEvent.setup()
 		const { Wrapper, execute } = setup()
@@ -84,7 +95,7 @@ describe('GlobalSearch', () => {
 		const user = userEvent.setup()
 		const { Wrapper } = setup()
 		render(<GlobalSearch />, { wrapper: Wrapper })
-		await user.click(screen.getAllByRole('button', { name: 'Search the library' })[0]!)
+		await user.click(screen.getByRole('button', { name: 'Search the library' }))
 		await user.type(await screen.findByPlaceholderText('Search books, authors, series…'), 'rose')
 		expect(await screen.findByText('The Name of the Rose')).toBeInTheDocument()
 		expect(screen.getByText('Umberto Eco · ★ 4.2')).toBeInTheDocument()
