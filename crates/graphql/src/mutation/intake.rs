@@ -245,10 +245,14 @@ impl IntakeMutation {
 				core_intake::closed_for_changes(item.state, "analysed again").into(),
 			);
 		}
-		let mut active = item.into_active_model();
-		active.state = Set(IntakeState::Analysing);
-		active.error = Set(None);
-		let item = active.update(core.conn.as_ref()).await?;
+		// only while it is in the state it was read in: an approval may have claimed it since
+		let change = intake_item::ActiveModel {
+			state: Set(IntakeState::Analysing),
+			error: Set(None),
+			..Default::default()
+		};
+		let item =
+			core_intake::change_if_unchanged(core.conn.as_ref(), &item, change).await?;
 		spawn_analysis(core.clone(), vec![item.id.clone()], online);
 		Ok(item.into())
 	}

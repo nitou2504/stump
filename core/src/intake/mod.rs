@@ -965,11 +965,41 @@ pub async fn apply_review(
 	} else {
 		IntakeState::NeedsReview
 	};
-	let mut active = item.into_active_model();
-	active.decision = Set(Some(decision));
-	active.destination = Set(Some(destination));
-	active.state = Set(state);
-	Ok(active.update(conn).await?)
+	let change = intake_item::ActiveModel {
+		decision: Set(Some(decision)),
+		destination: Set(Some(destination)),
+		state: Set(state),
+		..Default::default()
+	};
+	change_if_unchanged(conn, &item, change).await
+}
+
+/// Writes `change` into an item in one statement, and only while the item is still in the state it
+/// was read in: a review, a move or an analysis that was read while the item waited must not
+/// write its state over an approval that claimed it since (the item would be waiting again while
+/// it is filed, and approved and filed a second time). Nothing is written otherwise.
+pub async fn change_if_unchanged(
+	conn: &DatabaseConnection,
+	item: &intake_item::Model,
+	mut change: intake_item::ActiveModel,
+) -> CoreResult<intake_item::Model> {
+	// an update of many rows doesn't run the model's `before_save`
+	change.updated_at = Set(chrono::Utc::now().into());
+	let done = intake_item::Entity::update_many()
+		.set(change)
+		.filter(intake_item::Column::Id.eq(item.id.clone()))
+		.filter(intake_item::Column::State.eq(item.state))
+		.exec(conn)
+		.await?;
+	if done.rows_affected == 0 {
+		return Err(CoreError::BadRequest(
+			"This item changed while it was being saved: look at it again".to_string(),
+		));
+	}
+	intake_item::Entity::find_by_id(item.id.clone())
+		.one(conn)
+		.await?
+		.ok_or_else(|| CoreError::NotFound("Inbox item not found".to_string()))
 }
 
 /// Writes down which files of an item are in the library, so that filing it again carries on
@@ -1083,11 +1113,13 @@ pub async fn change_library(
 	}
 	let conn = ctx.conn.as_ref();
 	let (library, _) = load_library(conn, library_id).await?;
-	let mut active = item.into_active_model();
-	active.library_id = Set(library.id);
-	active.state = Set(IntakeState::Analysing);
-	active.error = Set(None);
-	Ok(active.update(conn).await?)
+	let change = intake_item::ActiveModel {
+		library_id: Set(library.id),
+		state: Set(IntakeState::Analysing),
+		error: Set(None),
+		..Default::default()
+	};
+	change_if_unchanged(conn, &item, change).await
 }
 
 /// Files an item that was claimed for it (its state is `FILING`, see [`approval`]). If filing

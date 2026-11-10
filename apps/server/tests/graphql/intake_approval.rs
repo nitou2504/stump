@@ -2230,3 +2230,49 @@ async fn test_two_books_with_one_name_are_each_filed_whole() {
 	);
 }
 
+/// the stored state of an item moves only from the state it was read in: a review, a move or an
+/// analysis that was read while the item waited doesn't write waiting over an approval
+#[tokio::test(flavor = "multi_thread")]
+async fn test_what_was_read_before_an_approval_does_not_undo_it() {
+	use stump_core::intake::{apply_review, change_library, Reviewer};
+
+	let world = world().await;
+	let id = world.ana_uploads("Stale Review").await;
+	world.ana_items().await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
+	// read while it waits for approval...
+	let stale = world.row(&id).await;
+	assert_eq!(stale.state, IntakeState::PendingApproval);
+	// ...and approved and filed meanwhile
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	world.wait_for(&id, IntakeState::Filed).await;
+
+	let approver = Reviewer {
+		approver: true,
+		owns_item: false,
+	};
+	let ctx = &world.app.ctx;
+	let review = IntakeReviewInput {
+		title: Some("Too late".to_string()),
+		..Default::default()
+	};
+	let error = apply_review(ctx, stale.clone(), review, approver)
+		.await
+		.expect_err("a review of what was read before the approval is refused");
+	assert!(error.to_string().contains("changed while"), "{error}");
+	let error = change_library(ctx, stale.clone(), &world.library.id, approver)
+		.await
+		.expect_err("so is a move");
+	assert!(error.to_string().contains("changed while"), "{error}");
+	let row = world.row(&id).await;
+	assert_eq!(row.state, IntakeState::Filed, "it is not waiting again, to be filed twice");
+	assert_ne!(
+		row.decision.and_then(|d| d.metadata.title).as_deref(),
+		Some("Too late")
+	);
+}
+
