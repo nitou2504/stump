@@ -1,6 +1,6 @@
 import { graphql } from '@stump/graphql'
 
-/** The values a metadata field has across the library, with how many books carry each */
+/** The values a metadata field has in a library (or, without one, in every library the user can see), with how many books carry each */
 export const metadataVocabularyQuery = graphql(`
 	query MetadataVocabulary($field: MetadataFacetField!, $libraryId: ID, $search: String) {
 		metadataValueCounts(field: $field, libraryId: $libraryId, search: $search) {

@@ -23,12 +23,23 @@ const GROUP_LABEL: Record<TagGroup, string> = {
 	subgenre: 'Subgenres',
 }
 
-/** The library's values of a field, cached for the session's editing */
+/**
+ * Which library a field's suggestions come from. Genres are one vocabulary for the whole
+ * server (the genres of every library the user can see), so a manga or a light novel picks from
+ * the same shelves as a novel in Biblioteca instead of a short list of its own; authors, series,
+ * publishers and languages stay the book's own library's
+ */
+export function vocabularyLibraryId(field: MetadataFacetField, libraryId?: string) {
+	return field === MetadataFacetField.Genres ? undefined : libraryId
+}
+
+/** The values of a field (see `vocabularyLibraryId`), cached for the session's editing */
 export function useVocabulary(field: MetadataFacetField, libraryId?: string, enabled = true) {
+	const scope = vocabularyLibraryId(field, libraryId)
 	const { data, isLoading } = useGraphQL(
 		metadataVocabularyQuery,
-		['metadataVocabulary', field, libraryId],
-		{ field, libraryId },
+		['metadataVocabulary', field, scope],
+		{ field, libraryId: scope },
 		{ enabled, staleTime: 5 * 60 * 1000 },
 	)
 	return { entries: data?.metadataValueCounts ?? [], isLoading }
@@ -36,8 +47,9 @@ export function useVocabulary(field: MetadataFacetField, libraryId?: string, ena
 
 /**
  * A list of values (genres or authors) as removable chips, with a picker over the values
- * the library already uses. A genre the library doesn't have yet is only added through an
- * explicit "Create" option, so a typo doesn't start a new shelf; authors can be typed freely.
+ * already in use (genres: on the whole server; authors: in the book's library). A genre
+ * nobody has used yet is only added through an explicit "Create" option, so a typo doesn't
+ * start a new shelf; authors can be typed freely.
  */
 export default function ValueChipsField({
 	field,
