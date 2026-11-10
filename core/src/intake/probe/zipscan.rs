@@ -236,13 +236,15 @@ fn is_nested_archive(head: &[u8]) -> bool {
 		|| head.starts_with(b"\x1f\x8b")
 		|| head.starts_with(b"\xfd7zXZ\x00")
 		|| head.starts_with(b"%PDF-")
-		|| (head.starts_with(b"BZh") && head.get(3).is_some_and(|b| (b'1'..=b'9').contains(b)))
+		|| (head.starts_with(b"BZh")
+			&& head.get(3).is_some_and(|b| (b'1'..=b'9').contains(b)))
 }
 
 /// Looks at the structure of a zip file, then unpacks every entry once through a counter
 pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 	let limits = limits.clamped();
-	let mut file = File::open(path).map_err(|e| reject(code::UNREADABLE, e.to_string()))?;
+	let mut file =
+		File::open(path).map_err(|e| reject(code::UNREADABLE, e.to_string()))?;
 	let len = file
 		.metadata()
 		.map_err(|e| reject(code::UNREADABLE, e.to_string()))?
@@ -260,8 +262,14 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 		));
 	}
 	if directory.size > MAX_DIRECTORY_BYTES
-		|| directory.offset.checked_add(directory.size).map_or(true, |end| end > directory.limit)
-		|| directory.entries.checked_mul(46).map_or(true, |least| least > directory.size)
+		|| directory
+			.offset
+			.checked_add(directory.size)
+			.map_or(true, |end| end > directory.limit)
+		|| directory
+			.entries
+			.checked_mul(46)
+			.map_or(true, |least| least > directory.size)
 	{
 		return Err(reject(
 			code::UNREADABLE,
@@ -279,7 +287,10 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 	let mut at = 0usize;
 	for _ in 0..directory.entries {
 		if table.get(at..at + 4) != Some(b"PK\x01\x02") {
-			return Err(reject(code::UNREADABLE, "A record of the directory is damaged"));
+			return Err(reject(
+				code::UNREADABLE,
+				"A record of the directory is damaged",
+			));
 		}
 		let made_by = u16_at(&table, at + 4).ok_or_else(truncated)?;
 		let flags = u16_at(&table, at + 8).ok_or_else(truncated)?;
@@ -297,10 +308,7 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 			.checked_add(extra_len)
 			.and_then(|n| n.checked_add(comment_len))
 			.ok_or_else(truncated)?;
-		let raw_name = table
-			.get(name_at..extra_at)
-			.ok_or_else(truncated)?
-			.to_vec();
+		let raw_name = table.get(name_at..extra_at).ok_or_else(truncated)?.to_vec();
 		let extra = table
 			.get(extra_at..extra_at + extra_len)
 			.ok_or_else(truncated)?;
@@ -354,14 +362,21 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 			if size > limits.max_entry_bytes {
 				return Err(reject(
 					code::ENTRY_TOO_LARGE,
-					format!("{} is larger than the {} MB an entry can be", printable(&name), limits.max_entry_bytes / MIB),
+					format!(
+						"{} is larger than the {} MB an entry can be",
+						printable(&name),
+						limits.max_entry_bytes / MIB
+					),
 				));
 			}
 			declared_total = declared_total.saturating_add(size);
 			if declared_total > limits.max_unpacked_bytes {
 				return Err(reject(
 					code::UNPACKED_TOO_LARGE,
-					format!("The zip unpacks to more than {} MB", limits.max_unpacked_bytes / MIB),
+					format!(
+						"The zip unpacks to more than {} MB",
+						limits.max_unpacked_bytes / MIB
+					),
 				));
 			}
 			if method == 0 && compressed != size {
@@ -418,7 +433,10 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 		if header.get(0..4) != Some(b"PK\x03\x04") {
 			return Err(reject(
 				code::HEADER_MISMATCH,
-				format!("{} has no entry where the directory says", printable(&entry.name)),
+				format!(
+					"{} has no entry where the directory says",
+					printable(&entry.name)
+				),
 			));
 		}
 		let local_method = u16_at(&header, 8).ok_or_else(truncated)?;
@@ -427,14 +445,20 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 		if local_method != entry.method || local_name_len != entry.raw_name.len() {
 			return Err(reject(
 				code::HEADER_MISMATCH,
-				format!("{} is described differently in two places", printable(&entry.name)),
+				format!(
+					"{} is described differently in two places",
+					printable(&entry.name)
+				),
 			));
 		}
 		let local_name = read_exact_at(&mut file, entry.offset + 30, local_name_len)?;
 		if local_name != entry.raw_name {
 			return Err(reject(
 				code::HEADER_MISMATCH,
-				format!("{} is called something else in its own header", printable(&entry.name)),
+				format!(
+					"{} is called something else in its own header",
+					printable(&entry.name)
+				),
 			));
 		}
 		let data_start = entry
@@ -454,7 +478,11 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 			if entries[next].offset < data_end {
 				return Err(reject(
 					code::OVERLAPPING_ENTRIES,
-					format!("{} lies over {}", printable(&entries[next].name), printable(&entry.name)),
+					format!(
+						"{} lies over {}",
+						printable(&entries[next].name),
+						printable(&entry.name)
+					),
 				));
 			}
 			if entries[next].offset - data_end > 4096 {
@@ -488,9 +516,12 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 		if entry.is_dir {
 			continue;
 		}
-		let mut reader = archive
-			.by_index(i)
-			.map_err(|e| reject(code::UNREADABLE, format!("{} can't be opened: {e}", printable(&entry.name))))?;
+		let mut reader = archive.by_index(i).map_err(|e| {
+			reject(
+				code::UNREADABLE,
+				format!("{} can't be opened: {e}", printable(&entry.name)),
+			)
+		})?;
 		if reader.name_raw() != entry.raw_name.as_slice() {
 			return Err(reject(
 				code::AMBIGUOUS_ZIP,
@@ -503,9 +534,12 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 		let cap = entry.size.saturating_add(1);
 		let mut taken = (&mut reader).take(cap);
 		loop {
-			let n = taken
-				.read(&mut buf)
-				.map_err(|e| reject(code::UNREADABLE, format!("{} is damaged: {e}", printable(&entry.name))))?;
+			let n = taken.read(&mut buf).map_err(|e| {
+				reject(
+					code::UNREADABLE,
+					format!("{} is damaged: {e}", printable(&entry.name)),
+				)
+			})?;
 			if n == 0 {
 				break;
 			}
@@ -538,7 +572,10 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 		if actual_total > limits.max_unpacked_bytes {
 			return Err(reject(
 				code::UNPACKED_TOO_LARGE,
-				format!("The zip unpacks to more than {} MB", limits.max_unpacked_bytes / MIB),
+				format!(
+					"The zip unpacks to more than {} MB",
+					limits.max_unpacked_bytes / MIB
+				),
 			));
 		}
 		max_entry = max_entry.max(counted);
@@ -555,10 +592,7 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 
 /// A name for a message: short, and with nothing in it that could spoil a line
 pub fn printable(name: &str) -> String {
-	name.chars()
-		.filter(|c| !c.is_control())
-		.take(120)
-		.collect()
+	name.chars().filter(|c| !c.is_control()).take(120).collect()
 }
 
 #[cfg(test)]
@@ -573,7 +607,10 @@ pub(crate) mod tests {
 		let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
 		for (name, data, method) in entries {
 			writer
-				.start_file(*name, SimpleFileOptions::default().compression_method(*method))
+				.start_file(
+					*name,
+					SimpleFileOptions::default().compression_method(*method),
+				)
 				.expect("start");
 			writer.write_all(data).expect("write");
 		}
@@ -610,7 +647,11 @@ pub(crate) mod tests {
 	#[test]
 	fn a_plain_zip_passes() {
 		let bytes = zip_of(&[
-			("mimetype", b"application/epub+zip", CompressionMethod::Stored),
+			(
+				"mimetype",
+				b"application/epub+zip",
+				CompressionMethod::Stored,
+			),
 			("a/b.txt", &[b'x'; 5000], CompressionMethod::Deflated),
 			("c.bin", b"\x00\x01\x02", CompressionMethod::Stored),
 		]);
@@ -622,8 +663,15 @@ pub(crate) mod tests {
 
 	#[test]
 	fn a_file_that_is_not_a_zip_or_is_cut_short_is_refused() {
-		for bytes in [&b""[..], b"hello", b"PK\x03\x04 and nothing else at all, 22 bytes"] {
-			assert_eq!(code_of(scan_bytes(bytes, &Limits::default())), code::TRUNCATED);
+		for bytes in [
+			&b""[..],
+			b"hello",
+			b"PK\x03\x04 and nothing else at all, 22 bytes",
+		] {
+			assert_eq!(
+				code_of(scan_bytes(bytes, &Limits::default())),
+				code::TRUNCATED
+			);
 		}
 		let whole = zip_of(&[("a", b"hello", CompressionMethod::Stored)]);
 		assert_eq!(
@@ -644,9 +692,13 @@ pub(crate) mod tests {
 			f.extend_from_slice(&0u16.to_le_bytes());
 			f
 		};
-		two[comment_at..comment_at + 2].copy_from_slice(&(fake.len() as u16).to_le_bytes());
+		two[comment_at..comment_at + 2]
+			.copy_from_slice(&(fake.len() as u16).to_le_bytes());
 		two.extend_from_slice(&fake);
-		assert_eq!(code_of(scan_bytes(&two, &Limits::default())), code::AMBIGUOUS_ZIP);
+		assert_eq!(
+			code_of(scan_bytes(&two, &Limits::default())),
+			code::AMBIGUOUS_ZIP
+		);
 		// something before the first entry (a self-extracting stub)
 		let mut prefixed = b"MZ stub".to_vec();
 		prefixed.extend_from_slice(&whole);
@@ -655,8 +707,9 @@ pub(crate) mod tests {
 
 	#[test]
 	fn too_many_entries_are_refused_before_the_directory_is_read() {
-		let entries: Vec<(String, Vec<u8>)> =
-			(0..6).map(|i| (format!("{i}.txt"), vec![b'a'; 10])).collect();
+		let entries: Vec<(String, Vec<u8>)> = (0..6)
+			.map(|i| (format!("{i}.txt"), vec![b'a'; 10]))
+			.collect();
 		let borrowed: Vec<(&str, &[u8], CompressionMethod)> = entries
 			.iter()
 			.map(|(n, d)| (n.as_str(), d.as_slice(), CompressionMethod::Stored))
@@ -694,8 +747,16 @@ pub(crate) mod tests {
 		assert_eq!(code_of(scan_bytes(&bytes, &limits)), code::ENTRY_TOO_LARGE);
 		// the whole may not pass the total either
 		let two = zip_of(&[
-			("a.bin", &vec![7u8; 3 * 1024 * 1024], CompressionMethod::Stored),
-			("b.bin", &vec![9u8; 3 * 1024 * 1024], CompressionMethod::Stored),
+			(
+				"a.bin",
+				&vec![7u8; 3 * 1024 * 1024],
+				CompressionMethod::Stored,
+			),
+			(
+				"b.bin",
+				&vec![9u8; 3 * 1024 * 1024],
+				CompressionMethod::Stored,
+			),
 		]);
 		let limits = Limits {
 			max_unpacked_bytes: 5 * MIB,
@@ -713,7 +774,10 @@ pub(crate) mod tests {
 		lying[record + 24..record + 28].copy_from_slice(&10u32.to_le_bytes());
 		let result = scan_bytes(&lying, &Limits::default());
 		assert!(
-			matches!(code_of(result).as_str(), code::SIZE_MISMATCH | code::UNREADABLE),
+			matches!(
+				code_of(result).as_str(),
+				code::SIZE_MISMATCH | code::UNREADABLE
+			),
 			"a lie about the size is refused"
 		);
 		// and more than it does
@@ -754,16 +818,30 @@ pub(crate) mod tests {
 		let mut other = bytes.clone();
 		let record = record_at(&other, 0);
 		other[record + 10..record + 12].copy_from_slice(&8u16.to_le_bytes());
-		assert_eq!(code_of(scan_bytes(&other, &Limits::default())), code::HEADER_MISMATCH);
+		assert_eq!(
+			code_of(scan_bytes(&other, &Limits::default())),
+			code::HEADER_MISMATCH
+		);
 		// another name in the local header (same length)
 		let mut renamed = bytes.clone();
 		renamed[30..35].copy_from_slice(b"b.txt");
-		assert_eq!(code_of(scan_bytes(&renamed, &Limits::default())), code::HEADER_MISMATCH);
+		assert_eq!(
+			code_of(scan_bytes(&renamed, &Limits::default())),
+			code::HEADER_MISMATCH
+		);
 	}
 
 	#[test]
 	fn names_that_leave_the_folder_are_refused() {
-		for name in ["../x.txt", "a/../../x.txt", "/etc/passwd", "C:x.txt", "a\\b.txt", "a//b.txt", "./a.txt"] {
+		for name in [
+			"../x.txt",
+			"a/../../x.txt",
+			"/etc/passwd",
+			"C:x.txt",
+			"a\\b.txt",
+			"a//b.txt",
+			"./a.txt",
+		] {
 			let bytes = zip_of(&[(name, b"x", CompressionMethod::Stored)]);
 			let result = scan_bytes(&bytes, &Limits::default());
 			assert_eq!(code_of(result), code::BAD_PATH, "{name}");
@@ -772,7 +850,10 @@ pub(crate) mod tests {
 		let mut bytes = zip_of(&[("a.txt", b"x", CompressionMethod::Stored)]);
 		let record = record_at(&bytes, 0);
 		bytes[record + 46 + 1] = 0;
-		assert_eq!(code_of(scan_bytes(&bytes, &Limits::default())), code::BAD_PATH);
+		assert_eq!(
+			code_of(scan_bytes(&bytes, &Limits::default())),
+			code::BAD_PATH
+		);
 	}
 
 	#[test]
@@ -790,13 +871,19 @@ pub(crate) mod tests {
 		same[local_b..local_b + 5].copy_from_slice(b"a.txt");
 		let record = record_at(&same, 1);
 		same[record + 46..record + 51].copy_from_slice(b"a.txt");
-		assert_eq!(code_of(scan_bytes(&same, &Limits::default())), code::DUPLICATE_NAME);
+		assert_eq!(
+			code_of(scan_bytes(&same, &Limits::default())),
+			code::DUPLICATE_NAME
+		);
 		let cases = zip_of(&[
 			("a.txt", b"1", CompressionMethod::Stored),
 			("A.txt", b"2", CompressionMethod::Stored),
 		]);
 		let report = scan_bytes(&cases, &Limits::default()).expect("a warning only");
-		assert!(report.warnings.iter().any(|w| w.code == code::CASE_DUPLICATE));
+		assert!(report
+			.warnings
+			.iter()
+			.any(|w| w.code == code::CASE_DUPLICATE));
 	}
 
 	#[test]
@@ -805,7 +892,10 @@ pub(crate) mod tests {
 		let record = record_at(&bytes, 0);
 		let mut encrypted = bytes.clone();
 		encrypted[record + 8] |= 1;
-		assert_eq!(code_of(scan_bytes(&encrypted, &Limits::default())), code::ENCRYPTED);
+		assert_eq!(
+			code_of(scan_bytes(&encrypted, &Limits::default())),
+			code::ENCRYPTED
+		);
 		let mut bzip = bytes.clone();
 		bzip[record + 10..record + 12].copy_from_slice(&12u16.to_le_bytes());
 		assert_eq!(
@@ -815,14 +905,23 @@ pub(crate) mod tests {
 		// a unix symlink: host 3, mode 0o120777 in the external attributes
 		let mut link = bytes.clone();
 		link[record + 5] = 3;
-		link[record + 38..record + 42].copy_from_slice(&(0o120777u32 << 16).to_le_bytes());
-		assert_eq!(code_of(scan_bytes(&link, &Limits::default())), code::SYMLINK);
+		link[record + 38..record + 42]
+			.copy_from_slice(&(0o120777u32 << 16).to_le_bytes());
+		assert_eq!(
+			code_of(scan_bytes(&link, &Limits::default())),
+			code::SYMLINK
+		);
 	}
 
 	#[test]
 	fn an_archive_inside_the_book_is_refused() {
 		let inner = zip_of(&[("x", b"1", CompressionMethod::Stored)]);
-		for payload in [&inner[..], b"Rar!\x1a\x07\x00....", b"\x1f\x8b\x08....", b"%PDF-1.4 ...."] {
+		for payload in [
+			&inner[..],
+			b"Rar!\x1a\x07\x00....",
+			b"\x1f\x8b\x08....",
+			b"%PDF-1.4 ....",
+		] {
 			let bytes = zip_of(&[("book/page.dat", payload, CompressionMethod::Stored)]);
 			assert_eq!(
 				code_of(scan_bytes(&bytes, &Limits::default())),
@@ -840,7 +939,8 @@ pub(crate) mod tests {
 		let bytes = zip_of(&[("a.txt", b"hello", CompressionMethod::Stored)]);
 		let eocd = bytes.len() - 22;
 		let cd_size = u32::from_le_bytes(bytes[eocd + 12..eocd + 16].try_into().unwrap());
-		let cd_offset = u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap());
+		let cd_offset =
+			u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap());
 		let mut out = bytes[..eocd].to_vec();
 		let record_pos = out.len() as u64;
 		out.extend_from_slice(b"PK\x06\x06");
@@ -868,6 +968,9 @@ pub(crate) mod tests {
 		let mut huge = out.clone();
 		let at = huge.windows(4).position(|w| w == b"PK\x06\x06").unwrap() + 32;
 		huge[at..at + 8].copy_from_slice(&5_000_000u64.to_le_bytes());
-		assert_eq!(code_of(scan_bytes(&huge, &Limits::default())), code::TOO_MANY_ENTRIES);
+		assert_eq!(
+			code_of(scan_bytes(&huge, &Limits::default())),
+			code::TOO_MANY_ENTRIES
+		);
 	}
 }

@@ -505,7 +505,7 @@ pub fn apply_title_page(query: &mut LookupQuery, page: Option<&TitlePage>) -> bo
 /// [`apply_title_page`] for a book file: the title page is read only when the metadata looks
 /// like junk, and only from an EPUB
 pub async fn repair_for_lookup(
-	mut query: LookupQuery,
+	query: LookupQuery,
 	path: &Path,
 ) -> (LookupQuery, bool) {
 	if !junk_metadata(query.title.as_deref(), &query.authors).any() {
@@ -523,6 +523,20 @@ pub async fn repair_for_lookup(
 	} else {
 		None
 	};
+	repair_with(query, page, path)
+}
+
+/// [`repair_for_lookup`] with the title page already read (by the isolated checker, for the books
+/// of people who need approval: the server doesn't read those). `path` is only used for the name of
+/// the file
+pub fn repair_with(
+	mut query: LookupQuery,
+	page: Option<TitlePage>,
+	path: &Path,
+) -> (LookupQuery, bool) {
+	if !junk_metadata(query.title.as_deref(), &query.authors).any() {
+		return (query, false);
+	}
 	let mut changed = apply_title_page(&mut query, page.as_ref());
 	// still no usable title: the file's name (`Is_Anyone_There.epub`), as *Add books* reads one
 	if junk_metadata(query.title.as_deref(), &[]).title {

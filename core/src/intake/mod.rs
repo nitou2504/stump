@@ -16,6 +16,7 @@ pub mod limits;
 pub mod lookup;
 pub mod naming;
 pub mod probe;
+pub mod queue;
 pub mod rules;
 pub mod scope;
 pub mod staging;
@@ -242,13 +243,35 @@ async fn analyse_item(
 	let mut files = item.files.0.clone();
 	let mut per_file: Vec<IntakeMetadata> = vec![];
 	let mut series_hint = None;
+	// The books of somebody who needs approval are not read here: the isolated checker reads them
+	// (once: what it said is kept in the file) and what is used is its verdict
+	let sandboxed = !uploader_can_file && queue::sandboxed(&ctx.config);
+	let mut books: Vec<Option<probe::contract::Book>> = vec![];
+	let mut screening_warnings: Vec<String> = vec![];
+	let mut refused: Option<String> = None;
 	for file in files.iter_mut() {
-		let extracted = extract_file(
-			&staging.join(&file.staged_name),
-			&file.original_name,
-			&ctx.config,
-		)
-		.await;
+		let extracted = if sandboxed {
+			let verdict = queue::screened(ctx, &item.staging_dir, file).await?;
+			let Some(book) = queue::book_of(&verdict) else {
+				refused = Some(queue::refusal_text(&verdict));
+				break;
+			};
+			screening_warnings.extend(queue::warning_lines(&verdict));
+			if book.format != file.format {
+				// what the file is, not what its name says
+				file.format = book.format.clone();
+			}
+			books.push(Some(book.clone()));
+			extract::extracted_from_book(book, &file.original_name)
+		} else {
+			books.push(None);
+			extract_file(
+				&staging.join(&file.staged_name),
+				&file.original_name,
+				&ctx.config,
+			)
+			.await
+		};
 		file.hash = extracted.hash.clone();
 		let meta = metadata_of(&extracted);
 		file.title = meta.title.clone();
@@ -265,6 +288,18 @@ async fn analyse_item(
 			series_hint = Some(IntakeSeriesKind::Manga);
 		}
 		per_file.push(meta);
+	}
+
+	if let Some(reason) = refused {
+		// checked and not accepted: kept as it is said, and not checked again
+		let failed = intake_item::ActiveModel {
+			files: Set(intake_files(files)),
+			state: Set(IntakeState::Failed),
+			error: Set(Some(reason)),
+			..Default::default()
+		};
+		store_outcome(conn, item, failed).await?;
+		return Ok(());
 	}
 
 	// a series item takes the first volume's metadata, minus what is per volume
@@ -287,11 +322,14 @@ async fn analyse_item(
 		&index,
 		viewer_index.as_deref(),
 	) {
-		let epub = files
-			.iter()
-			.find(|f| f.format == "epub")
-			.map(|f| staging.join(&f.staged_name));
-		let original_title = epub.as_deref().and_then(lookup::original_title_of);
+		let epub_at = files.iter().position(|f| f.format == "epub");
+		let epub = epub_at.map(|i| staging.join(&files[i].staged_name));
+		// from the checker's verdict for the books it read, from the file for the others
+		let epub_book = epub_at.and_then(|i| books.get(i).and_then(Option::as_ref));
+		let original_title = match epub_book {
+			Some(book) => book.original_title.clone(),
+			None => epub.as_deref().and_then(lookup::original_title_of),
+		};
 		let query = lookup::LookupQuery {
 			isbn: file_meta.isbn.clone(),
 			title: file_meta.title.clone(),
@@ -301,11 +339,19 @@ async fn analyse_item(
 			by_series: false,
 		};
 		// junk metadata (`OUP Book`, a swapped title and author): searched by the title page
-		let (query, _) = title_page::repair_for_lookup(
-			query,
-			epub.as_deref().unwrap_or_else(|| Path::new("")),
-		)
-		.await;
+		let epub_path = epub.as_deref().unwrap_or_else(|| Path::new(""));
+		let (query, _) = match epub_book {
+			Some(book) => {
+				let page = (book.title_page_title.is_some()
+					|| !book.title_page_authors.is_empty())
+				.then(|| title_page::TitlePage {
+					title: book.title_page_title.clone(),
+					authors: book.title_page_authors.clone(),
+				});
+				title_page::repair_with(query, page, epub_path)
+			},
+			None => title_page::repair_for_lookup(query, epub_path).await,
+		};
 		lookup::lookup(conn, &query).await
 	} else {
 		lookup::LookupOutcome::default()
@@ -339,6 +385,8 @@ async fn analyse_item(
 		});
 		let mut warnings = restricted.warnings;
 		warnings.extend(lookup.notes());
+		// what the checker found in their own file is theirs to know
+		warnings.extend(screening_warnings.clone());
 		Some(IntakeUploaderView {
 			series_kind: restricted.series_kind,
 			genre_suggestions: restricted.genre_suggestions,
@@ -363,6 +411,7 @@ async fn analyse_item(
 	});
 	proposal.looked_up_online = lookup.found();
 	proposal.warnings.extend(lookup.notes());
+	proposal.warnings.extend(screening_warnings);
 	proposal.online_lookups = lookup.sources;
 	proposal.uploader_view = uploader_view.clone();
 	if !uploader_can_file {
@@ -1342,6 +1391,8 @@ async fn file_claimed_inner(
 	// a book from somebody who needs approval is filed with a plain description of its own: the
 	// file's (an EPUB's long one is kept otherwise) could carry markup that the library renders
 	let untrusted = !approval::uploader_can_file_directly(conn, &item.user_id).await?;
+	// ... and its bytes are not read here: the isolated checker makes the file that is filed
+	let sandbox = untrusted && queue::sandboxed(&ctx.config);
 
 	let staging = PathBuf::from(&item.staging_dir);
 	let dir = root.join(&destination.relative_dir);
@@ -1352,36 +1403,10 @@ async fn file_claimed_inner(
 			.map_err(|e| CoreError::InternalError(e.to_string()))??;
 	}
 
-	// what an earlier try placed: those files are in the library, in the order of the item's files
-	let mut paths: Vec<String> = item
-		.result
-		.as_ref()
-		.map(|r| r.paths.clone())
-		.unwrap_or_default();
-	// A path counts as placed only while the file there is the copy its staged file made (same
-	// length: the staged file is rewritten once before it is copied and not touched after). A
-	// path recorded just before the server stopped names a file that was never put there, and a
-	// file somebody else has put there since is not ours.
-	let placed = paths
-		.iter()
-		.enumerate()
-		.take_while(|(i, path)| {
-			files.get(*i).is_some_and(|file| {
-				is_copy_of(Path::new(path.as_str()), &staging.join(&file.staged_name))
-			})
-		})
-		.count();
-	paths.truncate(placed);
-	let mut notes = item
-		.result
-		.as_ref()
-		.map(|r| r.notes.clone())
-		.unwrap_or_default();
-	// What is written into the files that are not placed yet comes first, and for the book of
-	// somebody who needs approval it is checked before any file of it is placed: a book is
-	// filed whole or not at all, never a few volumes of it and then a refusal.
-	let placed_before = paths.len();
-	for (i, file) in files.iter().enumerate().skip(placed_before) {
+	// What goes into the library for each file: the staged file, or (for a book the server doesn't
+	// read) what the checker made of it from the reviewed metadata. Every file is made, and
+	// checked, before any is placed: a book is filed whole or not at all.
+	let file_metadata = |i: usize, file: &IntakeFile| {
 		let mut meta = FileMetadata::from_metadata(
 			&decision.metadata,
 			decision.series_kind == Some(IntakeSeriesKind::Manga),
@@ -1404,6 +1429,58 @@ async fn file_claimed_inner(
 			)
 			.or_else(|| decision.metadata.title.clone());
 		}
+		meta
+	};
+	let mut made = queue::Spooled::default();
+	if sandbox {
+		for (i, file) in files.iter().enumerate() {
+			let one =
+				queue::make(ctx, &item.staging_dir, file, file_metadata(i, file)).await?;
+			made.push(one);
+		}
+	}
+	let source_of = |i: usize| -> PathBuf {
+		match made.get(i) {
+			Some(one) => one.path.clone(),
+			None => staging.join(&files[i].staged_name),
+		}
+	};
+
+	// what an earlier try placed: those files are in the library, in the order of the item's files
+	let mut paths: Vec<String> = item
+		.result
+		.as_ref()
+		.map(|r| r.paths.clone())
+		.unwrap_or_default();
+	// A path counts as placed only while the file there is the copy its staged file made (same
+	// length: the staged file is rewritten once before it is copied and not touched after). A
+	// path recorded just before the server stopped names a file that was never put there, and a
+	// file somebody else has put there since is not ours.
+	let placed = paths
+		.iter()
+		.enumerate()
+		.take_while(|(i, path)| {
+			files
+				.get(*i)
+				.is_some_and(|_| is_copy_of(Path::new(path.as_str()), &source_of(*i)))
+		})
+		.count();
+	paths.truncate(placed);
+	let mut notes = item
+		.result
+		.as_ref()
+		.map(|r| r.notes.clone())
+		.unwrap_or_default();
+	// What is written into the files that are not placed yet comes first, and for the book of
+	// somebody who needs approval it is checked before any file of it is placed: a book is
+	// filed whole or not at all, never a few volumes of it and then a refusal.
+	let placed_before = paths.len();
+	for (i, file) in files.iter().enumerate().skip(placed_before) {
+		if sandbox {
+			// made, written and checked by the checker already
+			continue;
+		}
+		let meta = file_metadata(i, file);
 		let staged = staging.join(&file.staged_name);
 		let format = file.format.clone();
 		let staged_clone = staged.clone();
@@ -1445,8 +1522,17 @@ async fn file_claimed_inner(
 	}
 
 	for (i, file) in files.iter().enumerate().skip(placed_before) {
-		let staged = staging.join(&file.staged_name);
-		let name = decision.file_names.get(i).cloned().unwrap_or_default();
+		let staged = source_of(i);
+		let mut name = decision.file_names.get(i).cloned().unwrap_or_default();
+		// a RAR comic that the checker converted is a ZIP one now
+		if let Some(output) = made
+			.get(i)
+			.and_then(|one| one.verdict.book.as_ref())
+			.and_then(|book| book.output.as_ref())
+			.filter(|output| output.format != file.format)
+		{
+			name = with_extension(&name, &file.format, &output.format);
+		}
 		let mut target = dir.join(&name);
 		let mut n = 2;
 		let mut tries = 0;
@@ -1503,10 +1589,23 @@ async fn file_claimed_inner(
 	let updated = active.update(conn).await?;
 
 	let _ = tokio::fs::remove_dir_all(&staging).await;
+	// what the checker made was copied into the library: the spool is cleaned (as it is on an
+	// error too, when `made` is dropped)
+	drop(made);
 	library_index::invalidate_index(&library.id);
 	scope::forget_vocabularies();
 	enqueue_scan(ctx, &library, config.as_ref(), &dir).await;
 	Ok(updated)
+}
+
+/// A file name with another extension, if it has the one it should: `Vol 1.cbr` -> `Vol 1.cbz`
+fn with_extension(name: &str, from: &str, to: &str) -> String {
+	match name.rsplit_once('.') {
+		Some((stem, extension)) if extension.eq_ignore_ascii_case(from) => {
+			format!("{stem}.{to}")
+		},
+		_ => name.to_string(),
+	}
 }
 
 /// The copies of this item's files that are in the library now and weren't when it was looked at.

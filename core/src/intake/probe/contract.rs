@@ -195,7 +195,11 @@ impl Limits {
 				hard.max_file_bytes,
 				default.max_file_bytes,
 			),
-			timeout_secs: pick(self.timeout_secs, hard.timeout_secs, default.timeout_secs),
+			timeout_secs: pick(
+				self.timeout_secs,
+				hard.timeout_secs,
+				default.timeout_secs,
+			),
 			timeout_secs_per_mb: pick(
 				self.timeout_secs_per_mb,
 				hard.timeout_secs_per_mb,

@@ -54,7 +54,8 @@ pub enum Outcome {
 }
 
 const REMOVED_ELEMENTS: &[&str] = &[
-	"script", "iframe", "frame", "frameset", "object", "embed", "applet", "portal", "base",
+	"script", "iframe", "frame", "frameset", "object", "embed", "applet", "portal",
+	"base",
 ];
 const URL_ATTRIBUTES: &[&str] = &["href", "src", "data", "action", "formaction"];
 const DOCUMENT_SCHEMES: &[&str] = &[
@@ -64,9 +65,8 @@ const DOCUMENT_SCHEMES: &[&str] = &[
 	"data:application/xml",
 	"data:image/svg+xml",
 ];
-const DOCUMENT_EXTENSIONS: &[&str] = &[
-	"xhtml", "xht", "html", "htm", "svg", "xsl", "xslt", "mml",
-];
+const DOCUMENT_EXTENSIONS: &[&str] =
+	&["xhtml", "xht", "html", "htm", "svg", "xsl", "xslt", "mml"];
 const DOCUMENT_TYPES: &[&str] = &[
 	"application/xhtml+xml",
 	"text/html",
@@ -163,7 +163,10 @@ fn classify(local: &str, attributes: &[Attribute]) -> Element {
 			}
 		}
 	}
-	if matches!(local, "animate" | "set" | "animatemotion" | "animatetransform") {
+	if matches!(
+		local,
+		"animate" | "set" | "animatemotion" | "animatetransform"
+	) {
 		if let Some(name) = value_of("attributename") {
 			if name == "href" || name == "xlink:href" {
 				return Element::Remove("svg-animation".to_string());
@@ -176,7 +179,10 @@ fn classify(local: &str, attributes: &[Attribute]) -> Element {
 /// Which of an element's attributes go, and why
 fn dropped(local: &str, attribute: &Attribute) -> Option<&'static str> {
 	let key = attribute.local.as_str();
-	if key.len() > 2 && key.starts_with("on") && key.bytes().all(|b| b.is_ascii_alphabetic()) {
+	if key.len() > 2
+		&& key.starts_with("on")
+		&& key.bytes().all(|b| b.is_ascii_alphabetic())
+	{
 		return Some("event-handler");
 	}
 	if key == "srcdoc" {
@@ -188,7 +194,9 @@ fn dropped(local: &str, attribute: &Attribute) -> Option<&'static str> {
 	}
 	if URL_ATTRIBUTES.contains(&key)
 		&& !matches!(local, "img" | "image")
-		&& DOCUMENT_SCHEMES.iter().any(|scheme| url.starts_with(scheme))
+		&& DOCUMENT_SCHEMES
+			.iter()
+			.any(|scheme| url.starts_with(scheme))
 	{
 		return Some("document-address");
 	}
@@ -215,7 +223,11 @@ fn rebuilt(tag: &BytesStart, kept: &[&Attribute], empty: bool) -> Vec<u8> {
 		out.extend_from_slice(&attribute.key);
 		out.push(b'=');
 		// a raw value has the quote it was written with in it never, and the other one at most
-		let quote = if attribute.value.contains(&b'"') { b'\'' } else { b'"' };
+		let quote = if attribute.value.contains(&b'"') {
+			b'\''
+		} else {
+			b'"'
+		};
 		out.push(quote);
 		out.extend_from_slice(&attribute.value);
 		out.push(quote);
@@ -256,7 +268,8 @@ pub fn scan_document(bytes: &[u8], declared_html: bool) -> Outcome {
 					remote_refs,
 				},
 				_ => Outcome::Unstrippable(
-					"what is left of the document still carries active content".to_string(),
+					"what is left of the document still carries active content"
+						.to_string(),
 				),
 			}
 		},
@@ -301,13 +314,20 @@ struct Stripper<'a> {
 impl Stripper<'_> {
 	/// Drops `start..end` of the input (what was kept before it goes out first)
 	fn drop_span(&mut self, start: usize, end: usize) {
-		self.out.extend_from_slice(&self.bytes[self.copied_to..start]);
+		self.out
+			.extend_from_slice(&self.bytes[self.copied_to..start]);
 		self.copied_to = end;
 		self.changed = true;
 	}
 
 	/// One start tag (or empty one). `None`: it can't be read, so the document is not well formed
-	fn tag(&mut self, tag: &BytesStart, empty: bool, start: usize, end: usize) -> Option<()> {
+	fn tag(
+		&mut self,
+		tag: &BytesStart,
+		empty: bool,
+		start: usize,
+		end: usize,
+	) -> Option<()> {
 		let attributes = attributes_of(tag)?;
 		let local = lowercase_local(tag.name().as_ref());
 		match classify(&local, &attributes) {
@@ -333,7 +353,8 @@ impl Stripper<'_> {
 					}
 				}
 				if any_dropped {
-					self.out.extend_from_slice(&self.bytes[self.copied_to..start]);
+					self.out
+						.extend_from_slice(&self.bytes[self.copied_to..start]);
 					self.out.extend_from_slice(&rebuilt(tag, &kept, empty));
 					self.copied_to = end;
 					self.changed = true;
@@ -374,7 +395,9 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 			},
 			Ok(Event::DocType(text)) => {
 				if contains_ignore_case(&text, b"<!entity") {
-					return Outcome::Unstrippable("the document declares entities".to_string());
+					return Outcome::Unstrippable(
+						"the document declares entities".to_string(),
+					);
 				}
 			},
 			Ok(Event::PI(pi)) => {
@@ -441,12 +464,17 @@ fn flattened(lower: &[u8]) -> Vec<u8> {
 					.position(|b| *b == b';')
 					.map(|end| &lower[i + 1..i + 1 + end]);
 				match reference {
-					Some(b"tab" | b"newline" | b"#9" | b"#x9" | b"#10" | b"#xa" | b"#13" | b"#xd") => {
-						i += lower[i + 1..].iter().position(|b| *b == b';').unwrap_or(0) + 2;
+					Some(
+						b"tab" | b"newline" | b"#9" | b"#x9" | b"#10" | b"#xa" | b"#13"
+						| b"#xd",
+					) => {
+						i += lower[i + 1..].iter().position(|b| *b == b';').unwrap_or(0)
+							+ 2;
 					},
 					Some(b"colon" | b"#58" | b"#x3a") => {
 						out.push(b':');
-						i += lower[i + 1..].iter().position(|b| *b == b';').unwrap_or(0) + 2;
+						i += lower[i + 1..].iter().position(|b| *b == b';').unwrap_or(0)
+							+ 2;
 					},
 					_ => {
 						out.push(b'&');
@@ -510,16 +538,18 @@ pub fn looks_active(bytes: &[u8]) -> bool {
 	while i + 4 < lower.len() {
 		if lower[i] == b'o'
 			&& lower[i + 1] == b'n'
-			&& i > 0
-			&& matches!(lower[i - 1], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'"' | b'\'')
-		{
+			&& i > 0 && matches!(
+			lower[i - 1],
+			b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'"' | b'\''
+		) {
 			let mut j = i + 2;
 			while j < lower.len() && lower[j].is_ascii_alphabetic() {
 				j += 1;
 			}
 			if j - (i + 2) >= 2 {
 				let mut k = j;
-				while k < lower.len() && matches!(lower[k], b' ' | b'\t' | b'\n' | b'\r') {
+				while k < lower.len() && matches!(lower[k], b' ' | b'\t' | b'\n' | b'\r')
+				{
 					k += 1;
 				}
 				if lower.get(k) == Some(&b'=') {
@@ -566,7 +596,10 @@ mod tests {
 	#[test]
 	fn a_clean_page_is_left_alone() {
 		let doc = page("<p class='a' id=\"b\">Hello <a href=\"x.xhtml#n\">there</a></p><img src=\"c.png\"/>");
-		assert_eq!(scan_document(&doc, false), Outcome::Clean { remote_refs: 0 });
+		assert_eq!(
+			scan_document(&doc, false),
+			Outcome::Clean { remote_refs: 0 }
+		);
 	}
 
 	#[test]
@@ -625,7 +658,10 @@ mod tests {
 	fn event_handlers_and_script_addresses_go_and_the_rest_of_the_tag_stays() {
 		let (result, findings) =
 			stripped("<img src=\"a.png\" onerror=\"alert(1)\" alt='say \"hi\"'/><body2 onload=\"x()\"/>");
-		assert!(result.contains("<img src=\"a.png\" alt='say \"hi\"'/>"), "{result}");
+		assert!(
+			result.contains("<img src=\"a.png\" alt='say \"hi\"'/>"),
+			"{result}"
+		);
 		assert!(!result.contains("onerror") && !result.contains("onload"));
 		assert_eq!(findings.get("event-handler"), Some(&2));
 		for url in [
@@ -661,7 +697,9 @@ mod tests {
 		let doc = "<?xml version=\"1.0\"?><?xml-stylesheet type=\"text/xsl\" href=\"x.xsl\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"/>";
 		match scan_document(doc.as_bytes(), false) {
 			Outcome::Found { stripped, .. } => {
-				assert!(!String::from_utf8(stripped).unwrap().contains("xml-stylesheet"))
+				assert!(!String::from_utf8(stripped)
+					.unwrap()
+					.contains("xml-stylesheet"))
 			},
 			other => panic!("{other:?}"),
 		}
@@ -676,7 +714,10 @@ mod tests {
 		));
 		// an ordinary DOCTYPE is not
 		let ok = "<?xml version=\"1.0\"?><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\"><html xmlns=\"http://www.w3.org/1999/xhtml\"><body/></html>";
-		assert!(matches!(scan_document(ok.as_bytes(), false), Outcome::Clean { .. }));
+		assert!(matches!(
+			scan_document(ok.as_bytes(), false),
+			Outcome::Clean { .. }
+		));
 	}
 
 	#[test]
@@ -711,7 +752,10 @@ mod tests {
 	#[test]
 	fn a_page_declared_as_html_is_held_to_its_bytes() {
 		let sneaky = page("<a href=\"java&Tab;script&colon;alert(1)\">x</a>");
-		assert!(matches!(scan_document(&sneaky, true), Outcome::Unstrippable(_)));
+		assert!(matches!(
+			scan_document(&sneaky, true),
+			Outcome::Unstrippable(_)
+		));
 		let fine = page("<p>hello</p>");
 		assert!(matches!(scan_document(&fine, true), Outcome::Clean { .. }));
 	}
@@ -719,7 +763,10 @@ mod tests {
 	#[test]
 	fn remote_resources_are_counted_and_kept() {
 		let doc = page("<img src=\"https://example.com/a.png\"/><a href=\"https://example.com\">link</a><link href=\"//cdn.example/x.css\"/>");
-		assert_eq!(scan_document(&doc, false), Outcome::Clean { remote_refs: 2 });
+		assert_eq!(
+			scan_document(&doc, false),
+			Outcome::Clean { remote_refs: 2 }
+		);
 	}
 
 	#[test]
@@ -734,7 +781,11 @@ mod tests {
 			body.push_str("</div>");
 		}
 		let (result, _) = stripped(&body);
-		assert!(result.contains("text") && !result.contains("inner") && !result.contains("script"));
+		assert!(
+			result.contains("text")
+				&& !result.contains("inner")
+				&& !result.contains("script")
+		);
 		assert!(matches!(
 			scan_document(result.as_bytes(), false),
 			Outcome::Clean { .. }

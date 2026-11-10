@@ -246,6 +246,10 @@ pub struct IntakeFile {
 	pub volume: Option<f64>,
 	/// The title read from this file (volumes may carry their own)
 	pub title: Option<String>,
+	/// What the isolated checker said of this file (its verdict, as the server stored it): the
+	/// server reads none of the bytes of a book from somebody who needs approval, it uses this
+	#[graphql(skip)]
+	pub screening: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, FromJsonQueryResult)]

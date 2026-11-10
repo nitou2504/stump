@@ -2907,3 +2907,237 @@ async fn test_the_reason_a_book_was_not_filed_says_nothing_of_the_library() {
 		"{hers:#}"
 	);
 }
+
+// ------------------------------------------------------------------------------------------
+// The isolated checker, with the real binary: `stump intake-probe run` is started as a child of
+// the test, so what is proved is the process boundary and not only the code on either side of it.
+// ------------------------------------------------------------------------------------------
+
+/// a server whose friends' books are read by the checker (a child process of the real binary)
+async fn sandboxed_world() -> World {
+	world_with(|c| {
+		c.intake_probe_mode = "subprocess".to_string();
+		c.intake_probe_exe = Some(env!("CARGO_BIN_EXE_stump_server").to_string());
+		c.intake_probe_timeout_secs = 60;
+	})
+	.await
+}
+
+const CHECKED_CONTAINER: &str = r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
+const CHECKED_CHAPTER: &str = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head><body><p>hello there</p><script>document.title = 'x'</script><img src="a.png" onerror="alert(1)"/></body></html>"#;
+
+fn scripted_epub(title: &str) -> Vec<u8> {
+	let opf = format!(
+		r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:{title}</dc:identifier><dc:title>{title}</dc:title><dc:creator>Eco, Umberto</dc:creator><dc:language>en</dc:language><dc:description>&lt;img src=x onerror=alert(1)&gt; a plain sentence</dc:description></metadata><manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>"#
+	);
+	zip_bytes(&[
+		("mimetype", "application/epub+zip"),
+		("META-INF/container.xml", CHECKED_CONTAINER),
+		("OEBPS/content.opf", &opf),
+		("OEBPS/c1.xhtml", CHECKED_CHAPTER),
+	])
+}
+
+fn spool_out(world: &World) -> PathBuf {
+	world.config_dir.join("workers/intake/out")
+}
+
+/// a friend's book is read by the checker, never by the server: what the server shows is what the
+/// checker said, and what is filed is the file the checker made
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_book_is_read_by_the_checker_and_filed_from_what_it_made() {
+	let world = sandboxed_world().await;
+	let id = world.ana_uploads("El nombre de la rosa").await;
+	let items = world.ana_items().await;
+	let item = &items[0];
+	assert_eq!(item["id"], id);
+	assert!(
+		matches!(item["state"].as_str(), Some("NEEDS_REVIEW" | "READY")),
+		"{item:#}"
+	);
+	// the same card as when the server reads the book itself
+	assert_eq!(item["proposal"]["metadata"]["title"], "El nombre de la rosa", "{item:#}");
+	assert!(item["destination"].is_null() && item["decision"]["folder"] == "");
+	// what the checker said is kept in the file: the server asks once
+	let row = world.row(&id).await;
+	let screening = row.files.0[0].screening.clone().expect("a verdict is kept");
+	assert_eq!(screening["verdict"]["status"], "ok");
+	assert!(row.files.0[0].hash.is_some(), "the hash is the checker's");
+
+	let response = world.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] })).await;
+	assert_ok(&response);
+	let response = world.as_owner(APPROVE, json!({ "ids": [id] })).await;
+	assert_ok(&response);
+	let row = world.wait_for(&id, IntakeState::Filed).await;
+	assert!(row.error.is_none(), "{:?}", row.error);
+	let target = world
+		.library_dir
+		.join("Umberto_Eco/El_nombre_de_la_rosa.epub");
+	assert!(target.exists(), "filed in its author folder");
+	// what the checker made for it is gone from the spool
+	let leftovers: Vec<_> = fs::read_dir(spool_out(&world))
+		.into_iter()
+		.flatten()
+		.flatten()
+		.collect();
+	assert!(leftovers.is_empty(), "the spool is cleaned: {leftovers:?}");
+}
+
+/// the scripts of a friend's EPUB are taken out and nothing else, and the file that is filed is a
+/// canonical zip with a plain description
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_epub_is_filed_without_its_scripts() {
+	let world = sandboxed_world().await;
+	let sent = scripted_epub("A Scripted Book");
+	let response = post_upload(
+		&world.app,
+		Some(&world.vis.ana.token),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("Scripted.epub", sent.clone()),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	let items = world.ana_items().await;
+	let item = &items[0];
+	assert!(
+		matches!(item["state"].as_str(), Some("NEEDS_REVIEW" | "READY")),
+		"{item:#}"
+	);
+	// she and the approver are told what will be taken out
+	let warnings = item["proposal"]["warnings"].to_string();
+	assert!(warnings.contains("will be removed"), "{warnings}");
+	// the staged file is exactly what she sent: the server did not touch it
+	let row = world.row(&id).await;
+	let staged = PathBuf::from(&row.staging_dir).join(&row.files.0[0].staged_name);
+	assert_eq!(fs::read(&staged).unwrap(), sent);
+
+	assert_ok(&world.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] })).await);
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	let row = world.wait_for(&id, IntakeState::Filed).await;
+	assert!(row.error.is_none(), "{:?}", row.error);
+	let filed = files_with(&world.library_dir, "epub")
+		.into_iter()
+		.find(|p| p.to_string_lossy().contains("Umberto_Eco"))
+		.expect("the book is filed");
+	let mut zip = zip::ZipArchive::new(fs::File::open(&filed).unwrap()).unwrap();
+	let mut chapter = String::new();
+	std::io::Read::read_to_string(&mut zip.by_name("OEBPS/c1.xhtml").unwrap(), &mut chapter).unwrap();
+	assert!(chapter.contains("<p>hello there</p>"), "{chapter}");
+	assert!(!chapter.contains("script") && !chapter.contains("onerror"), "{chapter}");
+	let mut opf = String::new();
+	std::io::Read::read_to_string(&mut zip.by_name("OEBPS/content.opf").unwrap(), &mut opf).unwrap();
+	assert!(!opf.contains("onerror"), "the description is plain text now: {opf}");
+}
+
+/// a zip bomb is refused by the checker without the server reading it, and a book that was
+/// refused is not checked again every time its item is analysed
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friends_zip_bomb_is_refused_and_not_checked_again() {
+	let world = sandboxed_world().await;
+	let mut bomb = zip::ZipWriter::new(std::io::Cursor::new(vec![]));
+	std::io::Write::flush(&mut std::io::sink()).ok();
+	bomb.start_file(
+		"001.png",
+		zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+	)
+	.unwrap();
+	std::io::Write::write_all(&mut bomb, &vec![0u8; 24 * 1024 * 1024]).unwrap();
+	let bytes = bomb.finish().unwrap().into_inner();
+	assert!(bytes.len() < 1024 * 1024, "a few KiB of file for 24 MB of nothing");
+	let response = post_upload(
+		&world.app,
+		Some(&world.vis.ana.token),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("bomb.cbz", bytes),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	let row = world.wait_for(&id, IntakeState::Failed).await;
+	let error = row.error.clone().unwrap_or_default();
+	assert!(error.contains("not accepted"), "{error}");
+	let first = row.files.0[0].screening.clone().expect("the refusal is kept");
+	assert_eq!(first["verdict"]["status"], "reject");
+	assert_eq!(first["verdict"]["reasons"][0]["code"], "RATIO");
+	// analysing it again asks nobody: the refusal stands, and is the same one
+	assert_ok(&world.gql(&world.vis.ana.token, REANALYSE, json!({ "id": id })).await);
+	let again = world.wait_for(&id, IntakeState::Failed).await;
+	assert_eq!(again.files.0[0].screening, row.files.0[0].screening);
+	assert!(fs::read_dir(world.config_dir.join("workers/intake/done"))
+		.map(|d| d.count() == 0)
+		.unwrap_or(true));
+}
+
+/// when the checker is not there, a friend can't upload (and is told so), and a zip of books is not
+/// opened for them: books are uploaded one by one
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_friend_cannot_upload_when_the_checker_is_offline_or_a_pack() {
+	let queued = world_with(|c| c.intake_probe_mode = "queue".to_string()).await;
+	let response = post_upload(
+		&queued.app,
+		Some(&queued.vis.ana.token),
+		&queued.library.id,
+		None,
+		&UploadBody::new().file("a.epub", queued.epub("A", "B")),
+	)
+	.await;
+	assert_eq!(response.status_code(), 503, "{}", response.text());
+	assert!(message(&response).contains("offline"), "{}", message(&response));
+	let limits = queued.gql(&queued.vis.ana.token, LIMITS, json!({})).await;
+	assert_ok(&limits);
+	assert_eq!(limits["data"]["intakeUploadLimits"]["uploadsOpen"], false, "{limits:#}");
+	// a checker that is beating is there
+	let spool = queued.config_dir.join("workers/intake");
+	fs::create_dir_all(&spool).unwrap();
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.unwrap()
+		.as_secs();
+	fs::write(
+		spool.join("worker.json"),
+		json!({"version": stump_core::intake::probe::contract::probe_revision(), "updated": now, "busy": false})
+			.to_string(),
+	)
+	.unwrap();
+	let limits = queued.gql(&queued.vis.ana.token, LIMITS, json!({})).await;
+	assert_eq!(limits["data"]["intakeUploadLimits"]["uploadsOpen"], true, "{limits:#}");
+
+	let sandboxed = sandboxed_world().await;
+	let pack = zip_bytes(&[("a.epub", "x"), ("b.epub", "y")]);
+	let response = post_upload(
+		&sandboxed.app,
+		Some(&sandboxed.vis.ana.token),
+		&sandboxed.library.id,
+		None,
+		&UploadBody::new().file("pack.zip", pack),
+	)
+	.await;
+	assert_eq!(response.status_code(), 415, "{}", response.text());
+	assert!(message(&response).contains("books themselves"), "{}", message(&response));
+	// the formats Stump has no reader for are said as what they are
+	for name in ["a.cb7", "a.cbt", "a.7z"] {
+		let response = post_upload(
+			&sandboxed.app,
+			Some(&sandboxed.vis.ana.token),
+			&sandboxed.library.id,
+			None,
+			&UploadBody::new().file(name, b"x".to_vec()),
+		)
+		.await;
+		assert_eq!(response.status_code(), 415, "{name}: {}", response.text());
+		assert!(
+			message(&response).contains(&format!("can't read .{}", &name[2..])),
+			"{}",
+			message(&response)
+		);
+	}
+}

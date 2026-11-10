@@ -18,8 +18,8 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use super::{
 	check::{self, check_cbr, check_cbz, check_epub, is_hidden, is_image_name},
 	contract::{
-		code, probe_revision, ActiveContent, ActiveSummary, Book, BookMetadata, Kind, Output, Reason,
-		Request, Status, Usage, Verdict, CONTRACT_VERSION,
+		code, probe_revision, ActiveContent, ActiveSummary, Book, BookMetadata, Kind,
+		Output, Reason, Request, Status, Usage, Verdict, CONTRACT_VERSION,
 	},
 	zipscan,
 };
@@ -90,7 +90,9 @@ fn sniff(path: &Path) -> Result<Container, Reason> {
 		.map_err(io_reason)?;
 	if head.starts_with(b"PK\x03\x04") {
 		Ok(Container::Zip)
-	} else if head.starts_with(b"Rar!\x1A\x07\x00") || head.starts_with(b"Rar!\x1A\x07\x01\x00") {
+	} else if head.starts_with(b"Rar!\x1A\x07\x00")
+		|| head.starts_with(b"Rar!\x1A\x07\x01\x00")
+	{
 		Ok(Container::Rar)
 	} else if head.windows(5).any(|w| w == b"%PDF-") {
 		Ok(Container::Pdf)
@@ -131,7 +133,9 @@ fn inspect(
 	// the name says what it says; what the file is, is what decides. A comic called `.cbr` that is
 	// a zip is a CBZ, and the other way round; a PDF is never anything else
 	match (extension_class(&request.name), container) {
-		("pdf", Container::Pdf) | ("zip", Container::Zip) | ("rar-or-zip", Container::Rar | Container::Zip) => {},
+		("pdf", Container::Pdf)
+		| ("zip", Container::Zip)
+		| ("rar-or-zip", Container::Rar | Container::Zip) => {},
 		("", _) => {},
 		_ => {
 			return Err(fail(
@@ -153,13 +157,27 @@ fn inspect(
 			book.entries = report.files;
 			book.unpacked_bytes = report.unpacked_bytes;
 			book.max_entry_bytes = report.max_entry_bytes;
-			if report.entries.iter().any(|e| e.name == "META-INF/container.xml") {
-				let facts = check_epub(path, &report, &limits, request.active_content, approver, replacements)?;
+			if report
+				.entries
+				.iter()
+				.any(|e| e.name == "META-INF/container.xml")
+			{
+				let facts = check_epub(
+					path,
+					&report,
+					&limits,
+					request.active_content,
+					approver,
+					replacements,
+				)?;
 				warnings.extend(facts.warnings);
 				book.active_content = facts.active;
 				"epub"
 			} else if request.name.to_ascii_lowercase().ends_with(".epub") {
-				return Err(fail(code::NO_PACKAGE, "The book has no META-INF/container.xml"));
+				return Err(fail(
+					code::NO_PACKAGE,
+					"The book has no META-INF/container.xml",
+				));
 			} else {
 				let facts = check_cbz(path, &report, &limits)?;
 				warnings.extend(facts.warnings);
@@ -196,7 +214,11 @@ fn inspect(
 	let processed = match processed {
 		Ok(processed) => processed,
 		Err(error) => {
-			let code = if format == "pdf" { code::PDF_UNREADABLE } else { code::UNREADABLE };
+			let code = if format == "pdf" {
+				code::PDF_UNREADABLE
+			} else {
+				code::UNREADABLE
+			};
 			return Err(fail(code, format!("Stump can't read the book: {error}")));
 		},
 	};
@@ -214,7 +236,10 @@ fn inspect(
 		// the check counted the pages one way and Stump's reader another: they must agree
 		warnings.push(fail(
 			code::PAGE_COUNT,
-			format!("The check counted {} pages and Stump's reader {}", book.pages, processed.pages),
+			format!(
+				"The check counted {} pages and Stump's reader {}",
+				book.pages, processed.pages
+			),
 		));
 	}
 	book.stump_hash = processed.hash;
@@ -240,14 +265,20 @@ fn rebuild_epub(path: &Path, replacements: Vec<(String, Vec<u8>)>) -> Result<(),
 			for (name, bytes) in &replacements {
 				writer.start_file(
 					name.as_str(),
-					SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+					SimpleFileOptions::default()
+						.compression_method(CompressionMethod::Deflated),
 				)?;
 				writer.write_all(bytes)?;
 			}
 			Ok(())
 		},
 	)
-	.map_err(|e| fail(code::OUTPUT_CHECK_FAILED, format!("The book could not be rebuilt: {e}")))?;
+	.map_err(|e| {
+		fail(
+			code::OUTPUT_CHECK_FAILED,
+			format!("The book could not be rebuilt: {e}"),
+		)
+	})?;
 	std::fs::rename(&tmp, path).map_err(io_reason)
 }
 
@@ -256,7 +287,10 @@ fn rebuild_epub(path: &Path, replacements: Vec<(String, Vec<u8>)>) -> Result<(),
 fn cbr_to_cbz(input: &Path, output: &Path, request: &Request) -> Result<(), Reason> {
 	let limits = request.limits.clamped();
 	let unreadable = |error: unrar::error::UnrarError| {
-		fail(code::UNREADABLE, format!("The RAR file can't be read: {error}"))
+		fail(
+			code::UNREADABLE,
+			format!("The RAR file can't be read: {error}"),
+		)
 	};
 	let mut writer = ZipWriter::new(File::create(output).map_err(io_reason)?);
 	let mut archive = unrar::Archive::new(input)
@@ -280,11 +314,17 @@ fn cbr_to_cbz(input: &Path, output: &Path, request: &Request) -> Result<(), Reas
 		let (data, next) = header.read().map_err(unreadable)?;
 		archive = next;
 		if data.len() as u64 > declared {
-			return Err(fail(code::SIZE_MISMATCH, "An entry holds more than it says"));
+			return Err(fail(
+				code::SIZE_MISMATCH,
+				"An entry holds more than it says",
+			));
 		}
 		written = written.saturating_add(data.len() as u64);
 		if written > limits.max_unpacked_bytes {
-			return Err(fail(code::UNPACKED_TOO_LARGE, "The archive unpacks to too much"));
+			return Err(fail(
+				code::UNPACKED_TOO_LARGE,
+				"The archive unpacks to too much",
+			));
 		}
 		let method = if is_image_name(&name) {
 			CompressionMethod::Stored
@@ -292,7 +332,10 @@ fn cbr_to_cbz(input: &Path, output: &Path, request: &Request) -> Result<(), Reas
 			CompressionMethod::Deflated
 		};
 		writer
-			.start_file(name.as_str(), SimpleFileOptions::default().compression_method(method))
+			.start_file(
+				name.as_str(),
+				SimpleFileOptions::default().compression_method(method),
+			)
 			.map_err(|e| fail(code::OUTPUT_CHECK_FAILED, e.to_string()))?;
 		writer.write_all(&data).map_err(io_reason)?;
 	}
@@ -324,7 +367,10 @@ fn file_job(
 	let _ = std::fs::remove_file(&out_path);
 	let meta: &FileMetadata = &job.metadata;
 	let wrote = |error: crate::intake::write::WriteError| {
-		fail(code::OUTPUT_CHECK_FAILED, format!("The metadata could not be written: {error}"))
+		fail(
+			code::OUTPUT_CHECK_FAILED,
+			format!("The metadata could not be written: {error}"),
+		)
 	};
 	match format.as_str() {
 		"epub" => {
@@ -361,8 +407,13 @@ fn file_job(
 	// what came out is checked as a file of its own: the same checks, and nothing left to take out
 	let mut as_request = request.clone();
 	as_request.name = format!("book.{out_format}");
-	let mut checked = inspect(&out_path, &as_request, env, runtime, None)
-		.map_err(|reason| fail(code::OUTPUT_CHECK_FAILED, format!("{}: {}", reason.code, reason.detail)))?;
+	let mut checked =
+		inspect(&out_path, &as_request, env, runtime, None).map_err(|reason| {
+			fail(
+				code::OUTPUT_CHECK_FAILED,
+				format!("{}: {}", reason.code, reason.detail),
+			)
+		})?;
 	if format == "epub"
 		&& request.active_content == ActiveContent::Strip
 		&& checked.book.active_content.found > 0
@@ -396,14 +447,16 @@ fn file_job(
 	});
 	// what was found in the input is what the approver is told
 	checked.book.active_content = ActiveSummary {
-		stripped: request.active_content == ActiveContent::Strip && first.book.active_content.found > 0,
+		stripped: request.active_content == ActiveContent::Strip
+			&& first.book.active_content.found > 0,
 		..first.book.active_content.clone()
 	};
 	checked.warnings = first.warnings;
 	if convert {
-		checked
-			.warnings
-			.push(fail(code::CONVERTED_CBR, "The comic was converted from RAR to ZIP"));
+		checked.warnings.push(fail(
+			code::CONVERTED_CBR,
+			"The comic was converted from RAR to ZIP",
+		));
 	}
 	Ok(checked)
 }
@@ -414,12 +467,21 @@ fn valid_request(request: &Request) -> Result<(), Reason> {
 	}
 	if request.id.is_empty()
 		|| request.id.len() > 64
-		|| !request.id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+		|| !request
+			.id
+			.chars()
+			.all(|c| c.is_ascii_hexdigit() || c == '-')
 	{
-		return Err(fail(code::UNREADABLE, "A request with a ticket that is not one"));
+		return Err(fail(
+			code::UNREADABLE,
+			"A request with a ticket that is not one",
+		));
 	}
 	if !super::contract::is_safe_relative(&request.input) {
-		return Err(fail(code::BAD_PATH, "A request with a path that leaves the inbox"));
+		return Err(fail(
+			code::BAD_PATH,
+			"A request with a path that leaves the inbox",
+		));
 	}
 	Ok(())
 }
@@ -441,7 +503,10 @@ pub fn run(request: &Request, env: &Env) -> Verdict {
 		if size > limits.max_file_bytes {
 			return Err(fail(
 				code::ENTRY_TOO_LARGE,
-				format!("The file is larger than the {} MB a book can be", limits.max_file_bytes / MIB),
+				format!(
+					"The file is larger than the {} MB a book can be",
+					limits.max_file_bytes / MIB
+				),
 			));
 		}
 		let runtime = tokio::runtime::Builder::new_current_thread()
@@ -500,7 +565,8 @@ pub(crate) mod tests {
 	impl World {
 		pub(crate) fn stage(&self, name: &str, bytes: &[u8]) -> Request {
 			std::fs::write(self.root.path().join("inbox/u/i").join(name), bytes).unwrap();
-			let (sha256, size) = sha256_of(&self.root.path().join("inbox/u/i").join(name)).unwrap();
+			let (sha256, size) =
+				sha256_of(&self.root.path().join("inbox/u/i").join(name)).unwrap();
 			Request {
 				v: CONTRACT_VERSION,
 				id: "0123abcd-0000-4000-8000-000000000001".to_string(),
@@ -534,7 +600,10 @@ pub(crate) mod tests {
 				CompressionMethod::Deflated
 			};
 			writer
-				.start_file(*name, SimpleFileOptions::default().compression_method(method))
+				.start_file(
+					*name,
+					SimpleFileOptions::default().compression_method(method),
+				)
 				.unwrap();
 			writer.write_all(data).unwrap();
 		}
@@ -542,8 +611,12 @@ pub(crate) mod tests {
 	}
 
 	pub(crate) fn epub_with(chapter: &str) -> Vec<u8> {
-		let container = r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
 		let opf = r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:1</dc:identifier><dc:title>A Book</dc:title><dc:creator>Ana Writer</dc:creator><dc:language>en</dc:language><dc:description>It has &lt;b&gt;markup&lt;/b&gt; in it</dc:description></metadata><manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>"#;
+		epub_with_opf(chapter, opf)
+	}
+
+	pub(crate) fn epub_with_opf(chapter: &str, opf: &str) -> Vec<u8> {
+		let container = r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
 		zip(&[
 			("mimetype", b"application/epub+zip".to_vec()),
 			("META-INF/container.xml", container.as_bytes().to_vec()),
@@ -580,10 +653,16 @@ pub(crate) mod tests {
 		let world = world();
 		let mut request = world.stage("book.epub", &epub_with(CLEAN));
 		request.sha256 = "0".repeat(64);
-		assert_eq!(run(&request, &world.env).reasons[0].code, code::INPUT_CHANGED);
+		assert_eq!(
+			run(&request, &world.env).reasons[0].code,
+			code::INPUT_CHANGED
+		);
 		let mut request = world.stage("book2.epub", &epub_with(CLEAN));
 		request.size += 1;
-		assert_eq!(run(&request, &world.env).reasons[0].code, code::INPUT_CHANGED);
+		assert_eq!(
+			run(&request, &world.env).reasons[0].code,
+			code::INPUT_CHANGED
+		);
 		// and requests that leave the inbox
 		let mut request = world.stage("book3.epub", &epub_with(CLEAN));
 		request.input = "../outside".to_string();
@@ -594,15 +673,29 @@ pub(crate) mod tests {
 	fn a_name_that_lies_about_the_file_is_refused() {
 		let world = world();
 		let request = world.stage("book.pdf", &epub_with(CLEAN));
-		assert_eq!(run(&request, &world.env).reasons[0].code, code::TYPE_MISMATCH);
-		let request = world.stage("book.epub", b"hello, this is not a book at all, really");
-		assert_eq!(run(&request, &world.env).reasons[0].code, code::TYPE_MISMATCH);
+		assert_eq!(
+			run(&request, &world.env).reasons[0].code,
+			code::TYPE_MISMATCH
+		);
+		let request =
+			world.stage("book.epub", b"hello, this is not a book at all, really");
+		assert_eq!(
+			run(&request, &world.env).reasons[0].code,
+			code::TYPE_MISMATCH
+		);
 	}
 
 	#[test]
 	fn a_comic_is_screened_and_its_pages_counted_the_same_way_stump_does() {
 		let world = world();
-		let bytes = zip(&[("001.png", png(30, 40)), ("002.png", png(30, 40)), ("ComicInfo.xml", b"<ComicInfo><Series>S</Series><Number>2</Number></ComicInfo>".to_vec())]);
+		let bytes = zip(&[
+			("001.png", png(30, 40)),
+			("002.png", png(30, 40)),
+			(
+				"ComicInfo.xml",
+				b"<ComicInfo><Series>S</Series><Number>2</Number></ComicInfo>".to_vec(),
+			),
+		]);
 		// a cbr that is a zip is a cbz
 		let request = world.stage("Series 02.cbr", &bytes);
 		let verdict = run(&request, &world.env);
@@ -626,7 +719,12 @@ pub(crate) mod tests {
 		assert!(!world.env.out_dir.join("000.cbz").exists());
 	}
 
-	fn file_request(world: &World, name: &str, bytes: &[u8], metadata: FileMetadata) -> Request {
+	fn file_request(
+		world: &World,
+		name: &str,
+		bytes: &[u8],
+		metadata: FileMetadata,
+	) -> Request {
 		let mut request = world.stage(name, bytes);
 		request.kind = Kind::File;
 		request.file = Some(FileJob { metadata });
@@ -634,9 +732,20 @@ pub(crate) mod tests {
 	}
 
 	fn out_file(world: &World, verdict: &Verdict) -> PathBuf {
-		let output = verdict.book.as_ref().unwrap().output.as_ref().expect("an output");
-		assert!(output.path.starts_with("0123abcd-0000-4000-8000-000000000001/000."));
-		world.env.out_dir.join(output.path.rsplit('/').next().unwrap())
+		let output = verdict
+			.book
+			.as_ref()
+			.unwrap()
+			.output
+			.as_ref()
+			.expect("an output");
+		assert!(output
+			.path
+			.starts_with("0123abcd-0000-4000-8000-000000000001/000."));
+		world
+			.env
+			.out_dir
+			.join(output.path.rsplit('/').next().unwrap())
 	}
 
 	#[test]
@@ -656,17 +765,32 @@ pub(crate) mod tests {
 		assert!(book.active_content.stripped && book.active_content.found == 2);
 		let out = out_file(&world, &verdict);
 		let bytes = std::fs::read(&out).unwrap();
-		assert_eq!(sha256_of(&out).unwrap().0, book.output.as_ref().unwrap().sha256);
+		assert_eq!(
+			sha256_of(&out).unwrap().0,
+			book.output.as_ref().unwrap().sha256
+		);
 		// the file that came out carries the new title, the plain description, and no script
 		let (title, text) = {
 			let mut archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
-			let opf = bounded::read_to_string_capped(archive.by_name("OEBPS/content.opf").unwrap(), MIB).unwrap();
-			let page = bounded::read_to_string_capped(archive.by_name("OEBPS/c1.xhtml").unwrap(), MIB).unwrap();
+			let opf = bounded::read_to_string_capped(
+				archive.by_name("OEBPS/content.opf").unwrap(),
+				MIB,
+			)
+			.unwrap();
+			let page = bounded::read_to_string_capped(
+				archive.by_name("OEBPS/c1.xhtml").unwrap(),
+				MIB,
+			)
+			.unwrap();
 			(opf, page)
 		};
 		assert!(title.contains("Filed Title") && title.contains("A plain description"));
 		assert!(!title.contains("markup"));
-		assert!(!text.to_lowercase().contains("script") && !text.contains("onerror") && text.contains("<p>hello</p>"));
+		assert!(
+			!text.to_lowercase().contains("script")
+				&& !text.contains("onerror")
+				&& text.contains("<p>hello</p>")
+		);
 		// and it passes the checks as a file of its own, with the structure of one Stump wrote
 		let again = world.stage("again.epub", &bytes);
 		let screened = run(&again, &world.env);
@@ -678,7 +802,12 @@ pub(crate) mod tests {
 	fn a_book_with_a_script_it_cannot_clean_is_not_made() {
 		let world = world();
 		let sneaky = r#"<html><body><p>one<img src=x onerror=alert(1)></body>"#;
-		let request = file_request(&world, "book.epub", &epub_with(sneaky), FileMetadata::default());
+		let request = file_request(
+			&world,
+			"book.epub",
+			&epub_with(sneaky),
+			FileMetadata::default(),
+		);
 		let verdict = run(&request, &world.env);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
@@ -705,7 +834,130 @@ pub(crate) mod tests {
 		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
 		let out = out_file(&world, &verdict);
 		let mut archive = zip::ZipArchive::new(File::open(out).unwrap()).unwrap();
-		let info = bounded::read_to_string_capped(archive.by_name("ComicInfo.xml").unwrap(), MIB).unwrap();
+		let info = bounded::read_to_string_capped(
+			archive.by_name("ComicInfo.xml").unwrap(),
+			MIB,
+		)
+		.unwrap();
 		assert!(info.contains("<Series>Series</Series>") && !info.contains("script"));
+	}
+
+	#[test]
+	fn a_book_with_odd_dates_a_huge_id_and_many_creators_is_made_without_aborting() {
+		let world = world();
+		// dates in scripts the date readers slice by bytes, three hundred creators that each
+		// refine something, and an id of a hundred thousand characters (a pattern built from it
+		// would not compile): none of it may stop the checker
+		let mut creators = String::new();
+		for i in 0..300 {
+			creators.push_str(&format!(
+				r##"<dc:creator id="c{i}">Author {i}</dc:creator><meta refines="#c{i}" property="role">aut</meta>"##
+			));
+		}
+		creators.push_str(&format!(
+			r#"<dc:creator id="{}">Big</dc:creator>"#,
+			"x".repeat(100_000)
+		));
+		let opf = format!(
+			r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">1</dc:identifier><dc:title>T</dc:title><dc:date>日本語</dc:date><dc:date>20201é</dc:date><dc:language>ja</dc:language>{creators}</metadata><manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>"#
+		);
+		let bytes = epub_with_opf(CLEAN, &opf);
+		let started = Instant::now();
+		let screened = run(&world.stage("odd.epub", &bytes), &world.env);
+		assert_eq!(screened.status, Status::Ok, "{:?}", screened.reasons);
+		let meta = FileMetadata {
+			title: Some("Filed".to_string()),
+			authors: vec!["Somebody".to_string()],
+			..FileMetadata::default()
+		};
+		let made = run(&file_request(&world, "odd2.epub", &bytes, meta), &world.env);
+		assert_eq!(made.status, Status::Ok, "{:?}", made.reasons);
+		assert!(started.elapsed().as_secs() < 60);
+	}
+
+	/// Not run by default: what the checks make of a real library (`STUMP_PROBE_CALIBRATE_DIR`, a
+	/// folder of EPUBs and comics; `STUMP_PROBE_CALIBRATE_MAX` files, evenly spread). A book of
+	/// the owner's that is refused for no good reason is a check that is too strict.
+	#[test]
+	#[ignore]
+	fn calibration_on_a_real_library() {
+		let Ok(dir) = std::env::var("STUMP_PROBE_CALIBRATE_DIR") else {
+			return;
+		};
+		let max: usize = std::env::var("STUMP_PROBE_CALIBRATE_MAX")
+			.ok()
+			.and_then(|v| v.parse().ok())
+			.unwrap_or(100);
+		let mut found: Vec<PathBuf> = walkdir::WalkDir::new(&dir)
+			.into_iter()
+			.flatten()
+			.filter(|e| e.file_type().is_file())
+			.map(|e| e.into_path())
+			.filter(|p| {
+				p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+					matches!(e.to_ascii_lowercase().as_str(), "epub" | "cbz")
+				})
+			})
+			.collect();
+		found.sort();
+		let step = (found.len() / max.max(1)).max(1);
+		let sample: Vec<&PathBuf> = found.iter().step_by(step).take(max).collect();
+		let out = tempfile::tempdir().unwrap();
+		let env = Env {
+			intake_root: PathBuf::from(&dir),
+			out_dir: out.path().join("out"),
+			config: StumpConfig {
+				config_dir: out.path().join("config").to_string_lossy().into_owned(),
+				..StumpConfig::default()
+			},
+		};
+		let (mut passed, mut refused) = (0usize, 0usize);
+		let mut by_code: std::collections::BTreeMap<String, usize> = Default::default();
+		let mut slowest = (0u64, String::new());
+		for path in &sample {
+			let relative = path
+				.strip_prefix(&dir)
+				.unwrap()
+				.to_string_lossy()
+				.into_owned();
+			let (sha256, size) = sha256_of(path).unwrap();
+			let request = Request {
+				v: CONTRACT_VERSION,
+				id: "0123abcd-0000-4000-8000-000000000001".to_string(),
+				kind: Kind::Screen,
+				input: relative.clone(),
+				name: path.file_name().unwrap().to_string_lossy().into_owned(),
+				size,
+				sha256,
+				limits: Limits::default(),
+				approver: false,
+				active_content: ActiveContent::Strip,
+				cbr_to_cbz: true,
+				file: None,
+			};
+			let verdict = run(&request, &env);
+			if verdict.usage.wall_ms > slowest.0 {
+				slowest = (verdict.usage.wall_ms, relative.clone());
+			}
+			if verdict.status == Status::Ok {
+				passed += 1;
+			} else {
+				refused += 1;
+				let reason = verdict
+					.reasons
+					.first()
+					.cloned()
+					.unwrap_or_else(|| Reason::new("?", "?"));
+				*by_code.entry(reason.code.clone()).or_default() += 1;
+				println!("REFUSED {relative}: {} {}", reason.code, reason.detail);
+			}
+		}
+		println!(
+			"calibration: {} of {} files checked, {passed} pass, {refused} refused {by_code:?}; slowest {} ms ({})",
+			sample.len(),
+			found.len(),
+			slowest.0,
+			slowest.1
+		);
 	}
 }

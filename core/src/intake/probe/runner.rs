@@ -185,7 +185,11 @@ fn child_main(request_file: Option<&String>, out_dir: Option<&String>) -> i32 {
 		json = serde_json::to_vec(&verdict).unwrap_or_default();
 	}
 	let mut stdout = std::io::stdout().lock();
-	if stdout.write_all(&json).and_then(|_| stdout.flush()).is_err() {
+	if stdout
+		.write_all(&json)
+		.and_then(|_| stdout.flush())
+		.is_err()
+	{
 		return 4;
 	}
 	0
@@ -254,7 +258,13 @@ fn spawn_child(
 		.stdin(Stdio::null())
 		.stdout(Stdio::piped())
 		.stderr(Stdio::null());
-	for name in ["PDFIUM_PATH", "MALLOC_CONF", "_RJEM_MALLOC_CONF", "TMPDIR", "LIBC_LOCALE"] {
+	for name in [
+		"PDFIUM_PATH",
+		"MALLOC_CONF",
+		"_RJEM_MALLOC_CONF",
+		"TMPDIR",
+		"LIBC_LOCALE",
+	] {
 		if let Ok(value) = std::env::var(name) {
 			command.env(name, value);
 		}
@@ -284,10 +294,15 @@ fn spawn_child(
 	let started = Instant::now();
 	let mut child = command.spawn()?;
 	let pid = child.id() as i32;
-	let mut stdout = child.stdout.take().ok_or_else(|| std::io::Error::other("no stdout"))?;
+	let mut stdout = child
+		.stdout
+		.take()
+		.ok_or_else(|| std::io::Error::other("no stdout"))?;
 	let reader = std::thread::spawn(move || {
 		let mut buf = Vec::new();
-		let _ = (&mut stdout).take(MAX_VERDICT_BYTES + 1).read_to_end(&mut buf);
+		let _ = (&mut stdout)
+			.take(MAX_VERDICT_BYTES + 1)
+			.read_to_end(&mut buf);
 		// what is left is read and thrown away, so the child is never stuck on a full pipe
 		let _ = std::io::copy(&mut stdout, &mut std::io::sink());
 		buf
@@ -333,72 +348,80 @@ fn verdict_of(request: &Request, ended: Ended, mem_mb: u64, wall: Duration) -> V
 		cpu_ms: ended.cpu_ms,
 		wall_ms: wall.as_millis() as u64,
 	};
-	let mut verdict = if ended.killed_by_us {
-		Verdict::rejected(
-			request,
-			vec![Reason::new(
-				code::TIMEOUT,
-				"Checking the book took longer than it may",
-			)],
-		)
-	} else if libc::WIFSIGNALED(ended.status) {
-		let signal = libc::WTERMSIG(ended.status);
-		let heavy = ended.peak_rss_kb.saturating_mul(1024) >= mem_mb.saturating_mul(MIB) / 10 * 9;
-		if heavy || signal == libc::SIGXCPU {
+	let mut verdict =
+		if ended.killed_by_us {
 			Verdict::rejected(
 				request,
 				vec![Reason::new(
-					code::TOO_DEMANDING,
-					"The book needs more memory or time to check than a book may",
+					code::TIMEOUT,
+					"Checking the book took longer than it may",
 				)],
 			)
-		} else if signal == libc::SIGKILL {
-			// killed by something that is not us: the host was short of memory
-			let mut retry = Verdict::rejected(request, vec![]);
-			retry.status = Status::Retry;
-			retry
+		} else if libc::WIFSIGNALED(ended.status) {
+			let signal = libc::WTERMSIG(ended.status);
+			let heavy = ended.peak_rss_kb.saturating_mul(1024)
+				>= mem_mb.saturating_mul(MIB) / 10 * 9;
+			if heavy || signal == libc::SIGXCPU {
+				Verdict::rejected(
+					request,
+					vec![Reason::new(
+						code::TOO_DEMANDING,
+						"The book needs more memory or time to check than a book may",
+					)],
+				)
+			} else if signal == libc::SIGKILL {
+				// killed by something that is not us: the host was short of memory
+				let mut retry = Verdict::rejected(request, vec![]);
+				retry.status = Status::Retry;
+				retry
+			} else {
+				Verdict::rejected(
+					request,
+					vec![Reason::new(
+					code::CRASHED,
+					format!("Stump's reader of this kind of file stopped (signal {signal})"),
+				)],
+				)
+			}
+		} else if libc::WIFEXITED(ended.status) && libc::WEXITSTATUS(ended.status) == 0 {
+			if ended.stdout.len() as u64 > MAX_VERDICT_BYTES {
+				Verdict::rejected(
+					request,
+					vec![Reason::new(
+						code::VERDICT_INVALID,
+						"The verdict is too large",
+					)],
+				)
+			} else {
+				match serde_json::from_slice::<Verdict>(&ended.stdout) {
+					Ok(parsed)
+						if parsed.v == CONTRACT_VERSION
+							&& parsed.id == request.id
+							&& parsed.kind == request.kind =>
+					{
+						parsed
+					},
+					_ => Verdict::rejected(
+						request,
+						vec![Reason::new(
+							code::VERDICT_INVALID,
+							"The checker's answer is not a verdict",
+						)],
+					),
+				}
+			}
 		} else {
 			Verdict::rejected(
 				request,
 				vec![Reason::new(
 					code::CRASHED,
-					format!("Stump's reader of this kind of file stopped (signal {signal})"),
+					format!(
+						"The checker stopped (status {})",
+						libc::WEXITSTATUS(ended.status)
+					),
 				)],
 			)
-		}
-	} else if libc::WIFEXITED(ended.status) && libc::WEXITSTATUS(ended.status) == 0 {
-		if ended.stdout.len() as u64 > MAX_VERDICT_BYTES {
-			Verdict::rejected(
-				request,
-				vec![Reason::new(code::VERDICT_INVALID, "The verdict is too large")],
-			)
-		} else {
-			match serde_json::from_slice::<Verdict>(&ended.stdout) {
-				Ok(parsed)
-					if parsed.v == CONTRACT_VERSION
-						&& parsed.id == request.id
-						&& parsed.kind == request.kind =>
-				{
-					parsed
-				},
-				_ => Verdict::rejected(
-					request,
-					vec![Reason::new(
-						code::VERDICT_INVALID,
-						"The checker's answer is not a verdict",
-					)],
-				),
-			}
-		}
-	} else {
-		Verdict::rejected(
-			request,
-			vec![Reason::new(
-				code::CRASHED,
-				format!("The checker stopped (status {})", libc::WEXITSTATUS(ended.status)),
-			)],
-		)
-	};
+		};
 	verdict.probe = probe_revision().to_string();
 	verdict.usage = usage;
 	verdict
@@ -407,7 +430,12 @@ fn verdict_of(request: &Request, ended: Ended, mem_mb: u64, wall: Duration) -> V
 /// Runs one ticket: the child, its limits and its deadline, what it made, and the verdict.
 /// `request_file` is the request on disk, `out` the folder the file jobs leave their files in
 /// (`<out>/<ticket>`, there only if the check passed)
-pub fn run_ticket(spawn: &Spawn, spool: &Spool, request_file: &Path, request: &Request) -> Verdict {
+pub fn run_ticket(
+	spawn: &Spawn,
+	spool: &Spool,
+	request_file: &Path,
+	request: &Request,
+) -> Verdict {
 	let started = Instant::now();
 	let limits = request.limits.clamped();
 	let partial = spool.out().join(format!("{}.partial", request.id));
@@ -417,7 +445,10 @@ pub fn run_ticket(spawn: &Spawn, spool: &Spool, request_file: &Path, request: &R
 	if fs::create_dir_all(&partial).is_err() {
 		return Verdict::rejected(
 			request,
-			vec![Reason::new(code::CRASHED, "The checker's folder can't be made")],
+			vec![Reason::new(
+				code::CRASHED,
+				"The checker's folder can't be made",
+			)],
 		);
 	}
 	// how big the file is decides how long the child may take
@@ -494,13 +525,19 @@ fn process_ticket(spawn: &Spawn, spool: &Spool, ticket: &Path) {
 		.unwrap_or("unknown")
 		.to_string();
 	let mut bytes = vec![];
-	let read = File::open(ticket).and_then(|f| f.take(MAX_REQUEST_BYTES + 1).read_to_end(&mut bytes));
+	let read = File::open(ticket)
+		.and_then(|f| f.take(MAX_REQUEST_BYTES + 1).read_to_end(&mut bytes));
 	let parsed = match read {
-		Ok(_) if bytes.len() as u64 <= MAX_REQUEST_BYTES => serde_json::from_slice::<Request>(&bytes).ok(),
+		Ok(_) if bytes.len() as u64 <= MAX_REQUEST_BYTES => {
+			serde_json::from_slice::<Request>(&bytes).ok()
+		},
 		_ => None,
 	};
 	let verdict = match parsed {
-		Some(request) if request.id == stem && super::contract::is_safe_relative(&request.input) => {
+		Some(request)
+			if request.id == stem
+				&& super::contract::is_safe_relative(&request.input) =>
+		{
 			run_ticket(spawn, spool, ticket, &request)
 		},
 		other => {
@@ -521,7 +558,10 @@ fn process_ticket(spawn: &Spawn, spool: &Spool, ticket: &Path) {
 			});
 			Verdict::rejected(
 				&request,
-				vec![Reason::new(code::UNREADABLE, "The request is not a request")],
+				vec![Reason::new(
+					code::UNREADABLE,
+					"The request is not a request",
+				)],
 			)
 		},
 	};
@@ -591,7 +631,11 @@ fn serve_main(args: &[String]) -> i32 {
 	}
 	if let Ok(entries) = fs::read_dir(spool.out()) {
 		for entry in entries.flatten() {
-			if entry.file_name().to_str().is_some_and(|n| n.ends_with(".partial")) {
+			if entry
+				.file_name()
+				.to_str()
+				.is_some_and(|n| n.ends_with(".partial"))
+			{
 				let _ = fs::remove_dir_all(entry.path());
 			}
 		}
@@ -602,7 +646,8 @@ fn serve_main(args: &[String]) -> i32 {
 		.and_then(|v| v.parse::<u64>().ok())
 		.unwrap_or(256);
 	println!("stump-intake-probe {} ready", probe_revision());
-	let (mut last_beat, mut last_sweep) = (Instant::now() - Duration::from_secs(60), Instant::now());
+	let (mut last_beat, mut last_sweep) =
+		(Instant::now() - Duration::from_secs(60), Instant::now());
 	loop {
 		if last_beat.elapsed().as_secs() >= HEARTBEAT_SECS {
 			write_heartbeat(&spool, false);
@@ -646,7 +691,12 @@ fn selftest(intake: &Path, spool: &Spool) -> bool {
 		};
 		println!("selftest {name}: {word} {detail}");
 	};
-	line("inbox readable", fs::read_dir(intake).is_ok(), true, &intake.display().to_string());
+	line(
+		"inbox readable",
+		fs::read_dir(intake).is_ok(),
+		true,
+		&intake.display().to_string(),
+	);
 	line(
 		"spool writable",
 		fs::write(spool.root.join(".selftest"), b"x").is_ok(),
@@ -658,20 +708,35 @@ fn selftest(intake: &Path, spool: &Spool) -> bool {
 	let probe = intake.join(".selftest-write");
 	let writable = fs::write(&probe, b"x").is_ok();
 	let _ = fs::remove_file(&probe);
-	line("inbox read-only", !writable, false, "the checker must not write the inbox");
+	line(
+		"inbox read-only",
+		!writable,
+		false,
+		"the checker must not write the inbox",
+	);
 	// nothing of a book may leave the checker over the network
 	let network = std::net::TcpStream::connect_timeout(
 		&std::net::SocketAddr::from(([1, 1, 1, 1], 53)),
 		Duration::from_secs(2),
 	)
 	.is_ok();
-	line("no network", !network, false, "the checker should have no route out");
+	line(
+		"no network",
+		!network,
+		false,
+		"the checker should have no route out",
+	);
 	let mut limit = libc::rlimit {
 		rlim_cur: 0,
 		rlim_max: 0,
 	};
 	let nofile = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } == 0;
-	line("rlimits", nofile, true, "a child gets a memory, CPU and file size ceiling");
+	line(
+		"rlimits",
+		nofile,
+		true,
+		"a child gets a memory, CPU and file size ceiling",
+	);
 	essential
 }
 
@@ -755,7 +820,8 @@ mod tests {
 	#[test]
 	fn a_verdict_the_child_prints_is_what_the_supervisor_returns() {
 		let id = "aaaa0000-0000-4000-8000-000000000001";
-		let (verdict, _dir) = run_with(&format!("echo '{}'", good_verdict(id)), request(id));
+		let (verdict, _dir) =
+			run_with(&format!("echo '{}'", good_verdict(id)), request(id));
 		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
 		assert_eq!(verdict.id, id);
 		assert_eq!(verdict.probe, probe_revision());
@@ -770,7 +836,11 @@ mod tests {
 		assert!(started.elapsed().as_secs() < 10);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::TIMEOUT);
-		assert!(!dir.path().join("spool/out").join(format!("{id}.partial")).exists());
+		assert!(!dir
+			.path()
+			.join("spool/out")
+			.join(format!("{id}.partial"))
+			.exists());
 	}
 
 	#[test]
@@ -785,12 +855,16 @@ mod tests {
 		assert_eq!(verdict.reasons[0].code, code::VERDICT_INVALID);
 		// a verdict for another ticket or another kind of job is not this one's
 		let (verdict, _) = run_with(
-			&format!("echo '{}'", good_verdict("bbbb0000-0000-4000-8000-000000000009")),
+			&format!(
+				"echo '{}'",
+				good_verdict("bbbb0000-0000-4000-8000-000000000009")
+			),
 			request(id),
 		);
 		assert_eq!(verdict.reasons[0].code, code::VERDICT_INVALID);
 		// and one that is too large
-		let (verdict, _) = run_with("head -c 3000000 /dev/zero | tr '\\0' 'a'", request(id));
+		let (verdict, _) =
+			run_with("head -c 3000000 /dev/zero | tr '\\0' 'a'", request(id));
 		assert_eq!(verdict.reasons[0].code, code::VERDICT_INVALID);
 	}
 
@@ -806,7 +880,10 @@ mod tests {
 		);
 		assert_eq!(verdict.status, Status::Reject);
 		assert!(
-			matches!(verdict.reasons[0].code.as_str(), code::TOO_DEMANDING | code::CRASHED),
+			matches!(
+				verdict.reasons[0].code.as_str(),
+				code::TOO_DEMANDING | code::CRASHED
+			),
 			"{:?}",
 			verdict.reasons
 		);
@@ -824,19 +901,27 @@ mod tests {
 			die_with_parent: false,
 		};
 		// a good ticket
-		fs::write(spool.queue().join(format!("{id}.json")), serde_json::to_vec(&request(id)).unwrap()).unwrap();
+		fs::write(
+			spool.queue().join(format!("{id}.json")),
+			serde_json::to_vec(&request(id)).unwrap(),
+		)
+		.unwrap();
 		let ticket = take_ticket(&spool).expect("a ticket");
 		assert!(ticket.starts_with(spool.running()));
 		process_ticket(&spawn, &spool, &ticket);
-		let done: Verdict =
-			serde_json::from_slice(&fs::read(spool.done().join(format!("{id}.json"))).unwrap()).unwrap();
+		let done: Verdict = serde_json::from_slice(
+			&fs::read(spool.done().join(format!("{id}.json"))).unwrap(),
+		)
+		.unwrap();
 		assert_eq!(done.status, Status::Ok);
 		assert!(!ticket.exists());
 		// a ticket that is rubbish is answered too
 		fs::write(spool.queue().join("junk.json"), b"{not json").unwrap();
 		let ticket = take_ticket(&spool).expect("a ticket");
 		process_ticket(&spawn, &spool, &ticket);
-		let done: Verdict = serde_json::from_slice(&fs::read(spool.done().join("junk.json")).unwrap()).unwrap();
+		let done: Verdict =
+			serde_json::from_slice(&fs::read(spool.done().join("junk.json")).unwrap())
+				.unwrap();
 		assert_eq!(done.status, Status::Reject);
 		// the heartbeat says how old it is
 		write_heartbeat(&spool, false);

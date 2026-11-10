@@ -250,12 +250,62 @@ pub struct StumpConfig {
 	pub intake_upload_idle_secs: u64,
 
 	/// How the files of people who need approval are checked. `off`: they may not upload at all.
-	/// `inprocess`: they are read inside the server like any other book, which is only for a
-	/// server whose uploaders are trusted: until the isolated checker exists, grant "Add books"
-	/// to friends only with this set deliberately
+	/// `queue`: an isolated checker (the `stump-intake-probe` container, the same image running
+	/// `stump intake-probe serve`) reads them, the server reads none of their bytes: the checker
+	/// answers with a verdict and makes the file that goes into the library. `subprocess`: the
+	/// same checker, as a child process of the server (a process of its own with a memory ceiling
+	/// and a deadline, but the same user, folders and network): for a server without the second
+	/// container. `inprocess`: they are read inside the server like any other book, which is only
+	/// for a server whose uploaders are trusted
 	#[setting(default = "off")]
 	#[graphql(skip)]
 	pub intake_probe_mode: String,
+
+	/// How long the checker may take over a file, in seconds, and seconds more for each MB of the
+	/// file
+	#[setting(default = 120)]
+	#[graphql(skip)]
+	pub intake_probe_timeout_secs: u64,
+
+	/// MB of memory the checker's process for one file may use
+	#[setting(default = 768)]
+	#[graphql(skip)]
+	pub intake_probe_mem_mb: u64,
+
+	/// The most entries an uploaded archive may hold, MB an entry may be and MB the entries may
+	/// unpack to together, pages a book may have and pixels (in millions) an image may have
+	#[setting(default = 10000)]
+	#[graphql(skip)]
+	pub intake_probe_max_entries: u64,
+	#[setting(default = 64)]
+	#[graphql(skip)]
+	pub intake_probe_max_entry_mb: u64,
+	#[setting(default = 2048)]
+	#[graphql(skip)]
+	pub intake_probe_max_unpacked_mb: u64,
+	#[setting(default = 10000)]
+	#[graphql(skip)]
+	pub intake_probe_max_pages: u64,
+	#[setting(default = 50)]
+	#[graphql(skip)]
+	pub intake_probe_max_image_mp: u64,
+
+	/// What is done with scripts and the like in the EPUBs of people who need approval: `strip`
+	/// (taken out when the book is filed, everything else stays as it was) or `block` (the book
+	/// is refused). Books of those who file their own are filed as they are, and told
+	#[setting(default = "strip")]
+	#[graphql(skip)]
+	pub intake_active_content: String,
+
+	/// Convert the RAR comics of people who need approval to ZIP when they are filed, so the
+	/// RAR reader never reads them in the server
+	#[setting(default = true)]
+	#[graphql(skip)]
+	pub intake_cbr_to_cbz: bool,
+
+	/// The binary the `subprocess` checker runs (the server's own by default)
+	#[graphql(skip)]
+	pub intake_probe_exe: Option<String>,
 
 	/// OIDC authentication configuration
 	#[setting(nested)]

@@ -16,7 +16,9 @@ use zip::ZipArchive;
 
 use super::{
 	active::{self, Outcome},
-	contract::{code, is_safe_relative, ActiveContent, ActiveItem, ActiveSummary, Limits, Reason},
+	contract::{
+		code, is_safe_relative, ActiveContent, ActiveItem, ActiveSummary, Limits, Reason,
+	},
 	zipscan::{name_problem, printable, ZipReport},
 };
 use crate::fs_utils::bounded;
@@ -71,7 +73,10 @@ pub fn image_kind(head: &[u8]) -> Option<ImageKind> {
 		Some(ImageKind::Gif)
 	} else if head.len() >= 12 && &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP" {
 		Some(ImageKind::Webp)
-	} else if head.len() >= 12 && &head[4..8] == b"ftyp" && matches!(&head[8..12], b"avif" | b"avis") {
+	} else if head.len() >= 12
+		&& &head[4..8] == b"ftyp"
+		&& matches!(&head[8..12], b"avif" | b"avis")
+	{
 		Some(ImageKind::Avif)
 	} else {
 		None
@@ -162,7 +167,10 @@ pub fn xml_check(bytes: &[u8], limits: &Limits, what: &str) -> Result<bool, Reas
 				if depth > limits.max_xml_depth {
 					return Err(Reason::new(
 						code::XML_TOO_DEEP,
-						format!("{what} nests deeper than {} levels", limits.max_xml_depth),
+						format!(
+							"{what} nests deeper than {} levels",
+							limits.max_xml_depth
+						),
 					));
 				}
 			},
@@ -188,14 +196,14 @@ fn attribute(tag: &quick_xml::events::BytesStart, name: &str) -> Option<String> 
 	tag.attributes().flatten().find_map(|attribute| {
 		let key = attribute.key.as_ref();
 		let local = key.rsplit(|b| *b == b':').next().unwrap_or(key);
-		local
-			.eq_ignore_ascii_case(name.as_bytes())
-			.then(|| {
-				attribute
-					.unescape_value()
-					.map(|v| v.into_owned())
-					.unwrap_or_else(|_| String::from_utf8_lossy(&attribute.value).into_owned())
-			})
+		local.eq_ignore_ascii_case(name.as_bytes()).then(|| {
+			attribute
+				.unescape_value()
+				.map(|v| v.into_owned())
+				.unwrap_or_else(|_| {
+					String::from_utf8_lossy(&attribute.value).into_owned()
+				})
+		})
 	})
 }
 
@@ -274,7 +282,10 @@ fn parse_package(bytes: &[u8], limits: &Limits) -> Result<Package, Reason> {
 					if spine > limits.max_spine_items {
 						return Err(Reason::new(
 							code::TOO_MANY_SPINE_ITEMS,
-							format!("The book has more than {} pages in its spine", limits.max_spine_items),
+							format!(
+								"The book has more than {} pages in its spine",
+								limits.max_spine_items
+							),
 						));
 					}
 				}
@@ -307,7 +318,11 @@ fn parse_package(bytes: &[u8], limits: &Limits) -> Result<Package, Reason> {
 /// is, or `None` when it points out of the book or at another site
 fn resolve(base_dir: &str, href: &str) -> Option<String> {
 	let href = href.split(['#', '?']).next().unwrap_or(href);
-	if href.is_empty() || href.contains("://") || href.starts_with("//") || href.starts_with("data:") {
+	if href.is_empty()
+		|| href.contains("://")
+		|| href.starts_with("//")
+		|| href.starts_with("data:")
+	{
 		return None;
 	}
 	let decoded = urlencoding::decode(href).ok()?.into_owned();
@@ -352,7 +367,11 @@ fn read_entry(
 		if bounded::is_too_large(&error) {
 			Reason::new(
 				code::ENTRY_TOO_LARGE,
-				format!("{} is larger than the {} MB an entry can be", printable(name), cap / MIB),
+				format!(
+					"{} is larger than the {} MB an entry can be",
+					printable(name),
+					cap / MIB
+				),
 			)
 		} else {
 			Reason::new(
@@ -380,8 +399,10 @@ pub fn check_epub(
 	approver: bool,
 	mut replacements: Option<&mut Vec<(String, Vec<u8>)>>,
 ) -> Result<EpubFacts, Reason> {
-	let mut archive = ZipArchive::new(File::open(path).map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?)
-		.map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?;
+	let mut archive = ZipArchive::new(
+		File::open(path).map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?,
+	)
+	.map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?;
 	let index_of: HashMap<&str, usize> = report
 		.entries
 		.iter()
@@ -406,7 +427,12 @@ pub fn check_epub(
 	let container_index = *index_of.get("META-INF/container.xml").ok_or_else(|| {
 		Reason::new(code::NO_PACKAGE, "The book has no META-INF/container.xml")
 	})?;
-	let container = read_entry(&mut archive, container_index, "META-INF/container.xml", MIB.min(limits.max_xml_bytes))?;
+	let container = read_entry(
+		&mut archive,
+		container_index,
+		"META-INF/container.xml",
+		MIB.min(limits.max_xml_bytes),
+	)?;
 	let opf_name = container_rootfile(&container, limits)?;
 	if !is_safe_relative(&opf_name) || !index_of.contains_key(opf_name.as_str()) {
 		return Err(Reason::new(
@@ -437,7 +463,9 @@ pub fn check_epub(
 
 	// tables of contents are read by the `epub` crate into a tree: how deep
 	for item in &package.items {
-		let is_toc = item.media_type.eq_ignore_ascii_case("application/x-dtbncx+xml")
+		let is_toc = item
+			.media_type
+			.eq_ignore_ascii_case("application/x-dtbncx+xml")
 			|| item.properties.split_whitespace().any(|p| p == "nav");
 		if !is_toc {
 			continue;
@@ -452,13 +480,23 @@ pub fn check_epub(
 
 	// encryption: only the obfuscation of fonts
 	if let Some(&index) = index_of.get("META-INF/encryption.xml") {
-		let bytes = read_entry(&mut archive, index, "META-INF/encryption.xml", MIB.min(limits.max_xml_bytes))?;
+		let bytes = read_entry(
+			&mut archive,
+			index,
+			"META-INF/encryption.xml",
+			MIB.min(limits.max_xml_bytes),
+		)?;
 		let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
 		let mut rest = text.as_str();
 		while let Some(at) = rest.find("algorithm=") {
 			rest = &rest[at + "algorithm=".len()..];
 			let quote = rest.chars().next().unwrap_or('"');
-			let value = rest.get(1..).unwrap_or("").split(quote).next().unwrap_or("");
+			let value = rest
+				.get(1..)
+				.unwrap_or("")
+				.split(quote)
+				.next()
+				.unwrap_or("");
 			if !FONT_OBFUSCATION.contains(&value) {
 				return Err(Reason::new(
 					code::DRM,
@@ -511,10 +549,19 @@ pub fn check_epub(
 			}
 		} else if is_image_name(name) && entry.size > 0 {
 			let entry = archive.by_index(index).map_err(|e| {
-				Reason::new(code::UNREADABLE, format!("{} can't be opened: {e}", printable(name)))
+				Reason::new(
+					code::UNREADABLE,
+					format!("{} can't be opened: {e}", printable(name)),
+				)
 			})?;
-			let head = bounded::read_capped(entry.take(IMAGE_HEAD_BYTES), IMAGE_HEAD_BYTES)
-				.map_err(|e| Reason::new(code::UNREADABLE, format!("{} is damaged: {e}", printable(name))))?;
+			let head =
+				bounded::read_capped(entry.take(IMAGE_HEAD_BYTES), IMAGE_HEAD_BYTES)
+					.map_err(|e| {
+						Reason::new(
+							code::UNREADABLE,
+							format!("{} is damaged: {e}", printable(name)),
+						)
+					})?;
 			// a name that says image and bytes that say another thing: the reader would not
 			// show it, and nothing else will read it: only the size is looked at when it is one
 			if image_kind(&head).is_some() {
@@ -553,19 +600,28 @@ pub fn check_epub(
 			ActiveContent::Block => {
 				return Err(Reason::new(
 					code::ACTIVE_CONTENT,
-					format!("The book carries {} scripts or other active content{first}", summary.found),
+					format!(
+						"The book carries {} scripts or other active content{first}",
+						summary.found
+					),
 				))
 			},
 			ActiveContent::Strip => {
 				summary.stripped = true;
 				warnings.push(Reason::new(
 					code::ACTIVE_CONTENT,
-					format!("{} scripts or other active content will be removed{first}", summary.found),
+					format!(
+						"{} scripts or other active content will be removed{first}",
+						summary.found
+					),
 				));
 			},
 			ActiveContent::Warn => warnings.push(Reason::new(
 				code::ACTIVE_CONTENT,
-				format!("The book carries {} scripts or other active content{first}", summary.found),
+				format!(
+					"The book carries {} scripts or other active content{first}",
+					summary.found
+				),
 			)),
 		}
 	}
@@ -584,9 +640,15 @@ pub struct ComicFacts {
 }
 
 /// The pages of a CBZ: how many, and each one decodes under the limits
-pub fn check_cbz(path: &Path, report: &ZipReport, limits: &Limits) -> Result<ComicFacts, Reason> {
-	let mut archive = ZipArchive::new(File::open(path).map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?)
-		.map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?;
+pub fn check_cbz(
+	path: &Path,
+	report: &ZipReport,
+	limits: &Limits,
+) -> Result<ComicFacts, Reason> {
+	let mut archive = ZipArchive::new(
+		File::open(path).map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?,
+	)
+	.map_err(|e| Reason::new(code::UNREADABLE, e.to_string()))?;
 	let mut pages = 0u64;
 	for (index, entry) in report.entries.iter().enumerate() {
 		if entry.is_dir || is_hidden(&entry.name) {
@@ -603,7 +665,11 @@ pub fn check_cbz(path: &Path, report: &ZipReport, limits: &Limits) -> Result<Com
 			}
 			let bytes = read_entry(&mut archive, index, name, limits.max_entry_bytes)?;
 			check_image(name, &bytes, true, limits)?;
-		} else if name.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case("ComicInfo.xml")) {
+		} else if name
+			.rsplit('/')
+			.next()
+			.is_some_and(|n| n.eq_ignore_ascii_case("ComicInfo.xml"))
+		{
 			let bytes = read_entry(&mut archive, index, name, limits.max_xml_bytes)?;
 			xml_check(&bytes, limits, "ComicInfo.xml")?;
 		}
@@ -621,7 +687,10 @@ pub fn check_cbz(path: &Path, report: &ZipReport, limits: &Limits) -> Result<Com
 /// and decoded under them
 pub fn check_cbr(path: &Path, limits: &Limits) -> Result<(ComicFacts, u64, u64), Reason> {
 	let unreadable = |error: unrar::error::UnrarError| {
-		Reason::new(code::UNREADABLE, format!("The RAR file can't be read: {error}"))
+		Reason::new(
+			code::UNREADABLE,
+			format!("The RAR file can't be read: {error}"),
+		)
 	};
 	let (mut entries, mut declared_total, mut max_entry) = (0u64, 0u64, 0u64);
 	let listing = unrar::Archive::new(path)
@@ -641,7 +710,10 @@ pub fn check_cbr(path: &Path, limits: &Limits) -> Result<(ComicFacts, u64, u64),
 		}
 		let name = entry.filename.to_string_lossy().replace('\\', "/");
 		if entry.is_encrypted() {
-			return Err(Reason::new(code::ENCRYPTED, format!("{} is encrypted", printable(&name))));
+			return Err(Reason::new(
+				code::ENCRYPTED,
+				format!("{} is encrypted", printable(&name)),
+			));
 		}
 		if entry.is_split() {
 			return Err(Reason::new(
@@ -658,14 +730,21 @@ pub fn check_cbr(path: &Path, limits: &Limits) -> Result<(ComicFacts, u64, u64),
 		if entry.unpacked_size > limits.max_entry_bytes {
 			return Err(Reason::new(
 				code::ENTRY_TOO_LARGE,
-				format!("{} is larger than the {} MB an entry can be", printable(&name), limits.max_entry_bytes / MIB),
+				format!(
+					"{} is larger than the {} MB an entry can be",
+					printable(&name),
+					limits.max_entry_bytes / MIB
+				),
 			));
 		}
 		declared_total = declared_total.saturating_add(entry.unpacked_size);
 		if declared_total > limits.max_unpacked_bytes {
 			return Err(Reason::new(
 				code::UNPACKED_TOO_LARGE,
-				format!("The archive unpacks to more than {} MB", limits.max_unpacked_bytes / MIB),
+				format!(
+					"The archive unpacks to more than {} MB",
+					limits.max_unpacked_bytes / MIB
+				),
 			));
 		}
 		max_entry = max_entry.max(entry.unpacked_size);
@@ -757,7 +836,10 @@ mod tests {
 				CompressionMethod::Deflated
 			};
 			writer
-				.start_file(*name, SimpleFileOptions::default().compression_method(method))
+				.start_file(
+					*name,
+					SimpleFileOptions::default().compression_method(method),
+				)
 				.unwrap();
 			writer.write_all(data).unwrap();
 		}
@@ -776,7 +858,11 @@ mod tests {
 		)
 	}
 
-	fn epub(chapter: &str, extra: &[(&str, Vec<u8>)], opf_text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+	fn epub(
+		chapter: &str,
+		extra: &[(&str, Vec<u8>)],
+		opf_text: &str,
+	) -> (tempfile::TempDir, std::path::PathBuf) {
 		let mut entries: Vec<(&str, Vec<u8>)> = vec![
 			("mimetype", b"application/epub+zip".to_vec()),
 			("META-INF/container.xml", CONTAINER.as_bytes().to_vec()),
@@ -789,7 +875,11 @@ mod tests {
 
 	const CHAPTER: &str = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head><body><p>hello</p></body></html>"#;
 
-	fn check(path: &std::path::Path, policy: ActiveContent, approver: bool) -> Result<EpubFacts, Reason> {
+	fn check(
+		path: &std::path::Path,
+		policy: ActiveContent,
+		approver: bool,
+	) -> Result<EpubFacts, Reason> {
 		let limits = Limits::default();
 		let report = zipscan::scan(path, &limits)?;
 		check_epub(path, &report, &limits, policy, approver, None)
@@ -802,7 +892,9 @@ mod tests {
 		// what a name says is no matter
 		assert!(check_image("a.jpg", &png(20, 20), true, &limits).is_ok());
 		assert_eq!(
-			check_image("a.jpg", b"II*\x00....", false, &limits).unwrap_err().code,
+			check_image("a.jpg", b"II*\x00....", false, &limits)
+				.unwrap_err()
+				.code,
 			code::UNSUPPORTED_IMAGE
 		);
 		// the header of a big one is read before anything is allocated
@@ -811,7 +903,9 @@ mod tests {
 			..Limits::default()
 		};
 		assert_eq!(
-			check_image("a.png", &png(40, 40), true, &tight).unwrap_err().code,
+			check_image("a.png", &png(40, 40), true, &tight)
+				.unwrap_err()
+				.code,
 			code::IMAGE_TOO_LARGE
 		);
 		// a PNG header that says 30,001 pixels wide, with nothing behind it
@@ -825,7 +919,9 @@ mod tests {
 		let mut broken = png(20, 20);
 		broken.truncate(60);
 		assert_eq!(
-			check_image("a.png", &broken, true, &limits).unwrap_err().code,
+			check_image("a.png", &broken, true, &limits)
+				.unwrap_err()
+				.code,
 			code::IMAGE_UNDECODABLE
 		);
 	}
@@ -836,7 +932,10 @@ mod tests {
 		let facts = check(&path, ActiveContent::Strip, false).expect("passes");
 		assert_eq!(facts.active.found, 0);
 		assert!(facts.warnings.is_empty(), "{:?}", facts.warnings);
-		let (_dir, path) = zip_file(&[("mimetype", b"application/epub+zip".to_vec()), ("a.txt", b"x".to_vec())]);
+		let (_dir, path) = zip_file(&[
+			("mimetype", b"application/epub+zip".to_vec()),
+			("a.txt", b"x".to_vec()),
+		]);
 		assert_eq!(
 			check(&path, ActiveContent::Strip, false).unwrap_err().code,
 			code::NO_PACKAGE
@@ -866,7 +965,10 @@ mod tests {
 			check(&path, ActiveContent::Strip, false).unwrap_err().code,
 			code::XML_TOO_DEEP
 		);
-		let entity = format!("<?xml version=\"1.0\"?><!DOCTYPE package [ <!ENTITY a \"aaaa\"> ]>{}", opf("", "").split_once("?>").unwrap().1);
+		let entity = format!(
+			"<?xml version=\"1.0\"?><!DOCTYPE package [ <!ENTITY a \"aaaa\"> ]>{}",
+			opf("", "").split_once("?>").unwrap().1
+		);
 		let (_dir, path) = epub(CHAPTER, &[], &entity);
 		assert_eq!(
 			check(&path, ActiveContent::Strip, false).unwrap_err().code,
@@ -887,9 +989,18 @@ mod tests {
 			code::TOO_MANY_SPINE_ITEMS
 		);
 		// a table of contents that nests a thousand deep
-		let ncx = format!("<ncx>{}{}</ncx>", "<navPoint>".repeat(400), "</navPoint>".repeat(400));
-		let items = r#"<item id="n" href="toc.ncx" media-type="application/x-dtbncx+xml"/>"#;
-		let (_dir, path) = epub(CHAPTER, &[("OEBPS/toc.ncx", ncx.into_bytes())], &opf(items, ""));
+		let ncx = format!(
+			"<ncx>{}{}</ncx>",
+			"<navPoint>".repeat(400),
+			"</navPoint>".repeat(400)
+		);
+		let items =
+			r#"<item id="n" href="toc.ncx" media-type="application/x-dtbncx+xml"/>"#;
+		let (_dir, path) = epub(
+			CHAPTER,
+			&[("OEBPS/toc.ncx", ncx.into_bytes())],
+			&opf(items, ""),
+		);
 		assert_eq!(
 			check(&path, ActiveContent::Strip, false).unwrap_err().code,
 			code::XML_TOO_DEEP
@@ -899,13 +1010,24 @@ mod tests {
 	#[test]
 	fn encryption_other_than_font_obfuscation_is_drm() {
 		let drm = r#"<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#"><EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/></EncryptedData></encryption>"#;
-		let (_dir, path) = epub(CHAPTER, &[("META-INF/encryption.xml", drm.as_bytes().to_vec())], &opf("", ""));
+		let (_dir, path) = epub(
+			CHAPTER,
+			&[("META-INF/encryption.xml", drm.as_bytes().to_vec())],
+			&opf("", ""),
+		);
 		assert_eq!(
 			check(&path, ActiveContent::Strip, false).unwrap_err().code,
 			code::DRM
 		);
-		let fonts = drm.replace("http://www.w3.org/2001/04/xmlenc#aes128-cbc", "http://www.idpf.org/2008/embedding");
-		let (_dir, path) = epub(CHAPTER, &[("META-INF/encryption.xml", fonts.into_bytes())], &opf("", ""));
+		let fonts = drm.replace(
+			"http://www.w3.org/2001/04/xmlenc#aes128-cbc",
+			"http://www.idpf.org/2008/embedding",
+		);
+		let (_dir, path) = epub(
+			CHAPTER,
+			&[("META-INF/encryption.xml", fonts.into_bytes())],
+			&opf("", ""),
+		);
 		assert!(check(&path, ActiveContent::Strip, false).is_ok());
 	}
 
@@ -916,7 +1038,10 @@ mod tests {
 		let facts = check(&path, ActiveContent::Strip, false).expect("will be stripped");
 		assert_eq!(facts.active.found, 2);
 		assert!(facts.active.stripped);
-		assert!(facts.warnings.iter().any(|w| w.code == code::ACTIVE_CONTENT));
+		assert!(facts
+			.warnings
+			.iter()
+			.any(|w| w.code == code::ACTIVE_CONTENT));
 		assert_eq!(
 			check(&path, ActiveContent::Block, false).unwrap_err().code,
 			code::ACTIVE_CONTENT
@@ -936,11 +1061,27 @@ mod tests {
 	#[test]
 	fn remote_resources_are_told_and_pages_that_are_not_well_formed_are_inert() {
 		let chapter = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><img src="https://example.com/a.png"/></body></html>"#;
-		let (_dir, path) = epub(chapter, &[("OEBPS/c2.xhtml", b"<html><body><p>one<p>two</body>".to_vec())], &opf(r#"<item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>"#, ""));
+		let (_dir, path) = epub(
+			chapter,
+			&[(
+				"OEBPS/c2.xhtml",
+				b"<html><body><p>one<p>two</body>".to_vec(),
+			)],
+			&opf(
+				r#"<item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>"#,
+				"",
+			),
+		);
 		let facts = check(&path, ActiveContent::Strip, false).expect("passes");
 		assert_eq!(facts.active.remote_refs, 1);
-		assert!(facts.warnings.iter().any(|w| w.code == code::REMOTE_RESOURCES));
-		assert!(facts.warnings.iter().any(|w| w.code == code::MALFORMED_XHTML));
+		assert!(facts
+			.warnings
+			.iter()
+			.any(|w| w.code == code::REMOTE_RESOURCES));
+		assert!(facts
+			.warnings
+			.iter()
+			.any(|w| w.code == code::MALFORMED_XHTML));
 	}
 
 	#[test]
@@ -949,14 +1090,18 @@ mod tests {
 		let (_dir, path) = zip_file(&[
 			("001.png", png(30, 40)),
 			("002.png", png(30, 40)),
-			("ComicInfo.xml", b"<ComicInfo><Series>S</Series></ComicInfo>".to_vec()),
+			(
+				"ComicInfo.xml",
+				b"<ComicInfo><Series>S</Series></ComicInfo>".to_vec(),
+			),
 			(".hidden.png", b"junk".to_vec()),
 		]);
 		let report = zipscan::scan(&path, &limits).unwrap();
 		let facts = check_cbz(&path, &report, &limits).expect("passes");
 		assert_eq!(facts.pages, 2);
 		// a page that is not an image the server decodes
-		let (_dir, path) = zip_file(&[("001.jpg", b"II*\x00 a tiff in disguise".to_vec())]);
+		let (_dir, path) =
+			zip_file(&[("001.jpg", b"II*\x00 a tiff in disguise".to_vec())]);
 		let report = zipscan::scan(&path, &limits).unwrap();
 		assert_eq!(
 			check_cbz(&path, &report, &limits).unwrap_err().code,
@@ -975,14 +1120,26 @@ mod tests {
 		);
 		let (_dir, path) = zip_file(&[("readme.txt", b"hello".to_vec())]);
 		let report = zipscan::scan(&path, &limits).unwrap();
-		assert_eq!(check_cbz(&path, &report, &limits).unwrap_err().code, code::UNREADABLE);
+		assert_eq!(
+			check_cbz(&path, &report, &limits).unwrap_err().code,
+			code::UNREADABLE
+		);
 	}
 
 	#[test]
 	fn hrefs_are_resolved_inside_the_book() {
-		assert_eq!(resolve("OEBPS", "c1.xhtml"), Some("OEBPS/c1.xhtml".to_string()));
-		assert_eq!(resolve("OEBPS", "../img/a%20b.png#x"), Some("img/a b.png".to_string()));
-		assert_eq!(resolve("OEBPS/text", "../c.xhtml"), Some("OEBPS/c.xhtml".to_string()));
+		assert_eq!(
+			resolve("OEBPS", "c1.xhtml"),
+			Some("OEBPS/c1.xhtml".to_string())
+		);
+		assert_eq!(
+			resolve("OEBPS", "../img/a%20b.png#x"),
+			Some("img/a b.png".to_string())
+		);
+		assert_eq!(
+			resolve("OEBPS/text", "../c.xhtml"),
+			Some("OEBPS/c.xhtml".to_string())
+		);
 		assert_eq!(resolve("", "../x"), None);
 		assert_eq!(resolve("OEBPS", "https://example.com/a"), None);
 		assert_eq!(resolve("OEBPS", "//cdn.example/a"), None);

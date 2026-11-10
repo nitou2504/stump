@@ -56,6 +56,23 @@ pub async fn extract_file(path: &Path, original_name: &str, config: &StumpConfig
 	}
 }
 
+/// What the checker found in a staged file, as the same kind of value [`extract_file`] makes: for
+/// the books of people who need approval, which the server doesn't read
+pub fn extracted_from_book(
+	book: &super::probe::contract::Book,
+	original_name: &str,
+) -> ExtractedFile {
+	let stem = Path::new(original_name)
+		.file_stem()
+		.map(|s| s.to_string_lossy().into_owned())
+		.unwrap_or_default();
+	ExtractedFile {
+		embedded: book.metadata.clone().map(|m| m.into_processed()),
+		parsed_name: parse_file_name(&stem),
+		hash: book.stump_hash.clone(),
+	}
+}
+
 fn clean(value: &Option<String>) -> Option<String> {
 	value
 		.as_deref()

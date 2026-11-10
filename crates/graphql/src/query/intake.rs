@@ -15,7 +15,7 @@ use stump_core::{
 		approval::{self, can_file_directly},
 		library_index::library_index,
 		limits::{limits_for, IntakeLimits},
-		scope, upload,
+		queue, scope, upload,
 	},
 	Ctx,
 };
@@ -312,16 +312,21 @@ impl IntakeQuery {
 		let approver = can_file_directly(user);
 		let limits = limits_for(conn, &core.config, &user.id, approver).await?;
 		let (used, open) = upload::usage(conn, &user.id).await?;
-		let (uploads_open, closed_reason) =
-			if !approver && core.config.intake_probe_mode != "inprocess" {
-				(
-					false,
-					Some(
-						"Uploads that wait for approval aren't open on this server yet"
-							.to_string(),
-					),
-				)
-			} else if !core.config.enable_upload && approver {
+		let (uploads_open, closed_reason) = if !approver
+			&& queue::mode(&core.config) == queue::Mode::Off
+		{
+			(
+				false,
+				Some(
+					"Uploads that wait for approval aren't open on this server yet"
+						.to_string(),
+				),
+			)
+		} else if let (false, Err(error)) = (approver, queue::ready(&core.config)) {
+			// the checker is the way in for those who need approval: when it is offline (or of
+			// another build) they are told, and the upload is not offered
+			(false, Some(error.to_string()))
+		} else if !core.config.enable_upload && approver {
 				(
 					false,
 					Some("Uploads are turned off on this server".to_string()),

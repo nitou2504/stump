@@ -33,6 +33,7 @@ use super::{
 	approval::can_file_directly,
 	extension_of,
 	limits::{free_bytes, limits_for, min_free_bytes, total_max_bytes, IntakeLimits},
+	queue,
 	staging::{
 		books_in_zip_within, count_items, create_items, group_of, spawn_analysis, Staged,
 		StagedSource,
@@ -419,11 +420,22 @@ impl IncomingUpload {
 	) -> Result<Self, UploadError> {
 		let conn = ctx.conn.as_ref();
 		let approver = can_file_directly(user);
-		if !approver && ctx.config.intake_probe_mode != "inprocess" {
-			return Err(UploadError::Unavailable(
-				"Uploads that wait for approval aren't open on this server yet"
-					.to_string(),
-			));
+		if !approver {
+			// the books of people who need approval are read by the isolated checker (or, only
+			// where their uploaders are trusted, by the server)
+			match queue::mode(&ctx.config) {
+				queue::Mode::InProcess => {},
+				queue::Mode::Subprocess | queue::Mode::Queue => {
+					queue::ready(&ctx.config)
+						.map_err(|error| UploadError::Unavailable(error.to_string()))?;
+				},
+				queue::Mode::Off => {
+					return Err(UploadError::Unavailable(
+						"Uploads that wait for approval aren't open on this server yet"
+							.to_string(),
+					));
+				},
+			}
 		}
 		let limits = limits_for(conn, &ctx.config, &user.id, approver).await?;
 		if declared_len > limits.max_request_bytes {
@@ -593,6 +605,14 @@ impl IncomingUpload {
 		let (mut room, too_much) = self.pack_room(plain_bytes).await?;
 		let mut staged: Vec<Staged> = vec![];
 		for file in std::mem::take(&mut self.files) {
+			if file.format == "zip" && !self.approver && queue::sandboxed(&self.ctx.config) {
+				// a pack is opened (read) to be made into books: the checker reads books one at a
+				// time, so for those who need approval it is the books that are uploaded
+				return Err(UploadError::UnsupportedType(
+					"A zip of several books is added by the owner or somebody who manages libraries: upload the books themselves (a folder of them works too)"
+						.to_string(),
+				));
+			}
 			if file.format == "zip" {
 				let zip_name = Path::new(&file.original_name)
 					.file_stem()
