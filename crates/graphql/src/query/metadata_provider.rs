@@ -1,14 +1,34 @@
 use crate::{
-	data::CoreContext, guard::PermissionGuard,
+	data::{AuthContext, CoreContext},
+	guard::PermissionGuard,
 	input::metadata_provider::MetadataFetchRecordId,
 	object::metadata_fetch_record::MetadataFetchRecord,
 };
 use async_graphql::{Context, Object, Result};
 use models::{
-	entity::{metadata_fetch_record, metadata_provider_config},
+	entity::{
+		media, metadata_fetch_record, metadata_provider_config, series, user::AuthUser,
+	},
 	shared::enums::{MetadataFetchStatus, UserPermission},
 };
-use sea_orm::prelude::*;
+use sea_orm::{prelude::*, Condition, QuerySelect, QueryTrait};
+
+/// The ids of the books the user may see. A fetch record holds what an outside search found
+/// for a book's title and author, so it is for those who can see the book
+fn visible_media_ids(user: &AuthUser) -> sea_orm::sea_query::SelectStatement {
+	media::Entity::find_for_user(user)
+		.select_only()
+		.column(media::Column::Id)
+		.into_query()
+}
+
+/// The ids of the series the user may see (see [`visible_media_ids`])
+fn visible_series_ids(user: &AuthUser) -> sea_orm::sea_query::SelectStatement {
+	series::Entity::find_for_user(user)
+		.select_only()
+		.column(series::Column::Id)
+		.into_query()
+}
 
 #[derive(Default)]
 pub struct MetadataProviderQuery;
@@ -44,19 +64,25 @@ impl MetadataProviderQuery {
 		ctx: &Context<'_>,
 		id: MetadataFetchRecordId,
 	) -> Result<Option<MetadataFetchRecord>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let (col, value) = match id {
-			MetadataFetchRecordId::Media(media_id) => {
-				(metadata_fetch_record::Column::MediaId, media_id)
-			},
-			MetadataFetchRecordId::Series(series_id) => {
-				(metadata_fetch_record::Column::SeriesId, series_id)
-			},
+		let (col, value, visible) = match id {
+			MetadataFetchRecordId::Media(media_id) => (
+				metadata_fetch_record::Column::MediaId,
+				media_id,
+				visible_media_ids(user),
+			),
+			MetadataFetchRecordId::Series(series_id) => (
+				metadata_fetch_record::Column::SeriesId,
+				series_id,
+				visible_series_ids(user),
+			),
 		};
 
 		let record = metadata_fetch_record::Entity::find()
 			.filter(col.eq(value))
+			.filter(col.in_subquery(visible))
 			.one(conn)
 			.await?;
 
@@ -69,12 +95,24 @@ impl MetadataProviderQuery {
 		&self,
 		ctx: &Context<'_>,
 	) -> Result<Vec<MetadataFetchRecord>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
 		let records = metadata_fetch_record::Entity::find()
 			.filter(
 				metadata_fetch_record::Column::Status
 					.eq(MetadataFetchStatus::AwaitingReview),
+			)
+			.filter(
+				Condition::any()
+					.add(
+						metadata_fetch_record::Column::MediaId
+							.in_subquery(visible_media_ids(user)),
+					)
+					.add(
+						metadata_fetch_record::Column::SeriesId
+							.in_subquery(visible_series_ids(user)),
+					),
 			)
 			.all(conn)
 			.await?;

@@ -114,12 +114,12 @@ impl SeriesMetadataMutation {
 		ctx: &Context<'_>,
 		id: ID,
 	) -> Result<Vec<MatchCandidate>> {
-		let AuthContext { .. } = ctx.data::<AuthContext>()?;
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core_ctx = ctx.data::<CoreContext>()?;
 		let conn = core_ctx.conn.as_ref();
 
-		let model = series::ModelWithMetadata::find()
-			.filter(series::Column::Id.eq(id.to_string()))
+		// only a series the user may see: this searches outside for it and keeps what is found
+		let model = series::ModelWithMetadata::find_by_id_for_user(id.to_string(), user)
 			.into_model::<series::ModelWithMetadata>()
 			.one(conn)
 			.await?
@@ -149,7 +149,17 @@ impl SeriesMetadataMutation {
 		exclude_fields: Option<Vec<MetadataField>>,
 		overrides: Option<Vec<MetadataFieldOverride>>,
 	) -> Result<MetadataFetchRecord> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		// The series has to be one the user may see: its fetch record holds what an outside
+		// search found for it
+		let _ =
+			series::ModelWithMetadata::find_by_id_for_user(series_id.to_string(), user)
+				.into_model::<series::ModelWithMetadata>()
+				.one(conn)
+				.await?
+				.ok_or("Series not found")?;
 		let strategy = strategy.unwrap_or(MergeStrategy::FillGaps);
 		let exclude_fields = exclude_fields.unwrap_or_default();
 		let overrides = overrides.unwrap_or_default();
@@ -204,7 +214,17 @@ impl SeriesMetadataMutation {
 		series_id: ID,
 		candidate_index: u32,
 	) -> Result<MetadataFetchRecord> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		// The series has to be one the user may see: its fetch record holds what an outside
+		// search found for it
+		let _ =
+			series::ModelWithMetadata::find_by_id_for_user(series_id.to_string(), user)
+				.into_model::<series::ModelWithMetadata>()
+				.one(conn)
+				.await?
+				.ok_or("Series not found")?;
 
 		let status = metadata_fetch_record::Entity::find()
 			.filter(metadata_fetch_record::Column::SeriesId.eq(series_id.to_string()))
