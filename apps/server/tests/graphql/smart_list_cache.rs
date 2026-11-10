@@ -6,14 +6,17 @@
 //! holds for her, though the cache holds what it holds for everybody: nothing of the hidden set
 //! comes out of it, and what a list gives is the same as when its rules are worked out on the spot.
 
-use models::shared::enums::UserPermission;
-use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+use models::{
+	entity::{age_restriction, media, media_metadata, series},
+	shared::enums::UserPermission,
+};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement};
 use serde_json::{json, Value};
 
 use crate::common::{
 	account::{CreateTestUser, TestUser},
 	series::setup_single_series_with_n_books,
-	visibility::{add_book, Meta, VisibilityFixture},
+	visibility::{add_book, hide_library, Meta, VisibilityFixture},
 	TestApp,
 };
 use tests::fake_data;
@@ -31,11 +34,18 @@ const CREATE: &str = r#"
 "#;
 
 const ITEMS: &str = r#"
-	query Items($id: ID!, $limit: Int, $offset: Int) {
-		smartListItems(id: $id, limit: $limit, offset: $offset) {
+	query Items($id: ID!, $limit: Int, $offset: Int, $after: ID) {
+		smartListItems(id: $id, limit: $limit, offset: $offset, after: $after) {
 			__typename
-			... on SmartListUngrouped { books { id name path } }
+			... on SmartListUngrouped { books { id name path } nextCursor }
 		}
+	}
+"#;
+
+/// The facets of the filter drawer, from the list's books
+const OVERVIEW: &str = r#"
+	query Overview($id: ID!) {
+		mediaMetadataOverview(smartListId: $id) { genres writers publishers }
 	}
 "#;
 
@@ -145,6 +155,207 @@ async fn age(app: &TestApp, list: &str) {
 		.expect("should age the members");
 }
 
+/// One page of `smartListItems` in the order the server gives it (by ID), and its cursor
+async fn page(
+	app: &TestApp,
+	token: &str,
+	list: &str,
+	limit: u64,
+	after: Option<&str>,
+) -> (Vec<String>, Option<String>) {
+	let data = ok(
+		app,
+		token,
+		ITEMS,
+		json!({ "id": list, "limit": limit, "after": after }),
+	)
+	.await;
+	let result = &data["smartListItems"];
+	assert_eq!(result["__typename"], "SmartListUngrouped", "{result}");
+	let books = result["books"]
+		.as_array()
+		.expect("a list of books")
+		.iter()
+		.map(|book| book["id"].as_str().expect("an id").to_string())
+		.collect();
+	(books, result["nextCursor"].as_str().map(str::to_string))
+}
+
+/// What the cache says about a list: the revision its members were worked out at, and when
+async fn state(app: &TestApp, list: &str) -> (i64, String) {
+	let row = app
+		.conn()
+		.query_one_raw(Statement::from_sql_and_values(
+			DatabaseBackend::Sqlite,
+			"SELECT revision, computed_at FROM smart_list_materializations WHERE smart_list_id = ?",
+			[list.into()],
+		))
+		.await
+		.expect("should read the state of the list")
+		.expect("the list was worked out");
+	(
+		row.try_get::<i64>("", "revision").expect("a revision"),
+		row.try_get::<String>("", "computed_at").expect("a time"),
+	)
+}
+
+/// The revision of the catalog now
+async fn head(app: &TestApp) -> i64 {
+	app.conn()
+		.query_one_raw(Statement::from_string(
+			DatabaseBackend::Sqlite,
+			"SELECT revision FROM catalog_revision WHERE id = 1".to_string(),
+		))
+		.await
+		.expect("should read the revision")
+		.expect("the catalog has a revision")
+		.try_get::<i64>("", "revision")
+		.expect("a revision")
+}
+
+/// The sorted IDs of some books
+fn ids_of(books: &[&media::Model]) -> Vec<String> {
+	let mut ids: Vec<String> = books.iter().map(|book| book.id.clone()).collect();
+	ids.sort();
+	ids
+}
+
+/// A book with an ID of its own (`add_book` gives a random one), rated `age`: for the tests that
+/// need to know where a book sorts, since a smart list's books come in the order of their IDs
+async fn add_book_with_id(
+	app: &TestApp,
+	series: &series::Model,
+	id: &str,
+	name: &str,
+	age: i32,
+) -> media::Model {
+	let book = fake_data::Media {
+		series_id: series.id.clone(),
+		id: Some(id.to_string()),
+		name: Some(name.to_string()),
+		pages: Some(10),
+		..Default::default()
+	}
+	.insert(app.conn())
+	.await;
+	media_metadata::ActiveModel {
+		media_id: Set(Some(book.id.clone())),
+		age_rating: Set(Some(age)),
+		..Default::default()
+	}
+	.insert(app.conn())
+	.await
+	.expect("should rate the book");
+	book
+}
+
+/// Panics if `text` holds the ID, the title or the path of one of `books`
+fn assert_lacks(what: &str, text: &str, books: &[&media::Model]) {
+	for book in books {
+		for (kind, marker) in [
+			("the id", &book.id),
+			("the title", &book.name),
+			("the path", &book.path),
+		] {
+			assert!(
+				!text.contains(marker.as_str()),
+				"{what} holds {kind} of {} ({marker:?}):\n{text}",
+				book.name
+			);
+		}
+	}
+}
+
+/// Everything a reader can ask of a list, read now
+struct Surfaces {
+	/// `smartListItems`
+	items: Vec<String>,
+	/// `smartListMeta`
+	meta: Value,
+	/// `smartListById`: its `meta`, `books` and `items`
+	by_id: Value,
+	/// The list's shelf in the OPDS catalog
+	shelf: String,
+	/// The facets of the filter drawer
+	overview: Value,
+}
+
+async fn surfaces(app: &TestApp, token: &str, list: &str) -> Surfaces {
+	let data = ok(app, token, META, json!({ "id": list })).await;
+	let shelf = app
+		.get_with_token(&format!("/opds/v1.2/smart-lists/{list}"), token)
+		.await;
+	assert_eq!(shelf.status_code(), 200);
+	Surfaces {
+		items: items(app, token, list).await,
+		meta: data["smartListMeta"].clone(),
+		by_id: data["smartListById"].clone(),
+		shelf: shelf.text(),
+		overview: ok(app, token, OVERVIEW, json!({ "id": list })).await
+			["mediaMetadataOverview"]
+			.clone(),
+	}
+}
+
+/// Every surface of a list gives exactly `shown` (and the counts of `counts`), nothing of `gone`,
+/// and the facets of the books that are shown: for each name in `present` its writer, publisher
+/// and genre ("Open" is "Open Writer", "Open Press" and "Open Genre"), and none of those of
+/// `absent`
+fn assert_exactly(
+	got: &Surfaces,
+	shown: &[&media::Model],
+	gone: &[&media::Model],
+	counts: Value,
+	present: &[&str],
+	absent: &[&str],
+) {
+	let expected = ids_of(shown);
+	assert_eq!(got.items, expected, "smartListItems");
+	assert_eq!(got.meta, counts, "smartListMeta");
+	assert_eq!(got.by_id["meta"], counts, "SmartList.meta");
+	assert_eq!(page_ids(&got.by_id["books"]), expected, "SmartList.books");
+	assert_eq!(
+		page_ids(&got.by_id["items"]["books"]),
+		expected,
+		"SmartList.items"
+	);
+
+	for (what, text) in [
+		("smartListItems", got.items.join(" ")),
+		("smartListById", got.by_id.to_string()),
+		("the OPDS shelf", got.shelf.clone()),
+	] {
+		assert_lacks(what, &text, gone);
+	}
+	for book in shown {
+		assert!(
+			got.shelf.contains(&book.id),
+			"the OPDS shelf lacks {}:\n{}",
+			book.name,
+			got.shelf
+		);
+	}
+
+	for (facet, suffix) in [
+		("writers", "Writer"),
+		("publishers", "Press"),
+		("genres", "Genre"),
+	] {
+		let values = got.overview[facet].as_array().expect("a list of values");
+		for who in present {
+			let value = json!(format!("{who} {suffix}"));
+			assert!(values.contains(&value), "{facet} lacks {value}: {values:?}");
+		}
+		for who in absent {
+			let value = json!(format!("{who} {suffix}"));
+			assert!(
+				!values.contains(&value),
+				"{facet} holds {value}: {values:?}"
+			);
+		}
+	}
+}
+
 /// Every book of the world has "book" in its name
 fn every_book() -> Value {
 	json!([{ "groups": [{ "media": { "name": { "contains": "book" } } }], "joiner": "AND" }])
@@ -204,6 +415,15 @@ async fn a_cached_list_gives_ana_only_what_she_may_read() {
 	// ana reads it: from the same members, and only her share
 	let ana_books = items(&app, &world.ana.token, &list).await;
 	assert_eq!(ana_books, vec![world.general.id.clone()]);
+
+	// a page of one: her book is the whole list for her, so her page has no cursor, and the
+	// owner's has one. The books she may not see are no reason for a page to say there is more
+	let (page_of_ana, cursor) = page(&app, &world.ana.token, &list, 1, None).await;
+	assert_eq!(page_of_ana, vec![world.general.id.clone()]);
+	assert_eq!(cursor, None);
+	let (page_of_owner, cursor) = page(&app, &world.owner_token, &list, 1, None).await;
+	assert_eq!(page_of_owner.len(), 1);
+	assert_eq!(cursor, page_of_owner.first().cloned());
 
 	let data = ok(&app, &world.ana.token, META, json!({ "id": list })).await;
 	assert_eq!(
@@ -391,6 +611,171 @@ async fn new_rules_show_at_once() {
 // Counting, and what can't be kept
 // ---------------------------------------------------------------------------------------
 
+/// What a reader may see is decided when they read, never when the members were worked out: a
+/// new library exclusion, and then an age restriction, take books out of every surface of a kept
+/// list at once, and the list is not worked out again for it. The members are the ones the first
+/// read kept, the catalog's revision is the one they were worked out at, and the members are too
+/// old to be good for a reader for any other reason than that revision.
+#[tokio::test]
+async fn a_change_of_access_shows_at_once_without_working_the_list_out_again() {
+	let (app, world) = world().await;
+	// books with something in each facet of the filter drawer: one in the hidden library, one
+	// rated 18, and one anybody may read
+	let open_facet = add_book(
+		&app,
+		&world.open_series,
+		"Open facet book",
+		Meta {
+			age: Some(0),
+			writer: Some("Open Writer"),
+			publisher: Some("Open Press"),
+			genre: Some("Open Genre"),
+			..Default::default()
+		},
+	)
+	.await;
+	let hidden_facet = add_book(
+		&app,
+		&world.hidden_series,
+		"Hidden facet book",
+		Meta {
+			age: Some(0),
+			writer: Some("Hidden Writer"),
+			publisher: Some("Hidden Press"),
+			genre: Some("Hidden Genre"),
+			..Default::default()
+		},
+	)
+	.await;
+	let adult_facet = add_book(
+		&app,
+		&world.open_series,
+		"Adult facet book",
+		Meta {
+			age: Some(18),
+			writer: Some("Adult Writer"),
+			publisher: Some("Adult Press"),
+			genre: Some("Adult Genre"),
+			..Default::default()
+		},
+	)
+	.await;
+	let list = create(
+		&app,
+		&world.owner_token,
+		"Shared shelf",
+		"PUBLIC",
+		every_book(),
+	)
+	.await;
+	let reader = friend_with_lists(&app, "reader").await;
+
+	// no limits yet: the reader gets every book but the removed one, which is in the members
+	let everything = [
+		&world.general,
+		&world.adult,
+		&world.unrated,
+		&world.hidden,
+		&open_facet,
+		&hidden_facet,
+		&adult_facet,
+	];
+	let got = surfaces(&app, &reader.token, &list).await;
+	assert_exactly(
+		&got,
+		&everything,
+		&[&world.removed],
+		json!({ "matchedBooks": 7, "matchedSeries": 3, "matchedLibraries": 2 }),
+		&["Open", "Hidden", "Adult"],
+		&[],
+	);
+	let kept_members = members(&app, &list).await;
+	assert_eq!(kept_members.len(), 8);
+
+	// the members are old from here on: only the revision of the catalog keeps them good, so a
+	// refresh would show in the time they were worked out at
+	age(&app, &list).await;
+	let kept = state(&app, &list).await;
+	assert_eq!(
+		kept.0,
+		head(&app).await,
+		"the members are of the catalog as it is"
+	);
+	assert_eq!(items(&app, &reader.token, &list).await, ids_of(&everything));
+	assert_eq!(state(&app, &list).await, kept, "a read doesn't work it out");
+
+	// a library is hidden from the reader
+	hide_library(&app, &reader, &world.hidden_library).await;
+	let got = surfaces(&app, &reader.token, &list).await;
+	assert_exactly(
+		&got,
+		&[
+			&world.general,
+			&world.adult,
+			&world.unrated,
+			&open_facet,
+			&adult_facet,
+		],
+		&[&world.hidden, &hidden_facet, &world.removed],
+		json!({ "matchedBooks": 5, "matchedSeries": 2, "matchedLibraries": 1 }),
+		&["Open", "Adult"],
+		&["Hidden"],
+	);
+	assert_eq!(state(&app, &list).await, kept, "hiding a library");
+	assert_eq!(head(&app).await, kept.0, "hiding a library");
+	assert_eq!(members(&app, &list).await, kept_members);
+
+	// and then nothing above 16, nor unrated: ana's limits
+	age_restriction::ActiveModel {
+		user_id: Set(reader.id.clone()),
+		age: Set(16),
+		restrict_on_unset: Set(true),
+		..Default::default()
+	}
+	.insert(app.conn())
+	.await
+	.expect("should restrict the reader");
+	let got = surfaces(&app, &reader.token, &list).await;
+	let mut gone = world.hidden_from_ana();
+	gone.extend([&hidden_facet, &adult_facet]);
+	assert_exactly(
+		&got,
+		&[&world.general, &open_facet],
+		&gone,
+		json!({ "matchedBooks": 2, "matchedSeries": 1, "matchedLibraries": 1 }),
+		&["Open"],
+		&["Hidden", "Adult"],
+	);
+	world.assert_none_hidden(&got.by_id);
+	world.assert_text_none_hidden(&got.shelf);
+	assert_eq!(state(&app, &list).await, kept, "an age restriction");
+	assert_eq!(head(&app).await, kept.0, "an age restriction");
+	assert_eq!(members(&app, &list).await, kept_members);
+
+	// the same check does see a refresh when the catalog changes: with members this old, the next
+	// reader works the list out again, and the book is in it
+	let late = add_book(
+		&app,
+		&world.open_series,
+		"Late book",
+		Meta {
+			age: Some(0),
+			..Default::default()
+		},
+	)
+	.await;
+	assert!(head(&app).await > kept.0, "a new book changes the catalog");
+	assert!(items(&app, &reader.token, &list).await.contains(&late.id));
+	let worked_out = state(&app, &list).await;
+	assert_eq!(worked_out.0, head(&app).await);
+	assert_ne!(worked_out.1, kept.1, "the list was worked out again");
+	assert_eq!(members(&app, &list).await.len(), kept_members.len() + 1);
+}
+
+// ---------------------------------------------------------------------------------------
+// Counting, and what can't be kept
+// ---------------------------------------------------------------------------------------
+
 /// The counts of `smartListMeta` (which book-curator reads) are made by the database over the
 /// members: every book, series and library, not capped at a page
 #[tokio::test]
@@ -422,6 +807,95 @@ async fn the_counts_cover_every_book_of_a_long_list() {
 	seen.sort();
 	seen.dedup();
 	assert_eq!(seen.len(), 450);
+}
+
+/// A page of a list is cut from what the reader may see, so a book they may not see never makes a
+/// page say there is more. A smart list's books come in the order of their IDs: two books that
+/// sort after every other one (one in the hidden library, one rated 18) come after ana's only
+/// book, so a page that asked the whole catalog whether there is more would give her a cursor.
+#[tokio::test]
+async fn books_a_reader_may_not_see_never_make_a_page_say_there_is_more() {
+	let (app, world) = world().await;
+	let last_hidden = add_book_with_id(
+		&app,
+		&world.hidden_series,
+		"ffffffff-ffff-4fff-8fff-fffffffffff1",
+		"Last hidden book",
+		0,
+	)
+	.await;
+	let last_adult = add_book_with_id(
+		&app,
+		&world.open_series,
+		"ffffffff-ffff-4fff-8fff-fffffffffff2",
+		"Last adult book",
+		18,
+	)
+	.await;
+	let list = create(
+		&app,
+		&world.owner_token,
+		"Everything",
+		"PUBLIC",
+		every_book(),
+	)
+	.await;
+
+	// ana's one book is the whole list for her, whatever the size of the page: no cursor, though
+	// two books she may not see come after it
+	for limit in [1, 2, 200] {
+		let (books, cursor) = page(&app, &world.ana.token, &list, limit, None).await;
+		assert_eq!(books, vec![world.general.id.clone()], "a page of {limit}");
+		assert_eq!(cursor, None, "a page of {limit}");
+	}
+	// and after her book there is nothing for her: the books that sort after it are not hers
+	let (books, cursor) = page(
+		&app,
+		&world.ana.token,
+		&list,
+		10,
+		Some(world.general.id.as_str()),
+	)
+	.await;
+	assert!(books.is_empty(), "{books:?}");
+	assert_eq!(cursor, None);
+
+	// the owner sees six books, in the order of their IDs: a page of five says there is more (the
+	// cursor is the last book of the page), a page of six, which holds the rest, does not
+	let owner_sees = ids_of(&[
+		&world.general,
+		&world.adult,
+		&world.unrated,
+		&world.hidden,
+		&last_hidden,
+		&last_adult,
+	]);
+	let (books, cursor) = page(&app, &world.owner_token, &list, 5, None).await;
+	assert_eq!(books, owner_sees[..5]);
+	assert_eq!(cursor.as_deref(), Some(owner_sees[4].as_str()));
+	let (books, cursor) = page(&app, &world.owner_token, &list, 6, None).await;
+	assert_eq!(books, owner_sees);
+	assert_eq!(
+		cursor, None,
+		"a page that holds the rest of the list ends it"
+	);
+
+	// a walk by cursor, two books at a time: each book once, in order, ending with no cursor
+	let mut seen = Vec::new();
+	let mut after: Option<String> = None;
+	let mut ended = false;
+	for _ in 0..10 {
+		let (books, cursor) =
+			page(&app, &world.owner_token, &list, 2, after.as_deref()).await;
+		seen.extend(books);
+		after = cursor;
+		if after.is_none() {
+			ended = true;
+			break;
+		}
+	}
+	assert!(ended, "the pages never came to an end");
+	assert_eq!(seen, owner_sees);
 }
 
 /// A list whose rules depend on who reads it is not kept, and gives the reader their own answer
