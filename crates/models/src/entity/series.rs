@@ -87,6 +87,17 @@ pub fn get_age_restriction_filter(min_age: i32, restrict_on_unset: bool) -> Cond
 	}
 }
 
+/// The series that have at least one book `user` may see, as a subquery. Applied to users with an
+/// age restriction: a series is filtered on its own age rating only, so one whose books are all
+/// above the user's age (rated per book) would show up with its name, cover and book count, and
+/// no books to open
+fn series_with_visible_books(user: &AuthUser) -> sea_orm::sea_query::SelectStatement {
+	media::Entity::find_for_user(user)
+		.select_only()
+		.column(media::Column::SeriesId)
+		.into_query()
+}
+
 impl Entity {
 	// TODO: This conditional join with metadata means the caller might not be able to
 	// know if they should join
@@ -107,12 +118,18 @@ impl Entity {
 			.apply_if(age_restriction_filter, |query, filter| {
 				query.left_join(series_metadata::Entity).filter(filter)
 			})
+			.apply_if(user.age_restriction.as_ref(), |query, _| {
+				query.filter(Column::Id.in_subquery(series_with_visible_books(user)))
+			})
 	}
 
 	/// Joins the series metadata, to filter on it (e.g. a search on the title). [`Self::find_for_user`]
 	/// already joins it for age-restricted users, and joining it twice is an SQL error ("ambiguous
 	/// column name"), so this joins it only when `select` doesn't have it yet.
-	pub fn with_metadata_for_user(select: Select<Entity>, user: &AuthUser) -> Select<Entity> {
+	pub fn with_metadata_for_user(
+		select: Select<Entity>,
+		user: &AuthUser,
+	) -> Select<Entity> {
 		if user.age_restriction.is_some() {
 			select
 		} else {
@@ -242,6 +259,9 @@ fn apply_age_restriction_filter(
 	});
 	select
 		.apply_if(age_restriction_filter, |query, filter| query.filter(filter))
+		.apply_if(user.age_restriction.as_ref(), |query, _| {
+			query.filter(Column::Id.in_subquery(series_with_visible_books(user)))
+		})
 		.to_owned()
 }
 
@@ -314,19 +334,80 @@ mod tests {
 
 		let select = Entity::find_for_user(&user);
 		let stmt_str = select_no_cols_to_string(select);
-		assert_eq!(
-			stmt_str,
-			r#"SELECT  FROM "series" LEFT JOIN "series_metadata" ON "series"."id" = "series_metadata"."series_id" WHERE "series"."deleted_at" IS NULL AND "series"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "series_metadata"."age_rating" IS NOT NULL AND "series_metadata"."age_rating" <= 18"#
+		// the series' own rating, as before...
+		assert!(
+			stmt_str.starts_with(
+				r#"SELECT  FROM "series" LEFT JOIN "series_metadata" ON "series"."id" = "series_metadata"."series_id" WHERE "series"."deleted_at" IS NULL AND "series"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "series_metadata"."age_rating" IS NOT NULL AND "series_metadata"."age_rating" <= 18"#
+			),
+			"{stmt_str}"
 		);
+		// ...and the series needs a book the user may see (by the books' own ratings)
+		assert!(
+			stmt_str.contains(
+				r#"AND "series"."id" IN (SELECT "media"."series_id" FROM "media""#
+			),
+			"{stmt_str}"
+		);
+		assert!(
+			stmt_str.contains(r#""media"."deleted_at" IS NULL"#),
+			"{stmt_str}"
+		);
+	}
+
+	#[test]
+	fn find_for_user_without_age_restriction_does_not_look_at_books() {
+		let user = get_default_user();
+		for select in [
+			Entity::find_for_user(&user),
+			ModelWithMetadata::find_for_user(&user),
+			ModelWithMetadata::find_by_id_for_user("1".to_string(), &user),
+		] {
+			let stmt_str = select_no_cols_to_string(select);
+			assert!(
+				!stmt_str.contains(r#"SELECT "media"."series_id""#),
+				"{stmt_str}"
+			);
+		}
+	}
+
+	#[test]
+	fn with_metadata_find_for_user_needs_a_visible_book_when_age_restricted() {
+		let mut user = get_default_user();
+		user.age_restriction = Some(age_restriction::Model {
+			id: 1,
+			age: 13,
+			restrict_on_unset: false,
+			user_id: user.id.clone(),
+		});
+
+		for select in [
+			ModelWithMetadata::find_for_user(&user),
+			ModelWithMetadata::find_by_id_for_user("1".to_string(), &user),
+		] {
+			let stmt_str = select_no_cols_to_string(select);
+			assert!(
+				stmt_str.contains(
+					r#""series"."id" IN (SELECT "media"."series_id" FROM "media""#
+				),
+				"{stmt_str}"
+			);
+		}
 	}
 
 	#[test]
 	fn with_metadata_for_user_joins_the_metadata_exactly_once() {
 		let join = r#"LEFT JOIN "series_metadata""#;
+		// Only the joins of the query itself count (they come before its WHERE): the subquery that
+		// asks for a visible book, in the WHERE, joins the metadata of its own, in its own scope
+		let joins_of_the_query = |select| {
+			let sql = select_no_cols_to_string(select);
+			let from = sql.split(" WHERE ").next().unwrap_or_default().to_string();
+			from.matches(join).count()
+		};
 
 		let user = get_default_user();
 		let select = Entity::with_metadata_for_user(Entity::find_for_user(&user), &user);
-		assert_eq!(select_no_cols_to_string(select).matches(join).count(), 1);
+		assert_eq!(joins_of_the_query(select), 1);
 
 		let mut restricted = get_default_user();
 		restricted.age_restriction = Some(age_restriction::Model {
@@ -339,7 +420,7 @@ mod tests {
 			Entity::find_for_user(&restricted),
 			&restricted,
 		);
-		assert_eq!(select_no_cols_to_string(select).matches(join).count(), 1);
+		assert_eq!(joins_of_the_query(select), 1);
 	}
 
 	#[test]

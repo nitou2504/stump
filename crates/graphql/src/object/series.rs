@@ -7,22 +7,21 @@ use async_graphql::{
 use models::{
 	entity::{library, media, media_metadata, reading_session, series, series_tag, tag},
 	shared::{
-		alphabet::{AvailableAlphabet, EntityLetter},
-		enums::ReadingStatus,
+		enums::{ReadingStatus, UserPermission},
 		image::ImageRef,
 	},
 };
 use sea_orm::{
 	prelude::*,
 	sea_query::{Expr, Query},
-	Condition, ExprTrait, FromQueryResult, JoinType, QuerySelect, QueryTrait,
+	Condition, ExprTrait, JoinType, QuerySelect, QueryTrait,
 };
 
 use crate::{
 	data::{AuthContext, CoreContext, ServiceContext},
 	loader::{
 		favorite::{FavoriteSeriesLoaderKey, FavoritesLoader},
-		series_count::SeriesCountLoader,
+		series_count::{SeriesCountLoader, SeriesCountLoaderKey},
 		series_finished_count::{FinishedCountLoaderKey, SeriesFinishedCountLoader},
 		series_thumbnail_media::{
 			SeriesThumbnailMediaLoader, SeriesThumbnailMediaLoaderKey,
@@ -31,7 +30,7 @@ use crate::{
 	object::{series_metadata::SeriesMetadata, stats::SeriesStats},
 	order::series_position_spec,
 	pagination::list_limit,
-	utils::db_statement,
+	utils::letter_counts,
 };
 
 use super::{library::Library, media::Media, tag::Tag};
@@ -101,9 +100,11 @@ impl Series {
 			return Ok(None);
 		}
 
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let model = media::ModelWithMetadata::find()
+		// only if the user may see the book (a one-shot above their age restriction isn't given away)
+		let model = media::ModelWithMetadata::find_for_user(user)
 			.filter(media::Column::SeriesId.eq(self.model.id.clone()))
 			.filter(media::Column::IsOneshot.eq(true))
 			.into_model::<media::ModelWithMetadata>()
@@ -179,46 +180,33 @@ impl Series {
 		Ok(thumbnails)
 	}
 
+	/// How many books of the series the user can see
 	async fn media_count(&self, ctx: &Context<'_>) -> Result<i64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<SeriesCountLoader>>()?;
-		let series_id = self.model.id.clone();
-		let media_count = loader.load_one(series_id).await?.unwrap_or(0i64);
+		let media_count = loader
+			.load_one(SeriesCountLoaderKey {
+				user_id: user.id.clone(),
+				series_id: self.model.id.clone(),
+			})
+			.await?
+			.unwrap_or(0i64);
 
 		Ok(media_count)
 	}
 
 	async fn media_alphabet(&self, ctx: &Context<'_>) -> Result<HashMap<String, i64>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_all_raw(db_statement(
-				conn,
-				r"
-				SELECT
-					substr(COALESCE(media_metadata.title, media.name), 1, 1) AS letter,
-					COUNT(DISTINCT media.id) AS count
-				FROM
-					media
-				LEFT JOIN media_metadata ON media.id = media_metadata.media_id
-				WHERE
-					media.series_id = $1
-				GROUP BY
-					letter
-				ORDER BY
-					letter ASC;
-				",
-				[self.model.id.clone().into()],
-			))
-			.await?;
-
-		let result = query_result
-			.into_iter()
-			.map(|res| EntityLetter::from_query_result(&res, "").map_err(|e| e.into()))
-			.collect::<Result<Vec<EntityLetter>>>()?;
-
-		let alphabet = AvailableAlphabet::from(result);
-
-		Ok(alphabet.get())
+		letter_counts(
+			conn,
+			media::Entity::find_for_user(user)
+				.filter(media::Column::SeriesId.eq(self.model.id.clone())),
+			"COALESCE(media_metadata.title, media.name)",
+			"media.id",
+		)
+		.await
 	}
 
 	#[graphql(complexity = "crate::complexity::list_cost(Some(take), child_complexity)")]
@@ -397,21 +385,24 @@ impl Series {
 		})
 	}
 
+	/// The reading stats of the series' books the user can see: their own, or with `allUsers`
+	/// everyone's (for users who may read users)
 	async fn stats(
 		&self,
 		ctx: &Context<'_>,
 		all_users: Option<bool>,
 	) -> Result<SeriesStats> {
-		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let auth = ctx.data::<AuthContext>()?;
+		let AuthContext { user, .. } = auth;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let stats = SeriesStats::fetch(
-			conn,
-			self.model.id.clone(),
-			user.id.clone(),
-			all_users.unwrap_or(false),
-		)
-		.await?;
+		let for_all_users = all_users.unwrap_or(false);
+		if for_all_users {
+			auth.enforce_permissions(&[UserPermission::ReadUsers])?;
+		}
+
+		let stats =
+			SeriesStats::fetch(conn, self.model.id.clone(), user, for_all_users).await?;
 
 		Ok(stats)
 	}
@@ -421,7 +412,13 @@ async fn get_series_progress(ctx: &Context<'_>, series_id: String) -> Result<(i6
 	let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 
 	let loader = ctx.data::<DataLoader<SeriesCountLoader>>()?;
-	let media_count = loader.load_one(series_id.clone()).await?.unwrap_or(0i64);
+	let media_count = loader
+		.load_one(SeriesCountLoaderKey {
+			user_id: user.id.clone(),
+			series_id: series_id.clone(),
+		})
+		.await?
+		.unwrap_or(0i64);
 
 	let finished_loader = ctx.data::<DataLoader<SeriesFinishedCountLoader>>()?;
 	let finished_count = finished_loader

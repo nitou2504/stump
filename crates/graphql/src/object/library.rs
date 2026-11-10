@@ -9,16 +9,9 @@ use models::{
 		library, library_config, library_exclusion, library_scan_record, library_tag,
 		media, media_metadata, series, tag, user,
 	},
-	shared::{
-		alphabet::{AvailableAlphabet, EntityLetter},
-		enums::UserPermission,
-		image::ImageRef,
-		ordering::OrderDirection,
-	},
+	shared::{enums::UserPermission, image::ImageRef, ordering::OrderDirection},
 };
-use sea_orm::{
-	prelude::*, sea_query::Query, FromQueryResult, QueryOrder, QuerySelect, QueryTrait,
-};
+use sea_orm::{prelude::*, sea_query::Query, QueryOrder, QuerySelect, QueryTrait};
 
 use crate::{
 	data::{AuthContext, CoreContext, ServiceContext},
@@ -26,7 +19,7 @@ use crate::{
 	loader::favorite::{FavoriteLibraryLoaderKey, FavoritesLoader},
 	object::{library_scan_record::LibraryScanRecord, media::Media, stats::LibraryStats},
 	pagination::list_limit,
-	utils::db_statement,
+	utils::letter_counts,
 };
 
 use super::{
@@ -50,19 +43,14 @@ impl From<library::Model> for Library {
 impl Library {
 	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn authors(&self, ctx: &Context<'_>) -> Result<Vec<Author>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let writers: Vec<String> = media_metadata::Entity::find()
+		// the writers of the books the user can see
+		let writers: Vec<String> = media::Entity::find_for_user(user)
 			.select_only()
 			.column(media_metadata::Column::Writers)
 			.distinct()
-			.join_rev(
-				sea_orm::JoinType::InnerJoin,
-				media::Entity::belongs_to(media_metadata::Entity)
-					.from(media::Column::Id)
-					.to(media_metadata::Column::MediaId)
-					.into(),
-			)
 			.filter(media::Column::LibraryId.eq(self.model.id.clone()))
 			.filter(media_metadata::Column::Writers.is_not_null())
 			.into_tuple()
@@ -184,37 +172,17 @@ impl Library {
 	}
 
 	async fn media_alphabet(&self, ctx: &Context<'_>) -> Result<HashMap<String, i64>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_all_raw(db_statement(
-				conn,
-				r"
-				SELECT
-					substr(COALESCE(media_metadata.title, media.name), 1, 1) AS letter,
-					COUNT(DISTINCT media.id) AS count
-				FROM
-					media
-				LEFT JOIN media_metadata ON media.id = media_metadata.media_id
-				WHERE
-					media.library_id = $1
-				GROUP BY
-					letter
-				ORDER BY
-					letter ASC;
-				",
-				[self.model.id.clone().into()],
-			))
-			.await?;
-
-		let result = query_result
-			.into_iter()
-			.map(|res| EntityLetter::from_query_result(&res, "").map_err(|e| e.into()))
-			.collect::<Result<Vec<EntityLetter>>>()?;
-
-		let alphabet = AvailableAlphabet::from(result);
-
-		Ok(alphabet.get())
+		letter_counts(
+			conn,
+			media::Entity::find_for_user(user)
+				.filter(media::Column::LibraryId.eq(self.model.id.clone())),
+			"COALESCE(media_metadata.title, media.name)",
+			"media.id",
+		)
+		.await
 	}
 
 	/// Get the full history of scan jobs for this library.
@@ -239,9 +207,10 @@ impl Library {
 		#[graphql(default, validator(minimum = 1))] take: Option<u64>,
 		#[graphql(default, validator(minimum = 0))] skip: Option<u64>,
 	) -> Result<Vec<Series>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let models = series::ModelWithMetadata::find()
+		let models = series::ModelWithMetadata::find_for_user(user)
 			.filter(series::Column::LibraryId.eq(Some(self.model.id.clone())))
 			// TODO: Consider allowing custom ordering?
 			.order_by_asc(series::Column::Name)
@@ -255,54 +224,41 @@ impl Library {
 	}
 
 	async fn series_alphabet(&self, ctx: &Context<'_>) -> Result<HashMap<String, i64>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_all_raw(db_statement(
-				conn,
-				r"
-				SELECT
-					substr(COALESCE(series_metadata.title, series.name), 1, 1) AS letter,
-					COUNT(DISTINCT series.id) AS count
-				FROM
-					series
-				LEFT JOIN series_metadata ON series.id = series_metadata.series_id
-				WHERE
-					series.library_id = $1
-				GROUP BY
-					letter
-				ORDER BY
-					letter ASC;
-				",
-				[self.model.id.clone().into()],
-			))
-			.await?;
-
-		let result = query_result
-			.into_iter()
-			.map(|res| EntityLetter::from_query_result(&res, "").map_err(|e| e.into()))
-			.collect::<Result<Vec<EntityLetter>>>()?;
-
-		let alphabet = AvailableAlphabet::from(result);
-
-		Ok(alphabet.get())
+		letter_counts(
+			conn,
+			series::Entity::with_metadata_for_user(
+				series::Entity::find_for_user(user),
+				user,
+			)
+			.filter(series::Column::LibraryId.eq(self.model.id.clone())),
+			"COALESCE(series_metadata.title, series.name)",
+			"series.id",
+		)
+		.await
 	}
 
+	/// The reading stats of the library's books the user can see: their own, or with `allUsers`
+	/// everyone's (for users who may read users)
 	async fn stats(
 		&self,
 		ctx: &Context<'_>,
 		all_users: Option<bool>,
 	) -> Result<LibraryStats> {
-		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let auth = ctx.data::<AuthContext>()?;
+		let AuthContext { user, .. } = auth;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let stats = LibraryStats::fetch(
-			conn,
-			Some(self.model.id.clone()),
-			user.id.clone(),
-			all_users.unwrap_or(false),
-		)
-		.await?;
+		let for_all_users = all_users.unwrap_or(false);
+		if for_all_users {
+			auth.enforce_permissions(&[UserPermission::ReadUsers])?;
+		}
+
+		let stats =
+			LibraryStats::fetch(conn, Some(self.model.id.clone()), user, for_all_users)
+				.await?;
 
 		Ok(stats)
 	}
@@ -312,10 +268,12 @@ impl Library {
 		ctx: &Context<'_>,
 		#[graphql(default)] sort: Option<OrderDirection>,
 	) -> Result<Vec<String>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
 		let genre_strings = get_unique_str_list_metadata_fields(
 			self,
+			user,
 			media_metadata::Column::Genres,
 			sort.unwrap_or(OrderDirection::Asc),
 			conn,
@@ -330,10 +288,12 @@ impl Library {
 		ctx: &Context<'_>,
 		#[graphql(default)] sort: Option<OrderDirection>,
 	) -> Result<Vec<String>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
 		let publisher_strings = get_unique_metadata_fields(
 			self,
+			user,
 			media_metadata::Column::Publisher,
 			sort.unwrap_or(OrderDirection::Asc),
 			conn,
@@ -390,8 +350,10 @@ impl Library {
 	}
 }
 
+/// The distinct values of `column` over the library's books that `user` can see
 async fn get_unique_metadata_fields(
 	library: &Library,
+	user: &user::AuthUser,
 	column: media_metadata::Column,
 	sort: OrderDirection,
 	conn: &DatabaseConnection,
@@ -404,11 +366,11 @@ async fn get_unique_metadata_fields(
 		// just a lil inefficient
 		.filter(
 			media_metadata::Column::MediaId.in_subquery(
-				Query::select()
+				media::Entity::find_for_user(user)
+					.select_only()
 					.column(media::Column::Id)
-					.from(media::Entity)
-					.and_where(media::Column::LibraryId.eq(library.model.id.clone()))
-					.to_owned(),
+					.filter(media::Column::LibraryId.eq(library.model.id.clone()))
+					.into_query(),
 			),
 		)
 		.order_by(column, sort.into())
@@ -422,6 +384,7 @@ async fn get_unique_metadata_fields(
 /// Get unique values from fields which are string arrays
 async fn get_unique_str_list_metadata_fields(
 	library: &Library,
+	user: &user::AuthUser,
 	column: media_metadata::Column,
 	sort: OrderDirection,
 	conn: &DatabaseConnection,
@@ -434,11 +397,11 @@ async fn get_unique_str_list_metadata_fields(
 		// just a lil inefficient
 		.filter(
 			media_metadata::Column::MediaId.in_subquery(
-				Query::select()
+				media::Entity::find_for_user(user)
+					.select_only()
 					.column(media::Column::Id)
-					.from(media::Entity)
-					.and_where(media::Column::LibraryId.eq(library.model.id.clone()))
-					.to_owned(),
+					.filter(media::Column::LibraryId.eq(library.model.id.clone()))
+					.into_query(),
 			),
 		)
 		.into_tuple::<String>()

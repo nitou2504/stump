@@ -5,11 +5,9 @@ use models::{
 	entity::{
 		last_library_visit,
 		library::{self, LibraryModelOrderBy},
+		library_exclusion,
 	},
-	shared::{
-		alphabet::{AvailableAlphabet, EntityLetter},
-		ordering::{OrderDirection, OrderingField},
-	},
+	shared::ordering::{OrderDirection, OrderingField},
 };
 use sea_orm::{
 	prelude::*, ExprTrait, FromQueryResult, Order, QueryOrder, QuerySelect, QueryTrait,
@@ -24,7 +22,7 @@ use crate::{
 		CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse, Pagination,
 		PaginationValidator, SmallTablePaginationValidator,
 	},
-	utils::db_statement,
+	utils::{db_statement, letter_counts},
 };
 use models::shared::enums::UserPermission;
 
@@ -142,47 +140,28 @@ impl LibraryQuery {
 		Ok(model.map(Library::from))
 	}
 
-	/// Returns the available alphabet for all libraries in the server
+	/// Returns the available alphabet for the libraries the user can see
 	async fn libraries_alphabet(
 		&self,
 		ctx: &Context<'_>,
 	) -> Result<HashMap<String, i64>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_all_raw(db_statement(
-				conn,
-				r"
-				SELECT
-					substr(libraries.name, 1, 1) AS letter,
-					COUNT(DISTINCT libraries.id) AS count
-				FROM
-					libraries
-				GROUP BY
-					letter
-				ORDER BY
-					letter ASC;
-				",
-				[],
-			))
-			.await?;
-
-		let result = query_result
-			.into_iter()
-			.map(|res| EntityLetter::from_query_result(&res, "").map_err(|e| e.into()))
-			.collect::<Result<Vec<EntityLetter>>>()?;
-
-		let alphabet = AvailableAlphabet::from(result);
-
-		Ok(alphabet.get())
+		letter_counts(
+			conn,
+			library::Entity::find_for_user(user),
+			"libraries.name",
+			"libraries.id",
+		)
+		.await
 	}
 
 	async fn libraries_stats(&self, ctx: &Context<'_>) -> Result<LibraryStats> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let all_stats =
-			LibraryStats::fetch(conn, None, user.id.to_string(), false).await?;
+		let all_stats = LibraryStats::fetch(conn, None, user, false).await?;
 
 		Ok(all_stats)
 	}
@@ -200,8 +179,12 @@ impl LibraryQuery {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
+		// a library the user was in before it was hidden from them isn't theirs to see anymore
 		let last_visited = last_library_visit::Entity::find()
 			.filter(last_library_visit::Column::UserId.eq(user.id.to_string()))
+			.filter(last_library_visit::Column::LibraryId.not_in_subquery(
+				library_exclusion::Entity::library_hidden_to_user_query(user),
+			))
 			.find_also_related(library::Entity)
 			.order_by_desc(last_library_visit::Column::Timestamp)
 			.one(conn)

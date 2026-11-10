@@ -1,7 +1,27 @@
 use async_graphql::{Result, SimpleObject};
-use sea_orm::{prelude::*, DatabaseConnection, FromQueryResult};
+use models::entity::{media, series, user::AuthUser};
+use sea_orm::{prelude::*, DatabaseConnection, FromQueryResult, QuerySelect, QueryTrait};
 
 use crate::utils::db_statement;
+
+// The stats count what the user can see, nothing else: the ids of their books and series come from
+// the same `find_for_user` selects every list uses (a library hidden from them, a book above their
+// age restriction or removed doesn't count), rendered as SQL for the queries below
+fn visible_media_ids_sql(conn: &DatabaseConnection, user: &AuthUser) -> String {
+	media::Entity::find_for_user(user)
+		.select_only()
+		.column(media::Column::Id)
+		.build(conn.get_database_backend())
+		.to_string()
+}
+
+fn visible_series_ids_sql(conn: &DatabaseConnection, user: &AuthUser) -> String {
+	series::Entity::find_for_user(user)
+		.select_only()
+		.column(series::Column::Id)
+		.build(conn.get_database_backend())
+		.to_string()
+}
 
 // eventually i see more stats living in here, e.g.:
 // - https://github.com/stumpapp/stump/issues/559
@@ -28,28 +48,39 @@ pub struct LibraryStats {
 }
 
 impl LibraryStats {
+	/// The stats of a library's books (all libraries with `None`) that `user` can see: their own
+	/// reading, or everyone's with `for_all_users`
 	pub async fn fetch(
 		conn: &DatabaseConnection,
 		for_library: Option<String>,
-		user_id: String,
+		user: &AuthUser,
 		for_all_users: bool,
 	) -> Result<Self> {
+		let visible_media = visible_media_ids_sql(conn, user);
+		let visible_series = visible_series_ids_sql(conn, user);
 		let result = conn
 			.query_one_raw(db_statement(
 				conn,
-				r"
+				format!(
+					r"
 				WITH library_media AS (
 					SELECT media.id, media.size
 					FROM media
 					WHERE ($1 IS NULL OR media.library_id = $1)
 						-- removed books (soft-deleted) are not part of the library anymore
 						AND media.deleted_at IS NULL
+						-- only the books the user can see
+						AND media.id IN ({visible_media})
 				),
 				base_counts AS (
 					SELECT
 						COUNT(*) AS book_count,
 						COALESCE(CAST(SUM(size) AS BIGINT), 0) AS total_bytes,
-						(SELECT COUNT(*) FROM series WHERE ($1 IS NULL OR series.library_id = $1)) AS series_count
+						(
+							SELECT COUNT(*) FROM series
+							WHERE ($1 IS NULL OR series.library_id = $1)
+								AND series.id IN ({visible_series})
+						) AS series_count
 					FROM library_media
 				),
 				filtered_sessions AS (
@@ -122,11 +153,12 @@ impl LibraryStats {
 					session_stats.in_progress_books,
 					session_stats.total_reading_time_seconds
 				FROM base_counts, session_stats;
-				",
+				"
+				),
 				[
 					for_library.into(),
 					for_all_users.into(),
-					user_id.into(),
+					user.id.clone().into(),
 				],
 			))
 			.await?
@@ -144,30 +176,38 @@ pub struct SeriesStats {
 }
 
 impl SeriesStats {
+	/// The stats of the series' books that `user` can see: their own reading, or everyone's with
+	/// `for_all_users`
 	pub async fn fetch(
 		conn: &DatabaseConnection,
 		// i did not make this optional bc to say "all series" is effectively the same as library stats
 		for_series: String,
-		user_id: String,
+		user: &AuthUser,
 		for_all_users: bool,
 	) -> Result<Self> {
+		let visible_media = visible_media_ids_sql(conn, user);
 		let result = conn
 			.query_one_raw(db_statement(
 				conn,
-				r"
+				format!(
+					r"
 				WITH base_counts AS (
 					SELECT
 						COUNT(*) AS book_count,
 						COALESCE(CAST(SUM(media.size) AS BIGINT), 0) AS total_bytes
 					FROM media
-					-- removed books (soft-deleted) are not part of the series anymore
+					-- removed books (soft-deleted) are not part of the series anymore, and only the
+					-- books the user can see count
 					WHERE media.series_id = $1 AND media.deleted_at IS NULL
+						AND media.id IN ({visible_media})
 				),
 				filtered_sessions AS (
 					SELECT *
 					FROM reading_sessions
 					WHERE media_id IN (
-							SELECT id FROM media WHERE series_id = $1 AND deleted_at IS NULL
+							SELECT id FROM media
+							WHERE series_id = $1 AND deleted_at IS NULL
+								AND id IN ({visible_media})
 						)
 						AND ($2 IS TRUE OR user_id = $3)
 				),
@@ -234,8 +274,13 @@ impl SeriesStats {
 					session_stats.in_progress_books,
 					session_stats.total_reading_time_seconds
 				FROM base_counts, session_stats;
-				",
-				[for_series.into(), for_all_users.into(), user_id.into()],
+				"
+				),
+				[
+					for_series.into(),
+					for_all_users.into(),
+					user.id.clone().into(),
+				],
 			))
 			.await?
 			.ok_or("Series stats failed to be calculated")?;

@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 
 use async_graphql::{Context, Object, Result, ID};
-use models::{
-	entity::series,
-	shared::alphabet::{AvailableAlphabet, EntityLetter},
-};
-use sea_orm::{prelude::*, FromQueryResult, QueryOrder, QuerySelect};
+use models::entity::series;
+use sea_orm::{prelude::*, QueryOrder, QuerySelect};
 
 use crate::{
 	data::{AuthContext, CoreContext},
@@ -16,7 +13,7 @@ use crate::{
 		CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse, Pagination,
 		PaginationValidator,
 	},
-	utils::db_statement,
+	utils::letter_counts,
 };
 
 #[derive(Default)]
@@ -124,37 +121,21 @@ impl SeriesQuery {
 		Ok(model.map(Series::from))
 	}
 
-	/// Returns the available alphabet for all series in the server
+	/// Returns the available alphabet for the series the user can see
 	async fn series_alphabet(&self, ctx: &Context<'_>) -> Result<HashMap<String, i64>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_all_raw(db_statement(
-				conn,
-				r"
-				SELECT
-					substr(COALESCE(series_metadata.title, series.name), 1, 1) AS letter,
-					COUNT(DISTINCT series.id) AS count
-				FROM
-					series
-				LEFT JOIN series_metadata ON series.id = series_metadata.series_id
-				GROUP BY
-					letter
-				ORDER BY
-					letter ASC;
-				",
-				[],
-			))
-			.await?;
-
-		let result = query_result
-			.into_iter()
-			.map(|res| EntityLetter::from_query_result(&res, "").map_err(|e| e.into()))
-			.collect::<Result<Vec<EntityLetter>>>()?;
-
-		let alphabet = AvailableAlphabet::from(result);
-
-		Ok(alphabet.get())
+		letter_counts(
+			conn,
+			series::Entity::with_metadata_for_user(
+				series::Entity::find_for_user(user),
+				user,
+			),
+			"COALESCE(series_metadata.title, series.name)",
+			"series.id",
+		)
+		.await
 	}
 
 	async fn number_of_series(&self, ctx: &Context<'_>) -> Result<u64> {

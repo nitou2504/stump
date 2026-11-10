@@ -6,7 +6,6 @@ use models::{
 		media, media_metadata, reading_session, user::AuthUser, user_discover_rules,
 	},
 	shared::{
-		alphabet::{AvailableAlphabet, EntityLetter},
 		discover::DiscoverRules,
 		enums::{ReadingStatus, UserPermission},
 	},
@@ -30,7 +29,7 @@ use crate::{
 		CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse, Pagination,
 		PaginationValidator,
 	},
-	utils::db_statement,
+	utils::{db_statement, letter_counts},
 };
 
 #[derive(Default)]
@@ -323,28 +322,18 @@ impl MediaQuery {
 		Ok(count as i64)
 	}
 
-	// Note: this could be slightly inaccurate based on permissions, but it's close enough and I'm not
-	// motivated enough to write a more complex query right now
+	/// The disk space of the books the user can see
 	async fn media_disk_usage(&self, ctx: &Context<'_>) -> Result<i64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_one_raw(db_statement(
-				conn,
-				r"
-			SELECT
-				CAST(COALESCE(SUM(size), 0) AS BIGINT) as total_size
-			FROM
-				media
-			WHERE deleted_at IS NULL
-			",
-				[],
-			))
-			.await?;
-
-		let total_size = query_result
-			.ok_or_else(|| async_graphql::Error::new("Failed to get disk usage"))?
-			.try_get::<i64>("", "total_size")?;
+		let total_size = media::Entity::find_for_user(user)
+			.select_only()
+			.expr(Expr::cust("CAST(COALESCE(SUM(media.size), 0) AS BIGINT)"))
+			.into_tuple::<i64>()
+			.one(conn)
+			.await?
+			.ok_or_else(|| async_graphql::Error::new("Failed to get disk usage"))?;
 
 		Ok(total_size)
 	}
@@ -545,39 +534,18 @@ impl MediaQuery {
 			.collect())
 	}
 
-	/// Returns the available alphabet for all media in the server
+	/// Returns the available alphabet for the media the user can see
 	async fn media_alphabet(&self, ctx: &Context<'_>) -> Result<HashMap<String, i64>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query_result = conn
-			.query_all_raw(db_statement(
-				conn,
-				r"
-				SELECT
-					substr(COALESCE(media_metadata.title, media.name), 1, 1) AS letter,
-					COUNT(DISTINCT media.id) AS count
-				FROM
-					media
-				LEFT JOIN media_metadata ON media.id = media_metadata.media_id
-				WHERE
-					media.deleted_at IS NULL
-				GROUP BY
-					letter
-				ORDER BY
-					letter ASC;
-				",
-				[],
-			))
-			.await?;
-
-		let result = query_result
-			.into_iter()
-			.map(|res| EntityLetter::from_query_result(&res, "").map_err(|e| e.into()))
-			.collect::<Result<Vec<EntityLetter>>>()?;
-
-		let alphabet = AvailableAlphabet::from(result);
-
-		Ok(alphabet.get())
+		letter_counts(
+			conn,
+			media::Entity::find_for_user(user),
+			"COALESCE(media_metadata.title, media.name)",
+			"media.id",
+		)
+		.await
 	}
 
 	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
