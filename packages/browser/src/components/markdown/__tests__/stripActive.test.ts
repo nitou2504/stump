@@ -9,7 +9,6 @@ const element = (
 ) => ({ type: 'element', tagName, properties, children })
 const text = (value: string) => ({ type: 'text', value })
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const run = (...children: any[]) => {
 	const root = { type: 'root', children }
 	stripActiveContent(root)
@@ -19,7 +18,10 @@ const run = (...children: any[]) => {
 describe('stripActiveContent', () => {
 	it('keeps ordinary markup as it is', () => {
 		const tree = run(
-			element('p', { className: ['a'] }, [text('hi '), element('a', { href: 'https://example.com' })]),
+			element('p', { className: ['a'] }, [
+				text('hi '),
+				element('a', { href: 'https://example.com' }),
+			]),
 			element('img', { src: 'cover.png', alt: 'x' }),
 		)
 		expect(tree).toHaveLength(2)
@@ -55,7 +57,9 @@ describe('stripActiveContent', () => {
 
 	it('removes them from deep inside', () => {
 		const tree = run(
-			element('div', {}, [element('div', {}, [element('p', { onclick: 'x()' }, [element('script')])])]),
+			element('div', {}, [
+				element('div', {}, [element('p', { onclick: 'x()' }, [element('script')])]),
+			]),
 		)
 		const p = tree[0].children[0].children[0]
 		expect(p.properties.onclick).toBeUndefined()

@@ -536,6 +536,7 @@ fn process_ticket(spawn: &Spawn, spool: &Spool, ticket: &Path) {
 	let verdict = match parsed {
 		Some(request)
 			if request.id == stem
+				&& super::contract::is_valid_ticket(&request.id)
 				&& super::contract::is_safe_relative(&request.input) =>
 		{
 			run_ticket(spawn, spool, ticket, &request)

@@ -543,6 +543,19 @@ impl Spooled {
 		self.0.push(made);
 	}
 
+	/// The hash the checker says the file it made has: the file is hashed again right before it is
+	/// copied into the library, and must still be the one the verdict was checked against
+	pub fn expected_hash(&self, index: usize) -> Option<String> {
+		self.0
+			.get(index)?
+			.verdict
+			.book
+			.as_ref()?
+			.output
+			.as_ref()
+			.map(|output| output.sha256.clone())
+	}
+
 	pub fn get(&self, index: usize) -> Option<&Made> {
 		self.0.get(index)
 	}

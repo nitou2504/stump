@@ -51,7 +51,8 @@ const isActiveValue = (value: unknown): boolean => {
 export const stripActiveContent = (node: HastNode): void => {
 	if (node.children) {
 		node.children = node.children.filter(
-			(child) => !(child.type === 'element' && child.tagName && BLOCKED_ELEMENTS.has(child.tagName)),
+			(child) =>
+				!(child.type === 'element' && child.tagName && BLOCKED_ELEMENTS.has(child.tagName)),
 		)
 		node.children.forEach(stripActiveContent)
 	}

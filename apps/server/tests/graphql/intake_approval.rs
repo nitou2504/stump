@@ -3141,3 +3141,148 @@ async fn test_a_friend_cannot_upload_when_the_checker_is_offline_or_a_pack() {
 		);
 	}
 }
+
+/// kills the supervisor the test started
+struct Supervisor(std::process::Child);
+
+impl Drop for Supervisor {
+	fn drop(&mut self) {
+		let _ = self.0.kill();
+		let _ = self.0.wait();
+	}
+}
+
+/// the production arrangement: the server writes tickets to the spool, a supervisor (the real
+/// binary, `stump intake-probe serve`) answers them, one child process for each file
+#[tokio::test(flavor = "multi_thread")]
+async fn test_the_queue_is_answered_by_a_real_supervisor() {
+	let world = world_with(|c| {
+		c.intake_probe_mode = "queue".to_string();
+		c.intake_probe_timeout_secs = 60;
+	})
+	.await;
+	let spool = world.config_dir.join("workers/intake");
+	let inbox = world.config_dir.join("intake");
+	fs::create_dir_all(&spool).unwrap();
+	fs::create_dir_all(&inbox).unwrap();
+	// offline until it beats
+	let closed = world.gql(&world.vis.ana.token, LIMITS, json!({})).await;
+	assert_eq!(closed["data"]["intakeUploadLimits"]["uploadsOpen"], false, "{closed:#}");
+	let _supervisor = Supervisor(
+		std::process::Command::new(env!("CARGO_BIN_EXE_stump_server"))
+			.args(["intake-probe", "serve", "--spool"])
+			.arg(&spool)
+			.arg("--intake")
+			.arg(&inbox)
+			.env("PROBE_MIN_FREE_MB", "1")
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
+			.spawn()
+			.expect("the supervisor starts"),
+	);
+	let mut open = false;
+	for _ in 0..100 {
+		let limits = world.gql(&world.vis.ana.token, LIMITS, json!({})).await;
+		if limits["data"]["intakeUploadLimits"]["uploadsOpen"] == true {
+			open = true;
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(100)).await;
+	}
+	assert!(open, "the checker should say it is there");
+
+	let id = world.ana_uploads("El nombre de la rosa").await;
+	let items = world.ana_items().await;
+	assert_eq!(items[0]["proposal"]["metadata"]["title"], "El nombre de la rosa", "{items:#}");
+	assert_ok(&world.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] })).await);
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	let row = world.wait_for(&id, IntakeState::Filed).await;
+	assert!(row.error.is_none(), "{:?}", row.error);
+	assert!(world
+		.library_dir
+		.join("Umberto_Eco/El_nombre_de_la_rosa.epub")
+		.exists());
+	// the spool is left clean: nothing queued, running or made
+	for folder in ["queue", "running", "out"] {
+		let left: Vec<_> = fs::read_dir(spool.join(folder)).unwrap().flatten().collect();
+		assert!(left.is_empty(), "{folder}: {left:?}");
+	}
+}
+
+/// a checker that answers with a canned verdict for any file: what the server shows is what the
+/// checker said, so the bytes of the book were never read here (they are not a book at all)
+fn canned_probe(dir: &std::path::Path, verdict_fields: &str) -> String {
+	use std::os::unix::fs::PermissionsExt;
+	let revision = stump_core::intake::probe::contract::probe_revision();
+	let script = format!(
+		r#"#!/bin/sh
+req="$3"
+id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' "$req")
+sha=$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' "$req")
+size=$(sed -n 's/.*"size":\([0-9]*\).*/\1/p' "$req")
+printf '{{"v":1,"id":"%s","kind":"screen","probe":"{revision}","status":"ok","reasons":[],"warnings":[],"book":{{"format":"epub","sha256":"%s","size":%s,{verdict_fields}}},"usage":{{}}}}' "$id" "$sha" "$size"
+"#
+	);
+	let path = dir.join("canned-probe.sh");
+	fs::write(&path, script).unwrap();
+	fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+	path.to_string_lossy().into_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_the_server_uses_the_verdict_and_not_the_file() {
+	let tmp = tempfile::tempdir().unwrap();
+	let probe = canned_probe(
+		tmp.path(),
+		r#""stump_hash":"cafe0001","pages":3,"metadata":{"title":"From The Verdict","writers":["Eco, Umberto"]}"#,
+	);
+	let world = world_with(move |c| {
+		c.intake_probe_mode = "subprocess".to_string();
+		c.intake_probe_exe = Some(probe);
+	})
+	.await;
+	// not a book: the first bytes of a zip, and rubbish. Any reader that opened it would fail
+	let mut rubbish = b"PK\x03\x04".to_vec();
+	rubbish.extend_from_slice(&[0xAB; 500]);
+	let response = post_upload(
+		&world.app,
+		Some(&world.vis.ana.token),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("Not A Book.epub", rubbish.clone()),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let items = world.ana_items().await;
+	let item = &items[0];
+	assert!(
+		matches!(item["state"].as_str(), Some("NEEDS_REVIEW" | "READY")),
+		"{item:#}"
+	);
+	assert_eq!(item["proposal"]["metadata"]["title"], "From The Verdict", "{item:#}");
+	let id = item["id"].as_str().unwrap().to_string();
+	assert_eq!(world.row(&id).await.files.0[0].hash.as_deref(), Some("cafe0001"));
+
+	// an answer about another file than the one asked about is no answer
+	let lying = canned_probe(tmp.path(), r#""stump_hash":"x","pages":1"#);
+	let wrong = std::fs::read_to_string(&lying)
+		.unwrap()
+		.replace(r#"sha=$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' "$req")"#, r#"sha=$(printf '%064d' 0)"#);
+	fs::write(&lying, wrong).unwrap();
+	let response = post_upload(
+		&world.app,
+		Some(&world.vis.ana.token),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("Another.epub", rubbish),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let second = response.json::<Value>()["items"][0]["id"].as_str().unwrap().to_string();
+	let row = world.wait_for(&second, IntakeState::Failed).await;
+	assert!(
+		row.error.clone().unwrap_or_default().contains("could not be used"),
+		"{:?}",
+		row.error
+	);
+}

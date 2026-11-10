@@ -562,8 +562,12 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 				format!("{} holds less than it says", printable(&entry.name)),
 			));
 		}
-		if is_nested_archive(&head[..head_len]) {
-			return Err(reject(
+		// Nothing in Stump opens an archive inside a book, so one is not a danger to the server (a
+		// real book carries them now and then: a word processor's `themedata.thmx` is a zip, and
+		// 1 of 900 EPUBs of a real library has one). It is told, and its size is counted like any
+		// other entry's
+		if is_nested_archive(&head[..head_len]) && warnings.len() < 20 {
+			warnings.push(reject(
 				code::NESTED_ARCHIVE,
 				format!("{} is an archive inside the book", printable(&entry.name)),
 			));
@@ -914,23 +918,28 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn an_archive_inside_the_book_is_refused() {
+	fn an_archive_inside_the_book_is_told_and_counted() {
 		let inner = zip_of(&[("x", b"1", CompressionMethod::Stored)]);
-		for payload in [
-			&inner[..],
-			b"Rar!\x1a\x07\x00....",
-			b"\x1f\x8b\x08....",
-			b"%PDF-1.4 ....",
-		] {
+		for payload in [&inner[..], b"Rar!\x1a\x07\x00....", b"\x1f\x8b\x08....", b"%PDF-1.4 ...."] {
 			let bytes = zip_of(&[("book/page.dat", payload, CompressionMethod::Stored)]);
-			assert_eq!(
-				code_of(scan_bytes(&bytes, &Limits::default())),
-				code::NESTED_ARCHIVE
-			);
+			let report = scan_bytes(&bytes, &Limits::default()).expect("not a danger to the server");
+			assert!(report.warnings.iter().any(|w| w.code == code::NESTED_ARCHIVE));
 		}
+		// its size counts like any other entry's: an archive that is too big for an entry is
+		// refused as such
+		let big = zip_of(&[("x.dat", &[b'a'; 10], CompressionMethod::Stored)]);
+		let mut nested = big.clone();
+		nested.resize(5 * 1024 * 1024, 0);
+		let tight = Limits {
+			max_entry_bytes: MIB,
+			..Limits::default()
+		};
+		let bytes = zip_of(&[("book/page.dat", &nested, CompressionMethod::Stored)]);
+		assert_eq!(code_of(scan_bytes(&bytes, &tight)), code::ENTRY_TOO_LARGE);
 		// an ordinary binary is not an archive
 		let ok = zip_of(&[("font.otf", b"OTTO\x00\x01", CompressionMethod::Stored)]);
-		assert!(scan_bytes(&ok, &Limits::default()).is_ok());
+		let report = scan_bytes(&ok, &Limits::default()).unwrap();
+		assert!(report.warnings.is_empty());
 	}
 
 	#[test]

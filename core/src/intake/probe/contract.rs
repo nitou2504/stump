@@ -108,7 +108,7 @@ const MIB: u64 = 1024 * 1024;
 impl Default for Limits {
 	fn default() -> Self {
 		Self {
-			max_entries: 10_000,
+			max_entries: 20_000,
 			max_entry_bytes: 64 * MIB,
 			max_unpacked_bytes: 2048 * MIB,
 			max_ratio: 200,
@@ -116,7 +116,7 @@ impl Default for Limits {
 			max_image_pixels: 50_000_000,
 			max_xml_bytes: 16 * MIB,
 			max_xml_depth: 256,
-			max_spine_items: 5_000,
+			max_spine_items: 20_000,
 			max_file_bytes: 2048 * MIB,
 			timeout_secs: 120,
 			timeout_secs_per_mb: 1,
@@ -137,7 +137,7 @@ impl Limits {
 			max_image_pixels: 200_000_000,
 			max_xml_bytes: 64 * MIB,
 			max_xml_depth: 1_024,
-			max_spine_items: 20_000,
+			max_spine_items: 50_000,
 			max_file_bytes: 4096 * MIB,
 			timeout_secs: 1_800,
 			timeout_secs_per_mb: 10,
@@ -520,6 +520,11 @@ pub fn cap_json(value: &mut serde_json::Value) {
 		Value::Object(fields) => fields.values_mut().for_each(cap_json),
 		_ => {},
 	}
+}
+
+/// A ticket id: the letters of a UUID, nothing a path could use
+pub fn is_valid_ticket(id: &str) -> bool {
+	!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
 /// A path that is relative and stays inside what it is relative to

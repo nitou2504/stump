@@ -1551,9 +1551,22 @@ async fn file_claimed_inner(
 			paths.push(target.to_string_lossy().into_owned());
 			record_progress(conn, &item.id, &paths, &notes).await?;
 			let (from, to) = (staged.clone(), target.clone());
-			let put = tokio::task::spawn_blocking(move || place_file(&from, &to))
-				.await
-				.map_err(|e| CoreError::InternalError(e.to_string()))?;
+			// what the checker made is hashed again right before it is copied: it must still be
+			// the file the verdict said it was
+			let expected = made.expected_hash(i);
+			let put = tokio::task::spawn_blocking(move || {
+				if let Some(expected) = expected {
+					let (hash, _) = probe::job::sha256_of(&from)?;
+					if hash != expected {
+						return Err(std::io::Error::other(
+							"the file the checker made is not the one it said",
+						));
+					}
+				}
+				place_file(&from, &to)
+			})
+			.await
+			.map_err(|e| CoreError::InternalError(e.to_string()))?;
 			match put {
 				Ok(()) => break,
 				// another filing took the name since it was looked at (nothing was replaced), or
@@ -2142,6 +2155,15 @@ mod tests {
 			volume,
 			..Default::default()
 		}
+	}
+
+	#[test]
+	fn a_converted_comic_is_filed_under_the_extension_of_what_was_made() {
+		assert_eq!(with_extension("Vol 1.cbr", "cbr", "cbz"), "Vol 1.cbz");
+		assert_eq!(with_extension("Vol 1.CBR", "cbr", "cbz"), "Vol 1.cbz");
+		// a name that doesn't end the way the file did is left alone
+		assert_eq!(with_extension("Vol 1.epub", "cbr", "cbz"), "Vol 1.epub");
+		assert_eq!(with_extension("Vol", "cbr", "cbz"), "Vol");
 	}
 
 	#[test]

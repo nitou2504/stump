@@ -465,13 +465,7 @@ fn valid_request(request: &Request) -> Result<(), Reason> {
 	if request.v != CONTRACT_VERSION {
 		return Err(fail(code::UNREADABLE, "A request of another version"));
 	}
-	if request.id.is_empty()
-		|| request.id.len() > 64
-		|| !request
-			.id
-			.chars()
-			.all(|c| c.is_ascii_hexdigit() || c == '-')
-	{
+	if !super::contract::is_valid_ticket(&request.id) {
 		return Err(fail(
 			code::UNREADABLE,
 			"A request with a ticket that is not one",

@@ -274,7 +274,7 @@ pub struct StumpConfig {
 
 	/// The most entries an uploaded archive may hold, MB an entry may be and MB the entries may
 	/// unpack to together, pages a book may have and pixels (in millions) an image may have
-	#[setting(default = 10000)]
+	#[setting(default = 20000)]
 	#[graphql(skip)]
 	pub intake_probe_max_entries: u64,
 	#[setting(default = 64)]
