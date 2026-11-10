@@ -680,6 +680,39 @@ async fn test_a_pack_is_unpacked_only_as_far_as_the_quota_goes() {
 	assert!(!rest.staged().iter().any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
 }
 
+/// the unpacking stops when the room runs out: what comes after it in the zip is not read. The
+/// last entry of this pack has a malformed path; a server that read on would answer that, and it
+/// answers the room
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_pack_is_not_read_past_the_room_its_user_has_left() {
+	let rest = rest_with(|c| c.intake_user_quota_mb = 1).await;
+	let mut books: Vec<(String, Vec<u8>)> = (0..3)
+		.map(|i| {
+			let mut bytes = rest.epub(&format!("Volume {i}"));
+			bytes.extend(vec![0u8; 800 * 1024]);
+			(format!("Saga/v{i:02}.epub"), bytes)
+		})
+		.collect();
+	books.push((
+		"../past-the-room.epub".to_string(),
+		rest.epub("Past the room"),
+	));
+	let entries: Vec<(&str, &[u8], bool)> = books
+		.iter()
+		.map(|(name, bytes)| (name.as_str(), bytes.as_slice(), true))
+		.collect();
+	let response = rest
+		.upload(&UploadBody::new().file("Saga.zip", zip_bytes(&entries)))
+		.await;
+	assert_eq!(response.status_code(), 413, "{}", response.text());
+	assert!(
+		message(&response).contains("inbox can hold"),
+		"{}",
+		message(&response)
+	);
+	assert!(rest.items().await.is_empty());
+}
+
 /// two uploads that each fit the quota (or the number of items) alone, and don't together: only
 /// one goes in, whichever comes first
 #[tokio::test(flavor = "multi_thread")]

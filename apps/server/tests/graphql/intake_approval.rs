@@ -227,11 +227,20 @@ impl World {
 	/// ana uploads an EPUB over REST whose package carries `metadata` as it is (a creator, a
 	/// series...), and the id of the item it makes
 	async fn ana_uploads_epub(&self, title: &str, metadata: &str) -> String {
+		self.ana_uploads_big_epub(title, metadata, 0).await
+	}
+
+	/// The same, with `noise` bytes of a stored entry added to the book (a book that takes a
+	/// moment to copy: two of them are copied at once)
+	async fn ana_uploads_big_epub(&self, title: &str, metadata: &str, noise: usize) -> String {
 		let path = self
 			.tmp
 			.path()
 			.join(format!("{}.epub", title.replace(' ', "_")));
 		write_unique_epub(&path, title, metadata);
+		if noise > 0 {
+			append_noise(&path, noise);
+		}
 		let bytes = fs::read(path).expect("epub bytes");
 		let response = post_upload(
 			&self.app,
@@ -2180,7 +2189,9 @@ async fn test_a_friends_description_is_plain_in_what_gets_filed() {
 
 
 /// two books that file under one name are each filed whole, whichever copies first: the second
-/// takes the next name, and neither holds the bytes of the other
+/// takes the next name, and neither holds the bytes of the other. The books are big, so that
+/// their copies overlap: with one temporary name for both, the one that was linked first would
+/// end up holding the bytes of the other (and both files would be the same book)
 #[tokio::test(flavor = "multi_thread")]
 async fn test_two_books_with_one_name_are_each_filed_whole() {
 	let world = world().await;
@@ -2188,11 +2199,12 @@ async fn test_two_books_with_one_name_are_each_filed_whole() {
 	for edition in ["First", "Second"] {
 		ids.push(
 			world
-				.ana_uploads_epub(
+				.ana_uploads_big_epub(
 					"Twin",
 					&format!(
 						"<dc:creator>Eco, Umberto</dc:creator><dc:description>The {edition} edition of the twin book.</dc:description>"
 					),
+					32 << 20,
 				)
 				.await,
 		);
