@@ -9,6 +9,17 @@ vi.mock('../stores', () => ({
 	useAppStore: (select: (state: unknown) => unknown) =>
 		select({ baseUrl: 'http://localhost:10801' }),
 }))
+const flags = vi.hoisted(() => ({ myReading: true }))
+
+// read when the page renders, so a test can turn My reading off
+vi.mock('../scenes/readingHistory/availability', () => ({
+	get MY_READING_AVAILABLE() {
+		return flags.myReading
+	},
+}))
+vi.mock('../scenes/readingHistory/ReadingHistoryPage', () => ({
+	default: ({ userId }: { userId?: string }) => <p>{`Reading of ${userId ?? 'me'}`}</p>,
+}))
 vi.mock('../scenes/home', () => ({ default: () => <p>Home page</p> }))
 vi.mock('../scenes/error/FourOhFour.tsx', () => ({ default: () => <p>Not found</p> }))
 // book clubs are not part of the product: no route leads to their pages
@@ -39,13 +50,31 @@ describe('AppRouter', () => {
 		expect(screen.queryByText('Book clubs')).not.toBeInTheDocument()
 	})
 
-	// the pages are not built yet (their flags are off), so the routes go home
-	it("routes my reading, and a friend's, to a page that goes home while it is not built", async () => {
+	it("routes my reading, and a friend's, to the My reading page", async () => {
+		flags.myReading = true
+
+		renderAt('/reading')
+		expect(await screen.findByText('Reading of me')).toBeInTheDocument()
+	})
+
+	it("routes a friend's reading to the same page, with the friend's id", async () => {
+		flags.myReading = true
+
+		renderAt('/reading/ana')
+		expect(await screen.findByText('Reading of ana')).toBeInTheDocument()
+	})
+
+	// a page that is switched off is not reachable by a link
+	it('sends the routes home while My reading is switched off', async () => {
+		flags.myReading = false
+
 		renderAt('/reading')
 		expect(await screen.findByText('Home page')).toBeInTheDocument()
 	})
 
-	it("routes a friend's reading too", async () => {
+	it("sends a friend's reading home too while it is switched off", async () => {
+		flags.myReading = false
+
 		renderAt('/reading/ana')
 		expect(await screen.findByText('Home page')).toBeInTheDocument()
 	})

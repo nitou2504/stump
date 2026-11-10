@@ -14,10 +14,12 @@ vi.mock('@/hooks/useTranslate', () => ({
 	useTranslate: () => ({ t: (key: string) => key, translate: (key: string) => key }),
 }))
 
+// what the server answers to `readingLists(scope: MINE)`; one that can't be changed would be
+// refused if the book was added to it, so the menu leaves it out whatever it was asked for
 const lists = [
-	{ id: 'recs', name: 'Recs from Ana', creatingUserId: 'me', bookCount: 0 },
-	{ id: 'other', name: 'Not mine', creatingUserId: 'someone', bookCount: 5 },
-	{ id: 'favs', name: 'Favourites', creatingUserId: 'me', bookCount: 2 },
+	{ id: 'recs', name: 'Recs from Ana', canEdit: true, bookCount: 0 },
+	{ id: 'other', name: 'Not mine', canEdit: false, bookCount: 5 },
+	{ id: 'favs', name: 'Favourites', canEdit: true, bookCount: 2 },
 ]
 
 function setup() {
@@ -87,6 +89,19 @@ describe('AddToReadingList', () => {
 		expect(rows.map((row) => row.textContent)).toEqual(['Favourites2', 'Recs from Ana0'])
 		expect(rows.map((row) => row.getAttribute('aria-checked'))).toEqual(['true', 'false'])
 		expect(screen.queryByText('Not mine')).not.toBeInTheDocument()
+	})
+
+	it("asks for the lists the user made, not for everyone's", async () => {
+		const user = userEvent.setup()
+		const { execute, Wrapper } = setup()
+		render(<AddToReadingList bookId="book" bookName="Dune" />, { wrapper: Wrapper })
+		await user.click(await screen.findByRole('button', { name: 'readingLists.addToList.label' }))
+		await screen.findAllByRole('checkbox')
+
+		const picker = execute.mock.calls
+			.map(([document]) => document.toString())
+			.find((document) => document.includes('query PickerReadingLists'))
+		expect(picker).toContain('scope: MINE')
 	})
 
 	it('adds the book to a list or removes it with a tap', async () => {

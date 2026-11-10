@@ -1,4 +1,4 @@
-use async_graphql::{Context, Object, Result, ID};
+use async_graphql::{Context, Enum, Object, Result, ID};
 
 use crate::pagination::get_paginated_results;
 use models::entity::{reading_list, user::AuthUser};
@@ -6,55 +6,78 @@ use sea_orm::prelude::*;
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	object::reading_list::ReadingList,
+	object::reading_list::{ReadingList, NOT_FOUND},
 	pagination::{PaginatedResponse, Pagination, SmallTablePaginationValidator},
 };
+
+/// Which reading lists to ask for
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Enum)]
+pub enum ReadingListScope {
+	/// The lists you made and everyone's public lists
+	#[default]
+	All,
+	/// The lists you made
+	Mine,
+	/// The public lists other people made
+	Others,
+}
 
 #[derive(Default)]
 pub struct ReadingListQuery;
 
 #[Object]
 impl ReadingListQuery {
-	/// Retrieves a paginated list of reading lists for the current user.
+	/// Retrieves a paginated list of the reading lists the current user can see: by default
+	/// their own and the public lists of everyone else (lists of people who are deleted or
+	/// locked are left out). `scope` narrows it to their own lists or to other people's.
 	///
 	/// # Returns
 	///
 	/// A paginated list of reading lists.
-	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
+	#[graphql(
+		complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)"
+	)]
 	async fn reading_lists(
 		&self,
 		ctx: &Context<'_>,
+		#[graphql(default)] scope: ReadingListScope,
 		#[graphql(default, validator(custom = "SmallTablePaginationValidator"))]
 		pagination: Pagination,
 	) -> Result<PaginatedResponse<ReadingList>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		get_paginated_reading_list(user, conn, pagination).await
+		get_paginated_reading_list(user, conn, scope, pagination).await
 	}
 
 	/// Retrieves a reading list by ID for the current user.
 	///
 	/// # Returns
-	/// A reading list with the given ID. If no reading list with this ID exists for the current user, an error will be returned.
+	/// A reading list with the given ID. If no reading list with this ID exists, or it is
+	/// private and isn't the current user's, the same error is returned.
 	async fn reading_list_by_id(&self, ctx: &Context<'_>, id: ID) -> Result<ReadingList> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let query = reading_list::Entity::find_for_user_and_id(user, 1, id.as_ref())
+		let query = reading_list::Entity::find_for_user_and_id(user, id.as_ref())
 			.into_model::<reading_list::Model>()
 			.one(conn)
 			.await?;
 
-		Ok(ReadingList::from(query.ok_or("Reading list not found")?))
+		Ok(ReadingList::from(query.ok_or(NOT_FOUND)?))
 	}
 }
 
 async fn get_paginated_reading_list(
 	user: &AuthUser,
 	conn: &DbConn,
+	scope: ReadingListScope,
 	pagination: Pagination,
 ) -> Result<PaginatedResponse<ReadingList>> {
-	let query = reading_list::Entity::find_for_user(user, 1);
+	let query = match scope {
+		ReadingListScope::All => reading_list::Entity::find_for_user(user),
+		ReadingListScope::Mine => reading_list::Entity::find_mine(user),
+		ReadingListScope::Others => reading_list::Entity::find_by_others(user),
+	};
 	let get_cursor =
 		|m: &<models::entity::reading_list::Entity as sea_orm::EntityTrait>::Model| {
 			m.id.to_string()
@@ -99,9 +122,14 @@ mod tests {
 			after: Some("abc".to_string()),
 			limit: 1,
 		});
-		let reading_lists = get_paginated_reading_list(&user, &mock_db, cursor_info)
-			.await
-			.unwrap();
+		let reading_lists = get_paginated_reading_list(
+			&user,
+			&mock_db,
+			ReadingListScope::All,
+			cursor_info,
+		)
+		.await
+		.unwrap();
 
 		assert_eq!(reading_lists.nodes.len(), 1);
 		assert_eq!(reading_lists.nodes[0].model.id, "1");
@@ -127,8 +155,13 @@ mod tests {
 			after: Some("abc".to_string()),
 			limit: 1,
 		});
-		let reading_lists =
-			get_paginated_reading_list(&user, &mock_db, cursor_info).await;
+		let reading_lists = get_paginated_reading_list(
+			&user,
+			&mock_db,
+			ReadingListScope::All,
+			cursor_info,
+		)
+		.await;
 
 		assert!(reading_lists.is_err());
 	}
@@ -144,9 +177,14 @@ mod tests {
 			after: Some("abc".to_string()),
 			limit: 1,
 		});
-		let reading_lists = get_paginated_reading_list(&user, &mock_db, cursor_info)
-			.await
-			.unwrap();
+		let reading_lists = get_paginated_reading_list(
+			&user,
+			&mock_db,
+			ReadingListScope::All,
+			cursor_info,
+		)
+		.await
+		.unwrap();
 
 		assert!(reading_lists.nodes.is_empty());
 
@@ -174,9 +212,10 @@ mod tests {
 			page_size: Some(1),
 			zero_based: None,
 		});
-		let reading_lists = get_paginated_reading_list(&user, &mock_db, info)
-			.await
-			.unwrap();
+		let reading_lists =
+			get_paginated_reading_list(&user, &mock_db, ReadingListScope::All, info)
+				.await
+				.unwrap();
 
 		assert_eq!(reading_lists.nodes.len(), 1);
 		assert_eq!(reading_lists.nodes[0].model, get_test_model());
@@ -207,9 +246,10 @@ mod tests {
 			page_size: Some(1),
 			zero_based: None,
 		});
-		let reading_lists = get_paginated_reading_list(&user, &mock_db, info)
-			.await
-			.unwrap();
+		let reading_lists =
+			get_paginated_reading_list(&user, &mock_db, ReadingListScope::All, info)
+				.await
+				.unwrap();
 
 		assert!(reading_lists.nodes.is_empty());
 

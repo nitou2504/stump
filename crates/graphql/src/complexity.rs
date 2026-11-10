@@ -297,6 +297,97 @@ mod tests {
 		);
 	}
 
+	/// The reading list pages the web app asks for, as it sends them (the documents are read from the
+	/// web sources, so that they can't drift from this test): the page of lists (each with its
+	/// first covers), a list's header, and a page of its books
+	#[tokio::test]
+	async fn allows_the_reading_list_pages_as_the_web_app_asks_for_them() {
+		const SCENE: &str = "scenes/readingList/graphql.ts";
+		let page_size = web_constant(SCENE, "READING_LIST_PAGE_SIZE");
+		assert!(
+			(1..=MAX_LIST_SIZE).contains(&page_size),
+			"a page of a reading list holds at most {MAX_LIST_SIZE} books: {page_size}"
+		);
+
+		let lists = [
+			web_document(
+				"scenes/readingList/ReadingListsScene.tsx",
+				"query ReadingListsScene",
+			),
+			web_document(
+				"scenes/readingList/ReadingListGridItem.tsx",
+				"fragment ReadingListGridItem",
+			),
+		]
+		.join("\n");
+		assert_eq!(
+			validation_errors(&lists, Value::Null).await,
+			Vec::<String>::new(),
+			"the page of reading lists is refused"
+		);
+
+		assert_eq!(
+			validation_errors(
+				&web_document(SCENE, "query ReadingListScene"),
+				json!({ "id": "x" })
+			)
+			.await,
+			Vec::<String>::new(),
+			"a reading list's header is refused"
+		);
+
+		let books = [
+			web_document(SCENE, "query ReadingListBooks"),
+			web_document("components/book/BookCard.tsx", "fragment BookCard"),
+		]
+		.join("\n");
+		assert_eq!(
+			validation_errors(
+				&books,
+				json!({ "id": "x", "limit": page_size, "offset": 0 })
+			)
+			.await,
+			Vec::<String>::new(),
+			"a page of a reading list's books is refused: make the page smaller"
+		);
+	}
+
+	/// The *My reading* page, as the web app sends its queries (the documents are read from the web
+	/// sources, so that they can't drift from this test): who is reading, what they are reading
+	/// now (at most 200 books) and a page of the books they finished with the years to pick from
+	#[tokio::test]
+	async fn allows_the_my_reading_page_as_the_web_app_asks_for_it() {
+		const SCENE: &str = "scenes/readingHistory/graphql.ts";
+		let page_size = web_constant(SCENE, "FINISHED_PAGE_SIZE");
+		assert!(
+			(1..=MAX_LIST_SIZE).contains(&page_size),
+			"a page of finished books holds at most {MAX_LIST_SIZE} books: {page_size}"
+		);
+
+		for (query, variables) in [
+			("query ReadingHistoryPeople", json!({})),
+			("query ReadingHistoryReader", json!({ "userId": "x" })),
+			("query ReadingHistoryNow", json!({ "userId": "x" })),
+			(
+				"query ReadingHistoryFinished",
+				json!({
+					"userId": "x",
+					"search": "dune",
+					"year": 2026,
+					"page": 1,
+					"pageSize": page_size,
+				}),
+			),
+			("mutation UpdateMyReadingPrivacy", json!({ "share": true })),
+		] {
+			assert_eq!(
+				validation_errors(&web_document(SCENE, query), variables).await,
+				Vec::<String>::new(),
+				"{query} is refused: make the page smaller or the selection lighter"
+			);
+		}
+	}
+
 	/// The smart list page the web app asks for, as the web app sends it: its document (read from
 	/// the web sources, so that it can't drift from this test) with the page size it uses. A
 	/// smart list is read page by page, because a list holds at most 200 books at a time.

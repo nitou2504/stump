@@ -6,7 +6,8 @@ import { CollectionStackedThumbnails, StackedThumbnail } from './CollectionStack
 export type CollectionStat = {
 	key: string
 	icon: LucideIcon
-	value: number
+	/** a count, or a few words (e.g. who made it) */
+	value: number | string
 	label: string
 }
 

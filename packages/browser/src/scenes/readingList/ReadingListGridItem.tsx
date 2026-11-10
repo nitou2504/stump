@@ -1,5 +1,5 @@
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
-import { Book } from 'lucide-react'
+import { Book, Globe } from 'lucide-react'
 
 import { CollectionGridItem } from '@/components/collection'
 import { useTranslate } from '@/hooks/useTranslate'
@@ -9,7 +9,13 @@ const fragment = graphql(`
 	fragment ReadingListGridItem on ReadingList {
 		id
 		name
+		visibility
+		canEdit
 		bookCount
+		creator {
+			id
+			username
+		}
 		books(limit: 5) {
 			id
 			thumbnail {
@@ -32,11 +38,31 @@ type Props = {
 	getLayoutNumber: (id: string, itemCount: number) => number | undefined
 }
 
-/** A reading list's card: its first covers, stacked, with its name and how many books it has */
+/**
+ * A reading list's card: its first covers, stacked, with its name and how many books it has. A
+ * public list has a globe: *Public* on the user's own, the name of the person who made it on
+ * someone else's
+ */
 export default function ReadingListGridItem({ data, getLayoutNumber }: Props) {
 	const paths = usePaths()
-	const { translate } = useTranslate()
-	const { id, name, books, bookCount } = useFragment(fragment, data)
+	const { t, translate } = useTranslate()
+	const { id, name, books, bookCount, visibility, canEdit, creator } = useFragment(fragment, data)
+
+	const isPublic = visibility === 'PUBLIC'
+	const badge = isPublic
+		? [
+				{
+					key: 'public',
+					icon: Globe,
+					value: canEdit
+						? t('readingLists.public')
+						: (creator?.username ?? t('readingLists.public')),
+					label: canEdit
+						? t('readingLists.publicHint')
+						: t('readingLists.list.publicBy', { name: creator?.username }),
+				},
+			]
+		: []
 
 	return (
 		<CollectionGridItem
@@ -54,6 +80,7 @@ export default function ReadingListGridItem({ data, getLayoutNumber }: Props) {
 					value: bookCount,
 					label: translate('shared.common.xBooks', { count: bookCount }),
 				},
+				...badge,
 			]}
 		/>
 	)

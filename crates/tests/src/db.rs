@@ -8,7 +8,7 @@ use models::entity::{
 	reading_list_rule, reading_session, refresh_token, series, series_metadata,
 	series_tag, server_config, session, smart_list, smart_list_access_rule,
 	smart_list_view, tag, user, user_discover_rules, user_login_activity,
-	user_preferences,
+	user_preferences, user_sharing_settings,
 };
 use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, DbErr, Schema};
 pub async fn test_database() -> DbConn {
@@ -58,6 +58,7 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(series_tag::Entity),
 		schema.create_table_from_entity(library_tag::Entity),
 		schema.create_table_from_entity(user_discover_rules::Entity),
+		schema.create_table_from_entity(user_sharing_settings::Entity),
 		schema.create_table_from_entity(server_config::Entity),
 		schema.create_table_from_entity(refresh_token::Entity),
 		schema.create_table_from_entity(session::Entity),

@@ -1676,9 +1676,16 @@
       "title": "Reading Lists",
       "newList": "New List",
       "created": "Created “{{name}}”",
+      "public": "Public",
+      "publicHint": "Visible to everyone on this server",
+      "sections": {
+        "mine": "My lists",
+        "others": "Shared by others"
+      },
       "emptyState": {
         "heading": "No reading lists yet",
-        "message": "Make a list, then add books to it from their pages"
+        "message": "Make a list, then add books to it from their pages",
+        "mine": "You haven't made a list yet"
       },
       "form": {
         "createTitle": "New Reading List",
@@ -1686,11 +1693,27 @@
         "name": "Name",
         "namePlaceholder": "Favourites",
         "description": "Description",
-        "descriptionPlaceholder": "Optional"
+        "descriptionPlaceholder": "Optional",
+        "public": {
+          "label": "Visible to everyone on this server",
+          "hint": "Everyone with an account here can open this list, but each person sees only the books they may read. Only you can change it."
+        }
       },
       "actions": {
         "edit": "Edit",
-        "delete": "Delete"
+        "delete": "Delete",
+        "saveCopy": "Save a Copy",
+        "unpublish": "Make Private"
+      },
+      "copy": {
+        "name": "Copy of {{name}}",
+        "saved": "Saved “{{name}}” to your lists"
+      },
+      "unpublish": {
+        "title": "Make This List Private?",
+        "description": "“{{name}}” is a public list by {{creator}}. Afterwards only they will see it.",
+        "confirm": "Make Private",
+        "done": "“{{name}}” is private now"
       },
       "delete": {
         "title": "Delete Reading List",
@@ -1701,12 +1724,17 @@
       "list": {
         "empty": {
           "heading": "No books in this list yet",
-          "message": "Add books to it from their pages"
+          "message": "Add books to it from their pages",
+          "messageOthers": "None of its books are available to you"
         },
         "removeBook": "Remove “{{name}}” from this list",
         "removeBookShort": "Remove from List",
         "removed": "Removed “{{name}}”",
-        "undo": "Undo"
+        "undo": "Undo",
+        "publicBy": "Public · by {{name}}",
+        "publicYours": "Public · everyone on this server can see it",
+        "loadMore": "Load more",
+        "shown": "Showing {{shown}} of {{total}} books"
       },
       "addToList": {
         "label": "Add to List",
@@ -1720,7 +1748,56 @@
         "delete": "Failed to delete the list",
         "saveBook": "Failed to update the list",
         "loadLists": "Failed to load the lists",
-        "loadList": "Failed to open the list"
+        "loadList": "Failed to open the list",
+        "copy": "Failed to save a copy",
+        "unpublish": "Failed to make the list private"
+      }
+    },
+    "readingHistory": {
+      "title": "My Reading",
+      "titleOf": "{{name}}’s Reading",
+      "helmet": "Reading",
+      "read_ordinal_one": "{{count}}st read",
+      "read_ordinal_two": "{{count}}nd read",
+      "read_ordinal_few": "{{count}}rd read",
+      "read_ordinal_other": "{{count}}th read",
+      "people": {
+        "label": "Whose reading",
+        "me": "Me"
+      },
+      "privacy": {
+        "label": "Share My Reading",
+        "switch": "Let everyone on this server see my reading",
+        "privateTitle": "Only you can see this page",
+        "sharedTitle": "Everyone on this server can see this page",
+        "description": "They see what you’re reading now and the books you’ve finished, only the ones they may read themselves. They never see how long you read, your bookmarks or your notes. You can turn it off at any time.",
+        "cardDescription": "Who can see what you’re reading and have finished",
+        "saveFailed": "Couldn’t change who sees your reading"
+      },
+      "now": {
+        "heading": "Reading Now",
+        "empty": "Nothing in progress",
+        "lastRead": "Last read {{date}}",
+        "progress": "{{percent}}% read"
+      },
+      "finished": {
+        "heading": "Finished",
+        "count_one": "{{count}} book",
+        "count_other": "{{count}} books",
+        "search": "Search finished books…",
+        "years": "Year finished",
+        "allYears": "All",
+        "empty": "No finished books yet",
+        "emptyHint": "Books show up here when you finish reading them",
+        "noMatch": "No finished books match",
+        "noMatchHint": "Try another search or year"
+      },
+      "unavailable": {
+        "title": "This reading isn’t available",
+        "description": "That person doesn’t share what they read, or isn’t on this server any more"
+      },
+      "errors": {
+        "load": "Couldn’t load the reading"
       }
     },
     "settingsScene": {

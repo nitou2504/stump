@@ -22,6 +22,7 @@ pub mod metadata_facets;
 mod metadata_provider;
 mod notifier;
 pub(crate) mod post_processing;
+mod reading_history;
 pub(crate) mod reading_list;
 mod reading_session;
 mod reading_stats;
@@ -59,6 +60,7 @@ use metadata_facets::MetadataFacetQuery;
 use metadata_provider::MetadataProviderQuery;
 use notifier::NotifierQuery;
 use post_processing::PostProcessingQuery;
+use reading_history::ReadingHistoryQuery;
 use reading_list::ReadingListQuery;
 use reading_session::ReadingSessionQuery;
 use reading_stats::ReadingStatsQuery;
@@ -122,6 +124,7 @@ struct ListQueries(
 	SmartListsQuery,
 	SmartListViewQuery,
 	ReadingListQuery,
+	ReadingHistoryQuery,
 	CustomEmojiQuery,
 );
 

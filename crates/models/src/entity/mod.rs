@@ -67,3 +67,4 @@ pub mod user_login_activity;
 pub mod user_preferences;
 pub mod user_discover_rules;
 pub mod user_reader_settings;
+pub mod user_sharing_settings;

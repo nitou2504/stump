@@ -1,12 +1,22 @@
-use async_graphql::{ComplexObject, Context, Result, SimpleObject};
+use async_graphql::{
+	dataloader::DataLoader, ComplexObject, Context, Result, SimpleObject,
+};
 use models::entity::{media, reading_list, reading_list_item};
 use sea_orm::{prelude::*, JoinType, QueryOrder, QuerySelect, Select};
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	object::media::Media,
-	pagination::list_limit,
+	loader::reader_profile::ReaderProfileLoader,
+	object::{media::Media, reader_profile::ReaderProfile},
+	pagination::{list_limit, list_offset},
 };
+
+/// What a user gets for a list that doesn't exist and for one they may not see: the same, so that
+/// the answer doesn't tell which private lists there are
+pub const NOT_FOUND: &str = "Reading list not found";
+
+/// What a user gets for changing a list they may see but not change
+pub const CANT_CHANGE: &str = "You can't change this list";
 
 #[derive(Debug, SimpleObject)]
 #[graphql(complex)]
@@ -40,12 +50,14 @@ fn in_reading_list(
 
 #[ComplexObject]
 impl ReadingList {
-	/// The list's books the user can see, in the list's order
+	/// The list's books the user can see, in the list's order: at most 200 at a time, `offset`
+	/// books in
 	#[graphql(complexity = "crate::complexity::list_cost(limit, child_complexity)")]
 	async fn books(
 		&self,
 		ctx: &Context<'_>,
 		#[graphql(default)] limit: Option<u64>,
+		#[graphql(default)] offset: Option<u64>,
 	) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -57,11 +69,27 @@ impl ReadingList {
 		.order_by_asc(reading_list_item::Column::DisplayOrder)
 		.order_by_asc(reading_list_item::Column::Id)
 		.limit(list_limit(limit))
+		.offset(list_offset(offset))
 		.into_model::<media::ModelWithMetadata>()
 		.all(conn)
 		.await?;
 
 		Ok(models.into_iter().map(Media::from).collect())
+	}
+
+	/// Whether the user made the list, and so may rename it, change what is in it and who sees
+	/// it. Anyone else sees it read-only (the server owner can only take a public list of
+	/// someone else back to private, or delete it)
+	async fn can_edit(&self, ctx: &Context<'_>) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		Ok(self.model.creating_user_id == user.id)
+	}
+
+	/// Who made the list: their name and avatar. None when they can't be shown any more (a
+	/// deleted or locked account's lists aren't listed at all)
+	async fn creator(&self, ctx: &Context<'_>) -> Result<Option<ReaderProfile>> {
+		let loader = ctx.data::<DataLoader<ReaderProfileLoader>>()?;
+		Ok(loader.load_one(self.model.creating_user_id.clone()).await?)
 	}
 
 	/// How many of the list's books the user can see

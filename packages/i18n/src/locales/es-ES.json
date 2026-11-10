@@ -1308,6 +1308,131 @@
         }
       }
     },
+    "readingLists": {
+      "title": "Listas de lectura",
+      "newList": "Nueva lista",
+      "created": "Se creó “{{name}}”",
+      "public": "Pública",
+      "publicHint": "Visible para todas las personas de este servidor",
+      "sections": {
+        "mine": "Mis listas",
+        "others": "Compartidas por otras personas"
+      },
+      "emptyState": {
+        "heading": "Aún no hay listas de lectura",
+        "message": "Crea una lista y añade libros desde sus páginas",
+        "mine": "Todavía no has creado ninguna lista"
+      },
+      "form": {
+        "createTitle": "Nueva lista de lectura",
+        "editTitle": "Editar lista de lectura",
+        "name": "Nombre",
+        "namePlaceholder": "Favoritos",
+        "description": "Descripción",
+        "descriptionPlaceholder": "Opcional",
+        "public": {
+          "label": "Visible para todas las personas de este servidor",
+          "hint": "Cualquiera con una cuenta aquí puede abrir esta lista, pero cada persona ve solo los libros que puede leer. Solo tú puedes cambiarla."
+        }
+      },
+      "actions": {
+        "edit": "Editar",
+        "delete": "Eliminar",
+        "saveCopy": "Guardar una copia",
+        "unpublish": "Hacer privada"
+      },
+      "copy": {
+        "name": "Copia de {{name}}",
+        "saved": "Se guardó “{{name}}” en tus listas"
+      },
+      "unpublish": {
+        "title": "¿Hacer privada esta lista?",
+        "description": "“{{name}}” es una lista pública de {{creator}}. Después solo esa persona la verá.",
+        "confirm": "Hacer privada",
+        "done": "“{{name}}” ahora es privada"
+      },
+      "delete": {
+        "title": "Eliminar lista de lectura",
+        "description": "¿Eliminar “{{name}}”? Sus libros se quedan en la biblioteca.",
+        "confirm": "Eliminar",
+        "deleted": "Se eliminó “{{name}}”"
+      },
+      "list": {
+        "empty": {
+          "heading": "Esta lista aún no tiene libros",
+          "message": "Añade libros desde sus páginas",
+          "messageOthers": "Ninguno de sus libros está disponible para ti"
+        },
+        "removeBook": "Quitar “{{name}}” de esta lista",
+        "removeBookShort": "Quitar de la lista",
+        "removed": "Se quitó “{{name}}”",
+        "undo": "Deshacer",
+        "publicBy": "Pública · de {{name}}",
+        "publicYours": "Pública · todas las personas de este servidor pueden verla",
+        "loadMore": "Cargar más",
+        "shown": "Mostrando {{shown}} de {{total}} libros"
+      },
+      "addToList": {
+        "label": "Añadir a una lista",
+        "noLists": "Aún no hay listas",
+        "newList": "Nueva lista…",
+        "allLists": "Todas las listas de lectura"
+      },
+      "errors": {
+        "create": "No se pudo crear la lista",
+        "update": "No se pudo guardar la lista",
+        "delete": "No se pudo eliminar la lista",
+        "saveBook": "No se pudo actualizar la lista",
+        "loadLists": "No se pudieron cargar las listas",
+        "loadList": "No se pudo abrir la lista",
+        "copy": "No se pudo guardar la copia",
+        "unpublish": "No se pudo hacer privada la lista"
+      }
+    },
+    "readingHistory": {
+      "title": "Mi lectura",
+      "titleOf": "Lectura de {{name}}",
+      "helmet": "Lectura",
+      "read_ordinal_other": "{{count}}.ª lectura",
+      "people": {
+        "label": "De quién es la lectura",
+        "me": "Yo"
+      },
+      "privacy": {
+        "label": "Compartir mi lectura",
+        "switch": "Dejar que todas las personas de este servidor vean mi lectura",
+        "privateTitle": "Solo tú puedes ver esta página",
+        "sharedTitle": "Todas las personas de este servidor pueden ver esta página",
+        "description": "Ven lo que estás leyendo ahora y los libros que has terminado, solo los que ellas mismas pueden leer. Nunca ven cuánto tiempo lees, tus marcadores ni tus notas. Puedes desactivarlo cuando quieras.",
+        "cardDescription": "Quién puede ver lo que lees y lo que has terminado",
+        "saveFailed": "No se pudo cambiar quién ve tu lectura"
+      },
+      "now": {
+        "heading": "Leyendo ahora",
+        "empty": "Nada en curso",
+        "lastRead": "Última lectura: {{date}}",
+        "progress": "{{percent}}% leído"
+      },
+      "finished": {
+        "heading": "Terminados",
+        "count_one": "{{count}} libro",
+        "count_other": "{{count}} libros",
+        "search": "Buscar libros terminados…",
+        "years": "Año de lectura",
+        "allYears": "Todos",
+        "empty": "Aún no hay libros terminados",
+        "emptyHint": "Los libros aparecen aquí cuando terminas de leerlos",
+        "noMatch": "Ningún libro terminado coincide",
+        "noMatchHint": "Prueba con otra búsqueda u otro año"
+      },
+      "unavailable": {
+        "title": "Esta lectura no está disponible",
+        "description": "Esa persona no comparte lo que lee, o ya no está en este servidor"
+      },
+      "errors": {
+        "load": "No se pudo cargar la lectura"
+      }
+    },
     "settingsScene": {
       "navigation": {
         "logs": "Registros",
