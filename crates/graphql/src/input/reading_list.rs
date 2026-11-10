@@ -48,7 +48,8 @@ impl ReadingListLimits {
 
 #[derive(InputObject)]
 pub struct ReadingListInput {
-	/// The list's ID, generated when omitted or empty
+	/// The list's ID, generated when omitted or empty. A chosen ID has 1 to 64 characters, only
+	/// letters, digits, `_` and `-` (a UUID fits): it ends up in the list's address
 	pub id: Option<String>,
 	pub name: String,
 	pub description: Option<String>,
@@ -66,10 +67,10 @@ impl ReadingListInput {
 		user_id: &str,
 		limits: &ReadingListLimits,
 	) -> Result<reading_list::ActiveModel> {
-		let id = self
-			.id
-			.filter(|id| !id.trim().is_empty())
-			.unwrap_or_else(|| Uuid::new_v4().to_string());
+		let id = match self.id.filter(|id| !id.trim().is_empty()) {
+			Some(id) => chosen_id(id)?,
+			None => Uuid::new_v4().to_string(),
+		};
 
 		Ok(reading_list::ActiveModel {
 			id: Set(id),
@@ -131,6 +132,28 @@ impl UpdateReadingListInput {
 		active_model.visibility = Set(reading_list::PRIVATE.to_string());
 		Ok(active_model)
 	}
+}
+
+/// The longest ID a client may choose for a list
+const MAX_CHOSEN_ID_LEN: usize = 64;
+
+/// An ID chosen by the client, as it is or not at all. Only letters, digits, `_` and `-`, so that
+/// the list can always be opened from its address (a `/`, `?` or `#` would lead somewhere else),
+/// and short enough that nobody can store a large text as an ID. It is checked before anything
+/// is looked up, so the answer doesn't depend on whether such a list exists
+fn chosen_id(id: String) -> Result<String> {
+	let valid = !id.is_empty()
+		&& id.len() <= MAX_CHOSEN_ID_LEN
+		&& id
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+	if !valid {
+		return Err(format!(
+			"A reading list's ID can have at most {MAX_CHOSEN_ID_LEN} characters: letters, digits, _ and -"
+		)
+		.into());
+	}
+	Ok(id)
 }
 
 /// A list is private or public: there's no one in between
@@ -265,6 +288,44 @@ mod tests {
 		.into_active_model("test_user", &ReadingListLimits::UNLIMITED);
 
 		assert!(result.is_err());
+	}
+
+	#[test]
+	fn test_readinglistinput_refuses_an_id_that_is_not_an_address_safe_name() {
+		let too_long = "a".repeat(MAX_CHOSEN_ID_LEN + 1);
+		for id in [
+			"a/b",
+			"x?y",
+			"#",
+			"a b",
+			" padded ",
+			"..",
+			"a.b",
+			"%2F",
+			"é",
+			"line\nbreak",
+			too_long.as_str(),
+		] {
+			let result = input(Some(id), None)
+				.into_active_model("test_user", &ReadingListLimits::UNLIMITED);
+			assert!(result.is_err(), "{id:?} should be refused");
+			// the same for everyone, whatever the limits
+			let result = input(Some(id), None)
+				.into_active_model("test_user", &ReadingListLimits::STANDARD);
+			assert!(result.is_err(), "{id:?} should be refused");
+		}
+	}
+
+	#[test]
+	fn test_readinglistinput_accepts_ids_that_fit() {
+		let uuid = Uuid::new_v4().to_string();
+		let longest = "a".repeat(MAX_CHOSEN_ID_LEN);
+		for id in [uuid.as_str(), "some_id", "Some-Id_1", "7", longest.as_str()] {
+			let model = input(Some(id), None)
+				.into_active_model("test_user", &ReadingListLimits::STANDARD)
+				.unwrap();
+			assert_eq!(model.id.unwrap(), id);
+		}
 	}
 
 	#[test]

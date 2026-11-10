@@ -20,6 +20,8 @@ const OWNER: &str = "initial-server-admin";
 const NOT_FOUND: &str = "Reading list not found";
 const CANT_CHANGE: &str = "You can't change this list";
 const CANT_CREATE: &str = "Couldn't create the reading list";
+const BAD_ID: &str =
+	"A reading list's ID can have at most 64 characters: letters, digits, _ and -";
 
 async fn world() -> (TestApp, VisibilityFixture) {
 	let app = TestApp::new_with_default_user().await;
@@ -689,6 +691,63 @@ async fn an_id_that_is_taken_gives_the_same_error_whether_or_not_the_list_can_be
 		stored(&app, "taken-by-a-public-list").await.unwrap().0.name,
 		"Ben's"
 	);
+}
+
+#[tokio::test]
+async fn an_id_that_would_break_the_lists_address_is_refused_and_nothing_is_stored() {
+	let (app, world) = world().await;
+	let named = |id: &str| json!({ "input": { "id": id, "name": "Mine", "visibility": "PUBLIC" } });
+	let too_long = "a".repeat(65);
+	let before = reading_list::Entity::find()
+		.count(app.conn())
+		.await
+		.unwrap();
+
+	// the same for someone with limits and for the server owner, who has none
+	for token in [&world.ana.token, &world.owner_token] {
+		for id in [
+			"a/b",
+			"x?y",
+			"#",
+			"has a space",
+			"..",
+			"é",
+			too_long.as_str(),
+		] {
+			let response = run(&app, token, CREATE, named(id)).await;
+			assert_eq!(error_message(&response), BAD_ID, "{id:?}");
+			assert!(stored(&app, id).await.is_none(), "{id:?} was stored");
+		}
+	}
+	assert_eq!(
+		reading_list::Entity::find()
+			.count(app.conn())
+			.await
+			.unwrap(),
+		before,
+		"a refused request wrote a list"
+	);
+
+	// the check comes before any lookup: an ID that is bad says so whether or not the lists around exist
+	let private = create(&app, &world.owner_token, "Secret", "PRIVATE", &[]).await;
+	let with_hidden_id_inside = run(
+		&app,
+		&world.ana.token,
+		CREATE,
+		named(&format!("{private}/x")),
+	)
+	.await;
+	assert_eq!(error_message(&with_hidden_id_inside), BAD_ID);
+
+	// the longest ID, a UUID and the usual names are hers to choose, and they open from their address
+	let longest = "a".repeat(64);
+	let uuid = Uuid::new_v4().to_string();
+	for id in [longest.as_str(), uuid.as_str(), "Ana_s-list-1"] {
+		let data = ok(&app, &world.ana.token, CREATE, named(id)).await;
+		assert_eq!(data["createReadingList"]["id"], id);
+		let found = ok(&app, &world.ben.token, BY_ID, json!({ "id": id })).await;
+		assert_eq!(found["readingListById"]["id"], id);
+	}
 }
 
 #[tokio::test]
