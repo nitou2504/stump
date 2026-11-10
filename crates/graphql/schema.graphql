@@ -3230,8 +3230,39 @@ type Mutation {
 	intakeDiscard(ids: [ID!]!): Int!
 	"Changes how the intake files books into a library"
 	updateLibraryIntakeSettings(libraryId: ID!, input: LibraryIntakeSettingsInput!): LibraryIntakeSettings!
+	"""
+	Creates a smart list owned by the current user. Everyone but the server owner has at most
+	20 lists, each with rules of at most 128 KB, a name of at most 200 characters and a
+	description of at most 2,000.
+	"""
 	createSmartList(input: SaveSmartListInput!): SmartList!
+	"""
+	Works out the books of the smart lists again **now** (all of them, or the ones given),
+	instead of when the catalog next changes. The lists keep themselves up to date, within ten
+	seconds of a change, so this is for the day something changed the database behind the
+	server's back (a restore, an edit with another tool). Lists that can't be kept (their rules
+	use a reader's progress or `updatedAt`) are worked out whenever they are read, and are
+	left out. Returns how many lists were worked out. Only the server owner may ask.
+	"""
+	refreshSmartLists(ids: [ID!]): Int!
+	"""
+	Changes a smart list. Its creator changes anything about it, within the limits that hold
+	for them. The server owner, for a public list of someone else, can only take it back to
+	private (`visibility: PRIVATE`: the rest of the input is not applied); anyone else gets
+	the same answer as for a list they can't see
+	"""
 	updateSmartList(id: ID!, input: SaveSmartListInput!): SmartList!
+	"""
+	Makes some of the current user's smart lists private or public in one go ("share all my
+	lists"). A list is changed only by its creator, so any ID that isn't one of the user's own
+	lists (somebody else's, or none at all) fails the whole request with the same answer and
+	changes nothing. `SHARED` is not offered.
+	"""
+	setSmartListsVisibility(ids: [ID!]!, visibility: EntityVisibility!): [SmartList!]!
+	"""
+	Deletes a smart list: its creator can, and so can the server owner for a public list of
+	someone else (moderation)
+	"""
 	deleteSmartList(id: ID!): SmartList!
 	createSmartListView(input: SaveSmartListView!): SmartListView!
 	updateSmartListView(originalName: String!, input: SaveSmartListView!): SmartListView!
@@ -4116,6 +4147,8 @@ type Query {
 		limit: Int = null,
 		"The number of books to skip. The books come in a fixed order, so the pages of a long list follow each other without gaps or repeats"
 		offset: Int = null,
+		"Start after this book (the `nextCursor` of the page before) instead of skipping books with `offset`: a book added or removed between two pages doesn't make the pages skip or repeat one. Not together with `offset`"
+		after: ID,
 		"An additional filter narrowing down the list's books, e.g. by genre"
 		filter: MediaFilterInput,
 		"Overrides the list's default grouping, e.g. to view a series-grouped list as plain books"
@@ -4611,6 +4644,10 @@ input SaveSmartListInput {
 	description: String
 	joiner: SmartListJoiner!
 	defaultGrouping: SmartListGrouping!
+	"""
+	`PUBLIC` shows the list to everyone on the server (each one with the books they may
+	read); `PRIVATE` only to its creator. `SHARED` is not offered
+	"""
 	visibility: EntityVisibility!
 }
 
@@ -5001,11 +5038,32 @@ type SmartList {
 	defaultGrouping: SmartListGrouping!
 	visibility: EntityVisibility!
 	creatorId: String!
+	"""
+	The list's rules, as JSON. Only the user who made the list gets them: they name paths,
+	libraries and tags, so they would show people a list is made of things they may not see.
+	Anyone else, the server owner too, gets `[]`: what the list holds for them is what
+	`books` and `items` give
+	"""
 	filters: String!
+	"""
+	Whether the user made the list, and so may change it (its rules, its name, who sees it,
+	its saved views) and delete it. Anyone else sees it read-only (the server owner can only
+	take a public list of someone else back to private, or delete it)
+	"""
+	canEdit: Boolean!
+	"""
+	Who made the list: their name and avatar. None when they can't be shown any more (a
+	deleted or locked account's lists aren't listed at all)
+	"""
+	creator: ReaderProfile
 	thumbnail: ImageRef!
 	views: [SmartListView!]!
 	books(limit: Int = null): [Media!]!
 	items(limit: Int = null): SmartListItems!
+	"""
+	How many books, series and libraries the list holds for the user, counted by the database
+	in one query over the list's cached members
+	"""
 	meta: SmartListMeta!
 }
 
@@ -5031,6 +5089,12 @@ enum SmartListGroupJoiner {
 
 type SmartListGrouped {
 	items: [SmartListGroupedItem!]!
+	"""
+	The ID to pass as `after` for the next page of the list: the last book of this page, when
+	the list has more. `null` on the last page. Unlike `offset`, it doesn't skip or repeat a
+	book when the list changes between two pages
+	"""
+	nextCursor: String
 }
 
 type SmartListGroupedItem {
@@ -5063,6 +5127,12 @@ type SmartListMeta {
 
 type SmartListUngrouped {
 	books: [Media!]!
+	"""
+	The ID to pass as `after` for the next page of the list: the last book of this page, when
+	the list has more. `null` on the last page. Unlike `offset`, it doesn't skip or repeat a
+	book when the list changes between two pages
+	"""
+	nextCursor: String
 }
 
 type SmartListView {

@@ -14,7 +14,7 @@ use models::{
 		custom_emoji, library, library_exclusion, media, metadata_fetch_record, series,
 		smart_list, smart_list_view, user,
 	},
-	shared::enums::{MetadataFetchStatus, UserPermission},
+	shared::enums::{EntityVisibility, MetadataFetchStatus, UserPermission},
 };
 use sea_orm::{prelude::*, ActiveModelTrait, QueryFilter, Set};
 use serde_json::{json, Value};
@@ -515,10 +515,10 @@ async fn make_list(
 		.to_string()
 }
 
-/// everyone sees a PUBLIC list, but only who made it (and the server owner) changes or deletes it,
-/// and it stays its maker's whoever edits it
+/// everyone sees a PUBLIC list, but only who made it changes it; the server owner only takes it back
+/// to private, or deletes it (moderation), and it stays its maker's
 #[tokio::test]
-async fn test_a_public_smart_list_is_changed_only_by_its_maker_or_the_owner() {
+async fn test_a_public_smart_list_is_changed_by_its_maker_and_moderated_by_the_owner() {
 	let app = TestApp::new_with_default_user().await;
 	let maker = user_with(&app, "maker", &[UserPermission::AccessSmartList]).await;
 	let other = user_with(&app, "other", &[UserPermission::AccessSmartList]).await;
@@ -554,21 +554,46 @@ async fn test_a_public_smart_list_is_changed_only_by_its_maker_or_the_owner() {
 	assert_eq!(stored.name, "Renamed");
 	assert_eq!(stored.creator_id, maker.id);
 
-	// so can the server owner, and the list stays the maker's
+	// the server owner can't rewrite it: only take it back to private (the rest of what is sent
+	// is not applied), and the list stays the maker's
 	let response = app
 		.execute_gql(
 			UPDATE_LIST,
 			Some(json!({ "id": id, "input": list_input("Moderated", "PUBLIC") })),
 		)
 		.await;
+	assert!(
+		errors(&response).contains("can only be made private"),
+		"{response:#}"
+	);
+	let stored = stored_list(&app, &id).await.expect("still there");
+	assert_eq!(stored.name, "Renamed");
+	assert_eq!(stored.visibility, EntityVisibility::Public);
+
+	let response = app
+		.execute_gql(
+			UPDATE_LIST,
+			Some(json!({ "id": id, "input": list_input("Moderated", "PRIVATE") })),
+		)
+		.await;
 	assert!(!has_errors(&response), "{response:#}");
 	let stored = stored_list(&app, &id).await.expect("still there");
-	assert_eq!(stored.name, "Moderated");
+	assert_eq!(stored.name, "Renamed", "only the visibility changes");
+	assert_eq!(stored.visibility, EntityVisibility::Private);
 	assert_eq!(stored.creator_id, maker.id);
 
+	// the maker deletes it
 	let response = run(&app, &maker, DELETE_LIST, json!({ "id": id })).await;
 	assert!(!has_errors(&response), "{response:#}");
 	assert!(stored_list(&app, &id).await.is_none());
+
+	// the owner deletes a public list of someone else
+	let other_list = make_list(&app, &maker, "Another shelf", "PUBLIC").await;
+	let response = app
+		.execute_gql(DELETE_LIST, Some(json!({ "id": other_list })))
+		.await;
+	assert!(!has_errors(&response), "{response:#}");
+	assert!(stored_list(&app, &other_list).await.is_none());
 }
 
 /// the server owner can't see another user's PRIVATE list, so can't change or delete it either
@@ -601,9 +626,10 @@ async fn test_the_owner_cannot_change_a_private_smart_list_of_someone_else() {
 	assert_eq!(stored.creator_id, maker.id);
 }
 
-/// a list's saved views are part of the list: they're changed by who may change the list
+/// a list's saved views are part of the list: they're changed by its maker alone (the server owner
+/// doesn't change what is in someone else's list)
 #[tokio::test]
-async fn test_the_views_of_a_smart_list_are_changed_only_by_who_may_change_the_list() {
+async fn test_the_views_of_a_smart_list_are_changed_only_by_its_maker() {
 	let app = TestApp::new_with_default_user().await;
 	let maker = user_with(&app, "maker", &[UserPermission::AccessSmartList]).await;
 	let other = user_with(&app, "other", &[UserPermission::AccessSmartList]).await;
@@ -642,6 +668,26 @@ async fn test_the_views_of_a_smart_list_are_changed_only_by_who_may_change_the_l
 		json!({ "id": id, "name": "Mine" }),
 	)
 	.await;
+	assert!(has_errors(&response), "{response:#}");
+
+	// and neither can the server owner, who can still see it
+	let response = app
+		.execute_gql(
+			CREATE_VIEW,
+			Some(json!({ "input": view_input(&id, "Owner's") })),
+		)
+		.await;
+	assert!(has_errors(&response), "{response:#}");
+	let response = app
+		.execute_gql(
+			UPDATE_VIEW,
+			Some(json!({ "name": "Mine", "input": view_input(&id, "Mine") })),
+		)
+		.await;
+	assert!(has_errors(&response), "{response:#}");
+	let response = app
+		.execute_gql(DELETE_VIEW, Some(json!({ "id": id, "name": "Mine" })))
+		.await;
 	assert!(has_errors(&response), "{response:#}");
 
 	let views = smart_list_view::Entity::find_by_list_id(&id)

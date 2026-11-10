@@ -43,16 +43,32 @@ In the future, more grouping options may be considered
 
 ## List Access
 
-Smart lists can be shared with other users, and has 3 visibility options:
+Smart lists can be shared with everyone on the server, and have 2 visibility options:
 
-- **Private**: Only the owner of the smart list can see it
-- **Public**: Anyone can see the smart list
-- **Shared**: Only users that the smart list has been shared with can see it
+- **Private**: Only the person who made the smart list can see it
+- **Public**: Everyone on the server who may use smart lists can open it
 
-<Callout title="Work in progress">
-	The `shared` visibility option is not yet fully implemented. It functions as `private` for now,
-	but will be updated in the future
+A public list is the same list for everyone, but never shows a person more than they may read: each person sees only the books from the libraries they have access to, within their age restriction, so a list that names a library someone can't see simply holds nothing from it for them. Counts, groups and filters follow the same rule.
+
+Only the person who made a list changes it, whoever it is shown to. Everyone else reads it: the list has no settings page and its views can't be saved over. Its rules (the filters) are not shown to them either, since they can name things they may not see. The server owner can take a public list of someone else back to private, or delete it, to moderate it; nothing else about it changes, and its rules stay its maker's alone. A list made by a person who was deleted or locked is not shown to others until they are back.
+
+Everyone but the server owner can have 20 smart lists, with rules of up to 128 KB, a name of up to 200 characters and a description of up to 2,000 characters.
+
+On the Smart lists page, each of your lists says whether it is *Shared* or *Private*, and the lists others share say who made them (*by Ana*). A list of someone else that matches none of the books you may read is left out. The menu next to the title has *Share all my lists* and *Make my lists private*, each asking before it changes anything. Your lists and the shared ones are in the sidebar too, by name.
+
+<Callout title="Sharing with some people">
+	There is no sharing with only some people: a list is private or public. The `shared` visibility
+	that older versions listed is not offered any more.
 </Callout>
+
+## How lists are kept
+
+A smart list's books are worked out once, for the whole library, and kept, rather than worked out again on every visit (opening the lists page used to mean working out every list several times). What a person gets from a list is always the kept books **narrowed to what they may read**, the same way every other list of books is, so a list never holds more for someone than they may see, however it is kept.
+
+- A change to a book, its metadata, its series, a tag or a library shows in the lists within a few seconds: Stump notices that the library changed, and a background task works the lists out again a few seconds after it stops changing. Saving a list's rules works it out at once.
+- Removing a book from the library (and putting it back) doesn't change a list: the book is left out for everyone while it is removed.
+- A list whose rules use **reading status** or **updated at** is different for each reader or changes with every write, so it is worked out whenever it is opened, as before.
+- The server owner can work the lists out again on demand with the `refreshSmartLists` mutation (all lists, or the ones given). They keep themselves up to date, so this is for the day something changed the database behind Stump's back, such as a restore.
 
 ## Views
 
@@ -76,7 +92,7 @@ The process for creating a smart list is broken up into a few steps:
 
 ### Basics
 
-The first step is for filling out the very basic information about the list, such as its name and description. You will also need to select the visibility of the list, which defaults to `private`.
+The first step is for filling out the very basic information about the list, such as its name and description. You will also need to select the visibility of the list, which defaults to `private`. A public list can be made private again at any time.
 
 </Step>
 

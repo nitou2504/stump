@@ -1,3 +1,4 @@
+use models::catalog_revision;
 use models::entity::{
 	age_restriction, api_key, book_club, book_club_book, book_club_member, bookmark,
 	custom_emoji, held_file, intake_item, job, kobo_sync_session, last_library_visit,
@@ -78,6 +79,15 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 
 	for stmt in tables {
 		db.execute(&stmt).await?;
+	}
+
+	// what the smart lists' cache stands on: its tables, and the triggers that bump the catalog's
+	// revision (the same statements as the migration's)
+	for sql in catalog_revision::create_statements()
+		.into_iter()
+		.chain(catalog_revision::trigger_statements())
+	{
+		db.execute_unprepared(&sql).await?;
 	}
 
 	Ok(())

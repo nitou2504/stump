@@ -1,19 +1,24 @@
 use crate::{
 	data::{AuthContext, CoreContext, ServiceContext},
 	input::smart_lists::SmartListFilterGroupInput,
+	loader::reader_profile::ReaderProfileLoader,
 	object::{
-		media::Media, smart_list_item::SmartListItems, smart_list_view::SmartListView,
+		media::Media, reader_profile::ReaderProfile, smart_list_item::SmartListItems,
+		smart_list_view::SmartListView,
 	},
 	pagination::list_limit,
-	query::smart_lists_builder::{build_books_query, build_smart_list_items},
+	query::smart_lists_builder::{
+		build_smart_list_items, read_smart_list_page, smart_list_books, smart_list_meta,
+	},
 };
-use async_graphql::{ComplexObject, Context, Result, SimpleObject};
+use async_graphql::{
+	dataloader::DataLoader, ComplexObject, Context, Result, SimpleObject,
+};
 use models::{
 	entity::{media, smart_list, smart_list_view},
 	shared::image::ImageRef,
 };
-use sea_orm::{QuerySelect, TransactionTrait};
-use std::collections::HashSet;
+use sea_orm::{QueryOrder, QuerySelect, TransactionTrait};
 
 #[derive(Debug, SimpleObject)]
 pub struct SmartListMeta {
@@ -37,10 +42,34 @@ impl From<smart_list::Model> for SmartList {
 
 #[ComplexObject]
 impl SmartList {
-	async fn filters(&self) -> Result<String> {
+	/// The list's rules, as JSON. Only the user who made the list gets them: they name paths,
+	/// libraries and tags, so they would show people a list is made of things they may not see.
+	/// Anyone else, the server owner too, gets `[]`: what the list holds for them is what
+	/// `books` and `items` give
+	async fn filters(&self, ctx: &Context<'_>) -> Result<String> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		if !self.model.is_editable_by(user) {
+			return Ok("[]".to_string());
+		}
+
 		let filters: Vec<SmartListFilterGroupInput> =
 			serde_json::from_slice(&self.model.filters)?;
 		Ok(serde_json::to_string(&filters)?)
+	}
+
+	/// Whether the user made the list, and so may change it (its rules, its name, who sees it,
+	/// its saved views) and delete it. Anyone else sees it read-only (the server owner can only
+	/// take a public list of someone else back to private, or delete it)
+	async fn can_edit(&self, ctx: &Context<'_>) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		Ok(self.model.is_editable_by(user))
+	}
+
+	/// Who made the list: their name and avatar. None when they can't be shown any more (a
+	/// deleted or locked account's lists aren't listed at all)
+	async fn creator(&self, ctx: &Context<'_>) -> Result<Option<ReaderProfile>> {
+		let loader = ctx.data::<DataLoader<ReaderProfileLoader>>()?;
+		Ok(loader.load_one(self.model.creator_id.clone()).await?)
 	}
 
 	// TODO(thumb-placeholders): We need to refactor how non-book thumbs are handled so we can pull
@@ -74,31 +103,24 @@ impl SmartList {
 	) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list =
 			smart_list::Entity::find_by_id(user, self.model.id.clone().into())
-				.one(&txn)
+				.one(conn)
 				.await?
 				.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
-
-		// at most MAX_LIST_SIZE books, also without a `limit`
-		let books_query = build_books_query(
-			user,
-			smart_list.joiner,
-			&deserialized_filters,
-			Some(list_limit(limit)),
-		);
+		// the list's cached members, narrowed to what the user may read. At most MAX_LIST_SIZE
+		// books, also without a `limit`, in the same order every time
+		let books_query = smart_list_books(conn, user, &smart_list)
+			.await?
+			.order_by_asc(media::Column::Id)
+			.limit(list_limit(limit));
 
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()
-			.all(&txn)
+			.all(conn)
 			.await?;
-
-		txn.commit().await?;
 
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
 
@@ -113,81 +135,47 @@ impl SmartList {
 	) -> Result<SmartListItems> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list =
 			smart_list::Entity::find_by_id(user, self.model.id.clone().into())
-				.one(&txn)
+				.one(conn)
 				.await?
 				.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
+		// looked at before the transaction starts (see `smartListItems`)
+		let books_query = smart_list_books(conn, user, &smart_list).await?;
 
-		let books_query = build_books_query(
-			user,
-			smart_list.joiner,
-			&deserialized_filters,
-			Some(list_limit(limit)),
-		);
-
-		let models = books_query
-			.into_model::<media::ModelWithMetadata>()
-			.all(&txn)
-			.await?;
-
+		let txn = conn.begin().await?;
+		let (models, next_cursor) =
+			read_smart_list_page(&txn, books_query, list_limit(limit), 0, None).await?;
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
-		let items =
-			build_smart_list_items(user, smart_list.default_grouping, books, &txn)
-				.await?;
+		let items = build_smart_list_items(
+			user,
+			smart_list.default_grouping,
+			books,
+			next_cursor,
+			&txn,
+		)
+		.await?;
 
 		txn.commit().await?;
 
 		Ok(items)
 	}
 
+	/// How many books, series and libraries the list holds for the user, counted by the database
+	/// in one query over the list's cached members
 	async fn meta(&self, ctx: &Context<'_>) -> Result<SmartListMeta> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list =
 			smart_list::Entity::find_by_id(user, self.model.id.clone().into())
-				.one(&txn)
+				.one(conn)
 				.await?
 				.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
-
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, None);
-
-		let ids: Vec<(Option<String>, String)> = books_query
-			.select_only()
-			.column(media::Column::SeriesId)
-			.column(media::Column::LibraryId)
-			.into_tuple()
-			.all(&txn)
-			.await?;
-
-		let matched_books = ids.len() as i64;
-		let mut matched_series: HashSet<String> = HashSet::new();
-		let mut matched_libraries: HashSet<String> = HashSet::new();
-
-		for (series_id, library_id) in ids {
-			if let Some(series_id) = series_id {
-				matched_series.insert(series_id);
-			}
-			matched_libraries.insert(library_id);
-		}
-
-		txn.commit().await?;
-
-		Ok(SmartListMeta {
-			matched_books,
-			matched_series: matched_series.len() as i64,
-			matched_libraries: matched_libraries.len() as i64,
-		})
+		let books = smart_list_books(conn, user, &smart_list).await?;
+		smart_list_meta(conn, books).await
 	}
 }

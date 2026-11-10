@@ -7,7 +7,6 @@ use crate::{
 		NavigationArrangementInput, UpdateUserInput, UpdateUserPreferencesInput,
 	},
 	object::{user::User, user_preferences::UserPreferences},
-	utils::save_user_session,
 };
 
 use super::upload::read_uploaded_image;
@@ -238,7 +237,6 @@ impl UserMutation {
 		input: UpdateUserPreferencesInput,
 	) -> Result<UserPreferences> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
-		let session = ctx.data::<Session>()?;
 		let core_ctx = ctx.data::<CoreContext>()?;
 		let conn = core_ctx.conn.as_ref();
 
@@ -258,15 +256,10 @@ impl UserMutation {
 			)
 			.await?;
 
-			save_user_session(
-				session,
-				AuthUser {
-					preferences: Some(updated_user_preferences.model.clone()),
-					..user.clone()
-				},
-			)
-			.await;
-
+			// A session holds only its user's id (every request loads the user, with these
+			// preferences, from the database), so there is nothing to refresh in it. A request
+			// that comes with an access token or an API key has no session at all: writing the
+			// user into one made the server answer 500 after the preferences were saved
 			Ok(updated_user_preferences)
 		} else {
 			Err("User preferences not found".into())

@@ -6,7 +6,8 @@
 //!     like KOReader search *inside* the shelf/library/series being viewed
 //!   - OPDS facets for sort order and language
 //! - Smart lists ("Shelves") as navigation + book feeds
-//! - Reading lists (the user's own, hand-picked) as navigation + book feeds, in list order
+//! - Reading lists (the user's own and the public ones of other people, hand-picked) as
+//!   navigation + book feeds, in list order
 //! - Authors and genres indexes (letter → value → books)
 
 use std::collections::BTreeMap;
@@ -21,14 +22,16 @@ use graphql::{
 use models::{
 	entity::{
 		library, media, media_metadata, reading_list, reading_list_item, series,
-		smart_list, user::AuthUser,
+		smart_list,
+		user::{self, AuthUser},
 	},
 	shared::enums::UserPermission,
 };
 use sea_orm::{
 	prelude::*,
 	sea_query::{Expr as QExpr, SelectStatement},
-	Condition, ExprTrait, Order, QueryOrder, QuerySelect, QueryTrait, Select,
+	Condition, DatabaseConnection, ExprTrait, Order, QueryOrder, QuerySelect, QueryTrait,
+	Select,
 };
 use serde::Deserialize;
 use stump_core::opds::{
@@ -38,6 +41,7 @@ use stump_core::opds::{
 			OPDSFeedBuilder, OPDSFeedBuilderPageParams, OPDSFeedBuilderParams, OpdsFeed,
 		},
 		link::{OpdsGenericLink, OpdsLink, OpdsLinkRel, OpdsLinkType},
+		util::escape_html,
 	},
 	v2_0::entity::OPDSPublicationEntity,
 };
@@ -743,13 +747,27 @@ fn navigation_entry(
 	path: String,
 	acquisition: bool,
 ) -> OpdsEntry {
+	navigation_entry_by(req, id, title, content, path, acquisition, None)
+}
+
+/// A navigation entry, with the person who made what it opens as the entry's author (a list that
+/// is somebody else's)
+fn navigation_entry_by(
+	req: &AuthContext,
+	id: String,
+	title: String,
+	content: Option<String>,
+	path: String,
+	acquisition: bool,
+	author: Option<String>,
+) -> OpdsEntry {
 	OpdsEntry::new(
 		id,
 		Utc::now().into(),
 		title,
 		None,
 		content,
-		None,
+		author.map(|name| vec![name]),
 		Some(vec![OpdsLink {
 			link_type: if acquisition {
 				OpdsLinkType::Acquisition
@@ -793,20 +811,64 @@ fn can_access_smart_lists(user: &AuthUser) -> bool {
 	user.has_permission(UserPermission::AccessSmartList)
 }
 
-/// Resolves a smart list into the subquery of the media IDs it matches
-fn smart_list_media_ids(
+/// Resolves a smart list into the subquery of the media IDs it matches for `user`, from the
+/// list's cached members when it has them (see `graphql::query::smart_list_cache`)
+async fn smart_list_media_ids(
+	conn: &DatabaseConnection,
 	user: &AuthUser,
 	list: &smart_list::Model,
 ) -> APIResult<SelectStatement> {
-	graphql::query::smart_lists_builder::smart_list_media_ids(user, list).map_err(|e| {
-		APIError::InternalServerError(format!(
-			"Invalid smart list filters: {}",
-			e.message
-		))
+	graphql::query::smart_lists_builder::smart_list_media_ids(conn, user, list)
+		.await
+		.map_err(|e| {
+			APIError::InternalServerError(format!(
+				"Invalid smart list filters: {}",
+				e.message
+			))
+		})
+}
+
+/// The names of the people with the given ids, by id: who made the lists that are not the
+/// viewer's. The lists of a deleted or locked person are not offered at all, so a creator is
+/// always there; a list whose creator is not is left out rather than shown with no author
+async fn creator_names(
+	conn: &DatabaseConnection,
+	ids: Vec<String>,
+) -> APIResult<BTreeMap<String, String>> {
+	if ids.is_empty() {
+		return Ok(BTreeMap::new());
+	}
+	let names: Vec<(String, String)> = user::Entity::find()
+		.select_only()
+		.column(user::Column::Id)
+		.column(user::Column::Username)
+		.filter(user::Column::Id.is_in(ids))
+		.into_tuple()
+		.all(conn)
+		.await?;
+	Ok(names.into_iter().collect())
+}
+
+/// What a list of somebody else is called in a feed: its name, and who made it
+fn shared_title(name: &str, creator: &str) -> String {
+	format!("{name} · {creator}")
+}
+
+/// A list's description for an entry's content, which a client reads as HTML. What somebody else
+/// wrote is escaped, so it arrives as text and never as markup in the viewer's reader; a person's
+/// own description is shown as it always was
+fn description_for(description: Option<&str>, shared: bool) -> Option<String> {
+	description.filter(|d| !d.is_empty()).map(|d| {
+		if shared {
+			escape_html(d)
+		} else {
+			d.to_string()
+		}
 	})
 }
 
-/// GET /opds/v1.2/smart-lists: every smart list the user can read
+/// GET /opds/v1.2/smart-lists: every smart list the user can read: their own, then the public
+/// ones of other people (`Name · Ana`, as long as they hold something the user may read)
 pub(crate) async fn smart_lists_feed(
 	ctx: &AppState,
 	req: &AuthContext,
@@ -819,27 +881,85 @@ pub(crate) async fn smart_lists_feed(
 		));
 	}
 
-	let lists = smart_list::Entity::find_for_user(&user, false, false, None)
-		.order_by_asc(smart_list::Column::Name)
-		.all(conn)
-		.await?;
+	let (mut mine, mut others): (Vec<_>, Vec<_>) =
+		smart_list::Entity::find_for_user(&user, false, false, None)
+			.all(conn)
+			.await?
+			.into_iter()
+			.partition(|list| list.creator_id == user.id);
+	let by_name = |a: &smart_list::Model, b: &smart_list::Model| {
+		(a.name.to_lowercase(), &a.id).cmp(&(b.name.to_lowercase(), &b.id))
+	};
+	mine.sort_by(by_name);
+	others.sort_by(by_name);
+	let names =
+		creator_names(conn, others.iter().map(|l| l.creator_id.clone()).collect())
+			.await?;
 
 	// Counting every list means evaluating every smart list filter (~3s for 60 lists on a
 	// 9k-book library), and KOReader doesn't show entry counts anyway, so the shelf list
 	// only carries the description. Each shelf feed reports its own count via pagination.
-	let entries = lists
+	let mut entries: Vec<OpdsEntry> = mine
 		.into_iter()
 		.map(|list| {
 			navigation_entry(
 				req,
 				format!("smartList:{}", list.id),
 				list.name.clone(),
-				list.description.clone().filter(|d| !d.is_empty()),
+				description_for(list.description.as_deref(), false),
 				format!("smart-lists/{}", list.id),
 				true,
 			)
 		})
 		.collect();
+
+	// The lists of other people are few (a person has at most 20), and a list in which there is
+	// nothing the user may read has nothing to say to them, so these are the ones that are
+	// counted, from the members the list keeps for this (see `smart_list_media_ids`)
+	for list in others {
+		let Some(creator) = names.get(&list.creator_id) else {
+			continue;
+		};
+		let media_ids = match smart_list_media_ids(conn, &user, &list).await {
+			Ok(media_ids) => media_ids,
+			Err(error) => {
+				// a list somebody else made that can't be worked out must not take the shelves
+				// of everybody else down with it
+				tracing::warn!(list_id = %list.id, ?error, "Skipping a shared smart list in the OPDS shelves");
+				continue;
+			},
+		};
+		// the count can fail too: a list of about a thousand values in one rule is a chain of ORs
+		// that SQLite refuses to evaluate (expression tree too large), and that happens here, when
+		// the members are not kept and the list is worked out live, not in `smart_list_media_ids`
+		let readable = match (BookScope::SmartList {
+			id: list.id.clone(),
+			name: list.name.clone(),
+			media_ids,
+		})
+		.apply(media::Entity::find_for_user(&user))
+		.count(conn)
+		.await
+		{
+			Ok(readable) => readable,
+			Err(error) => {
+				tracing::warn!(list_id = %list.id, ?error, "Skipping a shared smart list in the OPDS shelves: its books can't be counted");
+				continue;
+			},
+		};
+		if readable == 0 {
+			continue;
+		}
+		entries.push(navigation_entry_by(
+			req,
+			format!("smartList:{}", list.id),
+			shared_title(&list.name, creator),
+			description_for(list.description.as_deref(), true),
+			format!("smart-lists/{}", list.id),
+			true,
+			Some(creator.clone()),
+		));
+	}
 
 	let feed = simple_feed(
 		req,
@@ -865,17 +985,27 @@ pub(crate) async fn smart_list_books_feed(
 			"You do not have permission to access smart lists".to_string(),
 		));
 	}
+	let conn = ctx.conn.as_ref();
 	let list = smart_list::Entity::find_by_id(&user, id.clone().into())
-		.one(ctx.conn.as_ref())
+		.one(conn)
 		.await?
 		.ok_or(APIError::NotFound("Smart list not found".to_string()))?;
-	let media_ids = smart_list_media_ids(&user, &list)?;
+	let name = if list.creator_id == user.id {
+		list.name.clone()
+	} else {
+		let names = creator_names(conn, vec![list.creator_id.clone()]).await?;
+		let creator = names
+			.get(&list.creator_id)
+			.ok_or(APIError::NotFound("Smart list not found".to_string()))?;
+		shared_title(&list.name, creator)
+	};
+	let media_ids = smart_list_media_ids(conn, &user, &list).await?;
 	books_feed(
 		ctx,
 		req,
 		BookScope::SmartList {
 			id,
-			name: list.name,
+			name,
 			media_ids,
 		},
 		pagination,
@@ -884,7 +1014,54 @@ pub(crate) async fn smart_list_books_feed(
 	.await
 }
 
-/// GET /opds/v1.2/reading-lists: the user's own reading lists, with their book counts
+/// One reading list as an entry of the lists feed, with the number of books the user may read in
+/// it. `creator` is the person who made it when it isn't the user's own. A list of somebody else in
+/// which the user may read nothing isn't shown (`None`), and neither is anything that would say
+/// what is in it
+async fn reading_list_entry(
+	req: &AuthContext,
+	conn: &DatabaseConnection,
+	user: &AuthUser,
+	list: reading_list::Model,
+	creator: Option<&str>,
+) -> APIResult<Option<OpdsEntry>> {
+	let count = BookScope::ReadingList {
+		id: list.id.clone(),
+		name: list.name.clone(),
+	}
+	.apply(media::Entity::find_for_user(user))
+	.count(conn)
+	.await?;
+	if creator.is_some() && count == 0 {
+		return Ok(None);
+	}
+
+	let books = if count == 1 {
+		"1 book".to_string()
+	} else {
+		format!("{count} books")
+	};
+	let content = match description_for(list.description.as_deref(), creator.is_some()) {
+		Some(description) => format!("{books} · {description}"),
+		None => books,
+	};
+	let title = match creator {
+		Some(creator) => shared_title(&list.name, creator),
+		None => list.name.clone(),
+	};
+	Ok(Some(navigation_entry_by(
+		req,
+		format!("readingList:{}", list.id),
+		title,
+		Some(content),
+		format!("reading-lists/{}", list.id),
+		true,
+		creator.map(str::to_string),
+	)))
+}
+
+/// GET /opds/v1.2/reading-lists: the user's own reading lists, then the public ones of other
+/// people (`Name · Ana`), each with the number of books the user may read in it
 pub(crate) async fn reading_lists_feed(
 	ctx: &AppState,
 	req: &AuthContext,
@@ -892,38 +1069,32 @@ pub(crate) async fn reading_lists_feed(
 	let user = req.user();
 	let conn = ctx.conn.as_ref();
 
-	let lists = reading_list::Entity::find()
-		.filter(reading_list::Column::CreatingUserId.eq(user.id.clone()))
-		.order_by_asc(reading_list::Column::Name)
+	let mut mine = reading_list::Entity::find_mine(&user).all(conn).await?;
+	let mut others = reading_list::Entity::find_by_others(&user)
 		.all(conn)
 		.await?;
+	let by_name = |a: &reading_list::Model, b: &reading_list::Model| {
+		(a.name.to_lowercase(), &a.id).cmp(&(b.name.to_lowercase(), &b.id))
+	};
+	mine.sort_by(by_name);
+	others.sort_by(by_name);
+	let names = creator_names(
+		conn,
+		others.iter().map(|l| l.creating_user_id.clone()).collect(),
+	)
+	.await?;
 
-	let mut entries = Vec::with_capacity(lists.len());
-	for list in lists {
-		let count = BookScope::ReadingList {
-			id: list.id.clone(),
-			name: list.name.clone(),
-		}
-		.apply(media::Entity::find_for_user(&user))
-		.count(conn)
-		.await?;
-		let books = if count == 1 {
-			"1 book".to_string()
-		} else {
-			format!("{count} books")
+	let mut entries = Vec::with_capacity(mine.len() + others.len());
+	for list in mine {
+		entries.extend(reading_list_entry(req, conn, &user, list, None).await?);
+	}
+	for list in others {
+		let Some(creator) = names.get(&list.creating_user_id) else {
+			continue;
 		};
-		let content = match list.description.as_deref().filter(|d| !d.is_empty()) {
-			Some(description) => format!("{books} · {description}"),
-			None => books,
-		};
-		entries.push(navigation_entry(
-			req,
-			format!("readingList:{}", list.id),
-			list.name.clone(),
-			Some(content),
-			format!("reading-lists/{}", list.id),
-			true,
-		));
+		entries.extend(
+			reading_list_entry(req, conn, &user, list, Some(creator.as_str())).await?,
+		);
 	}
 
 	let feed = simple_feed(
@@ -936,7 +1107,8 @@ pub(crate) async fn reading_lists_feed(
 	Ok(Xml(feed.build()?))
 }
 
-/// GET /opds/v1.2/reading-lists/{id}: the books of one of the user's reading lists
+/// GET /opds/v1.2/reading-lists/{id}: the books of a reading list the user may see: their own or a
+/// public one. Any other id is not found, as one that doesn't exist is
 pub(crate) async fn reading_list_books_feed(
 	ctx: &AppState,
 	req: &AuthContext,
@@ -945,18 +1117,23 @@ pub(crate) async fn reading_list_books_feed(
 	params: BookFeedParams,
 ) -> APIResult<Xml> {
 	let user = req.user();
-	let list = reading_list::Entity::find_by_id(id.clone())
-		.filter(reading_list::Column::CreatingUserId.eq(user.id.clone()))
-		.one(ctx.conn.as_ref())
+	let conn = ctx.conn.as_ref();
+	let not_found = || APIError::NotFound("Reading list not found".to_string());
+	let list = reading_list::Entity::find_for_user_and_id(&user, &id)
+		.one(conn)
 		.await?
-		.ok_or(APIError::NotFound("Reading list not found".to_string()))?;
+		.ok_or_else(not_found)?;
+	let name = if list.creating_user_id == user.id {
+		list.name
+	} else {
+		let names = creator_names(conn, vec![list.creating_user_id.clone()]).await?;
+		let creator = names.get(&list.creating_user_id).ok_or_else(not_found)?;
+		shared_title(&list.name, creator)
+	};
 	books_feed(
 		ctx,
 		req,
-		BookScope::ReadingList {
-			id,
-			name: list.name,
-		},
+		BookScope::ReadingList { id, name },
 		pagination,
 		params,
 	)

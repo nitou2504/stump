@@ -1,7 +1,9 @@
 use async_graphql::{Enum, SimpleObject, ID};
 use filter_gen::Ordering;
 use sea_orm::{
-	prelude::*, Condition, DeriveActiveEnum, EnumIter, QuerySelect, QueryTrait,
+	prelude::*,
+	sea_query::{Query, SelectStatement},
+	Condition, DeriveActiveEnum, EnumIter, QuerySelect, QueryTrait,
 };
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -117,6 +119,36 @@ pub struct Model {
 
 impl ActiveModelBehavior for ActiveModel {}
 
+impl Model {
+	/// Whether the user made the list: they change its rules, name, description, grouping and
+	/// saved views, and who sees it, and they delete it. Everybody else reads it, the server owner
+	/// too: the owner's part in someone else's public list is moderation only (see
+	/// [`Model::is_moderated_by`])
+	pub fn is_editable_by(&self, user: &AuthUser) -> bool {
+		self.creator_id == user.id
+	}
+
+	/// Whether the user is the server owner and the list is a public list of someone else. They
+	/// may take it back to private or delete it, nothing else: what is in the list stays what its
+	/// creator made (a friend's private list is out of reach, see [`Entity::find_by_id_for_edit`])
+	pub fn is_moderated_by(&self, user: &AuthUser) -> bool {
+		user.is_server_owner
+			&& self.creator_id != user.id
+			&& self.visibility == EntityVisibility::Public
+	}
+}
+
+/// The people whose smart lists can be shown to others: not deleted and not locked. A list stays
+/// in the database when its creator goes, and is back when they are unlocked
+fn active_users() -> SelectStatement {
+	Query::select()
+		.column(user::Column::Id)
+		.from(user::Entity)
+		.and_where(user::Column::DeletedAt.is_null())
+		.and_where(user::Column::IsLocked.eq(false))
+		.to_owned()
+}
+
 fn get_access_condition_base_subquery(
 	user: &AuthUser,
 ) -> Select<smart_list_access_rule::Entity> {
@@ -147,6 +179,8 @@ fn get_access_condition_for_user_public(
 	let select = get_access_condition_base_subquery(user);
 	Condition::all()
 		.add(Column::Visibility.eq(EntityVisibility::Public))
+		// a public list is for everyone while the one who made it is still around
+		.add(Column::CreatorId.in_subquery(active_users()))
 		// This asserts the reader rule is present OR there is no rule for the user
 		.add(
 			Condition::any()
@@ -229,17 +263,30 @@ impl Entity {
 		)
 	}
 
-	/// A smart list the user may change or delete: one they created, or, for the server
-	/// owner, any list they can see (a friend's PRIVATE list stays out of reach).
-	/// Seeing a list is wider than this (a PUBLIC list is for everyone), so
-	/// [`Entity::find_by_id`] isn't enough before an edit
+	/// A smart list the user may change the visibility of or delete: one they created, or, for
+	/// the server owner, a public list of someone else (moderation: take it back to private, or
+	/// delete it). A friend's PRIVATE list stays out of reach, and so does any other change to a
+	/// friend's list: for that see [`Entity::find_by_id_for_creator`]. Seeing a list is wider
+	/// than this (a PUBLIC list is for everyone), so [`Entity::find_by_id`] isn't enough before
+	/// an edit
 	pub fn find_by_id_for_edit(user: &AuthUser, id: ID) -> Select<Self> {
 		let select = Self::find_by_id(user, id);
 		if user.is_server_owner {
-			select
+			select.filter(
+				Condition::any()
+					.add(Column::CreatorId.eq(user.id.clone()))
+					.add(Column::Visibility.eq(EntityVisibility::Public)),
+			)
 		} else {
 			select.filter(Column::CreatorId.eq(user.id.clone()))
 		}
+	}
+
+	/// A smart list the user made, and so may change: its rules, name, description, grouping and
+	/// saved views. The server owner doesn't change what is in someone else's list, so for them
+	/// this is only their own lists
+	pub fn find_by_id_for_creator(user: &AuthUser, id: ID) -> Select<Self> {
+		Self::find_by_id(user, id).filter(Column::CreatorId.eq(user.id.clone()))
 	}
 }
 
@@ -248,6 +295,53 @@ mod tests {
 	use super::*;
 	use crate::tests::common::*;
 	use pretty_assertions::assert_eq;
+
+	fn list(creator_id: &str, visibility: EntityVisibility) -> Model {
+		Model {
+			id: "list".to_string(),
+			name: "A list".to_string(),
+			description: None,
+			filters: vec![],
+			joiner: SmartListJoiner::And,
+			default_grouping: SmartListGrouping::ByBooks,
+			visibility,
+			creator_id: creator_id.to_string(),
+		}
+	}
+
+	#[test]
+	fn test_is_editable_by() {
+		// the default user is "42"
+		let mut user = get_default_user();
+		user.is_server_owner = false;
+		assert!(list("42", EntityVisibility::Private).is_editable_by(&user));
+		assert!(list("42", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Private).is_editable_by(&user));
+
+		// the server owner changes their own lists, and nobody else's: not even a public one
+		user.is_server_owner = true;
+		assert!(list("42", EntityVisibility::Private).is_editable_by(&user));
+		assert!(list("42", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Private).is_editable_by(&user));
+	}
+
+	#[test]
+	fn test_is_moderated_by() {
+		let mut user = get_default_user();
+		user.is_server_owner = false;
+		// only the server owner moderates
+		assert!(!list("7", EntityVisibility::Public).is_moderated_by(&user));
+		assert!(!list("42", EntityVisibility::Public).is_moderated_by(&user));
+
+		// the public lists of others, and nothing else: not their own, not a private one
+		user.is_server_owner = true;
+		assert!(list("7", EntityVisibility::Public).is_moderated_by(&user));
+		assert!(!list("7", EntityVisibility::Private).is_moderated_by(&user));
+		assert!(!list("42", EntityVisibility::Public).is_moderated_by(&user));
+		assert!(!list("42", EntityVisibility::Private).is_moderated_by(&user));
+	}
 
 	#[test]
 	fn test_access_rules_base_rule() {
@@ -276,8 +370,9 @@ mod tests {
 		let sql = condition_to_string(&condition);
 		assert_eq!(
 			sql,
-			r#"SELECT  WHERE "smart_lists"."visibility" = 'PUBLIC' AND (TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
-				.to_string() + r#"FROM "smart_list_access_rules" INNER JOIN "smart_lists" ON "#
+			r#"SELECT  WHERE "smart_lists"."visibility" = 'PUBLIC' AND "#.to_string()
+				+ r#""smart_lists"."creator_id" IN (SELECT "id" FROM "users" WHERE "users"."deleted_at" IS NULL AND "users"."is_locked" = FALSE) AND (TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
+				+ r#"FROM "smart_list_access_rules" INNER JOIN "smart_lists" ON "#
 				+ r#""smart_list_access_rules"."smart_list_id" = "smart_lists"."id" WHERE "#
 				+ r#""smart_list_access_rules"."user_id" = '42')"#
 				+ r#")"#
@@ -294,7 +389,9 @@ mod tests {
 			sql,
 			r#"SELECT  WHERE "#.to_string()
 				+ r#""smart_lists"."creator_id" = '42' OR ("#
-				+ r#""smart_lists"."visibility" = 'PUBLIC' AND (TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
+				+ r#""smart_lists"."visibility" = 'PUBLIC' AND "#
+				+ r#""smart_lists"."creator_id" IN (SELECT "id" FROM "users" WHERE "users"."deleted_at" IS NULL AND "users"."is_locked" = FALSE) AND "#
+				+ r#"(TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
 				+ r#"FROM "smart_list_access_rules" INNER JOIN "smart_lists" ON "#
 				+ r#""smart_list_access_rules"."smart_list_id" = "smart_lists"."id" WHERE "#
 				+ r#""smart_list_access_rules"."user_id" = '42')"#

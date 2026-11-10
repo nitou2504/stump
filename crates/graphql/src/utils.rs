@@ -1,21 +1,11 @@
 use std::collections::HashMap;
 
 use async_graphql::Result;
-use models::{
-	entity::user::AuthUser,
-	shared::alphabet::{AvailableAlphabet, EntityLetter},
-};
+use models::shared::alphabet::{AvailableAlphabet, EntityLetter};
 use sea_orm::{
 	sea_query::Expr, DatabaseConnection, EntityTrait, QueryOrder, QuerySelect, Select,
 	Statement, Value,
 };
-use tower_sessions::Session;
-
-pub async fn save_user_session(session: &Session, user: AuthUser) {
-	if let Err(error) = session.insert("user", user).await {
-		tracing::error!(?error, "Failed to save user session");
-	}
-}
 
 /// Build a raw SQL [`Statement`] using the actual database backend of `conn`.
 /// Write SQL with `$1`, `$2`, … placeholders — they work for both PostgreSQL

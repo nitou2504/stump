@@ -9,8 +9,12 @@ use crate::{
 			SmartListGrouped, SmartListGroupedItem, SmartListItemEntity, SmartListItems,
 			SmartListUngrouped,
 		},
+		smart_lists::SmartListMeta,
 	},
-	query::media::{add_sessions_join_for_filter, should_add_sessions_join_for_filter},
+	query::{
+		media::{add_sessions_join_for_filter, should_add_sessions_join_for_filter},
+		smart_list_cache::{self, Source},
+	},
 };
 use async_graphql::Result;
 use models::entity::{
@@ -19,22 +23,118 @@ use models::entity::{
 	user::AuthUser,
 };
 use sea_orm::{
-	prelude::*, sea_query::SelectStatement, Condition, DatabaseTransaction, QuerySelect,
-	QueryTrait, Select,
+	prelude::*,
+	sea_query::{Alias, Expr, Query, SelectStatement},
+	Condition, ConnectionTrait, DatabaseConnection, DatabaseTransaction, FromQueryResult,
+	QueryOrder, QuerySelect, QueryTrait, Select,
 };
 
 use std::collections::HashMap;
 
+/// The books of a smart list that `user` may read, as a query to build on (order, limit, filters).
+///
+/// A list is answered from its cached members when it can be (see [`smart_list_cache`]): the
+/// members are the books the list's rules match over the whole catalog, and the query narrows
+/// them to what `user` may read, the same way every other list of books does. A list whose rules
+/// use a reader's own progress or `updatedAt` is worked out when it is read. Either way the
+/// result is the same books, so the caller can't tell which it got.
+///
+/// It looks at the cache before it returns, and so before the caller opens a transaction of its
+/// own: a cache that is out of date is worked out again in a write of its own, which a
+/// transaction that is already reading wouldn't see.
+pub async fn smart_list_books(
+	conn: &DatabaseConnection,
+	user: &AuthUser,
+	list: &smart_list::Model,
+) -> Result<Select<media::Entity>> {
+	let filters: Vec<SmartListFilterGroupInput> = serde_json::from_slice(&list.filters)?;
+	Ok(match smart_list_cache::source(conn, list, &filters).await {
+		Source::Cached => media::ModelWithMetadata::find_for_user(user).filter(
+			media::Column::Id.in_subquery(smart_list_cache::members_subquery(&list.id)),
+		),
+		Source::Live => build_books_query(user, list.joiner, &filters, None),
+	})
+}
+
 /// Resolves a smart list into the subquery of the IDs of the media it matches for `user`
-pub fn smart_list_media_ids(
+pub async fn smart_list_media_ids(
+	conn: &DatabaseConnection,
 	user: &AuthUser,
 	list: &smart_list::Model,
 ) -> Result<SelectStatement> {
-	let filters: Vec<SmartListFilterGroupInput> = serde_json::from_slice(&list.filters)?;
-	Ok(build_books_query(user, list.joiner, &filters, None)
+	Ok(smart_list_books(conn, user, list)
+		.await?
 		.select_only()
 		.column(media::Column::Id)
 		.into_query())
+}
+
+#[derive(FromQueryResult)]
+struct MetaCounts {
+	books: i64,
+	series: i64,
+	libraries: i64,
+}
+
+/// How many books, series and libraries a smart list's books (see [`smart_list_books`]) come
+/// from, counted by the database in one query.
+///
+/// The books are counted as a subquery: a list that is worked out live may group its books by ID
+/// (it joins the reader's progress), which would make one count of every book.
+pub async fn smart_list_meta<C: ConnectionTrait>(
+	conn: &C,
+	books: Select<media::Entity>,
+) -> Result<SmartListMeta> {
+	let matched = books
+		.select_only()
+		.column(media::Column::Id)
+		.column(media::Column::SeriesId)
+		.column(media::Column::LibraryId)
+		.into_query();
+	let counts = Query::select()
+		.expr_as(Expr::cust("COUNT(*)"), Alias::new("books"))
+		.expr_as(
+			Expr::cust("COUNT(DISTINCT series_id)"),
+			Alias::new("series"),
+		)
+		.expr_as(
+			Expr::cust("COUNT(DISTINCT library_id)"),
+			Alias::new("libraries"),
+		)
+		.from_subquery(matched, Alias::new("matched"))
+		.to_owned();
+
+	let counts =
+		MetaCounts::find_by_statement(conn.get_database_backend().build(&counts))
+			.one(conn)
+			.await?;
+
+	Ok(match counts {
+		Some(counts) => SmartListMeta {
+			matched_books: counts.books,
+			matched_series: counts.series,
+			matched_libraries: counts.libraries,
+		},
+		None => SmartListMeta {
+			matched_books: 0,
+			matched_series: 0,
+			matched_libraries: 0,
+		},
+	})
+}
+
+/// The IDs of the books a smart list's rules match over the whole catalog: the books of every
+/// library, removed ones too, whoever reads the list. These are the list's members, which the
+/// cache keeps (see [`smart_list_cache`]); what a reader gets of them is a different query
+/// ([`smart_list_books`]).
+pub fn catalog_members_query(
+	joiner: smart_list::SmartListJoiner,
+	filters: &[SmartListFilterGroupInput],
+) -> Select<media::Entity> {
+	add_library_join(media::Entity::find_catalog(), filters)
+		.filter(build_filters(joiner, filters))
+		.select_only()
+		.column(media::Column::Id)
 }
 
 /// The IDs of the media visible to `user` which match an ad-hoc [MediaFilterInput], as a
@@ -50,24 +150,65 @@ pub fn filtered_media_ids(
 		.into_query()
 }
 
+/// One page of a smart list's books (see [`smart_list_books`]), in a fixed order (by ID), and the
+/// cursor of the next page: the ID of the last book of this one, when the list has more.
+///
+/// A page starts either after `offset` books or after the book with the ID `after` (the cursor
+/// the page before gave): the cursor doesn't skip or repeat a book when the list changes between
+/// two pages. One book more than `limit` is read to know whether there is a next page.
+pub async fn read_smart_list_page<C: ConnectionTrait>(
+	conn: &C,
+	books: Select<media::Entity>,
+	limit: u64,
+	offset: u64,
+	after: Option<&str>,
+) -> Result<(Vec<media::ModelWithMetadata>, Option<String>)> {
+	let books = match after {
+		Some(after) => books.filter(media::Column::Id.gt(after)),
+		None => books,
+	};
+	let mut models = books
+		.order_by_asc(media::Column::Id)
+		.offset(offset)
+		.limit(limit + 1)
+		.into_model::<media::ModelWithMetadata>()
+		.all(conn)
+		.await?;
+
+	let next_cursor = if models.len() as u64 > limit {
+		models.truncate(limit as usize);
+		models.last().map(|book| book.media.id.clone())
+	} else {
+		None
+	};
+	Ok((models, next_cursor))
+}
+
 pub async fn build_smart_list_items(
 	user: &AuthUser,
 	grouping: SmartListGrouping,
 	books: Vec<Media>,
+	next_cursor: Option<String>,
 	txn: &DatabaseTransaction,
 ) -> Result<SmartListItems> {
 	match grouping {
-		SmartListGrouping::ByBooks => {
-			Ok(SmartListItems::Ungrouped(SmartListUngrouped { books }))
+		SmartListGrouping::ByBooks => Ok(SmartListItems::Ungrouped(SmartListUngrouped {
+			books,
+			next_cursor,
+		})),
+		SmartListGrouping::BySeries => {
+			group_by_series(user, books, next_cursor, txn).await
 		},
-		SmartListGrouping::BySeries => group_by_series(user, books, txn).await,
-		SmartListGrouping::ByLibrary => group_by_library(user, books, txn).await,
+		SmartListGrouping::ByLibrary => {
+			group_by_library(user, books, next_cursor, txn).await
+		},
 	}
 }
 
 async fn group_by_series(
 	user: &AuthUser,
 	books: Vec<Media>,
+	next_cursor: Option<String>,
 	txn: &DatabaseTransaction,
 ) -> Result<SmartListItems> {
 	let mut series_map: HashMap<Option<String>, Vec<Media>> = HashMap::new();
@@ -104,12 +245,16 @@ async fn group_by_series(
 		});
 	}
 
-	Ok(SmartListItems::Grouped(SmartListGrouped { items }))
+	Ok(SmartListItems::Grouped(SmartListGrouped {
+		items,
+		next_cursor,
+	}))
 }
 
 async fn group_by_library(
 	user: &AuthUser,
 	books: Vec<Media>,
+	next_cursor: Option<String>,
 	txn: &DatabaseTransaction,
 ) -> Result<SmartListItems> {
 	let mut library_books: HashMap<String, Vec<Media>> = HashMap::new();
@@ -134,7 +279,10 @@ async fn group_by_library(
 		})
 		.collect();
 
-	Ok(SmartListItems::Grouped(SmartListGrouped { items }))
+	Ok(SmartListItems::Grouped(SmartListGrouped {
+		items,
+		next_cursor,
+	}))
 }
 
 pub fn build_filters(

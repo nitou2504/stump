@@ -13,9 +13,11 @@ import { CollapsedSidebarSection, useIsSidebarIconMode } from '../../CollapsedSi
 import SideBarButtonLink from '../../SideBarButtonLink'
 import { SectionEmptyMessage } from '../SectionEmptyMessage'
 
+// `input: {}` is the user's own lists and the public ones of everyone else (without an input only
+// the user's own are listed), by name
 const query = graphql(`
 	query SmartListSideBarSection {
-		smartLists {
+		smartLists(input: {}) {
 			id
 			name
 		}

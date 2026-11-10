@@ -4,6 +4,7 @@
 //! `smartListMeta` (which book-curator reads) still counts every match.
 
 use crate::common::{series::setup_single_series_with_n_books, TestApp};
+use sea_orm::ConnectionTrait;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use tests::fake_data;
@@ -174,4 +175,180 @@ async fn the_meta_of_a_list_still_counts_every_match() {
 	assert!(response.get("errors").is_none(), "{response:#}");
 	assert_eq!(response["data"]["smartListMeta"]["matchedBooks"], 250);
 	assert_eq!(response["data"]["smartListMeta"]["matchedSeries"], 1);
+}
+
+// ---------------------------------------------------------------------------------------
+// The cursor: the same pages, without a book skipped or repeated when the list changes
+// ---------------------------------------------------------------------------------------
+
+const CURSOR_ITEMS: &str = r#"
+query Items($id: ID!, $limit: Int, $offset: Int, $after: ID, $grouping: SmartListGrouping) {
+	smartListItems(id: $id, limit: $limit, offset: $offset, after: $after, grouping: $grouping) {
+		__typename
+		... on SmartListUngrouped { nextCursor books { id } }
+		... on SmartListGrouped { nextCursor items { entity { __typename ... on Series { id } } books { id } } }
+	}
+}
+"#;
+
+async fn cursor_page(
+	app: &TestApp,
+	list: &str,
+	limit: u64,
+	after: Option<&str>,
+) -> Value {
+	app.execute_gql(
+		CURSOR_ITEMS,
+		Some(json!({ "id": list, "limit": limit, "after": after })),
+	)
+	.await
+}
+
+/// The next cursor of a page of `smartListItems` (null on the last page)
+fn next_cursor(response: &Value) -> Option<String> {
+	assert!(response.get("errors").is_none(), "{response:#}");
+	response["data"]["smartListItems"]["nextCursor"]
+		.as_str()
+		.map(str::to_string)
+}
+
+/// 250 books are 3 pages of 100 by cursor: every book once, in the same order as by offset, the
+/// cursor of each page leads to the next, and the last page has none
+#[tokio::test]
+async fn a_long_list_is_read_by_cursor() {
+	let app = TestApp::new_with_default_user().await;
+	setup_single_series_with_n_books(&app, fake_data::Series::default(), 250).await;
+	let list = make_list(&app, "BY_BOOKS").await;
+
+	let mut expected = Vec::new();
+	for offset in [0, 100, 200] {
+		expected.extend(ungrouped_ids(
+			&page(&app, &list, Some(100), Some(offset)).await,
+		));
+	}
+
+	let mut by_cursor = Vec::new();
+	let mut cursor: Option<String> = None;
+	let mut pages = 0;
+	loop {
+		let response = cursor_page(&app, &list, 100, cursor.as_deref()).await;
+		by_cursor.extend(ungrouped_ids(&response));
+		pages += 1;
+		cursor = next_cursor(&response);
+		if cursor.is_none() {
+			break;
+		}
+		assert!(pages < 10, "the pages never end");
+	}
+	assert_eq!(pages, 3);
+	assert_eq!(by_cursor, expected, "the same books in the same order");
+	assert_eq!(by_cursor.len(), 250);
+
+	// a list of exactly one page has no next page
+	let first = cursor_page(&app, &list, 250, None).await;
+	assert_eq!(
+		ungrouped_ids(&first).len(),
+		200,
+		"a page holds at most 200 books"
+	);
+	assert!(next_cursor(&first).is_some());
+	let last = cursor_page(&app, &list, 100, Some(&by_cursor[249])).await;
+	assert_eq!(ungrouped_ids(&last), Vec::<String>::new());
+	assert_eq!(next_cursor(&last), None);
+}
+
+/// A book added while a list is being read doesn't make the cursor skip or repeat one, which an
+/// offset does: the pages by offset shift by the new book, so the last book of a page comes again
+#[tokio::test]
+async fn a_cursor_survives_a_book_added_between_two_pages() {
+	let app = TestApp::new_with_default_user().await;
+	let (series, _) =
+		setup_single_series_with_n_books(&app, fake_data::Series::default(), 250).await;
+	let list = make_list(&app, "BY_BOOKS").await;
+
+	let first = cursor_page(&app, &list, 100, None).await;
+	let first_ids = ungrouped_ids(&first);
+	let cursor = next_cursor(&first).expect("a next page");
+	let offset_first = ungrouped_ids(&page(&app, &list, Some(100), Some(0)).await);
+	assert_eq!(first_ids, offset_first);
+
+	// a book that sorts before everything is added, and the list is worked out again
+	fake_data::Media {
+		id: Some("0".to_string()),
+		series_id: series.id.clone(),
+		..Default::default()
+	}
+	.insert(app.conn())
+	.await;
+	app.conn()
+		.execute_unprepared("UPDATE smart_list_materializations SET computed_at = '2020-01-01T00:00:00.000Z'")
+		.await
+		.unwrap();
+
+	// by offset, the second page starts one book early: the last book of the first page repeats
+	let by_offset = ungrouped_ids(&page(&app, &list, Some(100), Some(100)).await);
+	assert!(
+		by_offset.contains(first_ids.last().unwrap()),
+		"the pages by offset shifted: {by_offset:?}"
+	);
+
+	// by cursor, it continues right after the last book it gave
+	let mut rest = Vec::new();
+	let mut cursor = Some(cursor);
+	while let Some(after) = cursor {
+		let response = cursor_page(&app, &list, 100, Some(&after)).await;
+		rest.extend(ungrouped_ids(&response));
+		cursor = next_cursor(&response);
+	}
+	let mut all: Vec<String> = first_ids.iter().chain(rest.iter()).cloned().collect();
+	assert_eq!(all.len(), 250, "no book repeated, none skipped");
+	all.sort();
+	all.dedup();
+	assert_eq!(all.len(), 250);
+	assert!(
+		!rest.contains(&"0".to_string()),
+		"the new book is before the cursor"
+	);
+}
+
+/// A grouped page has the cursor too, and `offset` and `after` are not used together
+#[tokio::test]
+async fn a_grouped_page_has_a_cursor_and_offset_and_after_are_not_mixed() {
+	let app = TestApp::new_with_default_user().await;
+	setup_single_series_with_n_books(&app, fake_data::Series::default(), 130).await;
+	let list = make_list(&app, "BY_SERIES").await;
+
+	let response = cursor_page(&app, &list, 100, None).await;
+	assert_eq!(
+		response["data"]["smartListItems"]["__typename"],
+		"SmartListGrouped"
+	);
+	let cursor = next_cursor(&response).expect("a next page");
+	let rest = cursor_page(&app, &list, 100, Some(&cursor)).await;
+	assert_eq!(
+		rest["data"]["smartListItems"]["__typename"],
+		"SmartListGrouped"
+	);
+	assert_eq!(next_cursor(&rest), None);
+	let books: usize = rest["data"]["smartListItems"]["items"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|item| item["books"].as_array().unwrap().len())
+		.sum();
+	assert_eq!(books, 30);
+
+	let both = app
+		.execute_gql(
+			CURSOR_ITEMS,
+			Some(json!({ "id": list, "limit": 10, "offset": 10, "after": cursor })),
+		)
+		.await;
+	assert!(
+		both["errors"][0]["message"]
+			.as_str()
+			.unwrap_or_default()
+			.contains("either `offset` or `after`"),
+		"{both:#}"
+	);
 }

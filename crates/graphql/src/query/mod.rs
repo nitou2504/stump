@@ -29,6 +29,9 @@ mod reading_stats;
 mod reading_timeline;
 mod series;
 pub(crate) mod server_config;
+pub mod smart_list_cache;
+#[cfg(test)]
+mod smart_list_perf;
 mod smart_list_view;
 mod smart_lists;
 pub mod smart_lists_builder;

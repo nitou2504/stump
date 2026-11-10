@@ -1,11 +1,12 @@
 use super::smart_lists_builder::{
-	build_books_query, build_smart_list_items, filtered_media_ids,
+	build_smart_list_items, filtered_media_ids, read_smart_list_page, smart_list_books,
+	smart_list_meta,
 };
 use crate::{
 	data::{AuthContext, CoreContext},
 	filter::media::MediaFilterInput,
 	guard::PermissionGuard,
-	input::smart_lists::{SmartListFilterGroupInput, SmartListsInput},
+	input::smart_lists::SmartListsInput,
 	object::{
 		media::Media,
 		smart_list_item::SmartListItems,
@@ -21,8 +22,7 @@ use models::{
 	},
 	shared::enums::UserPermission,
 };
-use sea_orm::{prelude::*, QueryOrder, QuerySelect, TransactionTrait};
-use std::collections::HashSet;
+use sea_orm::{prelude::*, QueryOrder, TransactionTrait};
 
 #[derive(Default, Clone, Copy)]
 pub struct SmartListsQuery;
@@ -50,12 +50,15 @@ impl SmartListsQuery {
 			return Err("Cannot query all and mine at the same time".into());
 		}
 
+		// by name, the same order everywhere the lists are listed (the sidebar, the lists page)
 		let smart_lists = smart_list::Entity::find_for_user(
 			user,
 			input.all.unwrap_or(false),
 			input.mine.unwrap_or(false),
 			input.search,
 		)
+		.order_by_asc(Expr::cust(r#"LOWER("smart_lists"."name")"#))
+		.order_by_asc(smart_list::Column::Id)
 		.all(conn)
 		.await?;
 
@@ -84,45 +87,15 @@ impl SmartListsQuery {
 	) -> Result<Option<SmartListMeta>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list = smart_list::Entity::find_by_id(user, id)
-			.one(&txn)
+			.one(conn)
 			.await?
 			.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
-
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, None);
-
-		let ids: Vec<(Option<String>, String)> = books_query
-			.select_only()
-			.column(media::Column::SeriesId)
-			.column(media::Column::LibraryId)
-			.into_tuple()
-			.all(&txn)
-			.await?;
-
-		let matched_books = ids.len() as i64;
-		let mut matched_series: HashSet<String> = HashSet::new();
-		let mut matched_libraries: HashSet<String> = HashSet::new();
-
-		for (series_id, library_id) in ids {
-			if let Some(series_id) = series_id {
-				matched_series.insert(series_id);
-			}
-			matched_libraries.insert(library_id);
-		}
-
-		txn.commit().await?;
-
-		Ok(Some(SmartListMeta {
-			matched_books,
-			matched_series: matched_series.len() as i64,
-			matched_libraries: matched_libraries.len() as i64,
-		}))
+		// counted by the database in one query, over the list's cached members
+		let books = smart_list_books(conn, user, &smart_list).await?;
+		Ok(Some(smart_list_meta(conn, books).await?))
 	}
 
 	#[graphql(
@@ -144,6 +117,10 @@ impl SmartListsQuery {
 		)]
 		offset: Option<u64>,
 		#[graphql(
+			desc = "Start after this book (the `nextCursor` of the page before) instead of skipping books with `offset`: a book added or removed between two pages doesn't make the pages skip or repeat one. Not together with `offset`"
+		)]
+		after: Option<ID>,
+		#[graphql(
 			desc = "An additional filter narrowing down the list's books, e.g. by genre"
 		)]
 		filter: Option<MediaFilterInput>,
@@ -152,42 +129,45 @@ impl SmartListsQuery {
 		)]
 		grouping: Option<smart_list::SmartListGrouping>,
 	) -> Result<SmartListItems> {
+		if offset.is_some_and(|offset| offset > 0) && after.is_some() {
+			return Err("Use either `offset` or `after`, not both".into());
+		}
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list = smart_list::Entity::find_by_id(user, id)
-			.one(&txn)
+			.one(conn)
 			.await?
 			.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
-
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, None);
+		// the list's cached members, narrowed to what the user may read. Looked at before the
+		// transaction starts: a cache that is out of date is worked out again in a write of its
+		// own, which a transaction that is already reading wouldn't see
+		let books_query = smart_list_books(conn, user, &smart_list).await?;
 		let books_query = match filter {
 			Some(filter) => books_query
 				.filter(media::Column::Id.in_subquery(filtered_media_ids(user, filter))),
 			None => books_query,
 		};
+
 		// At most MAX_LIST_SIZE books, also without a `limit`. A list longer than that is read
 		// page by page (the web app does), so the order must be the same for every page
-		let books_query = books_query
-			.order_by_asc(media::Column::Id)
-			.offset(list_offset(offset))
-			.limit(list_limit(limit));
-
-		let models = books_query
-			.into_model::<media::ModelWithMetadata>()
-			.all(&txn)
-			.await?;
+		let txn = conn.begin().await?;
+		let (models, next_cursor) = read_smart_list_page(
+			&txn,
+			books_query,
+			list_limit(limit),
+			list_offset(offset),
+			after.as_ref().map(|after| after.as_str()),
+		)
+		.await?;
 
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
 		let items = build_smart_list_items(
 			user,
 			grouping.unwrap_or(smart_list.default_grouping),
 			books,
+			next_cursor,
 			&txn,
 		)
 		.await?;
