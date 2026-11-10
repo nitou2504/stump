@@ -26,21 +26,17 @@ async fn get_user_avatar_handler(
 	Path(id): Path<String>,
 	State(ctx): State<AppState>,
 ) -> APIResult<ImageResponse> {
-	let avatar_path: Option<String> = user::Entity::find()
+	// the same answer for an ID that is no user and for a user without an avatar: two messages gave
+	// away which IDs belong to a user
+	let avatar_path = user::Entity::find()
 		.select_only()
 		.column(user::Column::AvatarPath)
 		.filter(user::Column::Id.eq(&id))
-		.into_tuple()
+		.into_tuple::<Option<String>>()
 		.one(ctx.conn.as_ref())
 		.await?
-		.ok_or_else(|| APIError::NotFound(format!("User with ID '{}' not found", id)))?;
-
-	let Some(avatar_path) = avatar_path else {
-		return Err(APIError::NotFound(format!(
-			"User with ID '{}' does not have an avatar",
-			id
-		)));
-	};
+		.flatten()
+		.ok_or_else(|| APIError::NotFound("Avatar not found".to_string()))?;
 
 	let path = std::path::Path::new(&avatar_path);
 
