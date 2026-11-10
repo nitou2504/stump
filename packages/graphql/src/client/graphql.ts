@@ -5709,6 +5709,7 @@ export type QuerySmartListByIdArgs = {
 
 
 export type QuerySmartListItemsArgs = {
+  after?: InputMaybe<Scalars['ID']['input']>;
   filter?: InputMaybe<MediaFilterInput>;
   grouping?: InputMaybe<SmartListGrouping>;
   id: Scalars['ID']['input'];
@@ -6728,6 +6729,12 @@ export enum SmartListGroupJoiner {
 export type SmartListGrouped = {
   __typename?: 'SmartListGrouped';
   items: Array<SmartListGroupedItem>;
+  /**
+   * The ID to pass as `after` for the next page of the list: the last book of this page, when
+   * the list has more. `null` on the last page. Unlike `offset`, it doesn't skip or repeat a
+   * book when the list changes between two pages
+   */
+  nextCursor?: Maybe<Scalars['String']['output']>;
 };
 
 export type SmartListGroupedItem = {
@@ -6763,6 +6770,12 @@ export type SmartListMeta = {
 export type SmartListUngrouped = {
   __typename?: 'SmartListUngrouped';
   books: Array<Media>;
+  /**
+   * The ID to pass as `after` for the next page of the list: the last book of this page, when
+   * the list has more. `null` on the last page. Unlike `offset`, it doesn't skip or repeat a
+   * book when the list changes between two pages
+   */
+  nextCursor?: Maybe<Scalars['String']['output']>;
 };
 
 export type SmartListView = {

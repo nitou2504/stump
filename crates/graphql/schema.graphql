@@ -4127,6 +4127,8 @@ type Query {
 		limit: Int = null,
 		"The number of books to skip. The books come in a fixed order, so the pages of a long list follow each other without gaps or repeats"
 		offset: Int = null,
+		"Start after this book (the `nextCursor` of the page before) instead of skipping books with `offset`: a book added or removed between two pages doesn't make the pages skip or repeat one. Not together with `offset`"
+		after: ID,
 		"An additional filter narrowing down the list's books, e.g. by genre"
 		filter: MediaFilterInput,
 		"Overrides the list's default grouping, e.g. to view a series-grouped list as plain books"
@@ -5067,6 +5069,12 @@ enum SmartListGroupJoiner {
 
 type SmartListGrouped {
 	items: [SmartListGroupedItem!]!
+	"""
+	The ID to pass as `after` for the next page of the list: the last book of this page, when
+	the list has more. `null` on the last page. Unlike `offset`, it doesn't skip or repeat a
+	book when the list changes between two pages
+	"""
+	nextCursor: String
 }
 
 type SmartListGroupedItem {
@@ -5099,6 +5107,12 @@ type SmartListMeta {
 
 type SmartListUngrouped {
 	books: [Media!]!
+	"""
+	The ID to pass as `after` for the next page of the list: the last book of this page, when
+	the list has more. `null` on the last page. Unlike `offset`, it doesn't skip or repeat a
+	book when the list changes between two pages
+	"""
+	nextCursor: String
 }
 
 type SmartListView {

@@ -26,7 +26,7 @@ use sea_orm::{
 	prelude::*,
 	sea_query::{Alias, Expr, Query, SelectStatement},
 	Condition, ConnectionTrait, DatabaseConnection, DatabaseTransaction, FromQueryResult,
-	QuerySelect, QueryTrait, Select,
+	QueryOrder, QuerySelect, QueryTrait, Select,
 };
 
 use std::collections::HashMap;
@@ -150,24 +150,65 @@ pub fn filtered_media_ids(
 		.into_query()
 }
 
+/// One page of a smart list's books (see [`smart_list_books`]), in a fixed order (by ID), and the
+/// cursor of the next page: the ID of the last book of this one, when the list has more.
+///
+/// A page starts either after `offset` books or after the book with the ID `after` (the cursor
+/// the page before gave): the cursor doesn't skip or repeat a book when the list changes between
+/// two pages. One book more than `limit` is read to know whether there is a next page.
+pub async fn read_smart_list_page<C: ConnectionTrait>(
+	conn: &C,
+	books: Select<media::Entity>,
+	limit: u64,
+	offset: u64,
+	after: Option<&str>,
+) -> Result<(Vec<media::ModelWithMetadata>, Option<String>)> {
+	let books = match after {
+		Some(after) => books.filter(media::Column::Id.gt(after)),
+		None => books,
+	};
+	let mut models = books
+		.order_by_asc(media::Column::Id)
+		.offset(offset)
+		.limit(limit + 1)
+		.into_model::<media::ModelWithMetadata>()
+		.all(conn)
+		.await?;
+
+	let next_cursor = if models.len() as u64 > limit {
+		models.truncate(limit as usize);
+		models.last().map(|book| book.media.id.clone())
+	} else {
+		None
+	};
+	Ok((models, next_cursor))
+}
+
 pub async fn build_smart_list_items(
 	user: &AuthUser,
 	grouping: SmartListGrouping,
 	books: Vec<Media>,
+	next_cursor: Option<String>,
 	txn: &DatabaseTransaction,
 ) -> Result<SmartListItems> {
 	match grouping {
-		SmartListGrouping::ByBooks => {
-			Ok(SmartListItems::Ungrouped(SmartListUngrouped { books }))
+		SmartListGrouping::ByBooks => Ok(SmartListItems::Ungrouped(SmartListUngrouped {
+			books,
+			next_cursor,
+		})),
+		SmartListGrouping::BySeries => {
+			group_by_series(user, books, next_cursor, txn).await
 		},
-		SmartListGrouping::BySeries => group_by_series(user, books, txn).await,
-		SmartListGrouping::ByLibrary => group_by_library(user, books, txn).await,
+		SmartListGrouping::ByLibrary => {
+			group_by_library(user, books, next_cursor, txn).await
+		},
 	}
 }
 
 async fn group_by_series(
 	user: &AuthUser,
 	books: Vec<Media>,
+	next_cursor: Option<String>,
 	txn: &DatabaseTransaction,
 ) -> Result<SmartListItems> {
 	let mut series_map: HashMap<Option<String>, Vec<Media>> = HashMap::new();
@@ -204,12 +245,16 @@ async fn group_by_series(
 		});
 	}
 
-	Ok(SmartListItems::Grouped(SmartListGrouped { items }))
+	Ok(SmartListItems::Grouped(SmartListGrouped {
+		items,
+		next_cursor,
+	}))
 }
 
 async fn group_by_library(
 	user: &AuthUser,
 	books: Vec<Media>,
+	next_cursor: Option<String>,
 	txn: &DatabaseTransaction,
 ) -> Result<SmartListItems> {
 	let mut library_books: HashMap<String, Vec<Media>> = HashMap::new();
@@ -234,7 +279,10 @@ async fn group_by_library(
 		})
 		.collect();
 
-	Ok(SmartListItems::Grouped(SmartListGrouped { items }))
+	Ok(SmartListItems::Grouped(SmartListGrouped {
+		items,
+		next_cursor,
+	}))
 }
 
 pub fn build_filters(

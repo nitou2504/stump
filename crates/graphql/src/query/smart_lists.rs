@@ -1,5 +1,6 @@
 use super::smart_lists_builder::{
-	build_smart_list_items, filtered_media_ids, smart_list_books, smart_list_meta,
+	build_smart_list_items, filtered_media_ids, read_smart_list_page, smart_list_books,
+	smart_list_meta,
 };
 use crate::{
 	data::{AuthContext, CoreContext},
@@ -21,7 +22,7 @@ use models::{
 	},
 	shared::enums::UserPermission,
 };
-use sea_orm::{prelude::*, QueryOrder, QuerySelect, TransactionTrait};
+use sea_orm::{prelude::*, QueryOrder, TransactionTrait};
 
 #[derive(Default, Clone, Copy)]
 pub struct SmartListsQuery;
@@ -116,6 +117,10 @@ impl SmartListsQuery {
 		)]
 		offset: Option<u64>,
 		#[graphql(
+			desc = "Start after this book (the `nextCursor` of the page before) instead of skipping books with `offset`: a book added or removed between two pages doesn't make the pages skip or repeat one. Not together with `offset`"
+		)]
+		after: Option<ID>,
+		#[graphql(
 			desc = "An additional filter narrowing down the list's books, e.g. by genre"
 		)]
 		filter: Option<MediaFilterInput>,
@@ -124,6 +129,9 @@ impl SmartListsQuery {
 		)]
 		grouping: Option<smart_list::SmartListGrouping>,
 	) -> Result<SmartListItems> {
+		if offset.is_some_and(|offset| offset > 0) && after.is_some() {
+			return Err("Use either `offset` or `after`, not both".into());
+		}
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
@@ -141,24 +149,25 @@ impl SmartListsQuery {
 				.filter(media::Column::Id.in_subquery(filtered_media_ids(user, filter))),
 			None => books_query,
 		};
+
 		// At most MAX_LIST_SIZE books, also without a `limit`. A list longer than that is read
 		// page by page (the web app does), so the order must be the same for every page
-		let books_query = books_query
-			.order_by_asc(media::Column::Id)
-			.offset(list_offset(offset))
-			.limit(list_limit(limit));
-
 		let txn = conn.begin().await?;
-		let models = books_query
-			.into_model::<media::ModelWithMetadata>()
-			.all(&txn)
-			.await?;
+		let (models, next_cursor) = read_smart_list_page(
+			&txn,
+			books_query,
+			list_limit(limit),
+			list_offset(offset),
+			after.as_ref().map(|after| after.as_str()),
+		)
+		.await?;
 
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
 		let items = build_smart_list_items(
 			user,
 			grouping.unwrap_or(smart_list.default_grouping),
 			books,
+			next_cursor,
 			&txn,
 		)
 		.await?;

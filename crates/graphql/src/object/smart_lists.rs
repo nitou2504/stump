@@ -8,7 +8,7 @@ use crate::{
 	},
 	pagination::list_limit,
 	query::smart_lists_builder::{
-		build_smart_list_items, smart_list_books, smart_list_meta,
+		build_smart_list_items, read_smart_list_page, smart_list_books, smart_list_meta,
 	},
 };
 use async_graphql::{
@@ -143,21 +143,20 @@ impl SmartList {
 				.ok_or("Smart list not found".to_string())?;
 
 		// looked at before the transaction starts (see `smartListItems`)
-		let books_query = smart_list_books(conn, user, &smart_list)
-			.await?
-			.order_by_asc(media::Column::Id)
-			.limit(list_limit(limit));
+		let books_query = smart_list_books(conn, user, &smart_list).await?;
 
 		let txn = conn.begin().await?;
-		let models = books_query
-			.into_model::<media::ModelWithMetadata>()
-			.all(&txn)
-			.await?;
-
+		let (models, next_cursor) =
+			read_smart_list_page(&txn, books_query, list_limit(limit), 0, None).await?;
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
-		let items =
-			build_smart_list_items(user, smart_list.default_grouping, books, &txn)
-				.await?;
+		let items = build_smart_list_items(
+			user,
+			smart_list.default_grouping,
+			books,
+			next_cursor,
+			&txn,
+		)
+		.await?;
 
 		txn.commit().await?;
 
