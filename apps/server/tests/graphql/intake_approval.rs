@@ -2253,6 +2253,52 @@ async fn test_two_books_with_one_name_are_each_filed_whole() {
 	);
 }
 
+/// a link that points nowhere sits at the name a book files under. The name is taken all the
+/// same (a file can't be linked over a link), so the book takes the next name: it used to look
+/// the same name up again, for ever, copying the whole book and writing the database each time
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_link_to_nothing_at_the_name_is_a_taken_name() {
+	let world = world().await;
+	let author = world.library_dir.join("Umberto_Eco");
+	let link = author.join("Dangling.epub");
+	std::os::unix::fs::symlink(world.library_dir.join("nowhere.epub"), &link)
+		.expect("a link");
+	assert!(!link.exists(), "the link points nowhere");
+	let id = world
+		.ana_uploads_epub(
+			"Dangling",
+			"<dc:creator>Eco, Umberto</dc:creator><dc:description>A book that files next to a link to nothing.</dc:description>",
+		)
+		.await;
+	world.ana_items().await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	world.wait_for(&id, IntakeState::Filed).await;
+	assert!(
+		author.join("Dangling_2.epub").is_file(),
+		"the book takes the next name: {:?}",
+		names_in(&author)
+	);
+	assert!(
+		fs::symlink_metadata(&link)
+			.expect("the link")
+			.file_type()
+			.is_symlink(),
+		"nothing was put over the link"
+	);
+	assert!(
+		names_in(&author)
+			.iter()
+			.all(|name| !name.ends_with(".intake")),
+		"no temporary copy is left: {:?}",
+		names_in(&author)
+	);
+}
+
 /// the stored state of an item moves only from the state it was read in: a review, a move or an
 /// analysis that was read while the item waited doesn't write waiting over an approval
 #[tokio::test(flavor = "multi_thread")]

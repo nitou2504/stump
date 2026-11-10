@@ -578,7 +578,7 @@ pub fn compute_destination(
 			.map(|(file, name)| IntakeDestinationFile {
 				original_name: file.original_name.clone(),
 				relative_path: join_relative(&relative_dir, name),
-				exists: inside && is_plain_component(name) && dir.join(name).exists(),
+				exists: inside && is_plain_component(name) && name_taken(&dir.join(name)),
 			})
 			.collect(),
 		relative_dir,
@@ -1091,6 +1091,31 @@ fn create_folders(root: &Path, dir: &Path) -> std::io::Result<()> {
 	created
 }
 
+/// Whether anything is at `path`: a file, a folder or a link, even one that points nowhere.
+/// `Path::exists` follows links, so a link to nothing reads as free, and the link into place then
+/// fails on it for ever. Any answer but "not found" counts as taken.
+fn name_taken(path: &Path) -> bool {
+	!matches!(
+		std::fs::symlink_metadata(path),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound
+	)
+}
+
+/// How many names (`_2`, `_3`, ...) a filing looks at before it gives up: a folder that holds
+/// this many of one name is not one a book should go to
+const MAX_NAMES_TRIED: usize = 1_000;
+/// How many times a filing copies the book to a name that was taken in the moment between the
+/// look and the link (another filing, a link that was not seen): each try copies the whole book
+const MAX_PLACE_TRIES: usize = 10;
+
+/// The error of a filing that found no name to put a book under
+fn no_free_name(name: &str) -> std::io::Error {
+	std::io::Error::new(
+		std::io::ErrorKind::AlreadyExists,
+		format!("no free name was found for {name} in the folder"),
+	)
+}
+
 /// A name with `_2`, `_3`, ... before the extension, for a clash at filing time
 fn suffixed(name: &str, n: usize) -> String {
 	match name.rsplit_once('.') {
@@ -1308,8 +1333,12 @@ async fn file_claimed_inner(
 		let name = decision.file_names.get(i).cloned().unwrap_or_default();
 		let mut target = dir.join(&name);
 		let mut n = 2;
+		let mut tries = 0;
 		loop {
-			while target.exists() {
+			while name_taken(&target) {
+				if n > MAX_NAMES_TRIED {
+					return Err(no_free_name(&name).into());
+				}
 				target = dir.join(suffixed(&name, n));
 				n += 1;
 			}
@@ -1325,10 +1354,18 @@ async fn file_claimed_inner(
 				.map_err(|e| CoreError::InternalError(e.to_string()))?;
 			match put {
 				Ok(()) => break,
-				// another filing took the name since it was looked at (nothing was replaced):
-				// the next one is free
+				// another filing took the name since it was looked at (nothing was replaced), or
+				// something is there that the look did not see: the next name, by number, so a
+				// name that keeps failing is never tried again
 				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
 					paths.pop();
+					tries += 1;
+					if tries >= MAX_PLACE_TRIES || n > MAX_NAMES_TRIED {
+						let _ = record_progress(conn, &item.id, &paths, &notes).await;
+						return Err(no_free_name(&name).into());
+					}
+					target = dir.join(suffixed(&name, n));
+					n += 1;
 				},
 				Err(error) => {
 					// not placed: the record names only files that are there
