@@ -6,7 +6,8 @@
 //!     like KOReader search *inside* the shelf/library/series being viewed
 //!   - OPDS facets for sort order and language
 //! - Smart lists ("Shelves") as navigation + book feeds
-//! - Reading lists (the user's own, hand-picked) as navigation + book feeds, in list order
+//! - Reading lists (the user's own and the public ones of other people, hand-picked) as
+//!   navigation + book feeds, in list order
 //! - Authors and genres indexes (letter → value → books)
 
 use std::collections::BTreeMap;
@@ -928,14 +929,24 @@ pub(crate) async fn smart_lists_feed(
 				continue;
 			},
 		};
-		let readable = BookScope::SmartList {
+		// the count can fail too: a list of about a thousand values in one rule is a chain of ORs
+		// that SQLite refuses to evaluate (expression tree too large), and that happens here, when
+		// the members are not kept and the list is worked out live, not in `smart_list_media_ids`
+		let readable = match (BookScope::SmartList {
 			id: list.id.clone(),
 			name: list.name.clone(),
 			media_ids,
-		}
+		})
 		.apply(media::Entity::find_for_user(&user))
 		.count(conn)
-		.await?;
+		.await
+		{
+			Ok(readable) => readable,
+			Err(error) => {
+				tracing::warn!(list_id = %list.id, ?error, "Skipping a shared smart list in the OPDS shelves: its books can't be counted");
+				continue;
+			},
+		};
 		if readable == 0 {
 			continue;
 		}
