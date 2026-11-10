@@ -1630,15 +1630,23 @@ type Library {
 	id: String!
 	name: String!
 	description: String
-	path: String!
 	status: FileStatus!
 	thumbnailMeta: ImageMetadata
-	thumbnailPath: String
 	createdAt: DateTime!
 	updatedAt: DateTime
 	emoji: String
 	configId: Int!
 	lastScannedAt: DateTime
+	"""
+	The folder of the library on the server's disk. Only for whoever manages libraries (or
+	browses the server's files); for everyone else it is empty
+	"""
+	path: String!
+	"""
+	The path to the thumbnail image of the library on disk. Only for whoever manages libraries
+	(or browses the server's files)
+	"""
+	thumbnailPath: String
 	authors: [Author!]!
 	config: LibraryConfig!
 	excludedUsers: [User!]!
@@ -1929,26 +1937,12 @@ type Media {
 	pages: Int!
 	isOneshot: Boolean!
 	"""
-	A Stump-specific hash of the media file. This is used as a secondary identifier for the media, primarily
-	in aiding in the identification of duplicate media files
-	"""
-	hash: String
-	"""
-	A hash of the media file that adheres to the KoReader hash algorithm. This is used to identify
-	books from the KoReader application so progress can be synced between the two applications
-	"""
-	koreaderHash: String
-	"The path of the underlying media file on disk"
-	path: String!
-	"""
 	The status of the media. This is used to determine if the media is available for reading (i.e.,
 	if it is available on disk)
 	"""
 	status: FileStatus!
 	"The metadata for the thumbnail image of the media"
 	thumbnailMeta: ImageMetadata
-	"The path to the thumbnail image of the media on disk"
-	thumbnailPath: String
 	"""
 	The unique identifier of the series that the media belongs to. While this is nullable, it is
 	expected that all media will belong to a series
@@ -1966,6 +1960,29 @@ type Media {
 	"The timestamp of when the media was **soft** deleted. This will act like a trash bin."
 	deletedAt: DateTime
 	metadata: MediaMetadata
+	"""
+	The path of the underlying media file on disk. Whoever manages libraries (or browses the
+	server's files) gets the whole path; everyone else the path inside the library, as
+	`relativeLibraryPath` has it
+	"""
+	path: String!
+	"""
+	A Stump-specific hash of the media file. This is used as a secondary identifier for the
+	media, primarily in aiding in the identification of duplicate media files. Only for whoever
+	manages libraries (or browses the server's files)
+	"""
+	hash: String
+	"""
+	A hash of the media file that adheres to the KoReader hash algorithm. This is used to
+	identify books from the KoReader application so progress can be synced between the two
+	applications. Only for whoever manages libraries (or browses the server's files)
+	"""
+	koreaderHash: String
+	"""
+	The path to the thumbnail image of the media on disk. Only for whoever manages libraries
+	(or browses the server's files)
+	"""
+	thumbnailPath: String
 	"If the media is an epub, this will return the parsed epub data from the file"
 	ebook: Epub
 	"Whether the media is marked as a favorite by the current user"
@@ -4530,17 +4547,26 @@ type Series {
 	id: String!
 	name: String!
 	description: String
-	path: String
 	kind: SeriesKind!
 	status: FileStatus!
 	isOneshot: Boolean!
 	thumbnailMeta: ImageMetadata
-	thumbnailPath: String
 	libraryId: String
 	createdAt: DateTime!
 	updatedAt: DateTime
 	deletedAt: DateTime
 	metadata: SeriesMetadata
+	"""
+	The path of the series' folder on disk (none for a series made from the books' metadata).
+	Whoever manages libraries (or browses the server's files) gets the whole path; everyone
+	else the path inside the library
+	"""
+	path: String
+	"""
+	The path to the thumbnail image of the series on disk. Only for whoever manages libraries
+	(or browses the server's files)
+	"""
+	thumbnailPath: String
 	isFavorite: Boolean!
 	resolvedName: String!
 	resolvedDescription: String

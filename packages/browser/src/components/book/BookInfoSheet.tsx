@@ -102,9 +102,9 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 	const metadata = book.metadata
 	const paths = usePaths()
 
-	// TODO(permissions): this is kinda fake, data still comes through. it isn't something
-	// requested by folks so im not in a hurry, but will handle in the permissions
-	// improvement branch
+	// the server only sends a file's hashes (and where it is on its disk) to those who manage
+	// libraries; for everyone else they're null and `relativeLibraryPath` is all there is of the
+	// path, so these rows are just left out for them
 	const canSeeFile = checkPermission(UserPermission.ManageLibrary)
 	const meta = (key: string) => translate(`shared.bookMetadata.${key}`)
 

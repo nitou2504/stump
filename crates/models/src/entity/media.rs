@@ -45,13 +45,19 @@ pub struct Model {
 	/// A Stump-specific hash of the media file. This is used as a secondary identifier for the media, primarily
 	/// in aiding in the identification of duplicate media files
 	#[sea_orm(column_type = "Text", nullable)]
+	// `Media` serves it, for those who may see the server's side of files
+	#[graphql(skip)]
 	pub hash: Option<String>,
 	/// A hash of the media file that adheres to the KoReader hash algorithm. This is used to identify
 	/// books from the KoReader application so progress can be synced between the two applications
 	#[sea_orm(column_type = "Text", nullable)]
+	// `Media` serves it, for those who may see the server's side of files
+	#[graphql(skip)]
 	pub koreader_hash: Option<String>,
 	/// The path of the underlying media file on disk
 	#[sea_orm(column_type = "Text")]
+	// `Media` serves it: whole, or inside its library
+	#[graphql(skip)]
 	pub path: String,
 	/// The status of the media. This is used to determine if the media is available for reading (i.e.,
 	/// if it is available on disk)
@@ -62,6 +68,8 @@ pub struct Model {
 	pub thumbnail_meta: Option<ImageMetadata>,
 	/// The path to the thumbnail image of the media on disk
 	#[sea_orm(column_type = "Text", nullable)]
+	// `Media` serves it, for those who may see the server's side of files
+	#[graphql(skip)]
 	pub thumbnail_path: Option<String>,
 	/// The unique identifier of the series that the media belongs to. While this is nullable, it is
 	/// expected that all media will belong to a series

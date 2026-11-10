@@ -4,7 +4,7 @@ use async_graphql::{
 
 use models::{
 	entity::{
-		library, media, media_analysis, media_metadata, reading_list, reading_list_item,
+		media, media_analysis, media_metadata, reading_list, reading_list_item,
 		reading_session,
 	},
 	services::reading_timeline::sessions_with_events,
@@ -43,9 +43,14 @@ use crate::{
 };
 
 use super::{
-	library::Library, library_config::LibraryConfig, media_metadata::MediaMetadata,
-	readthrough_record::ReadthroughRecord, resume_reading_cursor::ResumeReadingCursor,
-	series::Series, tag::Tag,
+	library::Library,
+	library_config::LibraryConfig,
+	media_metadata::MediaMetadata,
+	readthrough_record::ReadthroughRecord,
+	resume_reading_cursor::ResumeReadingCursor,
+	series::Series,
+	server_paths::{only_for_those_who_may, path_for_requester, relative_to},
+	tag::Tag,
 };
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -76,6 +81,33 @@ impl Media {
 
 #[ComplexObject]
 impl Media {
+	/// The path of the underlying media file on disk. Whoever manages libraries (or browses the
+	/// server's files) gets the whole path; everyone else the path inside the library, as
+	/// `relativeLibraryPath` has it
+	async fn path(&self, ctx: &Context<'_>) -> Result<String> {
+		path_for_requester(ctx, Some(&self.model.library_id), &self.model.path).await
+	}
+
+	/// A Stump-specific hash of the media file. This is used as a secondary identifier for the
+	/// media, primarily in aiding in the identification of duplicate media files. Only for whoever
+	/// manages libraries (or browses the server's files)
+	async fn hash(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		only_for_those_who_may(ctx, self.model.hash.clone())
+	}
+
+	/// A hash of the media file that adheres to the KoReader hash algorithm. This is used to
+	/// identify books from the KoReader application so progress can be synced between the two
+	/// applications. Only for whoever manages libraries (or browses the server's files)
+	async fn koreader_hash(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		only_for_those_who_may(ctx, self.model.koreader_hash.clone())
+	}
+
+	/// The path to the thumbnail image of the media on disk. Only for whoever manages libraries
+	/// (or browses the server's files)
+	async fn thumbnail_path(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		only_for_those_who_may(ctx, self.model.thumbnail_path.clone())
+	}
+
 	/// If the media is an epub, this will return the parsed epub data from the file
 	async fn ebook(&self) -> Result<Option<Epub>> {
 		if self.model.extension.to_lowercase() != "epub" {
@@ -441,17 +473,12 @@ impl Media {
 	/// displaying a truncated path when in the context of a library, e.g. limited space
 	/// on a mobile device.
 	async fn relative_library_path(&self, ctx: &Context<'_>) -> Result<String> {
-		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-
-		let (library_path,) = library::Entity::find()
-			.select_only()
-			.column(library::Column::Path)
-			.filter(library::Column::Id.eq(&self.model.library_id))
-			.into_tuple::<(String,)>()
-			.one(conn)
+		let library = ctx
+			.data::<DataLoader<LibraryLoader>>()?
+			.load_one(self.model.library_id.clone())
 			.await?
 			.ok_or("Library not found")?;
 
-		Ok(self.model.path.replace(&library_path, ""))
+		Ok(relative_to(&library.model.path, &self.model.path))
 	}
 }

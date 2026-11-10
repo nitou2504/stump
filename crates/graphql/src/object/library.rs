@@ -23,7 +23,12 @@ use crate::{
 };
 
 use super::{
-	author::Author, library_config::LibraryConfig, series::Series, tag::Tag, user::User,
+	author::Author,
+	library_config::LibraryConfig,
+	series::Series,
+	server_paths::{only_for_those_who_may, requester_may_see_server_paths},
+	tag::Tag,
+	user::User,
 };
 
 #[derive(Clone, Debug, SimpleObject)]
@@ -41,6 +46,22 @@ impl From<library::Model> for Library {
 
 #[ComplexObject]
 impl Library {
+	/// The folder of the library on the server's disk. Only for whoever manages libraries (or
+	/// browses the server's files); for everyone else it is empty
+	async fn path(&self, ctx: &Context<'_>) -> Result<String> {
+		Ok(if requester_may_see_server_paths(ctx)? {
+			self.model.path.clone()
+		} else {
+			String::new()
+		})
+	}
+
+	/// The path to the thumbnail image of the library on disk. Only for whoever manages libraries
+	/// (or browses the server's files)
+	async fn thumbnail_path(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		only_for_those_who_may(ctx, self.model.thumbnail_path.clone())
+	}
+
 	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn authors(&self, ctx: &Context<'_>) -> Result<Vec<Author>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;

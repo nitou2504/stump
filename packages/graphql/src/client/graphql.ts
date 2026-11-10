@@ -1747,6 +1747,10 @@ export type Library = {
   media: Array<Media>;
   mediaAlphabet: Scalars['JSONObject']['output'];
   name: Scalars['String']['output'];
+  /**
+   * The folder of the library on the server's disk. Only for whoever manages libraries (or
+   * browses the server's files); for everyone else it is empty
+   */
   path: Scalars['String']['output'];
   publishers: Array<Scalars['String']['output']>;
   /** Get the full history of scan jobs for this library. */
@@ -1767,6 +1771,10 @@ export type Library = {
    */
   thumbnail: ImageRef;
   thumbnailMeta?: Maybe<ImageMetadata>;
+  /**
+   * The path to the thumbnail image of the library on disk. Only for whoever manages libraries
+   * (or browses the server's files)
+   */
   thumbnailPath?: Maybe<Scalars['String']['output']>;
   updatedAt?: Maybe<Scalars['DateTime']['output']>;
 };
@@ -2067,8 +2075,9 @@ export type Media = {
   /** The extension of the media file, excluding the leading period */
   extension: Scalars['String']['output'];
   /**
-   * A Stump-specific hash of the media file. This is used as a secondary identifier for the media, primarily
-   * in aiding in the identification of duplicate media files
+   * A Stump-specific hash of the media file. This is used as a secondary identifier for the
+   * media, primarily in aiding in the identification of duplicate media files. Only for whoever
+   * manages libraries (or browses the server's files)
    */
   hash?: Maybe<Scalars['String']['output']>;
   /** The unique identifier for the media */
@@ -2077,8 +2086,9 @@ export type Media = {
   isFavorite: Scalars['Boolean']['output'];
   isOneshot: Scalars['Boolean']['output'];
   /**
-   * A hash of the media file that adheres to the KoReader hash algorithm. This is used to identify
-   * books from the KoReader application so progress can be synced between the two applications
+   * A hash of the media file that adheres to the KoReader hash algorithm. This is used to
+   * identify books from the KoReader application so progress can be synced between the two
+   * applications. Only for whoever manages libraries (or browses the server's files)
    */
   koreaderHash?: Maybe<Scalars['String']['output']>;
   library: Library;
@@ -2099,7 +2109,11 @@ export type Media = {
   nextInSeries: PaginatedMediaResponse;
   /** The number of pages in the media, if applicable. Will be -1 for certain media types */
   pages: Scalars['Int']['output'];
-  /** The path of the underlying media file on disk */
+  /**
+   * The path of the underlying media file on disk. Whoever manages libraries (or browses the
+   * server's files) gets the whole path; everyone else the path inside the library, as
+   * `relativeLibraryPath` has it
+   */
   path: Scalars['String']['output'];
   readHistory: Array<ReadthroughRecord>;
   readProgress?: Maybe<ResumeReadingCursor>;
@@ -2148,7 +2162,10 @@ export type Media = {
   thumbnail: ImageRef;
   /** The metadata for the thumbnail image of the media */
   thumbnailMeta?: Maybe<ImageMetadata>;
-  /** The path to the thumbnail image of the media on disk */
+  /**
+   * The path to the thumbnail image of the media on disk. Only for whoever manages libraries
+   * (or browses the server's files)
+   */
   thumbnailPath?: Maybe<Scalars['String']['output']>;
   /** The timestamp of the last time the media was updated. This will be set during creation, as well */
   updatedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -6117,6 +6134,11 @@ export type Series = {
   metadata?: Maybe<SeriesMetadata>;
   name: Scalars['String']['output'];
   oneshotBook?: Maybe<Media>;
+  /**
+   * The path of the series' folder on disk (none for a series made from the books' metadata).
+   * Whoever manages libraries (or browses the server's files) gets the whole path; everyone
+   * else the path inside the library
+   */
   path?: Maybe<Scalars['String']['output']>;
   percentageCompleted: Scalars['Float']['output'];
   readCount: Scalars['Int']['output'];
@@ -6143,6 +6165,10 @@ export type Series = {
    */
   thumbnail: ImageRef;
   thumbnailMeta?: Maybe<ImageMetadata>;
+  /**
+   * The path to the thumbnail image of the series on disk. Only for whoever manages libraries
+   * (or browses the server's files)
+   */
   thumbnailPath?: Maybe<Scalars['String']['output']>;
   unreadCount: Scalars['Int']['output'];
   upNext: Array<Media>;

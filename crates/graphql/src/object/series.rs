@@ -33,7 +33,12 @@ use crate::{
 	utils::letter_counts,
 };
 
-use super::{library::Library, media::Media, tag::Tag};
+use super::{
+	library::Library,
+	media::Media,
+	server_paths::{only_for_those_who_may, path_for_requester},
+	tag::Tag,
+};
 
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(complex)]
@@ -54,6 +59,24 @@ impl From<series::ModelWithMetadata> for Series {
 
 #[ComplexObject]
 impl Series {
+	/// The path of the series' folder on disk (none for a series made from the books' metadata).
+	/// Whoever manages libraries (or browses the server's files) gets the whole path; everyone
+	/// else the path inside the library
+	async fn path(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		match &self.model.path {
+			Some(path) => path_for_requester(ctx, self.model.library_id.as_deref(), path)
+				.await
+				.map(Some),
+			None => Ok(None),
+		}
+	}
+
+	/// The path to the thumbnail image of the series on disk. Only for whoever manages libraries
+	/// (or browses the server's files)
+	async fn thumbnail_path(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		only_for_those_who_may(ctx, self.model.thumbnail_path.clone())
+	}
+
 	async fn is_favorite(&self, ctx: &Context<'_>) -> Result<bool> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<FavoritesLoader>>()?;

@@ -40,6 +40,7 @@ pub mod readthrough_record;
 pub mod resume_reading_cursor;
 pub mod series;
 pub mod series_metadata;
+pub mod server_paths;
 pub mod smart_list_item;
 pub mod smart_list_view;
 pub mod smart_lists;

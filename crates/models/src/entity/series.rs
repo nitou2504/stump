@@ -34,6 +34,8 @@ pub struct Model {
 	#[sea_orm(column_type = "Text", nullable)]
 	pub description: Option<String>,
 	#[sea_orm(column_type = "Text", nullable)]
+	// `Series` serves it: whole, or inside its library
+	#[graphql(skip)]
 	pub path: Option<String>,
 	#[sea_orm(column_type = "Text")]
 	pub kind: SeriesKind,
@@ -43,6 +45,8 @@ pub struct Model {
 	#[sea_orm(column_type = "Json", nullable)]
 	pub thumbnail_meta: Option<ImageMetadata>,
 	#[sea_orm(column_type = "Text", nullable)]
+	// `Series` serves it, for those who may see the server's side of files
+	#[graphql(skip)]
 	pub thumbnail_path: Option<String>,
 	#[sea_orm(column_type = "Text", nullable)]
 	pub library_id: Option<String>,
