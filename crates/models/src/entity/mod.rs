@@ -1,3 +1,8 @@
+pub mod access_audit;
+pub mod access_device;
+pub mod access_invite;
+pub mod access_password_reset;
+pub mod access_signin_mark;
 pub mod age_restriction;
 pub mod api_key;
 pub mod book_club;
