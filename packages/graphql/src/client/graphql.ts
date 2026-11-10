@@ -3253,6 +3253,15 @@ export type Mutation = {
    * until the retention is over
    */
   putBackHeldFile: HeldFilePutBack;
+  /**
+   * Works out the books of the smart lists again **now** (all of them, or the ones given),
+   * instead of when the catalog next changes. The lists keep themselves up to date, within ten
+   * seconds of a change, so this is for the day something changed the database behind the
+   * server's back (a restore, an edit with another tool). Lists that can't be kept (their rules
+   * use a reader's progress or `updatedAt`) are worked out whenever they are read, and are
+   * left out. Returns how many lists were worked out. Only the server owner may ask.
+   */
+  refreshSmartLists: Scalars['Int']['output'];
   /** Reject all pending metadata matches, setting their status to NoMatch */
   rejectAllPendingMatches: Scalars['Int']['output'];
   /** Reject the current match candidates for a media item */
@@ -4014,6 +4023,11 @@ export type MutationPurgeDeletedBooksArgs = {
 
 export type MutationPutBackHeldFileArgs = {
   id: Scalars['Int']['input'];
+};
+
+
+export type MutationRefreshSmartListsArgs = {
+  ids?: InputMaybe<Array<Scalars['ID']['input']>>;
 };
 
 
@@ -6671,6 +6685,10 @@ export type SmartList = {
   id: Scalars['String']['output'];
   items: SmartListItems;
   joiner: SmartListJoiner;
+  /**
+   * How many books, series and libraries the list holds for the user, counted by the database
+   * in one query over the list's cached members
+   */
   meta: SmartListMeta;
   name: Scalars['String']['output'];
   thumbnail: ImageRef;

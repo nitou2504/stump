@@ -7,7 +7,9 @@ use crate::{
 		smart_list_view::SmartListView,
 	},
 	pagination::list_limit,
-	query::smart_lists_builder::{build_books_query, build_smart_list_items},
+	query::smart_lists_builder::{
+		build_smart_list_items, smart_list_books, smart_list_meta,
+	},
 };
 use async_graphql::{
 	dataloader::DataLoader, ComplexObject, Context, Result, SimpleObject,
@@ -16,8 +18,7 @@ use models::{
 	entity::{media, smart_list, smart_list_view},
 	shared::image::ImageRef,
 };
-use sea_orm::{QuerySelect, TransactionTrait};
-use std::collections::HashSet;
+use sea_orm::{QueryOrder, QuerySelect, TransactionTrait};
 
 #[derive(Debug, SimpleObject)]
 pub struct SmartListMeta {
@@ -102,31 +103,24 @@ impl SmartList {
 	) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list =
 			smart_list::Entity::find_by_id(user, self.model.id.clone().into())
-				.one(&txn)
+				.one(conn)
 				.await?
 				.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
-
-		// at most MAX_LIST_SIZE books, also without a `limit`
-		let books_query = build_books_query(
-			user,
-			smart_list.joiner,
-			&deserialized_filters,
-			Some(list_limit(limit)),
-		);
+		// the list's cached members, narrowed to what the user may read. At most MAX_LIST_SIZE
+		// books, also without a `limit`, in the same order every time
+		let books_query = smart_list_books(conn, user, &smart_list)
+			.await?
+			.order_by_asc(media::Column::Id)
+			.limit(list_limit(limit));
 
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()
-			.all(&txn)
+			.all(conn)
 			.await?;
-
-		txn.commit().await?;
 
 		let books: Vec<Media> = models.into_iter().map(Media::from).collect();
 
@@ -141,24 +135,20 @@ impl SmartList {
 	) -> Result<SmartListItems> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list =
 			smart_list::Entity::find_by_id(user, self.model.id.clone().into())
-				.one(&txn)
+				.one(conn)
 				.await?
 				.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
+		// looked at before the transaction starts (see `smartListItems`)
+		let books_query = smart_list_books(conn, user, &smart_list)
+			.await?
+			.order_by_asc(media::Column::Id)
+			.limit(list_limit(limit));
 
-		let books_query = build_books_query(
-			user,
-			smart_list.joiner,
-			&deserialized_filters,
-			Some(list_limit(limit)),
-		);
-
+		let txn = conn.begin().await?;
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()
 			.all(&txn)
@@ -174,48 +164,19 @@ impl SmartList {
 		Ok(items)
 	}
 
+	/// How many books, series and libraries the list holds for the user, counted by the database
+	/// in one query over the list's cached members
 	async fn meta(&self, ctx: &Context<'_>) -> Result<SmartListMeta> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let txn = conn.begin().await?;
 
 		let smart_list =
 			smart_list::Entity::find_by_id(user, self.model.id.clone().into())
-				.one(&txn)
+				.one(conn)
 				.await?
 				.ok_or("Smart list not found".to_string())?;
 
-		let deserialized_filters: Vec<SmartListFilterGroupInput> =
-			serde_json::from_slice(&smart_list.filters)?;
-
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, None);
-
-		let ids: Vec<(Option<String>, String)> = books_query
-			.select_only()
-			.column(media::Column::SeriesId)
-			.column(media::Column::LibraryId)
-			.into_tuple()
-			.all(&txn)
-			.await?;
-
-		let matched_books = ids.len() as i64;
-		let mut matched_series: HashSet<String> = HashSet::new();
-		let mut matched_libraries: HashSet<String> = HashSet::new();
-
-		for (series_id, library_id) in ids {
-			if let Some(series_id) = series_id {
-				matched_series.insert(series_id);
-			}
-			matched_libraries.insert(library_id);
-		}
-
-		txn.commit().await?;
-
-		Ok(SmartListMeta {
-			matched_books,
-			matched_series: matched_series.len() as i64,
-			matched_libraries: matched_libraries.len() as i64,
-		})
+		let books = smart_list_books(conn, user, &smart_list).await?;
+		smart_list_meta(conn, books).await
 	}
 }

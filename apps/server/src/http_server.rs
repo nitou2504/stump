@@ -83,6 +83,14 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 
 	let server_ctx = core.get_context();
 	let app_state = server_ctx.arced();
+
+	// Keeps the books of every smart list worked out in the background, so a reader finds them
+	// ready: at start-up, and a few seconds after the catalog stops changing (see
+	// `graphql::query::smart_list_cache`)
+	tokio::spawn(graphql::query::smart_list_cache::run_warmer(
+		server_ctx.conn.clone(),
+		graphql::query::smart_list_cache::WarmerConfig::default(),
+	));
 	let cors_layer = cors::get_cors_layer(config.clone());
 
 	println!("{}", core.get_shadow_text());

@@ -30,7 +30,7 @@ impl MediaMetadataOverviewQuery {
 					.one(conn)
 					.await?
 					.ok_or("Smart list not found")?;
-				Some(smart_list_media_ids(user, &list)?)
+				Some(smart_list_media_ids(conn, user, &list).await?)
 			},
 			None => None,
 		};

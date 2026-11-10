@@ -29,6 +29,7 @@ mod reading_stats;
 mod reading_timeline;
 mod series;
 pub(crate) mod server_config;
+pub mod smart_list_cache;
 mod smart_list_view;
 mod smart_lists;
 pub mod smart_lists_builder;

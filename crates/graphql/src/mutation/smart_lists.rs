@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::PermissionGuard,
+	guard::{PermissionGuard, ServerOwnerGuard},
 	input::smart_lists::{list_visibility, SaveSmartListInput, SmartListLimits},
 	object::smart_lists::SmartList,
+	query::smart_list_cache::{self, Need},
 };
 use async_graphql::{Context, Object, Result, ID};
 use models::{
@@ -57,6 +58,27 @@ impl SmartListMutation {
 		txn.commit().await?;
 
 		Ok(SmartList::from(inserted_smart_list))
+	}
+
+	/// Works out the books of the smart lists again **now** (all of them, or the ones given),
+	/// instead of when the catalog next changes. The lists keep themselves up to date, within ten
+	/// seconds of a change, so this is for the day something changed the database behind the
+	/// server's back (a restore, an edit with another tool). Lists that can't be kept (their rules
+	/// use a reader's progress or `updatedAt`) are worked out whenever they are read, and are
+	/// left out. Returns how many lists were worked out. Only the server owner may ask.
+	#[graphql(guard = "ServerOwnerGuard")]
+	async fn refresh_smart_lists(
+		&self,
+		ctx: &Context<'_>,
+		ids: Option<Vec<ID>>,
+	) -> Result<i64> {
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let ids: Option<Vec<String>> =
+			ids.map(|ids| ids.into_iter().map(|id| id.to_string()).collect());
+
+		let refreshed =
+			smart_list_cache::refresh_lists(conn, ids.as_deref(), Need::Always).await;
+		Ok(refreshed as i64)
 	}
 
 	/// Changes a smart list. Its creator changes anything about it, within the limits that hold

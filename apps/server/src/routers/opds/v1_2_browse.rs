@@ -28,7 +28,8 @@ use models::{
 use sea_orm::{
 	prelude::*,
 	sea_query::{Expr as QExpr, SelectStatement},
-	Condition, ExprTrait, Order, QueryOrder, QuerySelect, QueryTrait, Select,
+	Condition, DatabaseConnection, ExprTrait, Order, QueryOrder, QuerySelect, QueryTrait,
+	Select,
 };
 use serde::Deserialize;
 use stump_core::opds::{
@@ -793,17 +794,21 @@ fn can_access_smart_lists(user: &AuthUser) -> bool {
 	user.has_permission(UserPermission::AccessSmartList)
 }
 
-/// Resolves a smart list into the subquery of the media IDs it matches
-fn smart_list_media_ids(
+/// Resolves a smart list into the subquery of the media IDs it matches for `user`, from the
+/// list's cached members when it has them (see `graphql::query::smart_list_cache`)
+async fn smart_list_media_ids(
+	conn: &DatabaseConnection,
 	user: &AuthUser,
 	list: &smart_list::Model,
 ) -> APIResult<SelectStatement> {
-	graphql::query::smart_lists_builder::smart_list_media_ids(user, list).map_err(|e| {
-		APIError::InternalServerError(format!(
-			"Invalid smart list filters: {}",
-			e.message
-		))
-	})
+	graphql::query::smart_lists_builder::smart_list_media_ids(conn, user, list)
+		.await
+		.map_err(|e| {
+			APIError::InternalServerError(format!(
+				"Invalid smart list filters: {}",
+				e.message
+			))
+		})
 }
 
 /// GET /opds/v1.2/smart-lists: every smart list the user can read
@@ -869,7 +874,7 @@ pub(crate) async fn smart_list_books_feed(
 		.one(ctx.conn.as_ref())
 		.await?
 		.ok_or(APIError::NotFound("Smart list not found".to_string()))?;
-	let media_ids = smart_list_media_ids(&user, &list)?;
+	let media_ids = smart_list_media_ids(ctx.conn.as_ref(), &user, &list).await?;
 	books_feed(
 		ctx,
 		req,
