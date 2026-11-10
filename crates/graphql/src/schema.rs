@@ -1,4 +1,5 @@
 use crate::{
+	complexity::MAX_QUERY_COMPLEXITY,
 	data::CoreContext,
 	loader::{
 		author::{AuthorMediaLoader, MetadataSeriesMediaLoader},
@@ -26,16 +27,32 @@ use std::sync::Arc;
 
 pub type AppSchema = Schema<Query, Mutation, Subscription>;
 
+/// The limits on the queries a client can send. Without a complexity limit a single query could
+/// ask for the books of the series of the books of a series, and build over half a million
+/// of them: see [crate::complexity] for what a query costs.
+fn limit_queries<
+	QueryType: ObjectType + 'static,
+	MutationType: ObjectType + 'static,
+	SubscriptionType: 'static,
+>(
+	schema: SchemaBuilder<QueryType, MutationType, SubscriptionType>,
+) -> SchemaBuilder<QueryType, MutationType, SubscriptionType> {
+	schema
+		.limit_depth(15)
+		.limit_complexity(MAX_QUERY_COMPLEXITY)
+}
+
 pub async fn build_schema(ctx: CoreContext) -> AppSchema {
 	let conn = ctx.conn.clone();
-	let schema_builder = Schema::build(
-		Query::default(),
-		Mutation::default(),
-		Subscription::default(),
+	let schema_builder = limit_queries(
+		Schema::build(
+			Query::default(),
+			Mutation::default(),
+			Subscription::default(),
+		)
+		// AccessRole is used in a serialized json for SmartList so we need to register it manually
+		.register_output_type::<AccessRole>(),
 	)
-	// AccessRole is used in a serialized json for SmartList so we need to register it manually
-	.register_output_type::<AccessRole>()
-	.limit_depth(15)
 	.data(ctx);
 
 	add_data_loaders(schema_builder, conn).finish()
@@ -109,12 +126,14 @@ pub fn add_data_loaders<
 }
 
 pub fn build_schema_bare() -> AppSchema {
-	Schema::build(
-		Query::default(),
-		Mutation::default(),
-		Subscription::default(),
+	limit_queries(
+		Schema::build(
+			Query::default(),
+			Mutation::default(),
+			Subscription::default(),
+		)
+		// AccessRole is used in a serialized json for SmartList so we need to register it manually
+		.register_output_type::<AccessRole>(),
 	)
-	// AccessRole is used in a serialized json for SmartList so we need to register it manually
-	.register_output_type::<AccessRole>()
 	.finish()
 }

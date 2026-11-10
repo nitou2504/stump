@@ -81,6 +81,7 @@ impl AuthorQuery {
 	}
 
 	/// Get a paginated list of authors with optional search filter
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn authors(
 		&self,
 		ctx: &Context<'_>,

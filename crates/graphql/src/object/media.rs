@@ -35,7 +35,10 @@ use crate::{
 		reading_timeline::{BookReadingTimeline, SessionWithEvents},
 	},
 	order::series_position_spec,
-	pagination::{CursorPagination, CursorPaginationInfo, PaginatedResponse, Pagination},
+	pagination::{
+		CursorPagination, CursorPaginationInfo, PaginatedResponse, Pagination,
+		PaginationValidator,
+	},
 	utils::db_statement,
 };
 
@@ -352,10 +355,12 @@ impl Media {
 
 	/// The next media in the series, ordered by metadata series position
 	/// when available and falling back to name if not
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn next_in_series(
 		&self,
 		ctx: &Context<'_>,
-		#[graphql(default)] pagination: Pagination,
+		#[graphql(default, validator(custom = "PaginationValidator"))]
+		pagination: Pagination,
 	) -> Result<PaginatedResponse<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();

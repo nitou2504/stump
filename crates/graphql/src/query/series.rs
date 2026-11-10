@@ -24,6 +24,7 @@ pub struct SeriesQuery;
 
 #[Object]
 impl SeriesQuery {
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn series(
 		&self,
 		ctx: &Context<'_>,
@@ -163,6 +164,7 @@ impl SeriesQuery {
 		Ok(count)
 	}
 
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn recently_added_series(
 		&self,
 		ctx: &Context<'_>,

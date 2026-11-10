@@ -75,12 +75,14 @@ pub struct ReadthroughTimeline {
 	pub finished_at: Option<DateTime<FixedOffset>>,
 	pub status: ReadingStatus,
 	pub total_elapsed_seconds: i64,
+	#[graphql(complexity = "crate::complexity::SMALL_LIST * child_complexity")]
 	pub sessions: Vec<SessionWithEvents>,
 }
 
 /// The full timeline of events for a book, including all readthroughs and their sessions
 #[derive(Clone, SimpleObject)]
 pub struct BookReadingTimeline {
+	#[graphql(complexity = "crate::complexity::SMALL_LIST * child_complexity")]
 	pub readthroughs: Vec<ReadthroughTimeline>,
 	pub total_elapsed_seconds: i64,
 }

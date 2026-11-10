@@ -7,7 +7,7 @@ use sea_orm::prelude::*;
 use crate::{
 	data::{AuthContext, CoreContext},
 	object::reading_list::ReadingList,
-	pagination::{PaginatedResponse, Pagination, PaginationValidator},
+	pagination::{PaginatedResponse, Pagination, SmallTablePaginationValidator},
 };
 
 #[derive(Default)]
@@ -20,10 +20,11 @@ impl ReadingListQuery {
 	/// # Returns
 	///
 	/// A paginated list of reading lists.
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn reading_lists(
 		&self,
 		ctx: &Context<'_>,
-		#[graphql(default, validator(custom = "PaginationValidator"))]
+		#[graphql(default, validator(custom = "SmallTablePaginationValidator"))]
 		pagination: Pagination,
 	) -> Result<PaginatedResponse<ReadingList>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;

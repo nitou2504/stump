@@ -15,7 +15,7 @@ use crate::{
 	object::{user::User, user_login_activity::UserLoginActivity},
 	pagination::{
 		CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse, Pagination,
-		PaginationValidator,
+		SmallTablePaginationValidator,
 	},
 };
 
@@ -86,12 +86,13 @@ impl UserQuery {
 	}
 
 	#[graphql(
+		complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)",
 		guard = "PermissionGuard::one(UserPermission::ReadUsers).or(ServerOwnerGuard)"
 	)]
 	async fn users(
 		&self,
 		ctx: &Context<'_>,
-		#[graphql(default, validator(custom = "PaginationValidator"))]
+		#[graphql(default, validator(custom = "SmallTablePaginationValidator"))]
 		pagination: Pagination,
 	) -> Result<PaginatedResponse<User>> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();

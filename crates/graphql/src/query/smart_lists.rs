@@ -11,6 +11,7 @@ use crate::{
 		smart_list_item::SmartListItems,
 		smart_lists::{SmartList, SmartListMeta},
 	},
+	pagination::list_limit,
 };
 use async_graphql::{Context, Object, Result, ID};
 use models::{
@@ -124,7 +125,10 @@ impl SmartListsQuery {
 		}))
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::AccessSmartList)")]
+	#[graphql(
+		complexity = "crate::complexity::list_cost(limit, child_complexity)",
+		guard = "PermissionGuard::one(UserPermission::AccessSmartList)"
+	)]
 	async fn smart_list_items(
 		self,
 		ctx: &Context<'_>,
@@ -151,8 +155,13 @@ impl SmartListsQuery {
 		let deserialized_filters: Vec<SmartListFilterGroupInput> =
 			serde_json::from_slice(&smart_list.filters)?;
 
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, limit);
+		// at most MAX_LIST_SIZE books, also without a `limit`
+		let books_query = build_books_query(
+			user,
+			smart_list.joiner,
+			&deserialized_filters,
+			Some(list_limit(limit)),
+		);
 		let books_query = match filter {
 			Some(filter) => books_query
 				.filter(media::Column::Id.in_subquery(filtered_media_ids(user, filter))),

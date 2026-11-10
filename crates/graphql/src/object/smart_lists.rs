@@ -4,6 +4,7 @@ use crate::{
 	object::{
 		media::Media, smart_list_item::SmartListItems, smart_list_view::SmartListView,
 	},
+	pagination::list_limit,
 	query::smart_lists_builder::{build_books_query, build_smart_list_items},
 };
 use async_graphql::{ComplexObject, Context, Result, SimpleObject};
@@ -65,6 +66,7 @@ impl SmartList {
 			.collect::<Result<Vec<_>, _>>()
 	}
 
+	#[graphql(complexity = "crate::complexity::list_cost(limit, child_complexity)")]
 	async fn books(
 		&self,
 		ctx: &Context<'_>,
@@ -83,8 +85,13 @@ impl SmartList {
 		let deserialized_filters: Vec<SmartListFilterGroupInput> =
 			serde_json::from_slice(&smart_list.filters)?;
 
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, limit);
+		// at most MAX_LIST_SIZE books, also without a `limit`
+		let books_query = build_books_query(
+			user,
+			smart_list.joiner,
+			&deserialized_filters,
+			Some(list_limit(limit)),
+		);
 
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()
@@ -98,6 +105,7 @@ impl SmartList {
 		Ok(books)
 	}
 
+	#[graphql(complexity = "crate::complexity::list_cost(limit, child_complexity)")]
 	async fn items(
 		&self,
 		ctx: &Context<'_>,
@@ -116,8 +124,12 @@ impl SmartList {
 		let deserialized_filters: Vec<SmartListFilterGroupInput> =
 			serde_json::from_slice(&smart_list.filters)?;
 
-		let books_query =
-			build_books_query(user, smart_list.joiner, &deserialized_filters, limit);
+		let books_query = build_books_query(
+			user,
+			smart_list.joiner,
+			&deserialized_filters,
+			Some(list_limit(limit)),
+		);
 
 		let models = books_query
 			.into_model::<media::ModelWithMetadata>()

@@ -9,13 +9,26 @@ use async_graphql::{
 	SimpleObject, Union,
 };
 use sea_orm::{prelude::*, FromQueryResult, QuerySelect, Select};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
+
+/// The most items a page or a list field returns at once. Bigger offset pages and `take`/`limit`
+/// arguments are clamped to it (e.g. OPDS' `page_size`), bigger cursor limits are rejected, and
+/// the query complexity limit prices every list at this size at most (see [crate::complexity]).
+/// Nothing a client sends can make a single list hold more than this.
+pub const MAX_LIST_SIZE: u64 = 200;
+
+/// The size of a list field with an optional `take`/`limit` argument: the argument, or
+/// [MAX_LIST_SIZE] when it is left out, and never more than that
+pub fn list_limit(take: Option<u64>) -> u64 {
+	take.unwrap_or(MAX_LIST_SIZE).min(MAX_LIST_SIZE)
+}
 
 /// A simple cursor-based pagination input object
 #[derive(Debug, Clone, InputObject)]
 pub struct CursorPagination {
 	pub after: Option<String>,
+	// At most MAX_LIST_SIZE: the validators reject more
 	#[graphql(default_with = "default_limit()")]
 	pub limit: u64,
 }
@@ -45,6 +58,19 @@ fn default_zero_based() -> Option<bool> {
 	Some(false)
 }
 
+/// A `page_size` of 0 is a client error, not an empty page (OPDS clients following the `next`
+/// link of an empty page would loop forever)
+fn deserialize_page_size<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+	D: Deserializer<'de>,
+{
+	let page_size = Option::<u64>::deserialize(deserializer)?;
+	if page_size == Some(0) {
+		return Err(serde::de::Error::custom("page_size must be greater than 0"));
+	}
+	Ok(page_size)
+}
+
 /// A simple offset-based pagination input object
 #[derive(Debug, Clone, InputObject, Serialize, Deserialize)]
 pub struct OffsetPagination {
@@ -53,8 +79,13 @@ pub struct OffsetPagination {
 	#[serde(default = "default_restful_page")]
 	pub page: u64,
 	/// The number of items to return per page. This is 20 by default.
+	// A bigger page is cut to MAX_LIST_SIZE items (the page info says so). Not part of the doc
+	// comment: it would change the generated schema.graphql
 	#[graphql(default_with = "default_page_size()")]
-	#[serde(default = "default_page_size")]
+	#[serde(
+		default = "default_page_size",
+		deserialize_with = "deserialize_page_size"
+	)]
 	pub page_size: Option<u64>,
 	/// Whether or not the page is zero-based. This is false by default.
 	#[graphql(default_with = "default_zero_based()")]
@@ -89,7 +120,10 @@ impl OffsetPagination {
 	}
 
 	pub fn limit(&self) -> u64 {
-		self.page_size.unwrap_or(20).min(Self::MAX_SQL_INT)
+		self.page_size
+			.unwrap_or(20)
+			.min(MAX_LIST_SIZE)
+			.min(Self::MAX_SQL_INT)
 	}
 
 	pub fn next_page(&self) -> u64 {
@@ -116,7 +150,7 @@ impl OffsetPagination {
 /// for empty variants.
 #[derive(Debug, Clone, InputObject)]
 pub struct Unpaginated {
-	unpaginated: bool,
+	pub(crate) unpaginated: bool,
 }
 
 /// A union of the supported pagination flavors which Stump supports. The resulting
@@ -166,6 +200,20 @@ impl Pagination {
 	}
 }
 
+impl Pagination {
+	/// The most items this pagination can return, which is what a query costs (see
+	/// [crate::complexity]): the page size or cursor limit (never above [MAX_LIST_SIZE]), or
+	/// `unpaginated_rows` for the tables where everything at once is allowed
+	pub fn max_items(&self, unpaginated_rows: u64) -> u64 {
+		match self {
+			Pagination::Cursor(cursor) => cursor.limit.min(MAX_LIST_SIZE),
+			Pagination::Offset(offset) => offset.limit(),
+			Pagination::None(unpaginated) if unpaginated.unpaginated => unpaginated_rows,
+			Pagination::None(_) => default_page_size().unwrap_or(20),
+		}
+	}
+}
+
 impl Default for Pagination {
 	fn default() -> Self {
 		Pagination::Offset(OffsetPagination {
@@ -176,24 +224,67 @@ impl Default for Pagination {
 	}
 }
 
+fn check_pagination(
+	input: &Pagination,
+	allow_unpaginated: bool,
+) -> Result<(), InputValueError<Pagination>> {
+	match input {
+		Pagination::Offset(offset) => {
+			if !offset.zero_based.unwrap_or(false) && offset.page == 0 {
+				Err(InputValueError::custom("Page must be greater than 0"))
+			} else if offset.page_size.is_some_and(|x| x == 0) {
+				Err(InputValueError::custom("Page size must be greater than 0"))
+			} else {
+				Ok(())
+			}
+		},
+		Pagination::Cursor(cursor) if cursor.limit > MAX_LIST_SIZE => Err(
+			InputValueError::custom(format!("Limit must be at most {MAX_LIST_SIZE}")),
+		),
+		Pagination::None(unpaginated) if unpaginated.unpaginated && !allow_unpaginated => {
+			Err(InputValueError::custom(
+				"Unpaginated queries are not supported here, use offset or cursor pagination",
+			))
+		},
+		_ => Ok(()),
+	}
+}
+
 /// A custom validator for the Pagination enum that ensures that the input is valid
-/// for the given pagination type
+/// for the given pagination type. Unpaginated queries (everything at once) are refused: the
+/// tables behind these queries can be huge, use [SmallTablePaginationValidator] for the ones
+/// that can't.
 #[derive(Default)]
 pub struct PaginationValidator;
 
 impl CustomValidator<Pagination> for PaginationValidator {
 	fn check(&self, input: &Pagination) -> Result<(), InputValueError<Pagination>> {
-		match input {
-			Pagination::Offset(offset) => {
-				if !offset.zero_based.unwrap_or(false) && offset.page == 0 {
-					Err(InputValueError::custom("Page must be greater than 0"))
-				} else if offset.page_size.is_some_and(|x| x == 0) {
-					Err(InputValueError::custom("Page size must be greater than 0"))
-				} else {
-					Ok(())
-				}
-			},
-			_ => Ok(()),
+		check_pagination(input, false)
+	}
+}
+
+/// The same as [PaginationValidator], but unpaginated queries are allowed. For tables that are
+/// small by nature: libraries, users and reading lists.
+#[derive(Default)]
+pub struct SmallTablePaginationValidator;
+
+impl CustomValidator<Pagination> for SmallTablePaginationValidator {
+	fn check(&self, input: &Pagination) -> Result<(), InputValueError<Pagination>> {
+		check_pagination(input, true)
+	}
+}
+
+impl CustomValidator<CursorPagination> for PaginationValidator {
+	fn check(
+		&self,
+		input: &CursorPagination,
+	) -> Result<(), InputValueError<CursorPagination>> {
+		if input.limit > MAX_LIST_SIZE {
+			Err(InputValueError::custom(format!(
+				"Limit must be at most {MAX_LIST_SIZE}"
+			)))
+		} else {
+			Ok(())
 		}
 	}
 }
@@ -449,7 +540,37 @@ mod tests {
 				zero_based: Some(true),
 			};
 			assert_eq!(pagination.offset(), i64::MAX as u64);
-			assert_eq!(pagination.limit(), i64::MAX as u64);
+			// a page is never bigger than MAX_LIST_SIZE
+			assert_eq!(pagination.limit(), MAX_LIST_SIZE);
+		}
+
+		#[test]
+		fn page_size_is_cut_to_the_maximum() {
+			let pagination = OffsetPagination {
+				page: 3,
+				page_size: Some(5_000),
+				zero_based: Some(false),
+			};
+			assert_eq!(pagination.limit(), MAX_LIST_SIZE);
+			assert_eq!(pagination.offset(), 2 * MAX_LIST_SIZE);
+
+			let pagination = OffsetPagination {
+				page: 1,
+				page_size: Some(50),
+				zero_based: Some(false),
+			};
+			assert_eq!(pagination.limit(), 50);
+		}
+
+		#[test]
+		fn serde_rejects_a_page_size_of_zero() {
+			let ok: OffsetPagination =
+				serde_json::from_str(r#"{"page":2,"page_size":50}"#).unwrap();
+			assert_eq!(ok.page_size, Some(50));
+			let default: OffsetPagination = serde_json::from_str("{}").unwrap();
+			assert_eq!(default.page_size, Some(20));
+			assert!(serde_json::from_str::<OffsetPagination>(r#"{"page_size":0}"#)
+				.is_err());
 		}
 
 		#[test]
@@ -490,6 +611,53 @@ mod tests {
 				zero_based: Some(true),
 			};
 			assert_eq!(pagination.next_page(), 6);
+		}
+	}
+
+	mod validators {
+		use super::*;
+
+		fn offset(page: u64, page_size: u64) -> Pagination {
+			Pagination::Offset(OffsetPagination {
+				page,
+				page_size: Some(page_size),
+				zero_based: Some(false),
+			})
+		}
+
+		#[test]
+		fn rejects_unpaginated_unless_the_table_is_small() {
+			let everything = Pagination::None(Unpaginated { unpaginated: true });
+			assert!(PaginationValidator.check(&everything).is_err());
+			assert!(SmallTablePaginationValidator.check(&everything).is_ok());
+			// the "invalid but harmless" `unpaginated: false` resolves to the default page
+			let nothing = Pagination::None(Unpaginated { unpaginated: false });
+			assert!(PaginationValidator.check(&nothing).is_ok());
+		}
+
+		#[test]
+		fn keeps_checking_offsets_and_bounds_cursors() {
+			assert!(PaginationValidator.check(&offset(1, 20)).is_ok());
+			assert!(PaginationValidator.check(&offset(0, 20)).is_err());
+			assert!(PaginationValidator.check(&offset(1, 0)).is_err());
+			// big offset pages are cut by `limit()`, not refused
+			assert!(PaginationValidator.check(&offset(1, 10_000)).is_ok());
+
+			let cursor = |limit| Pagination::Cursor(CursorPagination { after: None, limit });
+			assert!(PaginationValidator.check(&cursor(MAX_LIST_SIZE)).is_ok());
+			assert!(PaginationValidator.check(&cursor(MAX_LIST_SIZE + 1)).is_err());
+			let bare = CursorPagination {
+				after: None,
+				limit: MAX_LIST_SIZE + 1,
+			};
+			assert!(PaginationValidator.check(&bare).is_err());
+		}
+
+		#[test]
+		fn list_limit_defaults_to_and_never_exceeds_the_maximum() {
+			assert_eq!(list_limit(None), MAX_LIST_SIZE);
+			assert_eq!(list_limit(Some(5)), 5);
+			assert_eq!(list_limit(Some(u64::MAX)), MAX_LIST_SIZE);
 		}
 	}
 }

@@ -22,7 +22,7 @@ use crate::{
 	order::OrderSpec,
 	pagination::{
 		CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse, Pagination,
-		PaginationValidator,
+		PaginationValidator, SmallTablePaginationValidator,
 	},
 	utils::db_statement,
 };
@@ -41,13 +41,14 @@ fn default_order_by_vec() -> Vec<LibraryModelOrderBy> {
 
 #[Object]
 impl LibraryQuery {
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn libraries(
 		&self,
 		ctx: &Context<'_>,
 		#[graphql(default_with = "default_order_by_vec()")] order_by: Vec<
 			LibraryModelOrderBy,
 		>,
-		#[graphql(default, validator(custom = "PaginationValidator"))]
+		#[graphql(default, validator(custom = "SmallTablePaginationValidator"))]
 		pagination: Pagination,
 		search: Option<String>,
 	) -> Result<PaginatedResponse<Library>> {
@@ -210,7 +211,7 @@ impl LibraryQuery {
 		Ok(last_visited)
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)", guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
 	async fn library_missing_entities(
 		&self,
 		ctx: &Context<'_>,

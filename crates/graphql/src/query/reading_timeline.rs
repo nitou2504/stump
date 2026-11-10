@@ -9,7 +9,10 @@ use crate::{
 	data::{AuthContext, CoreContext},
 	object::reading_timeline::{GlobalReadingTimelineNode, SessionWithEvents},
 	order::order_spec,
-	pagination::{CursorPaginatedResponse, CursorPagination, CursorPaginationInfo},
+	pagination::{
+		CursorPaginatedResponse, CursorPagination, CursorPaginationInfo,
+		PaginationValidator,
+	},
 };
 
 #[derive(Default)]
@@ -19,10 +22,12 @@ pub struct ReadingTimelineQuery;
 impl ReadingTimelineQuery {
 	/// A paginated list of reading sessions and events for the authenticated user,
 	/// for all reading activity across all books
+	#[graphql(complexity = "crate::complexity::cursor_pagination_cost(&pagination, child_complexity)")]
 	async fn my_reading_timeline(
 		&self,
 		ctx: &Context<'_>,
-		#[graphql(default)] pagination: CursorPagination,
+		#[graphql(default, validator(custom = "PaginationValidator"))]
+		pagination: CursorPagination,
 		#[graphql(default_with = "OrderDirection::Desc")] order: OrderDirection,
 	) -> Result<CursorPaginatedResponse<GlobalReadingTimelineNode>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;

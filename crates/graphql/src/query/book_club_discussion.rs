@@ -120,6 +120,7 @@ impl BookClubDiscussionQuery {
 	}
 
 	/// Get messages in a discussion
+	#[graphql(complexity = "crate::complexity::cursor_pagination_cost(&pagination, child_complexity)")]
 	async fn book_club_discussion_messages(
 		&self,
 		ctx: &Context<'_>,

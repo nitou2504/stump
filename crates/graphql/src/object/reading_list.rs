@@ -5,6 +5,7 @@ use sea_orm::{prelude::*, JoinType, QueryOrder, QuerySelect, Select};
 use crate::{
 	data::{AuthContext, CoreContext},
 	object::media::Media,
+	pagination::list_limit,
 };
 
 #[derive(Debug, SimpleObject)]
@@ -40,6 +41,7 @@ fn in_reading_list(
 #[ComplexObject]
 impl ReadingList {
 	/// The list's books the user can see, in the list's order
+	#[graphql(complexity = "crate::complexity::list_cost(limit, child_complexity)")]
 	async fn books(
 		&self,
 		ctx: &Context<'_>,
@@ -54,7 +56,7 @@ impl ReadingList {
 		)
 		.order_by_asc(reading_list_item::Column::DisplayOrder)
 		.order_by_asc(reading_list_item::Column::Id)
-		.limit(limit)
+		.limit(list_limit(limit))
 		.into_model::<media::ModelWithMetadata>()
 		.all(conn)
 		.await?;

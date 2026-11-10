@@ -25,6 +25,7 @@ use crate::{
 	guard::PermissionGuard,
 	loader::favorite::{FavoriteLibraryLoaderKey, FavoritesLoader},
 	object::{library_scan_record::LibraryScanRecord, media::Media, stats::LibraryStats},
+	pagination::list_limit,
 	utils::db_statement,
 };
 
@@ -47,6 +48,7 @@ impl From<library::Model> for Library {
 
 #[ComplexObject]
 impl Library {
+	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn authors(&self, ctx: &Context<'_>) -> Result<Vec<Author>> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
@@ -106,6 +108,7 @@ impl Library {
 	}
 
 	#[graphql(
+		complexity = "crate::complexity::RELATED_LIST * child_complexity",
 		guard = "PermissionGuard::new(&[UserPermission::ReadUsers, UserPermission::ManageLibrary])"
 	)]
 	async fn excluded_users(&self, ctx: &Context<'_>) -> Result<Vec<User>> {
@@ -159,6 +162,7 @@ impl Library {
 
 	// TODO(perf): We probably could put this behind a dataloader if used frequently
 	/// Get media in this library
+	#[graphql(complexity = "crate::complexity::list_cost(take, child_complexity)")]
 	async fn media(
 		&self,
 		ctx: &Context<'_>,
@@ -171,7 +175,7 @@ impl Library {
 			.filter(media::Column::LibraryId.eq(self.model.id.clone()))
 			// TODO: Consider allowing custom ordering?
 			.order_by_asc(media::Column::Name)
-			.apply_if(take, |query, take| query.limit(take))
+			.limit(list_limit(take))
 			.into_model::<media::ModelWithMetadata>()
 			.all(conn)
 			.await?;
@@ -228,6 +232,7 @@ impl Library {
 
 	// TODO(perf): We probably could put this behind a dataloader if used frequently
 	/// Get series in this library
+	#[graphql(complexity = "crate::complexity::list_cost(take, child_complexity)")]
 	async fn series(
 		&self,
 		ctx: &Context<'_>,
@@ -240,7 +245,7 @@ impl Library {
 			.filter(series::Column::LibraryId.eq(Some(self.model.id.clone())))
 			// TODO: Consider allowing custom ordering?
 			.order_by_asc(series::Column::Name)
-			.apply_if(take, |query, take| query.limit(take))
+			.limit(list_limit(take))
 			.apply_if(skip, |query, skip| query.offset(skip))
 			.into_model::<series::ModelWithMetadata>()
 			.all(conn)

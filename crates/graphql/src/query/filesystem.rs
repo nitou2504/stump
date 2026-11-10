@@ -5,6 +5,7 @@ use crate::input::filesystem::{DirectoryListingIgnoreParams, DirectoryListingInp
 use crate::object::directory_listing::{DirectoryListing, DirectoryListingFile};
 use crate::pagination::{
 	OffsetPagination, OffsetPaginationInfo, PaginatedResponse, Pagination, PaginationInfo,
+	PaginationValidator,
 };
 use async_graphql::{Object, Result};
 use itertools::Itertools;
@@ -17,10 +18,10 @@ pub struct FilesystemQuery;
 
 #[Object]
 impl FilesystemQuery {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::FileExplorer)")]
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)", guard = "PermissionGuard::one(UserPermission::FileExplorer)")]
 	async fn list_directory(
 		&self,
-		pagination: Pagination,
+		#[graphql(validator(custom = "PaginationValidator"))] pagination: Pagination,
 		input: Option<DirectoryListingInput>,
 	) -> Result<PaginatedResponse<DirectoryListing>> {
 		let params = input.unwrap_or_default();

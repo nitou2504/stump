@@ -30,6 +30,7 @@ use crate::{
 	},
 	object::{series_metadata::SeriesMetadata, stats::SeriesStats},
 	order::series_position_spec,
+	pagination::list_limit,
 	utils::db_statement,
 };
 
@@ -113,7 +114,9 @@ impl Series {
 	}
 
 	// TODO(perf): We probably could put this behind a dataloader if used frequently
+	// At most MAX_LIST_SIZE books (200), also without `take`: page with `take` and `skip`
 	/// Get media in this series
+	#[graphql(complexity = "crate::complexity::list_cost(take, child_complexity)")]
 	async fn media(
 		&self,
 		ctx: &Context<'_>,
@@ -127,7 +130,7 @@ impl Series {
 			media::ModelWithMetadata::find_for_user(user)
 				.filter(media::Column::SeriesId.eq(self.model.id.clone())),
 		)
-		.apply_if(take, |query, take| query.limit(take))
+		.limit(list_limit(take))
 		.apply_if(skip, |query, skip| query.offset(skip))
 		.into_model::<media::ModelWithMetadata>()
 		.all(conn)
@@ -218,6 +221,7 @@ impl Series {
 		Ok(alphabet.get())
 	}
 
+	#[graphql(complexity = "crate::complexity::list_cost(Some(take), child_complexity)")]
 	async fn up_next(
 		&self,
 		ctx: &Context<'_>,
@@ -284,7 +288,7 @@ impl Series {
 
 		let books = spec
 			.apply(query)
-			.limit(take)
+			.limit(list_limit(Some(take)))
 			.into_model::<media::ModelWithMetadata>()
 			.all(conn)
 			.await?;

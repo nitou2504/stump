@@ -349,6 +349,7 @@ impl MediaQuery {
 		Ok(total_size)
 	}
 
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn media(
 		&self,
 		ctx: &Context<'_>,
@@ -579,6 +580,7 @@ impl MediaQuery {
 		Ok(alphabet.get())
 	}
 
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	pub(crate) async fn keep_reading(
 		&self,
 		ctx: &Context<'_>,
@@ -685,6 +687,7 @@ impl MediaQuery {
 		}
 	}
 
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn on_deck(
 		&self,
 		ctx: &Context<'_>,
@@ -966,6 +969,7 @@ impl MediaQuery {
 	/// week" seeds with the week); without one, every call picks anew ("Surprise me").
 	/// Only books the user's picks rules allow (`myDiscoverRules`: unread only, and no
 	/// `No picks` tag on the book, its series or library, by default)
+	#[graphql(complexity = "count * child_complexity")]
 	async fn random_media(
 		&self,
 		ctx: &Context<'_>,
@@ -1020,6 +1024,7 @@ impl MediaQuery {
 		Ok(models.into_iter().map(Media::from).collect())
 	}
 
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)")]
 	async fn recently_added_media(
 		&self,
 		ctx: &Context<'_>,

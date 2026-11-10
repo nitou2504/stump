@@ -15,7 +15,7 @@ pub struct JobQuery;
 
 #[Object]
 impl JobQuery {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ReadJobs)")]
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)", guard = "PermissionGuard::one(UserPermission::ReadJobs)")]
 	async fn jobs(
 		&self,
 		ctx: &Context<'_>,

@@ -17,7 +17,7 @@ pub struct LogQuery;
 
 #[Object]
 impl LogQuery {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)", guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
 	async fn logs(
 		&self,
 		ctx: &Context<'_>,

@@ -78,6 +78,7 @@ pub struct SharedWork {
 #[ComplexObject]
 impl SharedWork {
 	/// All authors who contributed to this work, with their roles
+	#[graphql(complexity = "crate::complexity::SMALL_LIST * child_complexity")]
 	async fn authors(&self) -> Vec<Author> {
 		let Some(ref metadata) = self.media.metadata else {
 			return Vec::new();
@@ -100,6 +101,7 @@ impl SharedWork {
 	}
 
 	/// Authors who contributed to this work, excluding the viewing author
+	#[graphql(complexity = "crate::complexity::SMALL_LIST * child_complexity")]
 	async fn co_authors(&self) -> Vec<Author> {
 		let Some(ref metadata) = self.media.metadata else {
 			return Vec::new();
@@ -126,6 +128,7 @@ impl SharedWork {
 
 #[ComplexObject]
 impl AuthorSeries {
+	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn books(&self, ctx: &Context<'_>) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<MetadataSeriesMediaLoader>>()?;
@@ -141,6 +144,7 @@ impl AuthorSeries {
 	}
 
 	/// Authors who contributed to this series
+	#[graphql(complexity = "crate::complexity::SMALL_LIST * child_complexity")]
 	async fn authors(&self, ctx: &Context<'_>) -> Result<Vec<Author>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<MetadataSeriesMediaLoader>>()?;
@@ -191,6 +195,7 @@ impl AuthorSeries {
 
 #[ComplexObject]
 impl Author {
+	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn books(&self, ctx: &Context<'_>) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<AuthorMediaLoader>>()?;
@@ -205,6 +210,7 @@ impl Author {
 		Ok(media)
 	}
 
+	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn series(&self, ctx: &Context<'_>) -> Result<Vec<AuthorSeries>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<AuthorMediaLoader>>()?;
@@ -239,6 +245,7 @@ impl Author {
 	}
 
 	/// Books where this author is the sole credited writer (no co-authors)
+	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn standalones(&self, ctx: &Context<'_>) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<AuthorMediaLoader>>()?;
@@ -270,6 +277,7 @@ impl Author {
 	}
 
 	/// Books where this author shares credit with other writers (co-authored works)
+	#[graphql(complexity = "crate::complexity::RELATED_LIST * child_complexity")]
 	async fn shared_works(&self, ctx: &Context<'_>) -> Result<Vec<SharedWork>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let loader = ctx.data::<DataLoader<AuthorMediaLoader>>()?;

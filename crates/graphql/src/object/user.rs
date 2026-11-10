@@ -95,7 +95,7 @@ impl User {
 		Ok(age_restriction)
 	}
 
-	#[graphql(guard = "SelfGuard::new(&self.model.id).or(ServerOwnerGuard)")]
+	#[graphql(complexity = "crate::complexity::pagination_cost(&pagination, child_complexity)", guard = "SelfGuard::new(&self.model.id).or(ServerOwnerGuard)")]
 	async fn continue_reading(
 		&self,
 		ctx: &Context<'_>,
