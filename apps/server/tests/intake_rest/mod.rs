@@ -463,6 +463,33 @@ async fn test_a_request_holds_only_so_many_files() {
 	assert_eq!(rest.items().await.len(), 2);
 }
 
+/// somebody who files books themselves is not held to the number that holds a friend's request:
+/// a folder of a few hundred volumes is what the upload they had before took in one request
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_approver_may_send_more_files_in_a_request_than_a_friend() {
+	let rest = rest_with(|c| c.intake_max_files_per_request = 2).await;
+	let upload = |token: String, tag: &'static str| {
+		let body = UploadBody::new()
+			.file("a.epub", rest.epub(&format!("{tag} one")))
+			.file("b.epub", rest.epub(&format!("{tag} two")))
+			.file("c.epub", rest.epub(&format!("{tag} three")))
+			.file("d.epub", rest.epub(&format!("{tag} four")));
+		let (app, library) = (&rest.app, rest.library_id.clone());
+		async move { post_upload(app, Some(&token), &library, None, &body).await }
+	};
+
+	// the friend's request holds the server's two files at most
+	let response = upload(rest.friend.token.clone(), "Friend").await;
+	assert_eq!(response.status_code(), 429, "{}", response.text());
+	assert!(rest.items().await.is_empty());
+
+	// the approver's holds what any request can
+	let owner = rest.app.access_token.read().await.clone().unwrap();
+	let response = upload(owner, "Owner").await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	assert_eq!(rest.items().await.len(), 4);
+}
+
 /// a file is the kind of file its name says, in the formats Stump reads
 #[tokio::test(flavor = "multi_thread")]
 async fn test_a_file_is_what_its_name_says() {

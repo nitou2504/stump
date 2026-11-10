@@ -132,7 +132,7 @@ const LIMITS: &str = r#"query Limits {
 }"#;
 const USER_LIMITS: &str = r#"query UserLimits($userId: ID!) {
 	userIntakeLimits(userId: $userId) {
-		userId quotaMb maxItems effective { quotaBytes maxItems maxFileBytes }
+		userId quotaMb maxItems effective { quotaBytes maxItems maxFileBytes maxFilesPerRequest }
 	}
 }"#;
 const UPDATE_USER_LIMITS: &str = r#"mutation Update($userId: ID!, $input: UserIntakeLimitsInput!) {
@@ -1644,12 +1644,14 @@ async fn test_the_upload_limits_are_told_and_can_be_changed_for_a_user() {
 			.unwrap() > 0
 	);
 
-	// whoever files books themselves is not held to the quota
+	// whoever files books themselves is not held to the quota, and a request of theirs holds as
+	// many files as any request can (the upload route enforces what is told here)
 	let response = world.as_owner(LIMITS, json!({})).await;
 	assert_eq!(
 		response["data"]["intakeUploadLimits"]["quotaApplies"],
 		false
 	);
+	assert_eq!(response["data"]["intakeUploadLimits"]["maxFilesPerRequest"], 500);
 	assert_eq!(
 		response["data"]["intakeUploadLimits"]["canFileDirectly"],
 		true
@@ -1671,6 +1673,24 @@ async fn test_the_upload_limits_are_told_and_can_be_changed_for_a_user() {
 	assert_eq!(
 		response["data"]["intakeUploadLimits"]["quotaBytes"],
 		5 * 1024 * 1024
+	);
+
+	// the admin's view says the same of each: ana's request is the server's 50, the owner's 500
+	let response = world
+		.as_owner(USER_LIMITS, json!({ "userId": ana.id }))
+		.await;
+	assert_ok(&response);
+	assert_eq!(
+		response["data"]["userIntakeLimits"]["effective"]["maxFilesPerRequest"],
+		50
+	);
+	let response = world
+		.as_owner(USER_LIMITS, json!({ "userId": world.owner_id().await }))
+		.await;
+	assert_ok(&response);
+	assert_eq!(
+		response["data"]["userIntakeLimits"]["effective"]["maxFilesPerRequest"],
+		500
 	);
 
 	// she can read her own, not another's; and nobody but an admin changes them

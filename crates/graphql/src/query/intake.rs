@@ -65,7 +65,8 @@ pub(crate) async fn user_intake_limits_of(
 		.one(conn)
 		.await?;
 	let own = own.map(|row| row.limits).unwrap_or_default();
-	let effective = IntakeLimits::new(&core.config, Some(&own));
+	let approver = approval::uploader_can_file_directly(conn, user_id).await?;
+	let effective = IntakeLimits::for_user(&core.config, Some(&own), approver);
 	let clamp = |value: Option<u64>| value.map(|v| i64::try_from(v).unwrap_or(i64::MAX));
 	Ok(UserIntakeLimits {
 		user_id: user_id.to_string().into(),
@@ -308,9 +309,9 @@ impl IntakeQuery {
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let conn = core.conn.as_ref();
-		let limits = limits_for(conn, &core.config, &user.id).await?;
-		let (used, open) = upload::usage(conn, &user.id).await?;
 		let approver = can_file_directly(user);
+		let limits = limits_for(conn, &core.config, &user.id, approver).await?;
+		let (used, open) = upload::usage(conn, &user.id).await?;
 		let (uploads_open, closed_reason) =
 			if !approver && core.config.intake_probe_mode != "inprocess" {
 				(

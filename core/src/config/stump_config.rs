@@ -214,7 +214,9 @@ pub struct StumpConfig {
 	#[graphql(skip)]
 	pub intake_max_file_mb: u64,
 
-	/// The most files in one "Add books" upload request
+	/// The most files in one "Add books" upload request of someone who needs approval. Those who
+	/// file books themselves (the server owner, anyone who manages libraries) may send as many as
+	/// any request can hold (500) unless an admin gave them a number of their own
 	#[setting(default = 50)]
 	#[graphql(skip)]
 	pub intake_max_files_per_request: u64,

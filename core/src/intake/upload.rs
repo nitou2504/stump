@@ -425,7 +425,7 @@ impl IncomingUpload {
 					.to_string(),
 			));
 		}
-		let limits = limits_for(conn, &ctx.config, &user.id).await?;
+		let limits = limits_for(conn, &ctx.config, &user.id, approver).await?;
 		if declared_len > limits.max_request_bytes {
 			return Err(UploadError::TooLarge(format!(
 				"The upload is larger than the {} MB a request can hold",

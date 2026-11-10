@@ -57,6 +57,26 @@ fn picked(own: Option<u64>, server: u64, default: u64) -> u64 {
 }
 
 impl IntakeLimits {
+	/// The limits of a user, whoever they are: for somebody who files books themselves (an
+	/// approver) the files one request may hold are the ceiling, as the GraphQL upload this
+	/// route replaced gave them, so a folder of a few hundred volumes goes in one request. The
+	/// number the server gives to people who need approval does not hold them back; a number an
+	/// admin gave that user does. Sizes and the rest are the same for everybody.
+	pub fn for_user(
+		config: &StumpConfig,
+		own: Option<&UserIntakeLimitOverrides>,
+		approver: bool,
+	) -> Self {
+		let mut limits = Self::new(config, own);
+		let has_own_files = own
+			.and_then(|own| own.max_files_per_request)
+			.is_some_and(|files| files > 0);
+		if approver && !has_own_files {
+			limits.max_files_per_request = HARD_MAX_FILES_PER_REQUEST;
+		}
+		limits
+	}
+
 	/// The server's limits with a user's own applied, and the ceilings
 	pub fn new(config: &StumpConfig, own: Option<&UserIntakeLimitOverrides>) -> Self {
 		let own = own.cloned().unwrap_or_default();
@@ -93,18 +113,21 @@ impl IntakeLimits {
 	}
 }
 
-/// The limits of a user: the server's and their own, if an admin set any
+/// The limits of a user: the server's and their own, if an admin set any. `approver` is whether
+/// they file books themselves (see [`IntakeLimits::for_user`])
 pub async fn limits_for(
 	conn: &DatabaseConnection,
 	config: &StumpConfig,
 	user_id: &str,
+	approver: bool,
 ) -> CoreResult<IntakeLimits> {
 	let own = user_intake_limits::Entity::find_by_id(user_id.to_string())
 		.one(conn)
 		.await?;
-	Ok(IntakeLimits::new(
+	Ok(IntakeLimits::for_user(
 		config,
 		own.as_ref().map(|row| &row.limits),
+		approver,
 	))
 }
 
@@ -166,6 +189,56 @@ mod tests {
 		assert_eq!(limits.max_items, 5);
 		// what they don't set follows the server
 		assert_eq!(limits.max_files_per_request, 50);
+	}
+
+	#[test]
+	fn somebody_who_files_books_themselves_may_send_as_many_files_as_a_request_holds() {
+		let mut few = config();
+		few.intake_max_files_per_request = 5;
+		// those who need approval follow the server's number
+		assert_eq!(
+			IntakeLimits::for_user(&few, None, false).max_files_per_request,
+			5
+		);
+		// an approver's folder of volumes is not held to it
+		let approver = IntakeLimits::for_user(&few, None, true);
+		assert_eq!(approver.max_files_per_request, HARD_MAX_FILES_PER_REQUEST);
+		// and nothing else of theirs changes
+		let other = IntakeLimits::for_user(&few, None, false);
+		assert_eq!(approver.max_request_bytes, other.max_request_bytes);
+		assert_eq!(approver.max_file_bytes, other.max_file_bytes);
+		assert_eq!(approver.quota_bytes, other.quota_bytes);
+		assert_eq!(approver.max_items, other.max_items);
+	}
+
+	#[test]
+	fn a_number_an_admin_gave_an_approver_still_holds() {
+		let own = UserIntakeLimitOverrides {
+			max_files_per_request: Some(30),
+			..Default::default()
+		};
+		assert_eq!(
+			IntakeLimits::for_user(&config(), Some(&own), true).max_files_per_request,
+			30
+		);
+		// 0 means no number of their own, as everywhere else
+		let zero = UserIntakeLimitOverrides {
+			max_files_per_request: Some(0),
+			..Default::default()
+		};
+		assert_eq!(
+			IntakeLimits::for_user(&config(), Some(&zero), true).max_files_per_request,
+			HARD_MAX_FILES_PER_REQUEST
+		);
+		// never more than the ceiling, even for them
+		let greedy = UserIntakeLimitOverrides {
+			max_files_per_request: Some(1_000_000),
+			..Default::default()
+		};
+		assert_eq!(
+			IntakeLimits::for_user(&config(), Some(&greedy), true).max_files_per_request,
+			HARD_MAX_FILES_PER_REQUEST
+		);
 	}
 
 	#[test]
