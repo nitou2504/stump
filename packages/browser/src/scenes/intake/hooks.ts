@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 
 import {
 	intakeAcceptMutation,
+	intakeChangeLibraryMutation,
 	intakeDiscardMutation,
 	type IntakeItemData,
 	intakeItemsQuery,
@@ -42,7 +43,7 @@ function useRefreshInbox() {
 	return useCallback(() => client.invalidateQueries({ queryKey: INTAKE_ITEMS_KEY }), [client])
 }
 
-/** Review / re-analyse / accept / discard, each refreshing the inbox afterwards */
+/** Review / re-analyse / change library / accept / discard, each refreshing the inbox afterwards */
 export function useIntakeActions() {
 	const refresh = useRefreshInbox()
 	const onError = (fallback: string) => (error: unknown) =>
@@ -54,6 +55,10 @@ export function useIntakeActions() {
 	})
 	const reanalyse = useGraphQLMutation(intakeReanalyseMutation, {
 		onError: onError('Could not analyse the book again'),
+		onSettled: refresh,
+	})
+	const changeLibrary = useGraphQLMutation(intakeChangeLibraryMutation, {
+		onError: onError('Could not move the book to that library'),
 		onSettled: refresh,
 	})
 	const accept = useGraphQLMutation(intakeAcceptMutation, {
@@ -119,8 +124,10 @@ export function useIntakeActions() {
 	return {
 		acceptItem,
 		acceptWithGenres,
+		changeLibrary: (id: string, libraryId: string) => changeLibrary.mutate({ id, libraryId }),
 		discard: (ids: string[]) => discard.mutate({ ids }),
 		isAccepting: accept.isPending,
+		isChangingLibrary: changeLibrary.isPending,
 		isReviewing: review.isPending,
 		reanalyse: (id: string, online?: boolean) => reanalyse.mutate({ id, online }),
 		reviewItem,

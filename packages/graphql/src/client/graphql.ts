@@ -1463,6 +1463,8 @@ export type IntakeItem = {
   kind: IntakeKind;
   libraryId: Scalars['String']['output'];
   libraryName: Scalars['String']['output'];
+  /** The type of the item's library */
+  libraryType: LibraryType;
   /** The books created by the scan after filing (empty until the scan has run) */
   mediaIds: Array<Scalars['String']['output']>;
   /** The uploaded file or folder name */
@@ -1474,6 +1476,12 @@ export type IntakeItem = {
   /** What filing did */
   result?: Maybe<IntakeResult>;
   state: IntakeState;
+  /**
+   * A library of its own for what the item looks like, when it sits in a book or mixed
+   * library: the first manga or light novel library (by name) the viewer may use. Only
+   * libraries the viewer may use are ever named.
+   */
+  suggestedLibrary?: Maybe<IntakeSuggestedLibrary>;
   updatedAt: Scalars['DateTime']['output'];
 };
 
@@ -1618,6 +1626,13 @@ export enum IntakeState {
   /** Everything needed to file it is known and confident; it can be accepted as is */
   Ready = 'READY'
 }
+
+/** A library an item could be filed into instead, for what it looks like */
+export type IntakeSuggestedLibrary = {
+  __typename?: 'IntakeSuggestedLibrary';
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+};
 
 /** How an upload of several files is grouped into inbox items */
 export enum IntakeUploadMode {
@@ -1859,7 +1874,8 @@ export type LibraryFilterInput = {
 
 /**
  * How the "Add books" intake files books into a library. A library without a row uses
- * [`Model::defaults_for`].
+ * [`Model::defaults_for`]. An empty folder means that kind of series sits directly in the
+ * library root, as in a manga or light novel library.
  */
 export type LibraryIntakeSettings = {
   __typename?: 'LibraryIntakeSettings';
@@ -3168,6 +3184,11 @@ export type Mutation = {
    * `error`; the others become `FILED`.
    */
   intakeAccept: Array<IntakeItem>;
+  /**
+   * Moves an item to another library (one the user can use) and analyses it again there: the
+   * proposal, the folder and the file names are made for the library the item is in
+   */
+  intakeChangeLibrary: IntakeItem;
   /** Throws items away with their staged files. Returns how many were discarded. */
   intakeDiscard: Scalars['Int']['output'];
   /** Analyses an item again (e.g. after a failure, or to look it up online) */
@@ -3864,6 +3885,12 @@ export type MutationGenerateLibraryThumbnailsArgs = {
 
 export type MutationIntakeAcceptArgs = {
   ids: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationIntakeChangeLibraryArgs = {
+  id: Scalars['ID']['input'];
+  libraryId: Scalars['ID']['input'];
 };
 
 
@@ -8847,7 +8874,7 @@ export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHom
 export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null }> };
+export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, libraryType: LibraryType, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, suggestedLibrary?: { __typename?: 'IntakeSuggestedLibrary', id: string, name: string } | null, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null }> };
 
 export type IntakeLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -8898,6 +8925,14 @@ export type IntakeReanalyseMutationVariables = Exact<{
 
 
 export type IntakeReanalyseMutation = { __typename?: 'Mutation', intakeReanalyse: { __typename?: 'IntakeItem', id: string, state: IntakeState } };
+
+export type IntakeChangeLibraryMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  libraryId: Scalars['ID']['input'];
+}>;
+
+
+export type IntakeChangeLibraryMutation = { __typename?: 'Mutation', intakeChangeLibrary: { __typename?: 'IntakeItem', id: string, state: IntakeState, libraryId: string } };
 
 export type IntakeAcceptMutationVariables = Exact<{
   ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
@@ -9061,7 +9096,7 @@ export type LibraryAddBooksSettingsQueryVariables = Exact<{
 }>;
 
 
-export type LibraryAddBooksSettingsQuery = { __typename?: 'Query', libraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string, mangaDir: string, lightNovelDir: string, onlineLookup: boolean } };
+export type LibraryAddBooksSettingsQuery = { __typename?: 'Query', libraryIntakeSettings: { __typename?: 'LibraryIntakeSettings', libraryId: string, mangaDir: string, lightNovelDir: string, onlineLookup: boolean }, libraryById?: { __typename?: 'Library', id: string, config: { __typename?: 'LibraryConfig', id: number, libraryType: LibraryType } } | null };
 
 export type UpdateLibraryAddBooksSettingsMutationVariables = Exact<{
   libraryId: Scalars['ID']['input'];
@@ -17076,6 +17111,11 @@ export const IntakeItemsDocument = new TypedDocumentString(`
     id
     libraryId
     libraryName
+    libraryType
+    suggestedLibrary {
+      id
+      name
+    }
     state
     kind
     name
@@ -17246,6 +17286,15 @@ export const IntakeReanalyseDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<IntakeReanalyseMutation, IntakeReanalyseMutationVariables>;
+export const IntakeChangeLibraryDocument = new TypedDocumentString(`
+    mutation IntakeChangeLibrary($id: ID!, $libraryId: ID!) {
+  intakeChangeLibrary(id: $id, libraryId: $libraryId) {
+    id
+    state
+    libraryId
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeChangeLibraryMutation, IntakeChangeLibraryMutationVariables>;
 export const IntakeAcceptDocument = new TypedDocumentString(`
     mutation IntakeAccept($ids: [ID!]!) {
   intakeAccept(ids: $ids) {
@@ -17657,6 +17706,13 @@ export const LibraryAddBooksSettingsDocument = new TypedDocumentString(`
     mangaDir
     lightNovelDir
     onlineLookup
+  }
+  libraryById(id: $libraryId) {
+    id
+    config {
+      id
+      libraryType
+    }
   }
 }
     `) as unknown as TypedDocumentString<LibraryAddBooksSettingsQuery, LibraryAddBooksSettingsQueryVariables>;

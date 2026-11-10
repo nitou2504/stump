@@ -1,4 +1,10 @@
-import { IntakeSeriesKind, IntakeSource, IntakeState, IntakeUploadMode } from '@stump/graphql'
+import {
+	IntakeSeriesKind,
+	IntakeSource,
+	IntakeState,
+	IntakeUploadMode,
+	LibraryType,
+} from '@stump/graphql'
 
 import type { IntakeItemData } from './queries'
 
@@ -28,6 +34,21 @@ export function fieldSource(metadata: WithSources | null | undefined, field: str
 export const SERIES_KIND_LABELS: Record<IntakeSeriesKind, string> = {
 	[IntakeSeriesKind.Manga]: 'Manga',
 	[IntakeSeriesKind.LightNovel]: 'Light novel',
+}
+
+/**
+ * The kind of series a manga or light novel library holds (one folder per series at its root,
+ * nothing else), or `null` for any other library, which files books under their author
+ */
+export function typedSeriesKind(libraryType?: LibraryType | null): IntakeSeriesKind | null {
+	switch (libraryType) {
+		case LibraryType.Manga:
+			return IntakeSeriesKind.Manga
+		case LibraryType.LightNovel:
+			return IntakeSeriesKind.LightNovel
+		default:
+			return null
+	}
 }
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low'
