@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use axum::{
 	extract::{Path, Query, State},
-	http::header,
+	http::{header, HeaderValue},
 	middleware,
 	response::{IntoResponse, Response},
 	routing::get,
@@ -199,6 +199,37 @@ async fn get_epub_search(
 /// Paths may be nested (e.g. `OEBPS/Images/cover.jpg`). Axum percent-decodes
 /// path segments before extraction.
 async fn get_epub_resource(
+	Path((id, path)): Path<(String, String)>,
+	State(ctx): State<AppState>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Response> {
+	let resource = get_epub_resource_bytes(Path((id, path)), State(ctx), Extension(req))
+		.await?
+		.into_response();
+	Ok(without_scripts(resource))
+}
+
+/// What opening a resource of a book at its address (not through the reader, which fetches the
+/// text and draws it in a frame of its own) may do: nothing that runs. The page is shown in a
+/// sandbox with no scripts, no frames and no forms, and only the book's own images, fonts and
+/// styles load. The reader is not affected: a browser applies the policy of a document to the
+/// document only, and the reader's pages are made from the text this returns.
+const RESOURCE_POLICY: &str = "sandbox; default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self'";
+
+fn without_scripts(mut response: Response) -> Response {
+	let headers = response.headers_mut();
+	headers.insert(
+		header::CONTENT_SECURITY_POLICY,
+		HeaderValue::from_static(RESOURCE_POLICY),
+	);
+	headers.insert(
+		header::X_CONTENT_TYPE_OPTIONS,
+		HeaderValue::from_static("nosniff"),
+	);
+	response
+}
+
+async fn get_epub_resource_bytes(
 	Path((id, path)): Path<(String, String)>,
 	State(ctx): State<AppState>,
 	Extension(req): Extension<AuthContext>,

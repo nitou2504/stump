@@ -7,6 +7,8 @@ import remarkDirective from 'remark-directive'
 import remarkDirectiveRehype from 'remark-directive-rehype'
 import remarkGfm from 'remark-gfm'
 
+import { rehypeStripActive } from './stripActive'
+
 type Props = {
 	children: string
 	className?: string
@@ -27,7 +29,7 @@ export default function MarkdownPreview({ children, className }: Props) {
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkDirective, remarkDirectiveRehype, remarkGfm]}
-			rehypePlugins={[rehypeRaw]}
+			rehypePlugins={[rehypeRaw, rehypeStripActive]}
 			className={cn('text-foreground', className)}
 			components={{
 				h1: ({ ref: _, ...props }) => (
