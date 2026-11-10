@@ -1256,13 +1256,10 @@ async fn test_a_restart_puts_back_what_it_interrupted() {
 	);
 }
 
-/// filing again after a failure carries on where it stopped: the books already placed are not
-/// copied a second time (`_2`)
-#[tokio::test(flavor = "multi_thread")]
-async fn test_filing_again_carries_on_where_it_stopped() {
-	use stump_core::intake::file_claimed;
-
-	let world = world().await;
+/// An item of two manga volumes, staged and in `FILING`, as a try that stopped leaves it. `recorded`:
+/// whether that try wrote down the first volume's path in the library as placed. The test puts
+/// (or doesn't put) the file there itself.
+async fn item_filing_again(world: &World, recorded: bool) -> (String, PathBuf, PathBuf) {
 	let ana = world.ana_id();
 	let id = uuid::Uuid::new_v4().to_string();
 	let staging = world.config_dir.join("intake").join(&ana).join(&id);
@@ -1276,9 +1273,7 @@ async fn test_filing_again_carries_on_where_it_stopped() {
 	}
 	let target_dir = world.library_dir.join("_Manga/Resume Series");
 	fs::create_dir_all(&target_dir).unwrap();
-	// the first volume was placed by the try that failed
 	let placed = target_dir.join("Resume Series v01.cbz");
-	fs::write(&placed, b"already placed").unwrap();
 
 	let file = |position: usize| IntakeFile {
 		original_name: format!("v0{position}.cbz"),
@@ -1310,7 +1305,7 @@ async fn test_filing_again_carries_on_where_it_stopped() {
 			],
 			volumes: vec![Some(1.0), Some(2.0)],
 		})),
-		result: Set(Some(models::shared::intake::IntakeResult {
+		result: Set(recorded.then(|| models::shared::intake::IntakeResult {
 			paths: vec![placed.to_string_lossy().into_owned()],
 			notes: vec![],
 		})),
@@ -1320,22 +1315,45 @@ async fn test_filing_again_carries_on_where_it_stopped() {
 	.insert(world.app.conn())
 	.await
 	.unwrap();
+	(id, staging, target_dir)
+}
+
+fn names_in(dir: &std::path::Path) -> Vec<String> {
+	let mut names: Vec<String> = fs::read_dir(dir)
+		.unwrap()
+		.filter_map(Result::ok)
+		.map(|e| e.file_name().to_string_lossy().into_owned())
+		.collect();
+	names.sort();
+	names
+}
+
+/// filing again after a failure carries on where it stopped: the books already placed are not
+/// copied a second time (`_2`)
+#[tokio::test(flavor = "multi_thread")]
+async fn test_filing_again_carries_on_where_it_stopped() {
+	use stump_core::intake::file_claimed;
+
+	let world = world().await;
+	let ana = world.ana_id();
+	let (id, staging, target_dir) = item_filing_again(&world, true).await;
+	// the first volume was placed by the try that failed: a copy of its staged file
+	let placed = target_dir.join("Resume Series v01.cbz");
+	fs::copy(staging.join("000_a.cbz"), &placed).unwrap();
+	let placed_bytes = fs::read(&placed).unwrap();
 
 	let item = world.row(&id).await;
 	let filed = file_claimed(&world.app.ctx, item, IntakeState::PendingApproval)
 		.await
 		.expect("filing should finish");
 	assert_eq!(filed.state, IntakeState::Filed);
-	let mut names: Vec<String> = fs::read_dir(&target_dir)
-		.unwrap()
-		.filter_map(Result::ok)
-		.map(|e| e.file_name().to_string_lossy().into_owned())
-		.collect();
-	names.sort();
-	assert_eq!(names, ["Resume Series v01.cbz", "Resume Series v02.cbz"]);
+	assert_eq!(
+		names_in(&target_dir),
+		["Resume Series v01.cbz", "Resume Series v02.cbz"]
+	);
 	assert_eq!(
 		fs::read(&placed).unwrap(),
-		b"already placed",
+		placed_bytes,
 		"the first volume is left as it was"
 	);
 	assert_eq!(filed.result.unwrap().paths.len(), 2);
@@ -1364,6 +1382,70 @@ async fn test_filing_again_carries_on_where_it_stopped() {
 	let row = world.row(&broken).await;
 	assert_eq!(row.state, IntakeState::PendingApproval);
 	assert!(row.error.is_some());
+}
+
+/// a path is written down before its file is put in the library, so the server stopping between
+/// the two leaves a path with no file: trying again puts the book there, under the same name
+#[tokio::test(flavor = "multi_thread")]
+async fn test_filing_again_places_a_book_that_was_noted_but_never_put_there() {
+	use stump_core::intake::file_claimed;
+
+	let world = world().await;
+	let (id, staging, target_dir) = item_filing_again(&world, true).await;
+	let placed = target_dir.join("Resume Series v01.cbz");
+	assert!(!placed.exists());
+
+	let item = world.row(&id).await;
+	let filed = file_claimed(&world.app.ctx, item, IntakeState::PendingApproval)
+		.await
+		.expect("filing should finish");
+	assert_eq!(filed.state, IntakeState::Filed);
+	assert_eq!(
+		names_in(&target_dir),
+		["Resume Series v01.cbz", "Resume Series v02.cbz"],
+		"no `_2` copy of a book that was never there"
+	);
+	let paths = filed.result.unwrap().paths;
+	assert_eq!(paths.len(), 2);
+	assert_eq!(paths[0], placed.to_string_lossy());
+	assert!(!staging.exists());
+}
+
+/// a path noted by an earlier try that now has somebody else's file at it is not the book's own:
+/// the book goes in beside it, and the other file is left alone
+#[tokio::test(flavor = "multi_thread")]
+async fn test_filing_again_never_takes_somebody_elses_file_for_its_own() {
+	use stump_core::intake::file_claimed;
+
+	let world = world().await;
+	let (id, _staging, target_dir) = item_filing_again(&world, true).await;
+	let placed = target_dir.join("Resume Series v01.cbz");
+	fs::write(&placed, b"another book that arrived since").unwrap();
+
+	let item = world.row(&id).await;
+	let filed = file_claimed(&world.app.ctx, item, IntakeState::PendingApproval)
+		.await
+		.expect("filing should finish");
+	assert_eq!(filed.state, IntakeState::Filed);
+	assert_eq!(
+		fs::read(&placed).unwrap(),
+		b"another book that arrived since",
+		"the other file is not touched"
+	);
+	assert_eq!(
+		names_in(&target_dir),
+		[
+			"Resume Series v01.cbz",
+			"Resume Series v01_2.cbz",
+			"Resume Series v02.cbz"
+		]
+	);
+	let paths = filed.result.unwrap().paths;
+	assert_eq!(paths.len(), 2);
+	assert!(
+		!paths.contains(&placed.to_string_lossy().into_owned()),
+		"the book is not recorded as the other file"
+	);
 }
 
 /// what each person may upload, and how much of it they have used

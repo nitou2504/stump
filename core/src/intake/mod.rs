@@ -900,6 +900,36 @@ pub async fn apply_review(
 	Ok(active.update(conn).await?)
 }
 
+/// Writes down which files of an item are in the library, so that filing it again carries on
+/// after them
+async fn record_progress(
+	conn: &DatabaseConnection,
+	id: &str,
+	paths: &[String],
+	notes: &[String],
+) -> CoreResult<()> {
+	intake_item::ActiveModel {
+		id: sea_orm::ActiveValue::Unchanged(id.to_string()),
+		result: Set(Some(IntakeResult {
+			paths: paths.to_vec(),
+			notes: notes.to_vec(),
+		})),
+		..Default::default()
+	}
+	.update(conn)
+	.await?;
+	Ok(())
+}
+
+/// Whether `placed` is the copy that `staged` made when it was put in the library: a file there
+/// with the length of the staged file
+fn is_copy_of(placed: &Path, staged: &Path) -> bool {
+	match (std::fs::metadata(placed), std::fs::metadata(staged)) {
+		(Ok(placed), Ok(staged)) => placed.is_file() && placed.len() == staged.len(),
+		_ => false,
+	}
+}
+
 /// Copies `source` to `target` without ever replacing an existing file: the copy goes to
 /// a temporary name in the target folder, then is hard-linked into place
 fn place_file(source: &Path, target: &Path) -> std::io::Result<()> {
@@ -1062,7 +1092,19 @@ async fn file_claimed_inner(
 		.as_ref()
 		.map(|r| r.paths.clone())
 		.unwrap_or_default();
-	let placed = paths.iter().take_while(|p| Path::new(p).is_file()).count();
+	// A path counts as placed only while the file there is the copy its staged file made (same
+	// length: the staged file is rewritten once before it is copied and not touched after). A
+	// path recorded just before the server stopped names a file that was never put there, and a
+	// file somebody else has put there since is not ours.
+	let placed = paths
+		.iter()
+		.enumerate()
+		.take_while(|(i, path)| {
+			files.get(*i).is_some_and(|file| {
+				is_copy_of(Path::new(path.as_str()), &staging.join(&file.staged_name))
+			})
+		})
+		.count();
 	paths.truncate(placed);
 	let mut notes = item
 		.result
@@ -1121,21 +1163,22 @@ async fn file_claimed_inner(
 			target = dir.join(suffixed(&name, n));
 			n += 1;
 		}
-		let (from, to) = (staged.clone(), target.clone());
-		tokio::task::spawn_blocking(move || place_file(&from, &to))
-			.await
-			.map_err(|e| CoreError::InternalError(e.to_string()))??;
+		// Written down BEFORE the file is put there. If the server stops between the two, trying
+		// again finds a recorded path with no file and places it again under the same name;
+		// written down afterwards, a file placed just before the stop would be unknown to the
+		// next try, which would copy it a second time as `_2`.
 		paths.push(target.to_string_lossy().into_owned());
-		// remembered at once: if a later file fails, trying again starts after this one
-		let progress = intake_item::ActiveModel {
-			id: sea_orm::ActiveValue::Unchanged(item.id.clone()),
-			result: Set(Some(IntakeResult {
-				paths: paths.clone(),
-				notes: notes.clone(),
-			})),
-			..Default::default()
-		};
-		progress.update(conn).await?;
+		record_progress(conn, &item.id, &paths, &notes).await?;
+		let (from, to) = (staged.clone(), target.clone());
+		let put = tokio::task::spawn_blocking(move || place_file(&from, &to))
+			.await
+			.map_err(|e| CoreError::InternalError(e.to_string()))?;
+		if let Err(error) = put {
+			// not placed: the record names only files that are there
+			paths.pop();
+			let _ = record_progress(conn, &item.id, &paths, &notes).await;
+			return Err(error.into());
+		}
 	}
 
 	let mut active = item.clone().into_active_model();
