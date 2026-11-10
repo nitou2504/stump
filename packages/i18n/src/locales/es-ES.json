@@ -1308,6 +1308,87 @@
         }
       }
     },
+    "readingLists": {
+      "title": "Listas de lectura",
+      "newList": "Nueva lista",
+      "created": "Se creó “{{name}}”",
+      "public": "Pública",
+      "publicHint": "Visible para todas las personas de este servidor",
+      "sections": {
+        "mine": "Mis listas",
+        "others": "Compartidas por otras personas"
+      },
+      "emptyState": {
+        "heading": "Aún no hay listas de lectura",
+        "message": "Crea una lista y añade libros desde sus páginas",
+        "mine": "Todavía no has creado ninguna lista"
+      },
+      "form": {
+        "createTitle": "Nueva lista de lectura",
+        "editTitle": "Editar lista de lectura",
+        "name": "Nombre",
+        "namePlaceholder": "Favoritos",
+        "description": "Descripción",
+        "descriptionPlaceholder": "Opcional",
+        "public": {
+          "label": "Visible para todas las personas de este servidor",
+          "hint": "Cualquiera con una cuenta aquí puede abrir esta lista, pero cada persona ve solo los libros que puede leer. Solo tú puedes cambiarla."
+        }
+      },
+      "actions": {
+        "edit": "Editar",
+        "delete": "Eliminar",
+        "saveCopy": "Guardar una copia",
+        "unpublish": "Hacer privada"
+      },
+      "copy": {
+        "name": "Copia de {{name}}",
+        "saved": "Se guardó “{{name}}” en tus listas"
+      },
+      "unpublish": {
+        "title": "¿Hacer privada esta lista?",
+        "description": "“{{name}}” es una lista pública de {{creator}}. Después solo esa persona la verá.",
+        "confirm": "Hacer privada",
+        "done": "“{{name}}” ahora es privada"
+      },
+      "delete": {
+        "title": "Eliminar lista de lectura",
+        "description": "¿Eliminar “{{name}}”? Sus libros se quedan en la biblioteca.",
+        "confirm": "Eliminar",
+        "deleted": "Se eliminó “{{name}}”"
+      },
+      "list": {
+        "empty": {
+          "heading": "Esta lista aún no tiene libros",
+          "message": "Añade libros desde sus páginas",
+          "messageOthers": "Ninguno de sus libros está disponible para ti"
+        },
+        "removeBook": "Quitar “{{name}}” de esta lista",
+        "removeBookShort": "Quitar de la lista",
+        "removed": "Se quitó “{{name}}”",
+        "undo": "Deshacer",
+        "publicBy": "Pública · de {{name}}",
+        "publicYours": "Pública · todas las personas de este servidor pueden verla",
+        "loadMore": "Cargar más",
+        "shown": "Mostrando {{shown}} de {{total}} libros"
+      },
+      "addToList": {
+        "label": "Añadir a una lista",
+        "noLists": "Aún no hay listas",
+        "newList": "Nueva lista…",
+        "allLists": "Todas las listas de lectura"
+      },
+      "errors": {
+        "create": "No se pudo crear la lista",
+        "update": "No se pudo guardar la lista",
+        "delete": "No se pudo eliminar la lista",
+        "saveBook": "No se pudo actualizar la lista",
+        "loadLists": "No se pudieron cargar las listas",
+        "loadList": "No se pudo abrir la lista",
+        "copy": "No se pudo guardar la copia",
+        "unpublish": "No se pudo hacer privada la lista"
+      }
+    },
     "settingsScene": {
       "navigation": {
         "logs": "Registros",

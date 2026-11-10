@@ -1,35 +1,44 @@
-import { Button, Dialog, Input, TextArea } from '@stump/components'
+import { Button, Dialog, Input, Switch, Text, TextArea } from '@stump/components'
 import { FormEvent, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { useReadingListActions } from '@/components/readingList/queries'
+import { useReadingListActions, visibilityOf } from '@/components/readingList/queries'
 import { useTranslate } from '@/hooks/useTranslate'
 
 type Props = {
 	/** The list to edit; a new list is made without it */
-	list?: { id: string; name: string; description?: string | null }
+	list?: { id: string; name: string; description?: string | null; visibility?: string }
 	isOpen: boolean
 	onClose: () => void
 }
 
-/** Names a new reading list, or renames one and changes its description */
+/**
+ * Names a new reading list, or renames one and changes its description. A list is private
+ * unless its maker shows it to everyone on the server
+ */
 export default function ReadingListFormDialog({ list, isOpen, onClose }: Props) {
 	const { t, translate } = useTranslate()
 	const { createList, updateList, isSaving } = useReadingListActions()
 
 	const [name, setName] = useState('')
 	const [description, setDescription] = useState('')
+	const [isPublic, setIsPublic] = useState(false)
 	// start from the list's values each time the dialog opens
 	useEffect(() => {
 		if (isOpen) {
 			setName(list?.name ?? '')
 			setDescription(list?.description ?? '')
+			setIsPublic(list?.visibility === 'PUBLIC')
 		}
-	}, [isOpen, list?.name, list?.description])
+	}, [isOpen, list?.name, list?.description, list?.visibility])
 
 	const handleSubmit = async (event: FormEvent) => {
 		event.preventDefault()
-		const input = { name: name.trim(), description: description.trim() }
+		const input = {
+			name: name.trim(),
+			description: description.trim(),
+			visibility: visibilityOf(isPublic),
+		}
 		if (!input.name) return
 		try {
 			if (list) {
@@ -76,6 +85,17 @@ export default function ReadingListFormDialog({ list, isOpen, onClose }: Props) 
 						onChange={(event) => setDescription(event.target.value)}
 						rows={3}
 					/>
+					<div className="gap-1 flex flex-col">
+						<Switch
+							id="reading-list-public"
+							label={t('readingLists.form.public.label')}
+							checked={isPublic}
+							onCheckedChange={setIsPublic}
+						/>
+						<Text variant="muted" size="sm">
+							{t('readingLists.form.public.hint')}
+						</Text>
+					</div>
 				</form>
 
 				<Dialog.Footer>

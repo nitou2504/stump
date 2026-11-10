@@ -5,7 +5,7 @@ import { FormEvent, useMemo, useState } from 'react'
 import { useMediaMatch } from 'rooks'
 import { toast } from 'sonner'
 
-import { Link, useAppContext } from '@/context'
+import { Link } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -36,7 +36,6 @@ type Props = {
  */
 export default function AddToReadingList({ bookId, bookName }: Props) {
 	const { t } = useTranslate()
-	const { user } = useAppContext()
 	const isMobile = useMediaMatch('(max-width: 768px)')
 	const [isOpen, setIsOpen] = useState(false)
 
@@ -55,13 +54,11 @@ export default function AddToReadingList({ bookId, bookName }: Props) {
 		enabled: isOpen,
 	})
 	const inLists = useMemo(() => new Set(bookData?.mediaById?.readingListIds ?? []), [bookData])
-	// only the user's own lists can change
+	// the lists the user can add books to: the query only asks for their own, and a list they
+	// can't change would be refused anyway
 	const lists = useMemo(
-		() =>
-			(listsData?.readingLists.nodes ?? [])
-				.filter((list) => list.creatingUserId === user.id)
-				.sort(byName),
-		[listsData, user.id],
+		() => (listsData?.readingLists.nodes ?? []).filter((list) => list.canEdit).sort(byName),
+		[listsData],
 	)
 
 	const label = t('readingLists.addToList.label')

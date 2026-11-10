@@ -3021,7 +3021,8 @@ export type Mutation = {
   createNotifier: Notifier;
   /**
    * Creates a reading list owned by the current user, with the given books (in order; books
-   * the user can't see are left out). The ID is generated when omitted.
+   * the user can't see are left out). The ID is generated when omitted. Everyone but the
+   * server owner has at most 100 lists of at most 2,000 books each.
    *
    * # Returns
    *
@@ -3084,7 +3085,8 @@ export type Mutation = {
   /** Deletes a reading device owned by the authenticated user */
   deleteReadingDevice: Scalars['Boolean']['output'];
   /**
-   * Deletes one of the current user's reading lists (not its books).
+   * Deletes one of the current user's reading lists (not its books). The server owner can
+   * delete someone else's public list too.
    *
    * # Returns
    *
@@ -3374,7 +3376,8 @@ export type Mutation = {
   updatePublicUrl: ServerConfigModel;
   /**
    * Renames one of the current user's reading lists, or changes its description or
-   * visibility.
+   * visibility. The server owner can take someone else's public list back to private (and
+   * nothing else).
    *
    * # Returns
    *
@@ -5150,11 +5153,14 @@ export type Query = {
    * Retrieves a reading list by ID for the current user.
    *
    * # Returns
-   * A reading list with the given ID. If no reading list with this ID exists for the current user, an error will be returned.
+   * A reading list with the given ID. If no reading list with this ID exists, or it is
+   * private and isn't the current user's, the same error is returned.
    */
   readingListById: ReadingList;
   /**
-   * Retrieves a paginated list of reading lists for the current user.
+   * Retrieves a paginated list of the reading lists the current user can see: by default
+   * their own and the public lists of everyone else (lists of people who are deleted or
+   * locked are left out). `scope` narrows it to their own lists or to other people's.
    *
    * # Returns
    *
@@ -5530,6 +5536,7 @@ export type QueryReadingListByIdArgs = {
 
 export type QueryReadingListsArgs = {
   pagination?: Pagination;
+  scope?: ReadingListScope;
 };
 
 
@@ -5616,6 +5623,14 @@ export type QueryUsersArgs = {
   pagination?: Pagination;
 };
 
+export type ReaderProfile = {
+  __typename?: 'ReaderProfile';
+  /** The address of the person's avatar, when they have one. It changes when they set a new one */
+  avatarUrl?: Maybe<Scalars['String']['output']>;
+  id: Scalars['String']['output'];
+  username: Scalars['String']['output'];
+};
+
 export type ReadingDeviceModel = {
   __typename?: 'ReadingDeviceModel';
   createdAt: Scalars['DateTime']['output'];
@@ -5643,9 +5658,23 @@ export type ReadingList = {
   __typename?: 'ReadingList';
   /** How many of the list's books the user can see */
   bookCount: Scalars['Int']['output'];
-  /** The list's books the user can see, in the list's order */
+  /**
+   * The list's books the user can see, in the list's order: at most 200 at a time, `offset`
+   * books in
+   */
   books: Array<Media>;
+  /**
+   * Whether the user made the list, and so may rename it, change what is in it and who sees
+   * it. Anyone else sees it read-only (the server owner can only take a public list of
+   * someone else back to private, or delete it)
+   */
+  canEdit: Scalars['Boolean']['output'];
   creatingUserId: Scalars['String']['output'];
+  /**
+   * Who made the list: their name and avatar. None when they can't be shown any more (a
+   * deleted or locked account's lists aren't listed at all)
+   */
+  creator?: Maybe<ReaderProfile>;
   description?: Maybe<Scalars['String']['output']>;
   id: Scalars['String']['output'];
   name: Scalars['String']['output'];
@@ -5657,6 +5686,7 @@ export type ReadingList = {
 
 export type ReadingListBooksArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type ReadingListInput = {
@@ -5666,9 +5696,22 @@ export type ReadingListInput = {
   /** The list's first books, in order */
   mediaIds?: Array<Scalars['String']['input']>;
   name: Scalars['String']['input'];
-  /** Private (only its owner sees it) when omitted */
+  /**
+   * Private (only its owner sees it) when omitted. `PUBLIC` shows the list to everyone on
+   * the server; `SHARED` is not offered
+   */
   visibility?: InputMaybe<EntityVisibility>;
 };
+
+/** Which reading lists to ask for */
+export enum ReadingListScope {
+  /** The lists you made and everyone's public lists */
+  All = 'ALL',
+  /** The lists you made */
+  Mine = 'MINE',
+  /** The public lists other people made */
+  Others = 'OTHERS'
+}
 
 /** The different reading modes supported by any Stump reader */
 export enum ReadingMode {
@@ -6791,6 +6834,11 @@ export type UpdateReadingListInput = {
   /** Omitted or empty clears it */
   description?: InputMaybe<Scalars['String']['input']>;
   name: Scalars['String']['input'];
+  /**
+   * `PUBLIC` shows the list to everyone on the server; `SHARED` is not offered. The server
+   * owner can't change anyone else's list but can make it `PRIVATE`: the name and description
+   * sent are then ignored
+   */
   visibility?: InputMaybe<EntityVisibility>;
 };
 
@@ -8410,7 +8458,7 @@ export type BookReadingListIdsQuery = { __typename?: 'Query', mediaById?: { __ty
 export type PickerReadingListsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type PickerReadingListsQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<{ __typename?: 'ReadingList', id: string, name: string, creatingUserId: string, bookCount: number }> } };
+export type PickerReadingListsQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<{ __typename?: 'ReadingList', id: string, name: string, canEdit: boolean, bookCount: number }> } };
 
 export type CreateReadingListMutationVariables = Exact<{
   input: ReadingListInput;
@@ -9158,25 +9206,43 @@ export type RegenerateThumbnailsMutationVariables = Exact<{
 
 export type RegenerateThumbnailsMutation = { __typename?: 'Mutation', generateLibraryThumbnails: boolean };
 
-export type ReadingListGridItemFragment = { __typename?: 'ReadingList', id: string, name: string, bookCount: number, books: Array<{ __typename?: 'Media', id: string, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }> } & { ' $fragmentName'?: 'ReadingListGridItemFragment' };
+export type ReadingListGridItemFragment = { __typename?: 'ReadingList', id: string, name: string, visibility: string, canEdit: boolean, bookCount: number, creator?: { __typename?: 'ReaderProfile', id: string, username: string } | null, books: Array<{ __typename?: 'Media', id: string, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }> } & { ' $fragmentName'?: 'ReadingListGridItemFragment' };
+
+export type ReadingListsSceneQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ReadingListsSceneQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<(
+      { __typename?: 'ReadingList', id: string, name: string, creatingUserId: string, bookCount: number, creator?: { __typename?: 'ReaderProfile', id: string, username: string, avatarUrl?: string | null } | null }
+      & { ' $fragmentRefs'?: { 'ReadingListGridItemFragment': ReadingListGridItemFragment } }
+    )> } };
 
 export type ReadingListSceneQueryVariables = Exact<{
   id: Scalars['ID']['input'];
 }>;
 
 
-export type ReadingListSceneQuery = { __typename?: 'Query', readingListById: { __typename?: 'ReadingList', id: string, name: string, description?: string | null, creatingUserId: string, bookCount: number, books: Array<(
+export type ReadingListSceneQuery = { __typename?: 'Query', readingListById: { __typename?: 'ReadingList', id: string, name: string, description?: string | null, visibility: string, canEdit: boolean, creatingUserId: string, bookCount: number, creator?: { __typename?: 'ReaderProfile', id: string, username: string, avatarUrl?: string | null } | null } };
+
+export type ReadingListBooksQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+  limit: Scalars['Int']['input'];
+  offset: Scalars['Int']['input'];
+}>;
+
+
+export type ReadingListBooksQuery = { __typename?: 'Query', readingListById: { __typename?: 'ReadingList', id: string, books: Array<(
       { __typename?: 'Media', id: string, resolvedName: string }
       & { ' $fragmentRefs'?: { 'BookCardFragment': BookCardFragment } }
     )> } };
 
-export type ReadingListsSceneQueryVariables = Exact<{ [key: string]: never; }>;
+export type ReadingListBookIdsQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+  limit: Scalars['Int']['input'];
+  offset: Scalars['Int']['input'];
+}>;
 
 
-export type ReadingListsSceneQuery = { __typename?: 'Query', readingLists: { __typename?: 'PaginatedReadingListResponse', nodes: Array<(
-      { __typename?: 'ReadingList', id: string, name: string, creatingUserId: string }
-      & { ' $fragmentRefs'?: { 'ReadingListGridItemFragment': ReadingListGridItemFragment } }
-    )> } };
+export type ReadingListBookIdsQuery = { __typename?: 'Query', readingListById: { __typename?: 'ReadingList', id: string, books: Array<{ __typename?: 'Media', id: string }> } };
 
 export type SeriesSettingsSceneQueryVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -11509,7 +11575,13 @@ export const ReadingListGridItemFragmentDoc = new TypedDocumentString(`
     fragment ReadingListGridItem on ReadingList {
   id
   name
+  visibility
+  canEdit
   bookCount
+  creator {
+    id
+    username
+  }
   books(limit: 5) {
     id
     thumbnail {
@@ -15792,11 +15864,11 @@ export const BookReadingListIdsDocument = new TypedDocumentString(`
     `) as unknown as TypedDocumentString<BookReadingListIdsQuery, BookReadingListIdsQueryVariables>;
 export const PickerReadingListsDocument = new TypedDocumentString(`
     query PickerReadingLists {
-  readingLists(pagination: {none: {unpaginated: true}}) {
+  readingLists(scope: MINE, pagination: {none: {unpaginated: true}}) {
     nodes {
       id
       name
-      creatingUserId
+      canEdit
       bookCount
     }
   }
@@ -17789,15 +17861,71 @@ export const RegenerateThumbnailsDocument = new TypedDocumentString(`
   generateLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)
 }
     `) as unknown as TypedDocumentString<RegenerateThumbnailsMutation, RegenerateThumbnailsMutationVariables>;
+export const ReadingListsSceneDocument = new TypedDocumentString(`
+    query ReadingListsScene {
+  readingLists(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      name
+      creatingUserId
+      bookCount
+      creator {
+        id
+        username
+        avatarUrl
+      }
+      ...ReadingListGridItem
+    }
+  }
+}
+    fragment ReadingListGridItem on ReadingList {
+  id
+  name
+  visibility
+  canEdit
+  bookCount
+  creator {
+    id
+    username
+  }
+  books(limit: 5) {
+    id
+    thumbnail {
+      url
+      metadata {
+        averageColor
+        colors {
+          color
+          percentage
+        }
+        thumbhash
+      }
+    }
+  }
+}`) as unknown as TypedDocumentString<ReadingListsSceneQuery, ReadingListsSceneQueryVariables>;
 export const ReadingListSceneDocument = new TypedDocumentString(`
     query ReadingListScene($id: ID!) {
   readingListById(id: $id) {
     id
     name
     description
+    visibility
+    canEdit
     creatingUserId
     bookCount
-    books {
+    creator {
+      id
+      username
+      avatarUrl
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<ReadingListSceneQuery, ReadingListSceneQueryVariables>;
+export const ReadingListBooksDocument = new TypedDocumentString(`
+    query ReadingListBooks($id: ID!, $limit: Int!, $offset: Int!) {
+  readingListById(id: $id) {
+    id
+    books(limit: $limit, offset: $offset) {
       id
       resolvedName
       ...BookCard
@@ -17846,37 +17974,17 @@ export const ReadingListSceneDocument = new TypedDocumentString(`
     ageRating
     language
   }
-}`) as unknown as TypedDocumentString<ReadingListSceneQuery, ReadingListSceneQueryVariables>;
-export const ReadingListsSceneDocument = new TypedDocumentString(`
-    query ReadingListsScene {
-  readingLists(pagination: {none: {unpaginated: true}}) {
-    nodes {
+}`) as unknown as TypedDocumentString<ReadingListBooksQuery, ReadingListBooksQueryVariables>;
+export const ReadingListBookIdsDocument = new TypedDocumentString(`
+    query ReadingListBookIds($id: ID!, $limit: Int!, $offset: Int!) {
+  readingListById(id: $id) {
+    id
+    books(limit: $limit, offset: $offset) {
       id
-      name
-      creatingUserId
-      ...ReadingListGridItem
     }
   }
 }
-    fragment ReadingListGridItem on ReadingList {
-  id
-  name
-  bookCount
-  books(limit: 5) {
-    id
-    thumbnail {
-      url
-      metadata {
-        averageColor
-        colors {
-          color
-          percentage
-        }
-        thumbhash
-      }
-    }
-  }
-}`) as unknown as TypedDocumentString<ReadingListsSceneQuery, ReadingListsSceneQueryVariables>;
+    `) as unknown as TypedDocumentString<ReadingListBookIdsQuery, ReadingListBookIdsQueryVariables>;
 export const SeriesSettingsSceneDocument = new TypedDocumentString(`
     query SeriesSettingsScene($id: ID!) {
   seriesById(id: $id) {

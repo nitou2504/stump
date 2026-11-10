@@ -1676,9 +1676,16 @@
       "title": "Reading Lists",
       "newList": "New List",
       "created": "Created “{{name}}”",
+      "public": "Public",
+      "publicHint": "Visible to everyone on this server",
+      "sections": {
+        "mine": "My lists",
+        "others": "Shared by others"
+      },
       "emptyState": {
         "heading": "No reading lists yet",
-        "message": "Make a list, then add books to it from their pages"
+        "message": "Make a list, then add books to it from their pages",
+        "mine": "You haven't made a list yet"
       },
       "form": {
         "createTitle": "New Reading List",
@@ -1686,11 +1693,27 @@
         "name": "Name",
         "namePlaceholder": "Favourites",
         "description": "Description",
-        "descriptionPlaceholder": "Optional"
+        "descriptionPlaceholder": "Optional",
+        "public": {
+          "label": "Visible to everyone on this server",
+          "hint": "Everyone with an account here can open this list, but each person sees only the books they may read. Only you can change it."
+        }
       },
       "actions": {
         "edit": "Edit",
-        "delete": "Delete"
+        "delete": "Delete",
+        "saveCopy": "Save a Copy",
+        "unpublish": "Make Private"
+      },
+      "copy": {
+        "name": "Copy of {{name}}",
+        "saved": "Saved “{{name}}” to your lists"
+      },
+      "unpublish": {
+        "title": "Make This List Private?",
+        "description": "“{{name}}” is a public list by {{creator}}. Afterwards only they will see it.",
+        "confirm": "Make Private",
+        "done": "“{{name}}” is private now"
       },
       "delete": {
         "title": "Delete Reading List",
@@ -1701,12 +1724,17 @@
       "list": {
         "empty": {
           "heading": "No books in this list yet",
-          "message": "Add books to it from their pages"
+          "message": "Add books to it from their pages",
+          "messageOthers": "None of its books are available to you"
         },
         "removeBook": "Remove “{{name}}” from this list",
         "removeBookShort": "Remove from List",
         "removed": "Removed “{{name}}”",
-        "undo": "Undo"
+        "undo": "Undo",
+        "publicBy": "Public · by {{name}}",
+        "publicYours": "Public · everyone on this server can see it",
+        "loadMore": "Load more",
+        "shown": "Showing {{shown}} of {{total}} books"
       },
       "addToList": {
         "label": "Add to List",
@@ -1720,7 +1748,9 @@
         "delete": "Failed to delete the list",
         "saveBook": "Failed to update the list",
         "loadLists": "Failed to load the lists",
-        "loadList": "Failed to open the list"
+        "loadList": "Failed to open the list",
+        "copy": "Failed to save a copy",
+        "unpublish": "Failed to make the list private"
       }
     },
     "settingsScene": {
