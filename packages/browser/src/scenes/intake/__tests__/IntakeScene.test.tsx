@@ -36,6 +36,10 @@ vi.mock('../hooks', () => ({
 vi.mock('@stump/client', async (importOriginal) => ({
 	...(await importOriginal<typeof import('@stump/client')>()),
 	useGraphQL: () => ({ data: { intakeLibraries: [{ id: 'lib', name: 'Biblioteca' }] } }),
+	// the cover of a book that is in the library is its thumbnail
+	useSDK: () => ({
+		sdk: { isTokenAuth: false, media: { thumbnailURL: (id: string) => `/thumbnail/${id}` } },
+	}),
 }))
 // the page header sits in the app's sidebar layout
 vi.mock('@/components/sharedLayout', () => ({
@@ -45,8 +49,12 @@ vi.mock('@/components/sharedLayout', () => ({
 vi.mock('../FolderPicker', () => ({ default: () => <div>Folder picker</div> }))
 vi.mock('../TagPicker', () => ({ TagChip: () => null, default: () => <div>Tag picker</div> }))
 vi.mock('../IntakeDropZone', () => ({
-	default: ({ disabled }: { disabled?: boolean }) => (
-		<div data-testid="drop-zone" data-disabled={String(!!disabled)} />
+	default: ({ disabled, compact }: { disabled?: boolean; compact?: boolean }) => (
+		<div
+			data-testid="drop-zone"
+			data-disabled={String(!!disabled)}
+			data-compact={String(!!compact)}
+		/>
 	),
 }))
 
@@ -87,7 +95,7 @@ describe('IntakeScene for somebody who needs approval', () => {
 	it('says what happens to their books, and how much of their inbox is used', () => {
 		renderScene()
 
-		expect(screen.getByText(/look at the books you add before they join it/)).toBeInTheDocument()
+		expect(screen.getByText(/looks over your books before they join it/)).toBeInTheDocument()
 		const usage = screen.getByLabelText('Your inbox')
 		expect(usage).toHaveTextContent('512.0 MB of 2.0 GB')
 		expect(usage).toHaveTextContent('3 of 100 books')
@@ -167,7 +175,7 @@ describe('IntakeScene for somebody who needs approval', () => {
 		renderScene()
 
 		const filing = within(screen.getByRole('region', { name: 'Being added' }))
-		expect(filing.getByText('being added')).toBeInTheDocument()
+		expect(filing.getByText('Adding…')).toBeInTheDocument()
 		expect(filing.queryByRole('button', { name: /Take back/ })).not.toBeInTheDocument()
 	})
 
@@ -219,7 +227,7 @@ describe('IntakeScene for somebody who files books themselves', () => {
 		renderScene()
 
 		expect(screen.getByRole('region', { name: 'Ready to add' })).toBeInTheDocument()
-		expect(screen.queryByText(/look at the books you add/)).not.toBeInTheDocument()
+		expect(screen.queryByText(/looks over your books/)).not.toBeInTheDocument()
 		expect(screen.queryByLabelText('Your inbox')).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Add all ready (2)' }))
 		expect(screen.getByRole('heading', { name: 'Add 2 books' })).toBeInTheDocument()
@@ -236,5 +244,162 @@ describe('IntakeScene for somebody who files books themselves', () => {
 
 		expect(screen.getByText('Folder picker')).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Add to library' })).toBeInTheDocument()
+	})
+})
+
+describe('IntakeScene layout', () => {
+	const SECTIONS = [
+		'Being read',
+		'Sent back',
+		'Needs your details',
+		'Ready to add',
+		'Ready to send',
+		'Waiting for approval',
+		'Being added',
+		'Added',
+	]
+	const sectionOrder = () =>
+		screen
+			.getAllByRole('region')
+			.map((region) => region.getAttribute('aria-label') ?? '')
+			.filter((name) => SECTIONS.includes(name))
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		state.limits = limits({ canFileDirectly: true, quotaApplies: false })
+		state.items = []
+	})
+
+	it('has a big drop zone while the inbox is empty, and a slim one once books are on their way', () => {
+		renderScene()
+		expect(screen.getByTestId('drop-zone')).toHaveAttribute('data-compact', 'false')
+	})
+
+	it('steps the drop zone aside for the books on their way', () => {
+		state.items = [book('a')]
+
+		renderScene()
+
+		expect(screen.getByTestId('drop-zone')).toHaveAttribute('data-compact', 'true')
+	})
+
+	it('keeps the drop zone big when the only books are ones that are already in the library', () => {
+		state.items = [
+			book('d', { destination: null, filedAt: '2020-01-01T00:00:00Z', state: IntakeState.Filed }),
+		]
+
+		renderScene()
+
+		expect(screen.getByTestId('drop-zone')).toHaveAttribute('data-compact', 'false')
+	})
+
+	it('reads top to bottom as the books move: read, sent back, to check, ready, waiting, added', () => {
+		state.limits = limits({ canFileDirectly: false })
+		state.items = [
+			book('added', {
+				destination: null,
+				filedAt: '2020-01-01T00:00:00Z',
+				state: IntakeState.Filed,
+			}),
+			book('filing', { state: IntakeState.Filing }),
+			book('waiting', { destination: null, state: IntakeState.PendingApproval }),
+			book('ready'),
+			book('check', { state: IntakeState.NeedsReview }),
+			book('back', { reviewNote: 'Wrong author', state: IntakeState.Rejected }),
+			book('reading', { decision: null, proposal: null, state: IntakeState.Analysing }),
+		]
+
+		renderScene()
+
+		expect(sectionOrder()).toEqual([
+			'Being read',
+			'Sent back',
+			'Needs your details',
+			'Ready to send',
+			'Waiting for approval',
+			'Being added',
+			'Added',
+		])
+	})
+
+	it('shows a book being read with a bar that says something is happening', () => {
+		state.items = [book('a', { decision: null, proposal: null, state: IntakeState.Analysing })]
+
+		renderScene()
+
+		const reading = within(screen.getByRole('region', { name: 'Being read' }))
+		expect(reading.getByText('a.epub')).toBeInTheDocument()
+		expect(reading.getByText('Reading…')).toBeInTheDocument()
+		expect(reading.getByRole('progressbar', { name: 'Reading a.epub' })).toBeInTheDocument()
+	})
+
+	it('shows an added book with the cover the scan made of it', () => {
+		state.items = [
+			book('d', {
+				destination: null,
+				filedAt: '2020-01-01T00:00:00Z',
+				mediaIds: ['m1'],
+				result: { notes: [], paths: ['Umberto_Eco/El_nombre_de_la_rosa.epub'] },
+				state: IntakeState.Filed,
+			}),
+		]
+
+		const { container } = renderScene()
+
+		expect(container.querySelector('img[src="/thumbnail/m1"]')).not.toBeNull()
+	})
+
+	it('shows a tile instead of a cover for an added book the scan has not reached', () => {
+		state.items = [
+			book('d', {
+				destination: null,
+				filedAt: new Date().toISOString(),
+				result: { notes: [], paths: ['Umberto_Eco/El_nombre_de_la_rosa.epub'] },
+				state: IntakeState.Filed,
+			}),
+		]
+
+		const { container } = renderScene()
+
+		expect(container.querySelector('img')).toBeNull()
+		expect(screen.getByText('scanning')).toBeInTheDocument()
+	})
+
+	it('shows, in an empty inbox, what happens to a book: for those who add books themselves', () => {
+		renderScene()
+
+		const steps = within(screen.getByRole('list', { name: 'How adding books works' }))
+		expect(steps.getByText('Drop your books')).toBeInTheDocument()
+		expect(steps.getByText('Check the details')).toBeInTheDocument()
+		expect(steps.getByText('Add them to the library')).toBeInTheDocument()
+	})
+
+	it('shows, in an empty inbox, what happens to a book: for those who send them for approval', () => {
+		state.limits = limits({ canFileDirectly: false })
+
+		renderScene()
+
+		const steps = within(screen.getByRole('list', { name: 'How adding books works' }))
+		expect(steps.getByText('Send them for approval')).toBeInTheDocument()
+		expect(steps.queryByText('Add them to the library')).not.toBeInTheDocument()
+	})
+
+	it('has no steps once there are books', () => {
+		state.items = [book('a')]
+
+		renderScene()
+
+		expect(screen.queryByRole('list', { name: 'How adding books works' })).not.toBeInTheDocument()
+	})
+
+	it('says each book of a section in the same words as its status chip', () => {
+		state.items = [book('check', { state: IntakeState.NeedsReview })]
+
+		renderScene()
+
+		const section = within(screen.getByRole('region', { name: 'Needs your details' }))
+		expect(section.getByRole('article', { name: 'El nombre de la rosa' })).toHaveTextContent(
+			'Needs your details',
+		)
 	})
 })

@@ -1,9 +1,10 @@
-import { Badge, Button } from '@stump/components'
+import { Button } from '@stump/components'
 import { IntakeKind, IntakeState } from '@stump/graphql'
 import { formatDistanceToNow } from 'date-fns'
-import { Loader2, Undo2 } from 'lucide-react'
+import { Undo2 } from 'lucide-react'
 
-import { FormatIcon } from './IntakeItemCard'
+import CoverTile from './CoverTile'
+import IntakeStatusChip from './IntakeStatus'
 import type { IntakeItemData } from './queries'
 
 type Props = {
@@ -25,12 +26,8 @@ export default function WaitingRow({ item, onWithdraw, disabled }: Props) {
 
 	return (
 		<li className="gap-3 px-3 py-2.5 flex items-center">
-			<FormatIcon
-				format={item.files[0]?.format}
-				series={isSeries}
-				className="h-4 w-4 shrink-0 text-muted-foreground"
-			/>
-			<div className="min-w-0 flex flex-1 flex-col">
+			<CoverTile size="sm" title={title} format={item.files[0]?.format} series={isSeries} />
+			<div className="min-w-0 gap-0.5 flex flex-1 flex-col">
 				<span className="text-sm font-medium truncate">{title}</span>
 				<span className="text-xs truncate text-muted-foreground">
 					{item.libraryName}
@@ -39,19 +36,20 @@ export default function WaitingRow({ item, onWithdraw, disabled }: Props) {
 				</span>
 			</div>
 			{filing ? (
-				<Badge variant="success" size="xs" className="gap-1 flex items-center">
-					<Loader2 className="h-3 w-3 animate-spin" aria-hidden /> being added
-				</Badge>
+				<IntakeStatusChip item={item} />
 			) : (
-				<Button
-					variant="ghost"
-					size="sm"
-					disabled={disabled}
-					onClick={() => onWithdraw([item.id])}
-					title="Take it back to change it"
-				>
-					<Undo2 /> Take back
-				</Button>
+				<>
+					<IntakeStatusChip item={item} className="sm:inline-flex hidden" />
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={disabled}
+						onClick={() => onWithdraw([item.id])}
+						title="Take it back to change it"
+					>
+						<Undo2 /> Take back
+					</Button>
+				</>
 			)}
 		</li>
 	)

@@ -10,6 +10,13 @@ import { item } from './fixtures'
 vi.mock('../FolderPicker', () => ({ default: () => <div>Folder picker</div> }))
 vi.mock('../TagPicker', () => ({ default: () => <div>Tag picker</div> }))
 
+/** The card keeps what few people need behind *More details*: open it to reach the rest */
+function openDetails(root: HTMLElement = document.body) {
+	const details = within(root).getByText('More details').closest('details')
+	if (!details) throw new Error('the card has no “More details”')
+	details.open = true
+}
+
 const biblioteca = { id: 'lib', name: 'Biblioteca' }
 const libraries = [biblioteca, { id: 'manga', name: 'Manga' }]
 
@@ -77,6 +84,7 @@ describe('IntakeItemCard library', () => {
 
 	it('lets the uploader choose what a book is filed under in a book library', () => {
 		renderCard({ libraryType: LibraryType.Book })
+		openDetails()
 
 		expect(screen.getByRole('radiogroup', { name: 'File it under' })).toBeInTheDocument()
 	})
@@ -87,6 +95,7 @@ describe('IntakeItemCard library', () => {
 			decision: decision ? { ...decision, seriesKind: IntakeSeriesKind.Manga } : null,
 			libraryType: LibraryType.Manga,
 		})
+		openDetails()
 
 		expect(screen.queryByRole('radiogroup', { name: 'File it under' })).not.toBeInTheDocument()
 		expect(screen.getByText('Manga series')).toBeInTheDocument()
@@ -116,6 +125,7 @@ describe('IntakeItemCard for somebody who needs approval', () => {
 
 	it('has no folder, no kind to file it under and no destination: they are the approver’s', () => {
 		friendCard()
+		openDetails()
 
 		expect(screen.queryByText('Folder picker')).not.toBeInTheDocument()
 		expect(screen.queryByRole('radiogroup', { name: 'File it under' })).not.toBeInTheDocument()
@@ -237,6 +247,7 @@ describe('IntakeItemCard for somebody who needs approval', () => {
 			],
 			kind: IntakeKind.Series,
 		})
+		openDetails()
 
 		const volumes = screen.getByRole('region', { name: 'Volumes' })
 		expect(within(volumes).getAllByLabelText('Volume number')).toHaveLength(2)
@@ -418,5 +429,133 @@ describe('IntakeItemCard for somebody who files books themselves', () => {
 		expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument()
 		expect(screen.getByLabelText('Age rating')).toBeInTheDocument()
 		expect(screen.queryByText(/^from /)).not.toBeInTheDocument()
+	})
+})
+
+describe('IntakeItemCard layout', () => {
+	it('asks for the title, authors, series, tags and description up front', () => {
+		renderCard()
+
+		for (const field of [
+			screen.getByLabelText(/^Title/),
+			screen.getByLabelText(/Authors/),
+			screen.getByLabelText(/^Series/),
+			screen.getByLabelText(/Description/),
+			screen.getByText('Tag picker'),
+		]) {
+			expect(field.closest('details')).toBeNull()
+		}
+	})
+
+	it('keeps the folder, library, language, year, publisher and age rating behind “More details”', () => {
+		renderCard()
+
+		const details = screen.getByText('More details').closest('details')
+		expect(details).not.toBeNull()
+		// closed until somebody opens it
+		expect(details).not.toHaveAttribute('open')
+		for (const advanced of [
+			screen.getByText('Folder picker'),
+			screen.getByLabelText('Library'),
+			screen.getByLabelText('Language'),
+			screen.getByLabelText('Year'),
+			screen.getByLabelText('Publisher'),
+			screen.getByLabelText('Age rating'),
+		]) {
+			expect(advanced.closest('details')).toBe(details)
+		}
+	})
+
+	it('says what is inside “More details” in a few words, so nobody opens it to find out', () => {
+		renderCard()
+		expect(screen.getByText(/folder, language, year, age rating/)).toBeInTheDocument()
+	})
+
+	it('keeps the destination in sight for whoever files the book, with the folder it goes in', () => {
+		renderCard()
+
+		const destination = screen.getByText('Umberto_Eco/')
+		expect(destination.closest('details')).toBeNull()
+		expect(screen.getByText('existing folder')).toBeInTheDocument()
+	})
+
+	it('puts the book’s cover, title and author first', () => {
+		renderCard()
+
+		expect(screen.getByRole('heading', { name: 'El nombre de la rosa' })).toBeInTheDocument()
+		expect(screen.getByText('Umberto Eco', { selector: 'p' })).toBeInTheDocument()
+		// a book with no cover of its own gets a tile with its monogram
+		expect(screen.getByText('EN')).toBeInTheDocument()
+	})
+
+	it('says it has no author yet rather than leaving the line empty', () => {
+		const base = item()
+		renderCard({
+			decision: base.decision
+				? { ...base.decision, metadata: { ...base.decision.metadata, authors: [] } }
+				: null,
+		})
+
+		expect(screen.getByText('No author yet')).toBeInTheDocument()
+	})
+
+	it('counts the volumes of a series where an author would be', () => {
+		renderCard({
+			files: [
+				{ format: 'cbz', originalName: 'v1.cbz', size: 1 },
+				{ format: 'cbz', originalName: 'v2.cbz', size: 1 },
+			],
+			kind: IntakeKind.Series,
+		})
+
+		expect(screen.getByText('2 volumes')).toBeInTheDocument()
+	})
+
+	it.each([
+		[IntakeState.Ready, 'Ready'],
+		[IntakeState.NeedsReview, 'Needs your details'],
+		[IntakeState.Failed, 'Couldn’t read it'],
+	])('says a %s book is “%s” in a chip', (state, label) => {
+		renderCard({ state })
+
+		expect(screen.getByText(label)).toBeInTheDocument()
+	})
+
+	it('says an approver’s book is to approve, whatever state it is in', () => {
+		renderCard({ state: IntakeState.PendingApproval }, { mode: 'review', onApprove: vi.fn() })
+
+		expect(screen.getByText('To approve')).toBeInTheDocument()
+	})
+
+	it('offers to try a book that could not be read again, and cannot add it meanwhile', () => {
+		const onReanalyse = vi.fn()
+		renderCard({ decision: null, error: 'Not a book', state: IntakeState.Failed }, { onReanalyse })
+
+		expect(screen.getByText('What went wrong')).toBeInTheDocument()
+		expect(screen.getByText('Not a book')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
+
+		expect(onReanalyse).toHaveBeenCalledWith('a')
+		expect(screen.getByRole('button', { name: /Add/ })).toBeDisabled()
+	})
+
+	it('keeps one main button, and the way to discard beside it', () => {
+		renderCard()
+
+		const footer = screen.getByRole('button', { name: 'Add to library' }).parentElement
+		expect(footer).not.toBeNull()
+		expect(
+			within(footer as HTMLElement).getByRole('button', { name: 'Discard' }),
+		).toBeInTheDocument()
+	})
+
+	it('puts the reason a book cannot go on right above its main button', () => {
+		renderCard({ problems: ['Choose a folder'] })
+
+		const footer = screen.getByRole('button', { name: /Add/ }).parentElement as HTMLElement
+		const problems = screen.getByText('Before it can be added').closest('[role="alert"]')
+		expect(problems).not.toBeNull()
+		// the alert comes straight before the footer in the card
+		expect(problems?.nextElementSibling).toBe(footer)
 	})
 })
