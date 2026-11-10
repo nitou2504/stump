@@ -12,8 +12,7 @@
 use std::collections::HashMap;
 
 use async_graphql::{
-	ComplexObject, Context, CustomValidator, Enum, InputValueError, Result,
-	SimpleObject,
+	ComplexObject, Context, CustomValidator, Enum, InputValueError, Result, SimpleObject,
 };
 use chrono::Datelike;
 use models::{
@@ -150,10 +149,7 @@ impl ReadingHistory {
 		{
 			visible = visible.filter(media_search_condition(&search));
 		}
-		let visible = visible
-			.select_only()
-			.column(media::Column::Id)
-			.into_query();
+		let visible = visible.select_only().column(media::Column::Id).into_query();
 
 		Ok(reading_history::load_sessions(conn, &self.reader_id, visible).await?)
 	}
@@ -189,10 +185,9 @@ fn progress_percent(
 ) -> Option<i32> {
 	let percent = match (end_percentage, end_page) {
 		// checked: a percentage that is out of range must not panic (that aborts the server)
-		(Some(fraction), _) => fraction
-			.checked_mul(Decimal::from(100))?
-			.to_f64()?
-			.round(),
+		(Some(fraction), _) => {
+			fraction.checked_mul(Decimal::from(100))?.to_f64()?.round()
+		},
 		(None, Some(page)) if page > 0 && pages > 0 => {
 			(f64::from(page) / f64::from(pages) * 100.0).round()
 		},
@@ -213,10 +208,12 @@ impl ReadingHistory {
 	) -> Result<Vec<ReadingYear>> {
 		let sessions = self.sessions(ctx, search.as_deref()).await?;
 
-		Ok(reading_history::years(&reading_history::finished_reads(&sessions))
-			.into_iter()
-			.map(|(year, count)| ReadingYear { year, count })
-			.collect())
+		Ok(
+			reading_history::years(&reading_history::finished_reads(&sessions))
+				.into_iter()
+				.map(|(year, count)| ReadingYear { year, count })
+				.collect(),
+		)
 	}
 
 	/// The books the reader is reading now, the one read last first: at most 200 (`limit` for
@@ -392,7 +389,10 @@ mod tests {
 			fields_of(&sdl, "FinishedReading"),
 			["media", "readthroughNumber", "startedOn", "finishedOn"]
 		);
-		assert_eq!(fields_of(&sdl, "FinishedReadingPage"), ["nodes", "pageInfo"]);
+		assert_eq!(
+			fields_of(&sdl, "FinishedReadingPage"),
+			["nodes", "pageInfo"]
+		);
 		assert_eq!(fields_of(&sdl, "ReadingPrivacy"), ["shareReadingHistory"]);
 		// the person is a name and an avatar (see `ReaderProfile`)
 		assert_eq!(

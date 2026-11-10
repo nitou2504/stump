@@ -129,7 +129,12 @@ pub fn finished_reads(rows: &[SessionRow]) -> Vec<FinishedRead> {
 		})
 		.collect();
 	finished.sort_by(|a, b| {
-		(Reverse(a.finished_on), Reverse(a.recency), &a.media_id, a.readthrough_number)
+		(
+			Reverse(a.finished_on),
+			Reverse(a.recency),
+			&a.media_id,
+			a.readthrough_number,
+		)
 			.cmp(&(
 				Reverse(b.finished_on),
 				Reverse(b.recency),
@@ -262,10 +267,12 @@ pub async fn is_sharing_history(
 	conn: &impl ConnectionTrait,
 	user_id: &str,
 ) -> Result<bool, DbErr> {
-	Ok(user_sharing_settings::Entity::find_by_id(user_id.to_string())
-		.one(conn)
-		.await?
-		.is_some_and(|settings| settings.share_reading_history))
+	Ok(
+		user_sharing_settings::Entity::find_by_id(user_id.to_string())
+			.one(conn)
+			.await?
+			.is_some_and(|settings| settings.share_reading_history),
+	)
 }
 
 /// Lets everyone see the user's reading history, or stops it (at once: the next request of
@@ -313,8 +320,7 @@ mod tests {
 		let at = chrono::FixedOffset::east_opt(0)
 			.unwrap()
 			.with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
-			.unwrap()
-			+ Duration::minutes(id as i64);
+			.unwrap() + Duration::minutes(id as i64);
 		SessionRow {
 			id,
 			media_id: media.to_string(),
