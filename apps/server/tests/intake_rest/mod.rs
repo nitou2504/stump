@@ -377,6 +377,22 @@ async fn test_the_quota_and_the_number_of_items_are_held() {
 		message(&response)
 	);
 	assert_eq!(rest.items().await.len(), 1);
+	// the room is reserved for what the request says it holds, before any of it is read: a small
+	// book that claims to be big is refused for the room it would need
+	let response = rest
+		.upload(
+			&UploadBody::new()
+				.file("claims.epub", rest.epub("Claims"))
+				.claiming(900 * 1024),
+		)
+		.await;
+	assert_eq!(response.status_code(), 413, "{}", response.text());
+	assert!(
+		message(&response).contains("go over it"),
+		"refused at the door, not after the body: {}",
+		message(&response)
+	);
+	assert_eq!(rest.items().await.len(), 1);
 	assert!(!rest.staged().iter().any(|p| p.contains("_incoming/")));
 
 	// room again once the first is gone
