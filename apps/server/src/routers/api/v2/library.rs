@@ -22,7 +22,10 @@ use stump_core::{
 	image::thumbnail::{get_saved_thumbnail, get_thumbnail},
 };
 
-use super::{media::get_media_thumbnail, series::get_series_thumbnail};
+use super::{
+	media::get_media_thumbnail,
+	series::{cover_may_be_shown, get_series_thumbnail},
+};
 
 pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 	Router::new()
@@ -39,25 +42,34 @@ pub(crate) async fn get_library_thumbnail(
 	first_book: Option<media::MediaThumbSelect>,
 	image_format: Option<SupportedImageFormat>,
 	config: &StumpConfig,
+	hides_books: bool,
 ) -> APIResult<(ContentType, Vec<u8>)> {
 	// Note: This doesn't hard-fail because if the saved thumbnail is missing or corrupt, we want
 	// to just pull something else instead of erroring out entirely.
 	if let Some(path) = &library.thumbnail_path {
-		match get_saved_thumbnail(std::path::Path::new(path)).await {
-			Ok(result) => return Ok(result),
-			Err(_) => {
-				tracing::warn!(path = ?path, "Failed to get saved thumbnail");
-			},
+		if cover_may_be_shown(std::path::Path::new(path), hides_books) {
+			match get_saved_thumbnail(std::path::Path::new(path)).await {
+				Ok(result) => return Ok(result),
+				Err(_) => {
+					tracing::warn!(path = ?path, "Failed to get saved thumbnail");
+				},
+			}
 		}
 	}
 
-	let generated_thumb =
-		get_thumbnail(config.thumbnails_directory(), &library.id, image_format).await?;
+	// the generated cover is the first book's, whatever its age rating: not for a user with an age
+	// restriction (see `cover_may_be_shown`)
+	let generated_thumb = if hides_books {
+		None
+	} else {
+		get_thumbnail(config.thumbnails_directory(), &library.id, image_format).await?
+	};
 
 	match (generated_thumb, first_series) {
 		(Some(result), _) => Ok(result),
 		(None, Some(series)) => {
-			get_series_thumbnail(&series, first_book, image_format, config).await
+			get_series_thumbnail(&series, first_book, image_format, config, hides_books)
+				.await
 		},
 		(None, None) => match first_book {
 			Some(book) => get_media_thumbnail(&book, image_format, config).await,
@@ -82,14 +94,18 @@ async fn get_library_thumbnail_handler(
 		.await?
 		.ok_or(APIError::NotFound("Library not found".to_string()))?;
 
+	let hides_books = user.age_restriction.is_some();
+
 	// Note: This doesn't hard-fail because if the saved thumbnail is missing or corrupt, we want
 	// to just pull something else instead of erroring out entirely.
 	if let Some(path) = &library.thumbnail_path {
-		match get_saved_thumbnail(std::path::Path::new(path)).await {
-			Ok(result) => return Ok(result.into()),
-			Err(_) => {
-				tracing::warn!(path = ?path, "Failed to get saved thumbnail");
-			},
+		if cover_may_be_shown(std::path::Path::new(path), hides_books) {
+			match get_saved_thumbnail(std::path::Path::new(path)).await {
+				Ok(result) => return Ok(result.into()),
+				Err(_) => {
+					tracing::warn!(path = ?path, "Failed to get saved thumbnail");
+				},
+			}
 		}
 	}
 
@@ -116,6 +132,7 @@ async fn get_library_thumbnail_handler(
 		first_book,
 		image_format,
 		ctx.config.as_ref(),
+		hides_books,
 	)
 	.await?;
 
