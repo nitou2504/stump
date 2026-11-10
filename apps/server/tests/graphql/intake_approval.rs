@@ -353,6 +353,50 @@ impl World {
 			.id
 	}
 
+	/// the owner uploads a book of `noise` bytes more than an EPUB needs (a book that takes a
+	/// moment to copy), waits for its analysis and makes it READY: the id of the item, and the
+	/// owner as the approval functions take them
+	async fn owner_has_ready_book(
+		&self,
+		title: &str,
+		noise: usize,
+	) -> (String, models::entity::user::AuthUser) {
+		let path = self
+			.tmp
+			.path()
+			.join(format!("{}.epub", title.replace(' ', "_")));
+		fixtures::write_test_epub(&path, title, "<dc:creator>Eco, Umberto</dc:creator>");
+		if noise > 0 {
+			append_noise(&path, noise);
+		}
+		let owner_token = self.app.access_token.read().await.clone().unwrap();
+		let response = post_upload(
+			&self.app,
+			Some(&owner_token),
+			&self.library.id,
+			None,
+			&UploadBody::new().file(&format!("{title}.epub"), fs::read(&path).unwrap()),
+		)
+		.await;
+		assert_eq!(response.status_code(), 200, "{}", response.text());
+		let body: Value = response.json();
+		let id = body["items"][0]["id"]
+			.as_str()
+			.expect("an item")
+			.to_string();
+		let row = self.wait_for_analysis(&id).await;
+		let ready = intake_item::ActiveModel {
+			state: Set(IntakeState::Ready),
+			..row.into()
+		};
+		ready.update(self.app.conn()).await.expect("ready");
+		let owner = approval::load_auth_user(self.app.conn(), &self.owner_id().await)
+			.await
+			.expect("the owner loads")
+			.expect("the owner exists");
+		(id, owner)
+	}
+
 	/// waits until the item is not being analysed any more
 	async fn wait_for_analysis(&self, id: &str) -> intake_item::Model {
 		for _ in 0..150 {
@@ -2384,35 +2428,7 @@ fn append_noise(path: &std::path::Path, bytes: usize) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_an_accept_that_is_dropped_does_not_leave_the_book_filing() {
 	let world = world().await;
-	let path = world.tmp.path().join("Big_Book.epub");
-	fixtures::write_test_epub(&path, "Big Book", "<dc:creator>Eco, Umberto</dc:creator>");
-	append_noise(&path, 40 << 20);
-	let owner_token = world.app.access_token.read().await.clone().unwrap();
-	let response = post_upload(
-		&world.app,
-		Some(&owner_token),
-		&world.library.id,
-		None,
-		&UploadBody::new().file("Big Book.epub", fs::read(&path).unwrap()),
-	)
-	.await;
-	assert_eq!(response.status_code(), 200, "{}", response.text());
-	let body: Value = response.json();
-	let id = body["items"][0]["id"]
-		.as_str()
-		.expect("an item")
-		.to_string();
-	let row = world.wait_for_analysis(&id).await;
-	let ready = intake_item::ActiveModel {
-		state: Set(IntakeState::Ready),
-		..row.into()
-	};
-	ready.update(world.app.conn()).await.expect("ready");
-
-	let owner = approval::load_auth_user(world.app.conn(), &world.owner_id().await)
-		.await
-		.expect("the owner loads")
-		.expect("the owner exists");
+	let (id, owner) = world.owner_has_ready_book("Big Book", 40 << 20).await;
 	let item = world.row(&id).await;
 	let ctx = world.app.ctx.clone();
 	let request = tokio::spawn(async move { approval::accept(&ctx, &owner, item).await });
@@ -2426,6 +2442,79 @@ async fn test_an_accept_that_is_dropped_does_not_leave_the_book_filing() {
 	request.abort();
 	world.wait_for(&id, IntakeState::Filed).await;
 	assert!(world.library_dir.join("Umberto_Eco/Big_Book.epub").exists());
+}
+
+/// the request is dropped while it waits for the database, before anything was claimed: the
+/// claim, the read of what was claimed and the filing are the task's, so the book is filed all
+/// the same once the database answers. When the request made the claim, a request that was
+/// dropped there left the book in READY with nobody filing it, or claimed and in FILING with
+/// nobody filing it.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_accept_that_is_dropped_while_it_waits_for_the_database_still_files_the_book(
+) {
+	let world = world().await;
+	let (id, owner) = world.owner_has_ready_book("Dropped Early", 0).await;
+	let item = world.row(&id).await;
+	let ctx = world.app.ctx.clone();
+	// while the connections are held, everything that needs the database waits for them
+	let pool = world.app.conn().get_sqlite_connection_pool();
+	let mut held = vec![];
+	for _ in 0..pool.options().get_max_connections() {
+		held.push(pool.acquire().await.expect("a connection"));
+	}
+	let request = tokio::spawn(async move { approval::accept(&ctx, &owner, item).await });
+	tokio::time::sleep(Duration::from_millis(300)).await;
+	assert!(
+		!request.is_finished(),
+		"the request is waiting for the database"
+	);
+	request.abort();
+	drop(held);
+	world.wait_for(&id, IntakeState::Filed).await;
+	assert!(world
+		.library_dir
+		.join("Umberto_Eco/Dropped_Early.epub")
+		.exists());
+}
+
+/// an approval whose request is dropped once the book is claimed: the filing goes on without
+/// it, the book is not left in FILING
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_approval_that_is_dropped_does_not_leave_the_book_filing() {
+	let world = world().await;
+	let id = world
+		.ana_uploads_big_epub(
+			"Big Approved",
+			"<dc:creator>Eco, Umberto</dc:creator>",
+			40 << 20,
+		)
+		.await;
+	world.ana_items().await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
+	let owner = approval::load_auth_user(world.app.conn(), &world.owner_id().await)
+		.await
+		.expect("the owner loads")
+		.expect("the owner exists");
+	let ctx = world.app.ctx.clone();
+	let ids = vec![id.clone()];
+	let request =
+		tokio::spawn(async move { approval::approve(&ctx, &owner, &ids).await });
+	for _ in 0..10_000 {
+		if world.row(&id).await.state != IntakeState::PendingApproval {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(1)).await;
+	}
+	request.abort();
+	world.wait_for(&id, IntakeState::Filed).await;
+	assert!(world
+		.library_dir
+		.join("Umberto_Eco/Big_Approved.epub")
+		.exists());
 }
 
 /// the same file twice: the one filed first is filed, the other waits for its approver, who is

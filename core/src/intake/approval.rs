@@ -345,6 +345,11 @@ pub async fn pending_count(
 /// Approves items: each is claimed with one statement and filed by a task that outlives the
 /// request. The items come back as they are now (`FILING`); an item that was already being filed
 /// or filed comes back as it is, so approving twice does no harm.
+///
+/// The claim, the read of the claimed item and the filing are all the task's, so a request that
+/// is dropped at any point (a closed tab, a proxy's timeout) can't leave an item claimed with
+/// nobody to file it: the task answers the request when it has claimed, and goes on whether the
+/// request is still there or not.
 pub async fn approve(
 	ctx: &Arc<Ctx>,
 	approver: &AuthUser,
@@ -369,26 +374,88 @@ pub async fn approve(
 				)))
 			},
 		}
-		if !claim_for_filing(conn, &item.id, IntakeState::PendingApproval, &approver.id)
-			.await?
-		{
-			// somebody approved it, or the uploader took it back, in the meantime
-			out.push(reload(conn, &item.id).await?);
-			continue;
-		}
-		let claimed = reload(conn, &item.id).await?;
-		let task_ctx = ctx.clone();
-		let task_item = claimed.clone();
-		tokio::spawn(async move {
-			if let Err(error) =
-				file_claimed(&task_ctx, task_item, IntakeState::PendingApproval).await
-			{
-				tracing::warn!(?error, "Filing an approved book failed");
-			}
-		});
-		out.push(claimed);
+		let (answer, reply) = tokio::sync::oneshot::channel();
+		tokio::spawn(claim_and_file(
+			ctx.clone(),
+			item.id.clone(),
+			IntakeState::PendingApproval,
+			approver.id.clone(),
+			answer,
+		));
+		out.push(reply.await.map_err(|_| {
+			CoreError::InternalError("The filing ended without an answer".to_string())
+		})??);
 	}
 	Ok(out)
+}
+
+/// What an approval does once it is its own task: claims the item, tells the request what it
+/// claimed (the item as it is now, if somebody else got there first), and files it. The request
+/// may be gone by the time it is told; the filing goes on.
+async fn claim_and_file(
+	ctx: Arc<Ctx>,
+	id: String,
+	from: IntakeState,
+	reviewer_id: String,
+	answer: tokio::sync::oneshot::Sender<CoreResult<intake_item::Model>>,
+) {
+	let conn = ctx.conn.as_ref();
+	match claim_for_filing(conn, &id, from, &reviewer_id).await {
+		Ok(true) => {},
+		// somebody approved it, or the uploader took it back, in the meantime
+		Ok(false) => {
+			let _ = answer.send(reload(conn, &id).await);
+			return;
+		},
+		Err(error) => {
+			let _ = answer.send(Err(error));
+			return;
+		},
+	}
+	let claimed = match read_claimed(conn, &id, from).await {
+		Ok(claimed) => claimed,
+		Err(error) => {
+			let _ = answer.send(Err(error));
+			return;
+		},
+	};
+	let _ = answer.send(Ok(claimed.clone()));
+	if let Err(error) = file_claimed(&ctx, claimed, from).await {
+		tracing::warn!(?error, "Filing an approved book failed");
+	}
+}
+
+/// The item as it is after it was claimed for filing. When it can't be read, the claim is given
+/// back (the item returns to `back`, with the reason), so that no item stays in `FILING` with
+/// nobody to file it
+async fn read_claimed(
+	conn: &DatabaseConnection,
+	id: &str,
+	back: IntakeState,
+) -> CoreResult<intake_item::Model> {
+	match reload(conn, id).await {
+		Ok(item) => Ok(item),
+		Err(error) => {
+			let change = intake_item::ActiveModel {
+				state: Set(back),
+				error: Set(Some(
+					"The server could not read this book after it was approved: approve it again"
+						.to_string(),
+				)),
+				..Default::default()
+			};
+			if let Err(write_error) =
+				transition(conn, id, &[IntakeState::Filing], change, None).await
+			{
+				tracing::error!(
+					?write_error,
+					id,
+					"Couldn't give back a claim that couldn't be read"
+				);
+			}
+			Err(error)
+		},
+	}
 }
 
 /// Sends an item of the approval queue back to its uploader with a note
@@ -473,9 +540,10 @@ pub async fn claim_for_filing(
 	transition(conn, id, &[from], change, None).await
 }
 
-/// Files an approver's own ready item, now. Filing is a task of its own that the request waits
-/// for: a request that is dropped (a closed tab, a proxy's timeout) stops waiting, and the filing
-/// goes on, so the item is never left in `FILING` until a restart puts it back.
+/// Files an approver's own ready item, now. Claiming it, reading what was claimed and filing it
+/// are one task of their own that the request waits for: a request that is dropped (a closed tab,
+/// a proxy's timeout) stops waiting at any point, and the task goes on, so the item is never left
+/// in `FILING` until a restart puts it back.
 pub async fn accept(
 	ctx: &Arc<Ctx>,
 	approver: &AuthUser,
@@ -485,27 +553,25 @@ pub async fn accept(
 	if item.user_id != approver.id {
 		return Err(not_found());
 	}
-	if item.state != IntakeState::Ready
-		|| !claim_for_filing(
-			ctx.conn.as_ref(),
-			&item.id,
-			IntakeState::Ready,
-			&approver.id,
-		)
-		.await?
-	{
-		return Err(CoreError::BadRequest(format!(
-			"'{}' is not ready to be filed",
-			item.name
-		)));
+	if item.state != IntakeState::Ready {
+		return Err(not_ready(&item));
 	}
-	let claimed = reload(ctx.conn.as_ref(), &item.id).await?;
 	let task_ctx = ctx.clone();
-	tokio::spawn(
-		async move { file_claimed(&task_ctx, claimed, IntakeState::Ready).await },
-	)
+	let reviewer_id = approver.id.clone();
+	tokio::spawn(async move {
+		let conn = task_ctx.conn.as_ref();
+		if !claim_for_filing(conn, &item.id, IntakeState::Ready, &reviewer_id).await? {
+			return Err(not_ready(&item));
+		}
+		let claimed = read_claimed(conn, &item.id, IntakeState::Ready).await?;
+		file_claimed(&task_ctx, claimed, IntakeState::Ready).await
+	})
 	.await
 	.map_err(|error| CoreError::InternalError(error.to_string()))?
+}
+
+fn not_ready(item: &intake_item::Model) -> CoreError {
+	CoreError::BadRequest(format!("'{}' is not ready to be filed", item.name))
 }
 
 /// Puts back what a restart interrupted. An item that was being filed waits for approval again
