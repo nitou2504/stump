@@ -1,4 +1,4 @@
-//! The baseline of what a user with limits gets from the surfaces a book appears on today.
+//! The baseline of what a user with limits gets from the surfaces a book appears on.
 //!
 //! Every test builds the world of [`VisibilityFixture`] and asks one surface what **ana** gets. Her
 //! hidden set, H (`adult`, `unrated`, `removed` and `hidden`), must not show in any ID, title,
@@ -7,16 +7,17 @@
 //!
 //! `data_scoping.rs` covers counts, alphabets, stats, tags, series covers, club books and
 //! progress writes; this file covers the lists, search, picks, progress shelves, the REST routes
-//! of a book and the OPDS feeds. A surface that fails here is filed under package C5 (see the plan,
-//! P0 and C5) and its test is ignored with the reason, until C5 fixes it and removes the `ignore`.
+//! of a book and the OPDS feeds; `friend_data_scoping.rs` covers what a reader is told of the
+//! server's own folders and hashes.
 //!
-//! What it found (run them with `-- --ignored` to see them fail):
+//! The baseline found two surfaces that gave H away, which package C5 fixed:
 //!
-//! - `on_deck_counts_only_what_she_may_read`: `onDeck`'s page is right (the next book that is
-//!   hidden from her is left out), but its total counts it.
-//! - `opds_2_progression_gives_nothing_away_about_a_hidden_book`: the OPDS 2 progression route has
-//!   no access check, so a book hidden from her answers with the position she had in it before
-//!   the limits, and one that doesn't exist with none: it tells the book is there.
+//! - `on_deck_counts_only_what_she_may_read`: `onDeck`'s page was right (the next book that is
+//!   hidden from her is left out), but its total counted it. Now the page and the total come
+//!   from the same list.
+//! - `opds_2_progression_gives_nothing_away_about_a_hidden_book`: the OPDS 2 progression route
+//!   had no access check, so a book hidden from her answered with the position she had in it
+//!   before the limits, and one that doesn't exist with none: it told the book is there.
 
 use axum::http::StatusCode;
 use models::{
@@ -472,7 +473,6 @@ async fn on_deck_offers_the_next_book_to_those_who_may_read_it() {
 /// What the on-deck page says it has is what she may read: the total counted the series whose next
 /// book is hidden from her, with an empty page
 #[tokio::test]
-#[ignore = "C5: onDeck.pageInfo.totalItems counts a book she may not read (its query counts before the user's limits are applied)"]
 async fn on_deck_counts_only_what_she_may_read() {
 	let (app, world) = world().await;
 	fake_data::ReadingSession::completed(&world.general.id, &world.ana.id)
@@ -788,7 +788,6 @@ async fn opds_2_feeds_hold_nothing_hidden() {
 /// when she has a position in it from before the limits: the position says the book exists and
 /// where it ends
 #[tokio::test]
-#[ignore = "C5: the OPDS 2 progression of a hidden book returns the user's old position (no access check on the route), which tells the book exists"]
 async fn opds_2_progression_gives_nothing_away_about_a_hidden_book() {
 	let (app, world) = world().await;
 	for book in world.hidden_from_ana() {

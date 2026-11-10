@@ -1497,6 +1497,19 @@ async fn get_book_progression(
 	Extension(req): Extension<AuthContext>,
 ) -> APIResult<Json<OPDSProgression>> {
 	let user = req.user();
+
+	// A book this user may not read (their libraries and age limits, or one that was removed) has
+	// no position to give: it is answered like a book that doesn't exist, or the position they had
+	// in it before their limits would tell it is there
+	let may_read = media::Entity::find_for_user(&user)
+		.filter(media::Column::Id.eq(id.clone()))
+		.one(ctx.conn.as_ref())
+		.await?
+		.is_some();
+	if !may_read {
+		return Ok(Json(OPDSProgression::default()));
+	}
+
 	let newer_exists = reading_session::Entity::newer_session_exists_subquery();
 
 	let active_reading_session = OPDSProgressionEntity::find()

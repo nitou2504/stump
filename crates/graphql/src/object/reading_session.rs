@@ -98,7 +98,14 @@ impl ReadingSession {
 		ctx: &Context<'_>,
 		#[graphql(default_with = "OrderDirection::Asc")] order: OrderDirection,
 	) -> Result<Vec<SessionEvent>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		// the bookmarks and notes of a session are its reader's alone, whichever way the session
+		// was reached
+		if self.model.user_id != user.id {
+			return Ok(vec![]);
+		}
 
 		let bookmarks = bookmark::Entity::find()
 			.filter(bookmark::Column::SessionId.eq(self.model.id))
@@ -142,6 +149,11 @@ impl ReadingSession {
 	async fn chapters_read(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		// where someone read is theirs alone, whichever way the session was reached
+		if self.model.user_id != user.id {
+			return Ok(vec![]);
+		}
 
 		// only for a book the user can see: the chapter titles aren't theirs otherwise
 		let selection =
