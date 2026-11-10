@@ -9124,16 +9124,6 @@ export type IntakeFoldersQueryVariables = Exact<{
 
 export type IntakeFoldersQuery = { __typename?: 'Query', intakeFolders: Array<{ __typename?: 'IntakeFolder', name: string, books: number }> };
 
-export type IntakeUploadMutationVariables = Exact<{
-  libraryId: Scalars['ID']['input'];
-  files: Array<Scalars['Upload']['input']> | Scalars['Upload']['input'];
-  relativePaths?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
-  mode?: IntakeUploadMode;
-}>;
-
-
-export type IntakeUploadMutation = { __typename?: 'Mutation', intakeUpload: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
-
 export type IntakeReviewMutationVariables = Exact<{
   id: Scalars['ID']['input'];
   input: IntakeReviewInput;
@@ -17679,19 +17669,6 @@ export const IntakeFoldersDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<IntakeFoldersQuery, IntakeFoldersQueryVariables>;
-export const IntakeUploadDocument = new TypedDocumentString(`
-    mutation IntakeUpload($libraryId: ID!, $files: [Upload!]!, $relativePaths: [String!], $mode: IntakeUploadMode! = AUTO) {
-  intakeUpload(
-    libraryId: $libraryId
-    files: $files
-    relativePaths: $relativePaths
-    mode: $mode
-  ) {
-    id
-    state
-  }
-}
-    `) as unknown as TypedDocumentString<IntakeUploadMutation, IntakeUploadMutationVariables>;
 export const IntakeReviewDocument = new TypedDocumentString(`
     mutation IntakeReview($id: ID!, $input: IntakeReviewInput!) {
   intakeReview(id: $id, input: $input) {

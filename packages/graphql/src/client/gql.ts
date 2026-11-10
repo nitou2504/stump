@@ -281,7 +281,6 @@ type Documents = {
     "\n\tquery IntakeLibraries {\n\t\tintakeLibraries {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": typeof types.IntakeLibrariesDocument,
     "\n\tquery IntakeVocabulary($libraryId: ID!, $search: String, $limit: Int! = 20) {\n\t\tintakeVocabulary(libraryId: $libraryId, search: $search, limit: $limit) {\n\t\t\tvalue\n\t\t\tcount\n\t\t\tkind\n\t\t}\n\t}\n": typeof types.IntakeVocabularyDocument,
     "\n\tquery IntakeFolders(\n\t\t$libraryId: ID!\n\t\t$seriesKind: IntakeSeriesKind\n\t\t$search: String\n\t\t$limit: Int! = 20\n\t) {\n\t\tintakeFolders(libraryId: $libraryId, seriesKind: $seriesKind, search: $search, limit: $limit) {\n\t\t\tname\n\t\t\tbooks\n\t\t}\n\t}\n": typeof types.IntakeFoldersDocument,
-    "\n\tmutation IntakeUpload(\n\t\t$libraryId: ID!\n\t\t$files: [Upload!]!\n\t\t$relativePaths: [String!]\n\t\t$mode: IntakeUploadMode! = AUTO\n\t) {\n\t\tintakeUpload(libraryId: $libraryId, files: $files, relativePaths: $relativePaths, mode: $mode) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": typeof types.IntakeUploadDocument,
     "\n\tmutation IntakeReview($id: ID!, $input: IntakeReviewInput!) {\n\t\tintakeReview(id: $id, input: $input) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": typeof types.IntakeReviewDocument,
     "\n\tmutation IntakeReanalyse($id: ID!, $online: Boolean) {\n\t\tintakeReanalyse(id: $id, online: $online) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": typeof types.IntakeReanalyseDocument,
     "\n\tmutation IntakeChangeLibrary($id: ID!, $libraryId: ID!) {\n\t\tintakeChangeLibrary(id: $id, libraryId: $libraryId) {\n\t\t\tid\n\t\t\tstate\n\t\t\tlibraryId\n\t\t}\n\t}\n": typeof types.IntakeChangeLibraryDocument,
@@ -704,7 +703,6 @@ const documents: Documents = {
     "\n\tquery IntakeLibraries {\n\t\tintakeLibraries {\n\t\t\tid\n\t\t\tname\n\t\t}\n\t}\n": types.IntakeLibrariesDocument,
     "\n\tquery IntakeVocabulary($libraryId: ID!, $search: String, $limit: Int! = 20) {\n\t\tintakeVocabulary(libraryId: $libraryId, search: $search, limit: $limit) {\n\t\t\tvalue\n\t\t\tcount\n\t\t\tkind\n\t\t}\n\t}\n": types.IntakeVocabularyDocument,
     "\n\tquery IntakeFolders(\n\t\t$libraryId: ID!\n\t\t$seriesKind: IntakeSeriesKind\n\t\t$search: String\n\t\t$limit: Int! = 20\n\t) {\n\t\tintakeFolders(libraryId: $libraryId, seriesKind: $seriesKind, search: $search, limit: $limit) {\n\t\t\tname\n\t\t\tbooks\n\t\t}\n\t}\n": types.IntakeFoldersDocument,
-    "\n\tmutation IntakeUpload(\n\t\t$libraryId: ID!\n\t\t$files: [Upload!]!\n\t\t$relativePaths: [String!]\n\t\t$mode: IntakeUploadMode! = AUTO\n\t) {\n\t\tintakeUpload(libraryId: $libraryId, files: $files, relativePaths: $relativePaths, mode: $mode) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": types.IntakeUploadDocument,
     "\n\tmutation IntakeReview($id: ID!, $input: IntakeReviewInput!) {\n\t\tintakeReview(id: $id, input: $input) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": types.IntakeReviewDocument,
     "\n\tmutation IntakeReanalyse($id: ID!, $online: Boolean) {\n\t\tintakeReanalyse(id: $id, online: $online) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n": types.IntakeReanalyseDocument,
     "\n\tmutation IntakeChangeLibrary($id: ID!, $libraryId: ID!) {\n\t\tintakeChangeLibrary(id: $id, libraryId: $libraryId) {\n\t\t\tid\n\t\t\tstate\n\t\t\tlibraryId\n\t\t}\n\t}\n": types.IntakeChangeLibraryDocument,
@@ -1925,10 +1923,6 @@ export function graphql(source: "\n\tquery IntakeVocabulary($libraryId: ID!, $se
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tquery IntakeFolders(\n\t\t$libraryId: ID!\n\t\t$seriesKind: IntakeSeriesKind\n\t\t$search: String\n\t\t$limit: Int! = 20\n\t) {\n\t\tintakeFolders(libraryId: $libraryId, seriesKind: $seriesKind, search: $search, limit: $limit) {\n\t\t\tname\n\t\t\tbooks\n\t\t}\n\t}\n"): typeof import('./graphql').IntakeFoldersDocument;
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n\tmutation IntakeUpload(\n\t\t$libraryId: ID!\n\t\t$files: [Upload!]!\n\t\t$relativePaths: [String!]\n\t\t$mode: IntakeUploadMode! = AUTO\n\t) {\n\t\tintakeUpload(libraryId: $libraryId, files: $files, relativePaths: $relativePaths, mode: $mode) {\n\t\t\tid\n\t\t\tstate\n\t\t}\n\t}\n"): typeof import('./graphql').IntakeUploadDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
