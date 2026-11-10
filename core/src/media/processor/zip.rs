@@ -10,6 +10,7 @@ use zip::ZipArchive;
 
 use crate::{
 	fs_utils::{
+		bounded,
 		hash::{self, generate_koreader_hash},
 		ContentType, FileParts, PathUtils,
 	},
@@ -105,8 +106,13 @@ impl MediaProcessor for ZipProcessor {
 			if file_name.to_lowercase() == "comicinfo.xml" {
 				tracing::trace!("Found ComicInfo.xml");
 				let contents = {
-					let mut contents = Vec::new();
-					file.read_to_end(&mut contents)?;
+					// bounded: a bomb in a book's ComicInfo.xml must not fill the memory
+					let declared = file.size();
+					let contents = bounded::read_capped_with_capacity(
+						&mut file,
+						bounded::max_xml_bytes(),
+						declared,
+					)?;
 					String::from_utf8_lossy(&contents).to_string()
 				};
 				tracing::trace!(contents_len = contents.len(), "Read ComicInfo.xml");
@@ -156,8 +162,13 @@ impl MediaProcessor for ZipProcessor {
 			if file_name.to_lowercase() == "comicinfo.xml" && process_metadata {
 				tracing::trace!("Found ComicInfo.xml");
 				let contents = {
-					let mut contents = Vec::new();
-					file.read_to_end(&mut contents)?;
+					// bounded: a bomb in a book's ComicInfo.xml must not fill the memory
+					let declared = file.size();
+					let contents = bounded::read_capped_with_capacity(
+						&mut file,
+						bounded::max_xml_bytes(),
+						declared,
+					)?;
 					String::from_utf8_lossy(&contents).to_string()
 				};
 				tracing::trace!(contents_len = contents.len(), "Read ComicInfo.xml");
@@ -214,11 +225,13 @@ impl MediaProcessor for ZipProcessor {
 
 			let content_type = path.naive_content_type();
 			if images_seen + 1 == page && content_type.is_image() {
-				let contents = {
-					let mut contents = Vec::new();
-					file.read_to_end(&mut contents)?;
-					contents
-				};
+				// bounded: a page that inflates past the limit is an error, not an allocation
+				let declared = file.size();
+				let contents = bounded::read_capped_with_capacity(
+					&mut file,
+					bounded::max_entry_bytes(),
+					declared,
+				)?;
 				tracing::trace!(?name, size = contents.len(), "Found targeted zip entry");
 				return Ok((content_type, contents));
 			} else if content_type.is_image() {
@@ -473,6 +486,65 @@ mod tests {
 			.expect("Failed to process ZIP file");
 		// See https://github.com/stumpapp/stump/issues/641
 		assert!(processed_file.metadata.is_some());
+	}
+
+	/// A CBZ whose ComicInfo.xml is `comic_info_len` bytes of zeros: a few KiB of deflate
+	fn cbz_with_a_big_comic_info(dir: &Path, comic_info_len: usize) -> PathBuf {
+		use std::io::Write;
+		use zip::{write::SimpleFileOptions, CompressionMethod};
+
+		let path = dir.join("bomb.cbz");
+		let mut writer = zip::ZipWriter::new(File::create(&path).unwrap());
+		let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+		writer.start_file("001.jpg", options).unwrap();
+		writer.write_all(b"not really a picture").unwrap();
+		writer.start_file("ComicInfo.xml", options).unwrap();
+		writer.write_all(&vec![0u8; comic_info_len]).unwrap();
+		writer.finish().unwrap();
+		path
+	}
+
+	#[test]
+	fn test_a_comic_info_that_inflates_past_the_limit_is_refused() {
+		let dir = tempfile::tempdir().unwrap();
+		let limit = bounded::max_xml_bytes() as usize;
+		let path = cbz_with_a_big_comic_info(dir.path(), limit + 1);
+
+		for result in [
+			ZipProcessor
+				.process_metadata(&path, OrganizationMode::Filesystem)
+				.map(|_| ()),
+			ZipProcessor
+				.process(
+					&path,
+					MediaProcessorOptions {
+						process_metadata: true,
+						..Default::default()
+					},
+				)
+				.map(|_| ()),
+		] {
+			match result {
+				Err(MediaProcessorError::Io(error)) => assert!(
+					bounded::is_too_large(&error),
+					"expected the size limit, got {error}"
+				),
+				other => panic!("expected the size limit to refuse it, got {other:?}"),
+			}
+		}
+	}
+
+	#[test]
+	fn test_a_comic_info_at_the_limit_is_read() {
+		let dir = tempfile::tempdir().unwrap();
+		let limit = bounded::max_xml_bytes() as usize;
+		let path = cbz_with_a_big_comic_info(dir.path(), limit);
+		// zeros are no valid XML, but it is read (and fails as XML, not as too big): in the
+		// filesystem organization mode an unreadable ComicInfo.xml is ignored
+		let metadata = ZipProcessor
+			.process_metadata(&path, OrganizationMode::Filesystem)
+			.expect("a ComicInfo.xml at the limit is read");
+		assert!(metadata.is_none());
 	}
 
 	#[test]

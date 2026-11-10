@@ -25,7 +25,7 @@ use regex::Regex;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 use super::library_index::is_facet;
-use crate::media::processor::pdf::KEYWORD_FIELD_PREFIX;
+use crate::{fs_utils::bounded, media::processor::pdf::KEYWORD_FIELD_PREFIX};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WriteError {
@@ -141,9 +141,8 @@ pub(crate) fn rewrite_zip(
 ) -> WriteResult<()> {
 	let mut archive = ZipArchive::new(File::open(source)?)?;
 	let mut writer = ZipWriter::new(File::create(target)?);
-	if let Ok(mut mimetype) = archive.by_name("mimetype") {
-		let mut buf = vec![];
-		mimetype.read_to_end(&mut buf)?;
+	if let Ok(mimetype) = archive.by_name("mimetype") {
+		let buf = bounded::read_capped(mimetype, bounded::MAX_TINY_BYTES)?;
 		writer.start_file(
 			"mimetype",
 			SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
@@ -172,10 +171,10 @@ fn replace_with(tmp: &Path, path: &Path) -> WriteResult<()> {
 // ------------------------------------------------------------------ EPUB
 
 pub(crate) fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
-	let mut container = String::new();
-	archive
-		.by_name("META-INF/container.xml")?
-		.read_to_string(&mut container)?;
+	let container = bounded::read_to_string_capped(
+		archive.by_name("META-INF/container.xml")?,
+		bounded::MAX_TINY_BYTES,
+	)?;
 	let re = Regex::new(r#"full-path=["']([^"']+)["']"#).expect("valid regex");
 	re.captures(&container)
 		.map(|c| c[1].to_string())
@@ -187,8 +186,7 @@ pub fn write_epub(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 	let (opf_name, opf) = {
 		let mut archive = ZipArchive::new(File::open(path)?)?;
 		let name = opf_path(&mut archive)?;
-		let mut bytes = vec![];
-		archive.by_name(&name)?.read_to_end(&mut bytes)?;
+		let bytes = bounded::read_capped(archive.by_name(&name)?, bounded::max_xml_bytes())?;
 		let text = String::from_utf8_lossy(&bytes)
 			.trim_end_matches('\0')
 			.to_string();
@@ -217,8 +215,10 @@ pub fn write_epub(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 	.and_then(|_| {
 		// the rewritten file must open and carry the new OPF
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
-		let mut text = String::new();
-		check.by_name(&opf_name)?.read_to_string(&mut text)?;
+		// what was written is `new_opf`: reading more than that back is a mismatch
+		let text =
+			bounded::read_to_string_capped(check.by_name(&opf_name)?, new_opf.len() as u64)
+				.map_err(|_| WriteError::Invalid("rewritten EPUB check failed".into()))?;
 		if text != new_opf {
 			return Err(WriteError::Invalid("rewritten EPUB check failed".into()));
 		}
@@ -531,8 +531,8 @@ pub fn write_cbz(path: &Path, meta: &FileMetadata) -> WriteResult<()> {
 				.filter(|n| n.eq_ignore_ascii_case("comicinfo.xml"))
 				.count();
 		let mut check = ZipArchive::new(File::open(&tmp)?)?;
-		let mut text = String::new();
-		check.by_name("ComicInfo.xml")?.read_to_string(&mut text)?;
+		let text = bounded::read_to_string_capped(check.by_name("ComicInfo.xml")?, info.len() as u64)
+			.map_err(|_| WriteError::Invalid("rewritten CBZ check failed".into()))?;
 		if check.len() != original_count + 1 || text != info {
 			return Err(WriteError::Invalid("rewritten CBZ check failed".into()));
 		}

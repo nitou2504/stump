@@ -92,6 +92,15 @@ fn epub_bytes(dir: &std::path::Path) -> Vec<u8> {
 }
 
 fn upload_form(library_id: &str, bytes: Vec<u8>) -> MultipartForm {
+	upload_form_as(library_id, bytes, "rosa.epub", "application/epub+zip")
+}
+
+fn upload_form_as(
+	library_id: &str,
+	bytes: Vec<u8>,
+	file_name: &str,
+	mime_type: &str,
+) -> MultipartForm {
 	let operations = json!({
 		"query": UPLOAD,
 		"variables": { "libraryId": library_id, "files": [null] }
@@ -109,9 +118,29 @@ fn upload_form(library_id: &str, bytes: Vec<u8>) -> MultipartForm {
 		.add_part(
 			"0",
 			Part::bytes(bytes)
-				.file_name("rosa.epub")
-				.mime_type("application/epub+zip"),
+				.file_name(file_name.to_string())
+				.mime_type(mime_type.to_string()),
 		)
+}
+
+/// A zip of the entries (name, bytes, deflated)
+fn zip_bytes(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
+	use std::io::Write;
+	use zip::{write::SimpleFileOptions, CompressionMethod};
+
+	let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+	for (name, bytes, deflated) in entries {
+		let method = if *deflated {
+			CompressionMethod::Deflated
+		} else {
+			CompressionMethod::Stored
+		};
+		writer
+			.start_file(*name, SimpleFileOptions::default().compression_method(method))
+			.unwrap();
+		writer.write_all(bytes).unwrap();
+	}
+	writer.finish().unwrap().into_inner()
 }
 
 async fn post_multipart(app: &TestApp, token: &str, form: MultipartForm) -> Value {
@@ -324,5 +353,81 @@ async fn test_intake_requires_the_permission_and_is_private() {
 	assert!(
 		response.get("errors").is_some(),
 		"recently added is for admins"
+	);
+}
+
+/// a `.zip` of books is unpacked into temporary files (not into memory), staged like any upload and
+/// analysed like it: the book inside is found with its metadata
+#[tokio::test(flavor = "multi_thread")]
+async fn test_upload_a_zip_pack_of_books() {
+	let fixture = setup().await;
+	let app = &fixture.app;
+	let uploader = CreateTestUser {
+		username: "uploader".to_string(),
+		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		..Default::default()
+	}
+	.insert(app)
+	.await;
+
+	let epub = epub_bytes(fixture._tempdir.path());
+	let pack = zip_bytes(&[
+		("Rosa/rosa.epub", &epub, false),
+		("Rosa/notes.txt", b"not a book", true),
+	]);
+	let response = post_multipart(
+		app,
+		&uploader.token,
+		upload_form_as(&fixture.library_id, pack, "pack.zip", "application/zip"),
+	)
+	.await;
+	assert_no_errors(&response);
+	assert_eq!(response["data"]["intakeUpload"].as_array().unwrap().len(), 1);
+
+	let items = analysed_items(app, &uploader.token).await;
+	assert_eq!(items.as_array().unwrap().len(), 1, "{items:#}");
+	let item = &items[0];
+	assert_eq!(item["kind"], "BOOK", "{item:#}");
+	assert_eq!(
+		item["proposal"]["metadata"]["title"], "El nombre de la rosa",
+		"{item:#}"
+	);
+}
+
+/// a pack whose book inflates a few thousand to one is refused before anything is staged
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_zip_bomb_pack_is_refused() {
+	let fixture = setup().await;
+	let app = &fixture.app;
+	let uploader = CreateTestUser {
+		username: "uploader".to_string(),
+		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		..Default::default()
+	}
+	.insert(app)
+	.await;
+
+	// 5 MiB of zeros: a few KiB of deflate
+	let bomb = zip_bytes(&[("bomb.epub", &vec![0u8; 5 * 1024 * 1024], true)]);
+	assert!(bomb.len() < 64 * 1024, "the pack is small: {} bytes", bomb.len());
+	let response = post_multipart(
+		app,
+		&uploader.token,
+		upload_form_as(&fixture.library_id, bomb, "bomb.zip", "application/zip"),
+	)
+	.await;
+	let message = response["errors"][0]["message"].as_str().unwrap_or_default();
+	assert!(
+		message.contains("inflates far more"),
+		"the bomb should be refused: {response:#}"
+	);
+
+	let response = app
+		.execute_gql_with_token(ITEMS, None, &uploader.token)
+		.await;
+	assert_no_errors(&response);
+	assert!(
+		response["data"]["intakeItems"].as_array().unwrap().is_empty(),
+		"nothing is staged: {response:#}"
 	);
 }

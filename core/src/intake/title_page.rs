@@ -372,12 +372,11 @@ fn epub_first_pages(path: &Path, max_pages: usize) -> Option<Vec<Vec<String>>> {
 	});
 	let mut archive = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
 	let opf_name = super::write::opf_path(&mut archive).ok()?;
-	let mut opf = String::new();
-	archive
-		.by_name(&opf_name)
-		.ok()?
-		.read_to_string(&mut opf)
-		.ok()?;
+	let opf = crate::fs_utils::bounded::read_to_string_capped(
+		archive.by_name(&opf_name).ok()?,
+		crate::fs_utils::bounded::max_xml_bytes(),
+	)
+	.ok()?;
 	let base = Path::new(&opf_name)
 		.parent()
 		.map(Path::to_path_buf)

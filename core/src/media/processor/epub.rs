@@ -4,9 +4,10 @@ use quick_xml::{escape::unescape, events::Event, Reader};
 use std::{
 	collections::HashMap,
 	fs::File,
-	io::BufReader,
+	io::{BufReader, Read, Seek},
 	path::{Path, PathBuf},
 };
+use zip::ZipArchive;
 
 const ACCEPTED_EPUB_COVER_MIMES: [&str; 2] = ["image/jpeg", "image/png"];
 const DEFAULT_EPUB_COVER_ID: &str = "cover";
@@ -15,6 +16,7 @@ use epub::doc::{DocError, EpubDoc};
 
 use crate::{
 	fs_utils::{
+		bounded,
 		hash::{self, generate_koreader_hash},
 		ContentType,
 	},
@@ -88,19 +90,55 @@ fn missing_spine_files(epub_file: &mut EpubDoc<BufReader<File>>) -> Vec<String> 
 	missing
 }
 
+/// The length of the zip entry `name`, counted as it inflates and kept nowhere. epub-rs's
+/// `get_current` reads a whole chapter into memory to take its length, however much the
+/// chapter inflates to; this reads no more than `bounded::max_entry_bytes()`.
+///
+/// The name is looked up like epub-rs does it: as it is, then percent-decoded. `Ok(None)` is an
+/// entry that is missing or cannot be read (a damaged one): the chapter is skipped, as readers
+/// do. An entry that inflates past the limit is an error.
+fn entry_len<R: Read + Seek>(
+	archive: &mut ZipArchive<R>,
+	name: &str,
+) -> Result<Option<u64>, MediaProcessorError> {
+	let index = archive.index_for_name(name).or_else(|| {
+		let decoded = urlencoding::decode(name).ok()?;
+		archive.index_for_name(&decoded)
+	});
+	let Some(index) = index else {
+		return Ok(None);
+	};
+	let Ok(file) = archive.by_index(index) else {
+		return Ok(None);
+	};
+	match bounded::count_capped(file, bounded::max_entry_bytes()) {
+		Ok(len) => Ok(Some(len)),
+		Err(error) if bounded::is_too_large(&error) => Err(error.into()),
+		Err(_) => Ok(None),
+	}
+}
+
 impl MediaProcessor for EpubProcessor {
 	fn generate_stump_hash(&self, path: &Path) -> Result<String, MediaProcessorError> {
-		let mut epub_file = open_epub(path)?;
+		let epub_file = open_epub(path)?;
+		let mut archive = ZipArchive::new(BufReader::new(File::open(path)?))?;
 
 		let mut sample_size = 0;
 		let mut read_any_chapter = false;
 		let chapters = epub_file.get_num_chapters().min(6);
 
 		for i in 0..chapters {
-			epub_file.set_current_chapter(i);
 			// A chapter the EPUB lists but does not contain is skipped, like readers do
-			if let Some((chapter_buffer, _)) = epub_file.get_current() {
-				sample_size += chapter_buffer.len() as u64;
+			let Some(chapter_path) = epub_file
+				.spine
+				.get(i)
+				.and_then(|item| epub_file.resources.get(&item.idref))
+				.and_then(|resource| resource.path.to_str())
+			else {
+				continue;
+			};
+			if let Some(length) = entry_len(&mut archive, chapter_path)? {
+				sample_size += length;
 				read_any_chapter = true;
 			}
 		}

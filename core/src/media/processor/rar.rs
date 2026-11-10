@@ -12,6 +12,7 @@ use zip::ZipArchive;
 use crate::{
 	fs_utils::{
 		archive::create_zip_archive,
+		bounded,
 		hash::{self, generate_koreader_hash, HASH_SAMPLE_COUNT, HASH_SAMPLE_SIZE},
 		ContentType, FileParts, PathUtils,
 	},
@@ -89,6 +90,9 @@ impl MediaProcessor for RarProcessor {
 			}
 
 			if entry.filename.as_os_str() == "ComicInfo.xml" {
+				// unrar's `read` keeps all it unpacks, and it unpacks no more than the header
+				// declares: a header that declares too much is refused before anything is
+				bounded::check_declared(entry.unpacked_size, bounded::max_xml_bytes())?;
 				let (data, _) = header.read()?;
 				let content_str = std::str::from_utf8(&data)?;
 				return comic_info_metadata(content_str, organization_mode);
@@ -136,6 +140,7 @@ impl MediaProcessor for RarProcessor {
 			}
 
 			if filename == "ComicInfo.xml" && options.process_metadata {
+				bounded::check_declared(entry.unpacked_size, bounded::max_xml_bytes())?;
 				let (data, rest) = header.read()?;
 				metadata = {
 					let content_str = std::str::from_utf8(&data)?;
@@ -184,6 +189,7 @@ impl MediaProcessor for RarProcessor {
 		while let Ok(Some(header)) = archive.read_header() {
 			let entry = header.entry();
 			if entry.filename == target_entry.filename {
+				bounded::check_declared(entry.unpacked_size, bounded::max_entry_bytes())?;
 				let (data, _) = header.read()?;
 				let content_type = ContentType::from_extension(&extension);
 				return Ok((content_type, data));

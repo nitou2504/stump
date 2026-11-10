@@ -1,7 +1,7 @@
 //! The "Add books" intake: upload into a per-user inbox, review, file into the library.
 
 use std::{
-	io::{Read, Seek},
+	io::Seek,
 	path::{Path, PathBuf},
 };
 
@@ -14,8 +14,9 @@ use models::{
 	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel};
-use stump_core::intake::{
-	self as core_intake, extension_of, naming::fold_name, BOOK_EXTENSIONS,
+use stump_core::{
+	fs_utils::bounded,
+	intake::{self as core_intake, extension_of, naming::fold_name, BOOK_EXTENSIONS},
 };
 use zip::ZipArchive;
 
@@ -41,13 +42,9 @@ struct Staged {
 	group: Option<String>,
 	original_name: String,
 	format: String,
-	source: StagedSource,
+	/// The bytes: the uploaded file, or a temporary file holding a book taken out of a pack
+	source: std::fs::File,
 	size: i64,
-}
-
-enum StagedSource {
-	Upload(std::fs::File),
-	Bytes(Vec<u8>),
 }
 
 /// A safe staged file name: the folded stem and the extension, prefixed by its position
@@ -71,10 +68,35 @@ fn group_of(relative: &str) -> Option<String> {
 	(parts.len() >= 2).then(|| parts[0].to_string())
 }
 
-/// The books inside an uploaded .zip of a series (by name, in archive order)
-fn books_in_zip(file: &mut std::fs::File, max_size: usize) -> Result<Vec<(String, Vec<u8>)>> {
+/// A book taken out of an uploaded .zip: its name, its bytes in an anonymous temporary file
+/// (rewound), and how many they are
+type PackBook = (String, std::fs::File, u64);
+
+/// The books inside an uploaded .zip of a series (by name, in archive order).
+///
+/// The zip is somebody else's file, and a few KiB of it can inflate to gigabytes: no book is
+/// held in memory (each goes to a temporary file as it inflates), none may inflate past
+/// `max_size`, however small the zip says it is, the pack may not unpack past the configured
+/// limit or hold more than the configured number of books, and an entry that inflates a
+/// thousand to one is turned away
+fn books_in_zip(file: &mut std::fs::File, max_size: usize) -> Result<Vec<PackBook>> {
+	read_pack(
+		file,
+		max_size as u64,
+		bounded::max_unpacked_bytes(),
+		bounded::max_pack_books(),
+	)
+}
+
+fn read_pack(
+	file: &mut std::fs::File,
+	max_size: u64,
+	max_unpacked: u64,
+	max_books: usize,
+) -> Result<Vec<PackBook>> {
 	let mut archive = ZipArchive::new(&mut *file).map_err(|_| "Error opening zip archive")?;
-	let mut books = vec![];
+	let mut books: Vec<PackBook> = vec![];
+	let (mut declared_total, mut unpacked_total) = (0u64, 0u64);
 	for i in 0..archive.len() {
 		let mut entry = archive.by_index(i)?;
 		if entry.is_dir() {
@@ -90,12 +112,34 @@ fn books_in_zip(file: &mut std::fs::File, max_size: usize) -> Result<Vec<(String
 		if name.starts_with('.') || !BOOK_EXTENSIONS.contains(&extension_of(&name).as_str()) {
 			continue;
 		}
-		if entry.size() as usize > max_size {
+		if books.len() >= max_books {
+			return Err(format!("The zip holds more than {max_books} books").into());
+		}
+		if entry.size() > max_size {
 			return Err(format!("{name} is larger than the maximum upload size").into());
 		}
-		let mut bytes = Vec::with_capacity(entry.size() as usize);
-		entry.read_to_end(&mut bytes)?;
-		books.push((name, bytes));
+		if bounded::check_ratio(entry.size(), entry.compressed_size()).is_err() {
+			return Err(format!("{name} inflates far more than a book does").into());
+		}
+		declared_total = declared_total.saturating_add(entry.size());
+		if declared_total > max_unpacked {
+			return Err("The zip unpacks to more than the maximum size".into());
+		}
+		let mut book = tempfile::tempfile()?;
+		let size = match bounded::copy_capped(&mut entry, &mut book, max_size) {
+			Ok(size) => size,
+			Err(error) if bounded::is_too_large(&error) => {
+				return Err(format!("{name} is larger than the maximum upload size").into())
+			},
+			Err(error) => return Err(error.into()),
+		};
+		// what the zip says is only what it says: the total counts what came out
+		unpacked_total = unpacked_total.saturating_add(size);
+		if unpacked_total > max_unpacked {
+			return Err("The zip unpacks to more than the maximum size".into());
+		}
+		book.rewind()?;
+		books.push((name, book, size));
 	}
 	file.rewind()?;
 	Ok(books)
@@ -171,13 +215,13 @@ impl IntakeMutation {
 					return Err(format!("{} contains no books", value.filename).into());
 				}
 				let single = books.len() == 1;
-				for (name, bytes) in books {
+				for (name, book, size) in books {
 					staged.push(Staged {
 						group: (!single).then(|| zip_name.clone()),
 						original_name: format!("{zip_name}/{name}"),
 						format: extension_of(&name),
-						size: bytes.len() as i64,
-						source: StagedSource::Bytes(bytes),
+						size: size as i64,
+						source: book,
 					});
 				}
 				continue;
@@ -188,7 +232,7 @@ impl IntakeMutation {
 				original_name: relative,
 				format: ext,
 				size,
-				source: StagedSource::Upload(value.content),
+				source: value.content,
 			});
 		}
 
@@ -238,14 +282,9 @@ impl IntakeMutation {
 			for (position, file) in files.into_iter().enumerate() {
 				let staged_name = staged_name(position, &file.original_name);
 				let target: PathBuf = dir.join(&staged_name);
-				match file.source {
-					StagedSource::Upload(content) => {
-						let mut source = tokio::fs::File::from_std(content);
-						let mut out = tokio::fs::File::create(&target).await?;
-						tokio::io::copy(&mut source, &mut out).await?;
-					},
-					StagedSource::Bytes(bytes) => tokio::fs::write(&target, bytes).await?,
-				}
+				let mut source = tokio::fs::File::from_std(file.source);
+				let mut out = tokio::fs::File::create(&target).await?;
+				tokio::io::copy(&mut source, &mut out).await?;
 				intake_files.push(IntakeFile {
 					original_name: file.original_name,
 					staged_name,
@@ -401,5 +440,137 @@ mod tests {
 		assert_eq!(group_of("Yotsuba/Yotsuba v01.cbz").as_deref(), Some("Yotsuba"));
 		assert_eq!(group_of("book.epub"), None);
 		assert_eq!(group_of("../book.epub"), None);
+	}
+
+	/// A zip of the entries (name, bytes, compressed), as an open file at its start
+	fn zip_of(entries: &[(&str, &[u8], bool)]) -> std::fs::File {
+		use std::io::Write;
+		use zip::{write::SimpleFileOptions, CompressionMethod};
+
+		let mut file = tempfile::tempfile().unwrap();
+		{
+			let mut writer = zip::ZipWriter::new(&mut file);
+			for (name, bytes, compressed) in entries {
+				let method = if *compressed {
+					CompressionMethod::Deflated
+				} else {
+					CompressionMethod::Stored
+				};
+				writer
+					.start_file(*name, SimpleFileOptions::default().compression_method(method))
+					.unwrap();
+				writer.write_all(bytes).unwrap();
+			}
+			writer.finish().unwrap();
+		}
+		file.rewind().unwrap();
+		file
+	}
+
+	/// The same zip with the uncompressed size its central directory declares for every entry
+	/// replaced: a zip that lies about how much an entry inflates to
+	fn declaring(mut zip: std::fs::File, declared: u32) -> std::fs::File {
+		use std::io::{Read, Write};
+
+		let mut bytes = vec![];
+		zip.read_to_end(&mut bytes).unwrap();
+		let mut at = 0;
+		while let Some(found) = bytes[at..].windows(4).position(|w| w == b"PK\x01\x02") {
+			let header = at + found;
+			// signature 4, versions 4, flags 2, method 2, time 4, crc 4, compressed 4: then this
+			bytes[header + 24..header + 28].copy_from_slice(&declared.to_le_bytes());
+			at = header + 4;
+		}
+		let mut lying = tempfile::tempfile().unwrap();
+		lying.write_all(&bytes).unwrap();
+		lying.rewind().unwrap();
+		lying
+	}
+
+	fn read_back(mut book: std::fs::File) -> Vec<u8> {
+		use std::io::Read;
+		let mut bytes = vec![];
+		book.read_to_end(&mut bytes).unwrap();
+		bytes
+	}
+
+	const MIB: u64 = 1024 * 1024;
+
+	#[test]
+	fn a_pack_gives_its_books_in_order_and_skips_the_rest() {
+		let mut zip = zip_of(&[
+			("Series/", b"", false),
+			("Series/v01.epub", b"first book", false),
+			("Series/notes.txt", b"not a book", false),
+			("Series/.hidden.epub", b"hidden", false),
+			("Series/v02.cbz", b"second book", true),
+		]);
+		let books = read_pack(&mut zip, 10 * MIB, 100 * MIB, 10).unwrap();
+		let names: Vec<_> = books.iter().map(|b| b.0.as_str()).collect();
+		assert_eq!(names, ["v01.epub", "v02.cbz"]);
+		let sizes: Vec<_> = books.iter().map(|b| b.2).collect();
+		assert_eq!(sizes, [10, 11]);
+		let mut contents = books.into_iter().map(|b| read_back(b.1));
+		assert_eq!(contents.next().unwrap(), b"first book");
+		assert_eq!(contents.next().unwrap(), b"second book");
+	}
+
+	#[test]
+	fn a_book_over_the_maximum_is_refused() {
+		let mut zip = zip_of(&[("big.epub", &vec![7u8; 2000], false)]);
+		let error = read_pack(&mut zip, 1000, 100 * MIB, 10).unwrap_err();
+		assert!(error.message.contains("big.epub is larger than"), "{}", error.message);
+	}
+
+	#[test]
+	fn a_zip_that_lies_about_the_size_of_a_book_is_stopped_while_reading() {
+		// 3 MiB of zeros (a few KiB of deflate) that the zip declares as 100 bytes
+		let honest = zip_of(&[("bomb.epub", &vec![0u8; 3 * MIB as usize], true)]);
+		let mut lying = declaring(honest, 100);
+		{
+			// the test's premise: the zip says 100 bytes, and the entry really holds 3 MiB
+			let mut archive = ZipArchive::new(&mut lying).unwrap();
+			let mut entry = archive.by_index(0).unwrap();
+			assert_eq!(entry.size(), 100);
+			assert_eq!(std::io::copy(&mut entry, &mut std::io::sink()).unwrap(), 3 * MIB);
+		}
+		lying.rewind().unwrap();
+		let error = read_pack(&mut lying, MIB, 100 * MIB, 10).unwrap_err();
+		assert!(error.message.contains("bomb.epub is larger than"), "{}", error.message);
+	}
+
+	#[test]
+	fn a_book_that_inflates_a_thousand_to_one_is_refused() {
+		let mut zip = zip_of(&[("zeros.pdf", &vec![0u8; 5 * MIB as usize], true)]);
+		let error = read_pack(&mut zip, 10 * MIB, 100 * MIB, 10).unwrap_err();
+		assert!(error.message.contains("inflates far more"), "{}", error.message);
+	}
+
+	#[test]
+	fn a_pack_that_unpacks_past_the_maximum_is_refused() {
+		let mut zip = zip_of(&[
+			("a.epub", &vec![1u8; 1000], false),
+			("b.epub", &vec![2u8; 1000], false),
+		]);
+		assert!(read_pack(&mut zip, 10 * MIB, 2000, 10).is_ok());
+		let mut zip = zip_of(&[
+			("a.epub", &vec![1u8; 1000], false),
+			("b.epub", &vec![2u8; 1000], false),
+		]);
+		let error = read_pack(&mut zip, 10 * MIB, 1500, 10).unwrap_err();
+		assert!(error.message.contains("unpacks to more than"), "{}", error.message);
+	}
+
+	#[test]
+	fn a_pack_with_too_many_books_is_refused() {
+		let entries: Vec<(String, Vec<u8>)> =
+			(0..3).map(|i| (format!("{i}.epub"), vec![i as u8; 10])).collect();
+		let entries: Vec<(&str, &[u8], bool)> =
+			entries.iter().map(|(n, b)| (n.as_str(), b.as_slice(), false)).collect();
+		let mut zip = zip_of(&entries);
+		assert!(read_pack(&mut zip, 10 * MIB, 100 * MIB, 3).is_ok());
+		let mut zip = zip_of(&entries);
+		let error = read_pack(&mut zip, 10 * MIB, 100 * MIB, 2).unwrap_err();
+		assert!(error.message.contains("more than 2 books"), "{}", error.message);
 	}
 }

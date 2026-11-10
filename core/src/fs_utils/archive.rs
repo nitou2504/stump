@@ -1,6 +1,5 @@
 use std::{
 	fs::File,
-	io::{Read, Write},
 	path::{Path, PathBuf},
 };
 
@@ -23,7 +22,6 @@ fn zip_dir(
 
 	trace!(?destination, "Creating zip archive");
 
-	let mut buffer = Vec::new();
 	for entry in WalkDir::new(unpacked_path)
 		.into_iter()
 		.filter_map(Result::ok)
@@ -39,9 +37,8 @@ fn zip_dir(
 		if path.is_file() {
 			trace!(?path, ?name, "Adding file to zip");
 			zip_writer.start_file_from_path(name, options)?;
-			File::open(path)?.read_to_end(&mut buffer)?;
-			zip_writer.write_all(&buffer)?;
-			buffer.clear();
+			// streamed: a file unpacked from a rar can be of any size
+			std::io::copy(&mut File::open(path)?, &mut zip_writer)?;
 		} else if !name.as_os_str().is_empty() {
 			// Only if not root! Avoids path spec / warning
 			// and mapname conversion failed error on unzip
@@ -76,7 +73,7 @@ pub fn create_zip_archive(
 
 #[cfg(test)]
 mod tests {
-	use std::fs;
+	use std::{fs, io::{Read, Write}};
 
 	use tempfile::TempDir;
 

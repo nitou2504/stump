@@ -176,6 +176,31 @@ pub struct StumpConfig {
 	#[setting(default = 2000)]
 	pub pdf_max_tier: u32,
 
+	/// The most megabytes read from one entry of an archive (a zip, a rar) that is read whole:
+	/// a page, a cover, a book inside an uploaded pack. A bigger entry is refused, however little
+	/// the archive says it holds (a few KiB of deflate can inflate to gigabytes)
+	#[setting(default = 256)]
+	#[graphql(skip)]
+	pub archive_max_entry_mb: u64,
+
+	/// The most megabytes read from one metadata text entry of an archive (`ComicInfo.xml`, an
+	/// EPUB's package file)
+	#[setting(default = 16)]
+	#[graphql(skip)]
+	pub archive_max_xml_mb: u64,
+
+	/// The most megabytes unpacked from one archive that is unpacked as a whole (an uploaded
+	/// `.zip` pack of books)
+	#[setting(default = 4096)]
+	#[graphql(skip)]
+	pub archive_max_unpacked_mb: u64,
+
+	/// The most books taken out of one uploaded `.zip` pack. Each is an open file until it is
+	/// staged, and a container is usually allowed 1,024
+	#[setting(default = 200)]
+	#[graphql(skip)]
+	pub archive_max_pack_books: u64,
+
 	/// OIDC authentication configuration
 	#[setting(nested)]
 	#[graphql(skip)]
@@ -396,6 +421,31 @@ mod tests {
 				assert_eq!(config.ip, "0.0.0.0");
 				assert_eq!(config.session_ttl, DEFAULT_SESSION_TTL);
 				assert_eq!(config.pdf_render_format, "webp");
+			},
+		);
+	}
+
+	#[test]
+	fn test_archive_limits_defaults_and_env_override() {
+		let dir = tempfile::tempdir().expect("should create temp dir");
+		let config = StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+		assert_eq!(config.archive_max_entry_mb, 256);
+		assert_eq!(config.archive_max_xml_mb, 16);
+		assert_eq!(config.archive_max_unpacked_mb, 4096);
+		assert_eq!(config.archive_max_pack_books, 200);
+
+		temp_env::with_vars(
+			[
+				("STUMP_ARCHIVE_MAX_ENTRY_MB", Some("64")),
+				("STUMP_ARCHIVE_MAX_PACK_BOOKS", Some("20")),
+			],
+			|| {
+				let dir = tempfile::tempdir().expect("should create temp dir");
+				let config =
+					StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+				assert_eq!(config.archive_max_entry_mb, 64);
+				assert_eq!(config.archive_max_xml_mb, 16);
+				assert_eq!(config.archive_max_pack_books, 20);
 			},
 		);
 	}

@@ -448,8 +448,13 @@ fn convert_batch<R: Read + Seek, W: Write + Seek>(
 	let mut entries = Vec::with_capacity(batch.len());
 	for &index in batch {
 		let mut file = archive.by_index(index)?;
-		let mut raw = Vec::with_capacity(file.size() as usize);
-		file.read_to_end(&mut raw)?;
+		// bounded, and the reservation never comes from the size the entry declares
+		let declared = file.size();
+		let raw = crate::fs_utils::bounded::read_capped_with_capacity(
+			&mut file,
+			crate::fs_utils::bounded::max_entry_bytes(),
+			declared,
+		)?;
 		let mut options = SimpleFileOptions::default()
 			.compression_method(file.compression())
 			.last_modified_time(file.last_modified())
@@ -548,8 +553,12 @@ pub fn estimate_volume(
 	for index in picks {
 		let mut file = archive.by_index(index)?;
 		let stored = file.compressed_size();
-		let mut raw = Vec::with_capacity(file.size() as usize);
-		file.read_to_end(&mut raw)?;
+		let declared = file.size();
+		let raw = crate::fs_utils::bounded::read_capped_with_capacity(
+			&mut file,
+			crate::fs_utils::bounded::max_entry_bytes(),
+			declared,
+		)?;
 		drop(file);
 		let (new, outcome) = convert_page(&raw);
 		report.add(outcome);

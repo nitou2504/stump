@@ -105,6 +105,14 @@ impl StumpCore {
 	pub fn init_config(config_dir: String) -> CoreResult<StumpConfig> {
 		let config = StumpConfig::load(config_dir)?;
 
+		// the limits on what is read out of an archive (see `fs_utils::bounded`)
+		fs_utils::bounded::configure(
+			config.archive_max_entry_mb,
+			config.archive_max_xml_mb,
+			config.archive_max_unpacked_mb,
+			config.archive_max_pack_books,
+		);
+
 		if let Err(error) = config.write_config() {
 			eprintln!("Failed to write Stump.toml: {error}");
 			// ^ config init before tracing init

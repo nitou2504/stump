@@ -259,8 +259,11 @@ pub fn original_title_from_opf(opf: &str) -> Option<String> {
 pub fn original_title_of(path: &std::path::Path) -> Option<String> {
 	let mut archive = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
 	let name = super::write::opf_path(&mut archive).ok()?;
-	let mut opf = String::new();
-	std::io::Read::read_to_string(&mut archive.by_name(&name).ok()?, &mut opf).ok()?;
+	let opf = crate::fs_utils::bounded::read_to_string_capped(
+		archive.by_name(&name).ok()?,
+		crate::fs_utils::bounded::max_xml_bytes(),
+	)
+	.ok()?;
 	original_title_from_opf(&opf)
 }
 
