@@ -128,20 +128,20 @@ impl MetadataProviderMutation {
 				continue;
 			};
 
-			let result = if record.media_id.is_some() {
+			let result = if let Some(media_id) = record.media_id.as_deref() {
 				stump_core::metadata::provider::apply_media_match(
 					&tx,
-					record.media_id.as_deref().unwrap(),
+					media_id,
 					candidate,
 					strategy,
 					exclude_fields.clone(),
 					vec![],
 				)
 				.await
-			} else if record.series_id.is_some() {
+			} else if let Some(series_id) = record.series_id.as_deref() {
 				stump_core::metadata::provider::apply_series_match(
 					&tx,
-					record.series_id.as_deref().unwrap(),
+					series_id,
 					candidate,
 					strategy,
 					exclude_fields.clone(),

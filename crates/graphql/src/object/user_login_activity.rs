@@ -27,7 +27,7 @@ impl UserLoginActivity {
 			.filter(user::Column::Id.eq(self.model.user_id.clone()))
 			.one(conn)
 			.await?
-			.unwrap();
+			.ok_or("User not found")?;
 
 		Ok(User::from(first))
 	}

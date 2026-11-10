@@ -32,7 +32,7 @@ impl UserQuery {
 			.filter(user::Column::Id.eq(user.id.clone()))
 			.one(conn)
 			.await?
-			.unwrap();
+			.ok_or("User not found")?;
 
 		Ok(User::from(first))
 	}
@@ -161,11 +161,12 @@ impl UserQuery {
 	async fn user_by_id(&self, ctx: &Context<'_>, id: ID) -> Result<User> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
+		// an unknown ID (a link to a deleted user) is an error: a panic aborts the whole server
 		let first = user::Entity::find()
 			.filter(user::Column::Id.eq(id.to_string()))
 			.one(conn)
 			.await?
-			.unwrap();
+			.ok_or("User not found")?;
 
 		Ok(User::from(first))
 	}

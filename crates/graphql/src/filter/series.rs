@@ -140,8 +140,11 @@ fn apply_series_reading_status_filter(
 		ReadingStatus::Reading => reading_series_subquery(user_id),
 		ReadingStatus::Finished => finished_series_subquery(user_id),
 		ReadingStatus::NotStarted => not_started_series_subquery(user_id),
-		// a panic might feel heavy but it will remind me not to surface this until i add some kind of abandoned tracking
-		ReadingStatus::Abandoned => unimplemented!("Stump does not yet track abandoned status. This query should not have been possible yet"),
+		// Series don't track an abandoned status (books do), so none is abandoned. The status is
+		// part of the schema, so any user can send it: a panic here aborts the whole server
+		ReadingStatus::Abandoned => {
+			return Condition::all().add(Expr::val(1).eq(if not { 1 } else { 0 }));
+		},
 	};
 
 	let expr = Expr::col((series::Entity, series::Column::Id)).in_subquery(subquery);

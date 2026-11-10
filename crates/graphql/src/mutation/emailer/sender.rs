@@ -95,8 +95,9 @@ where
 	let mut errors = Vec::new();
 	let mut record_creates = Vec::new();
 
+	// `chunks(0)` panics, which aborts the whole server
 	let attachment_chunks =
-		books.chunks(emailer.max_num_attachments.unwrap_or(1).try_into()?);
+		books.chunks(emailer.max_num_attachments.unwrap_or(1).max(1).try_into()?);
 	for chunk in attachment_chunks {
 		let result =
 			send_attachments(user, &emailer, chunk, &recipients, &sender).await?;
