@@ -76,7 +76,7 @@ export default function BookApprovalsScene() {
 							<NativeSelect
 								size="sm"
 								className="text-base md:text-sm w-auto"
-								aria-label="Library"
+								aria-label="Filter by library"
 								value={libraryId ?? ''}
 								options={[
 									{ label: 'All libraries', value: '' },
