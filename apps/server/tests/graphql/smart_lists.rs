@@ -724,7 +724,7 @@ async fn a_user_has_limits_the_owner_does_not() {
 	assert_eq!(data["smartLists"].as_array().unwrap().len(), 20);
 	let first = data["smartLists"][0]["id"].as_str().unwrap().to_string();
 	ok(&app, ana, DELETE, json!({ "id": first })).await;
-	create(&app, ana, "One more", "PRIVATE", None).await;
+	let one_more = create(&app, ana, "One more", "PRIVATE", None).await;
 
 	// the owner has no limit on the number
 	for number in 0..22 {
@@ -733,6 +733,21 @@ async fn a_user_has_limits_the_owner_does_not() {
 
 	// a name and a description have a length
 	let mut long_name = input(&"n".repeat(201), "PRIVATE");
+	// a list that is still there: it is the name that is refused, and the list stays as it was
+	let response = run(
+		&app,
+		ana,
+		UPDATE,
+		json!({ "id": one_more, "input": long_name.clone() }),
+	)
+	.await;
+	assert_eq!(
+		error_message(&response),
+		"A smart list's name can have at most 200 characters",
+		"{response}"
+	);
+	assert_eq!(stored(&app, &one_more).await.unwrap().name, "One more");
+	// a list that is gone is not found, whatever the name
 	let response = run(
 		&app,
 		ana,
@@ -740,7 +755,7 @@ async fn a_user_has_limits_the_owner_does_not() {
 		json!({ "id": first, "input": long_name.clone() }),
 	)
 	.await;
-	assert!(response.get("errors").is_some(), "{response}");
+	assert_eq!(error_message(&response), NOT_FOUND, "{response}");
 	let response = run(&app, ana, CREATE, json!({ "input": long_name.clone() })).await;
 	assert_eq!(
 		error_message(&response),
