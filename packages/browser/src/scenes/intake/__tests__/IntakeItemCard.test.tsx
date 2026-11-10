@@ -279,12 +279,49 @@ describe('IntakeItemCard for an approver with a book somebody sent', () => {
 		expect(screen.getByText('Umberto_Eco/')).toBeInTheDocument()
 	})
 
-	it('approves the book', () => {
+	it('approves the book with the tags its card shows, not the weak guesses it leaves unticked', () => {
+		// Fantasy is in the book; Horror is only an author vote at 0.6, which the card leaves
+		// unticked: filing must not write what the approver was not shown as chosen
+		const base = item()
+		const metadata = base.decision?.metadata
+		if (!base.decision || !metadata || !base.proposal) throw new Error('the fixture is complete')
+		reviewCard({
+			decision: { ...base.decision, metadata: { ...metadata, genres: ['Fantasy', 'Horror'] } },
+			proposal: {
+				...base.proposal,
+				genreSuggestions: [
+					{
+						confidence: 0.9,
+						kind: 'GENRE',
+						libraryCount: 30,
+						reasons: ["subject 'Fantasy fiction'"],
+						selected: true,
+						value: 'Fantasy',
+					},
+					{
+						confidence: 0.6,
+						kind: 'GENRE',
+						libraryCount: 20,
+						reasons: ['3 of 5 books by this author have it'],
+						selected: true,
+						value: 'Horror',
+					},
+				],
+			},
+		})
+
+		fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+
+		expect(onApprove).toHaveBeenCalledTimes(1)
+		expect(onApprove).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), ['Fantasy'])
+	})
+
+	it('approves a book whose only tag is a weak guess with no tags at all', () => {
 		reviewCard()
 
 		fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
 
-		expect(onApprove).toHaveBeenCalledWith(['a'])
+		expect(onApprove).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }), [])
 	})
 
 	it('cannot approve a book with something left to fix', () => {

@@ -2,7 +2,6 @@ import { useGraphQL, useGraphQLMutation, useSDK } from '@stump/client'
 import {
 	extractErrorMessage,
 	IntakeReviewInput,
-	IntakeState,
 	IntakeUploadMode,
 	useFragment,
 } from '@stump/graphql'
@@ -32,7 +31,7 @@ import {
 } from './queries'
 import {
 	type AgeLimit,
-	genresDiffer,
+	needsReviewFirst,
 	type PendingFile,
 	planUploads,
 	pollInterval,
@@ -241,19 +240,19 @@ export function useIntakeActions() {
 
 	const { mutateAsync: reviewAsync } = review
 	const { mutate: acceptMutate } = accept
+	const { mutate: approveMutate } = approve
 	const { mutate: submitMutate } = submit
 
 	/**
-	 * Sends the tags the uploader confirmed, then what is to be done with the books. The server
+	 * Sends the tags the person confirmed, then what is to be done with the books. The server
 	 * writes the tags of its decision and only takes books that are ready, so books whose tags
-	 * differ (weak guesses left unticked) or that were flagged for checking get their tags sent
-	 * first (a review of a book with nothing blocking makes it ready).
+	 * differ (weak guesses left unticked), that were flagged for checking or that an approver sent
+	 * back get their tags sent first (a review of a book with nothing blocking makes it ready,
+	 * and it is the only way to open a sent-back book for sending again).
 	 */
 	const withConfirmedTags = useCallback(
 		async (entries: TagEntry[], then: (ids: string[]) => void) => {
-			const needReview = entries.filter(
-				({ item, genres }) => item.state === IntakeState.NeedsReview || genresDiffer(item, genres),
-			)
+			const needReview = entries.filter(({ item, genres }) => needsReviewFirst(item, genres))
 			try {
 				for (const { item, genres } of needReview) {
 					await reviewAsync({ id: item.id, input: { genres } })
@@ -275,9 +274,19 @@ export function useIntakeActions() {
 		[withConfirmedTags, submitMutate],
 	)
 
+	// an approver files what the card shows: the tags it shows are sent first, as for the others
+	const approveWithGenres = useCallback(
+		(entries: TagEntry[]) => withConfirmedTags(entries, (ids) => approveMutate({ ids })),
+		[withConfirmedTags, approveMutate],
+	)
+
 	const acceptItem = useCallback(
 		(item: TagEntry['item'], genres: string[]) => acceptWithGenres([{ genres, item }]),
 		[acceptWithGenres],
+	)
+	const approveItem = useCallback(
+		(item: TagEntry['item'], genres: string[]) => approveWithGenres([{ genres, item }]),
+		[approveWithGenres],
 	)
 	const submitItem = useCallback(
 		(item: TagEntry['item'], genres: string[]) => submitWithGenres([{ genres, item }]),
@@ -287,7 +296,8 @@ export function useIntakeActions() {
 	return {
 		acceptItem,
 		acceptWithGenres,
-		approve: (ids: string[]) => approve.mutate({ ids }),
+		approveItem,
+		approveWithGenres,
 		changeLibrary: (id: string, libraryId: string) => changeLibrary.mutate({ id, libraryId }),
 		discard: (ids: string[]) => discard.mutate({ ids }),
 		isAccepting: accept.isPending,

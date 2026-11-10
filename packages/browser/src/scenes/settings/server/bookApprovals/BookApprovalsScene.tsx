@@ -7,10 +7,11 @@ import { useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
 import Pagination from '@/components/Pagination'
+import AcceptAllSheet from '@/scenes/intake/AcceptAllSheet'
 import { useIntakeActions, usePendingIntake } from '@/scenes/intake/hooks'
 import { intakeLibrariesQuery } from '@/scenes/intake/queries'
+import { approvableInBulk } from '@/scenes/intake/reviewState'
 
-import ApproveAllDialog from './ApproveAllDialog'
 import ReviewCard from './ReviewCard'
 
 export const APPROVALS_PAGE_SIZE = 20
@@ -59,11 +60,10 @@ export default function BookApprovalsScene() {
 		)
 	}, [isLoading, page, pages, setParams])
 
-	// a book with something left to fix can't be approved: it is left out of "Approve all"
-	const approvable = useMemo(
-		() => items.filter((item) => !!item.decision && item.problems.length === 0),
-		[items],
-	)
+	// a book with something left to fix can't be approved, and one that may already be in the
+	// library (or failed before) is for its own card: they are left out of "Approve all"
+	const approvable = useMemo(() => items.filter(approvableInBulk), [items])
+	const skipped = items.length - approvable.length
 
 	return (
 		<SceneContainer variant="settings">
@@ -107,7 +107,7 @@ export default function BookApprovalsScene() {
 								size="sm"
 								variant="secondary"
 								onClick={() => setApprovingAll(true)}
-								disabled={actions.isApproving}
+								disabled={actions.isApproving || actions.isReviewing}
 							>
 								<CheckCheck /> Approve all ({approvable.length})
 							</Button>
@@ -140,14 +140,19 @@ export default function BookApprovalsScene() {
 				)}
 			</section>
 
-			<ApproveAllDialog
-				open={approvingAll}
+			<AcceptAllSheet
 				items={approvable}
-				skipped={items.length - approvable.length}
-				isPending={actions.isApproving}
+				open={approvingAll}
+				verb="approve"
+				description={`Untick any genre that doesn’t fit. Each book is added to the library the way the page shows it.${
+					skipped > 0
+						? ` ${skipped} ${skipped === 1 ? 'book is' : 'books are'} left out: ${skipped === 1 ? 'it has' : 'they have'} something to fix, may already be in the library, or failed. ${skipped === 1 ? 'It stays' : 'They stay'} here for you to open.`
+						: ''
+				}`}
+				isPending={actions.isApproving || actions.isReviewing}
 				onClose={() => setApprovingAll(false)}
-				onConfirm={() => {
-					actions.approve(approvable.map((item) => item.id))
+				onConfirm={(entries) => {
+					actions.approveWithGenres(entries)
 					setApprovingAll(false)
 				}}
 			/>

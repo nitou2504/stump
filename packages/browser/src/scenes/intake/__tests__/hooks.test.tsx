@@ -4,16 +4,43 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { PropsWithChildren } from 'react'
 
-import { useIntakeInbox, useIntakeUploader } from '../hooks'
-import type { IntakeLimitsData } from '../queries'
+import { useIntakeActions, useIntakeInbox, useIntakeUploader } from '../hooks'
+import {
+	intakeAcceptMutation,
+	intakeApproveMutation,
+	type IntakeLimitsData,
+	intakeReviewMutation,
+	intakeSubmitMutation,
+} from '../queries'
 import { POLL_FAST_MS, POLL_SLOW_MS } from '../reviewState'
 import { item } from './fixtures'
 
 const sdk = vi.hoisted(() => ({ auth: { me: vi.fn() }, intake: { upload: vi.fn() } }))
 const inbox = vi.hoisted(() => ({ data: undefined as unknown, refetch: vi.fn() }))
+// one set of stand-ins per mutation (by its document), the same on every render
+const mutations = vi.hoisted(
+	() =>
+		new Map<
+			unknown,
+			{
+				isPending: boolean
+				mutate: ReturnType<typeof vi.fn>
+				mutateAsync: ReturnType<typeof vi.fn>
+			}
+		>(),
+)
+const mutationOf = (document: unknown) => {
+	let entry = mutations.get(document)
+	if (!entry) {
+		entry = { isPending: false, mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue({}) }
+		mutations.set(document, entry)
+	}
+	return entry
+}
 vi.mock('@stump/client', async (importOriginal) => ({
 	...(await importOriginal<typeof import('@stump/client')>()),
 	useGraphQL: () => ({ data: inbox.data, refetch: inbox.refetch }),
+	useGraphQLMutation: (document: unknown) => mutationOf(document),
 	useSDK: () => ({ sdk }),
 }))
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }))
@@ -357,5 +384,140 @@ describe('useIntakeInbox', () => {
 		vi.advanceTimersByTime(POLL_SLOW_MS * 2)
 
 		expect(inbox.refetch).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe('useIntakeActions', () => {
+	// the server's tags for the book are Fantasy and Horror (the latter only a guess)
+	const withTags = (state: IntakeState, genres = ['Fantasy', 'Horror']) => {
+		const base = item({ state })
+		if (!base.decision) throw new Error('the fixture has a decision')
+		return {
+			...base,
+			decision: { ...base.decision, metadata: { ...base.decision.metadata, genres } },
+		}
+	}
+	const review = () => mutationOf(intakeReviewMutation)
+	const submit = () => mutationOf(intakeSubmitMutation)
+	const approve = () => mutationOf(intakeApproveMutation)
+	const accept = () => mutationOf(intakeAcceptMutation)
+	const actions = () => renderHook(() => useIntakeActions(), { wrapper }).result
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		// not what an earlier test left queued for a call that never came
+		review().mutateAsync.mockReset()
+		review().mutateAsync.mockResolvedValue({})
+	})
+
+	describe('a book an approver sent back', () => {
+		it('is opened by a review before it is sent again, even with the tags as they were', async () => {
+			const { current } = actions()
+			const sentBack = withTags(IntakeState.Rejected, ['Fantasy'])
+
+			await act(() => current.submitItem(sentBack, ['Fantasy']))
+
+			// the server only takes a book for approval once it is ready or in need of a look
+			expect(review().mutateAsync).toHaveBeenCalledTimes(1)
+			expect(review().mutateAsync).toHaveBeenCalledWith({
+				id: 'a',
+				input: { genres: ['Fantasy'] },
+			})
+			expect(submit().mutate).toHaveBeenCalledWith({ ids: ['a'] })
+			expect(review().mutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
+				submit().mutate.mock.invocationCallOrder[0] ?? 0,
+			)
+		})
+
+		it('is not sent again when its review fails', async () => {
+			review().mutateAsync.mockRejectedValueOnce(new Error('no'))
+			const { current } = actions()
+
+			await act(() => current.submitItem(withTags(IntakeState.Rejected, ['Fantasy']), ['Fantasy']))
+
+			expect(submit().mutate).not.toHaveBeenCalled()
+		})
+	})
+
+	describe('a book that is ready', () => {
+		it('is sent as it is when the tags are the server’s', async () => {
+			const { current } = actions()
+
+			await act(() => current.submitItem(withTags(IntakeState.Ready, ['Fantasy']), ['Fantasy']))
+
+			expect(review().mutateAsync).not.toHaveBeenCalled()
+			expect(submit().mutate).toHaveBeenCalledWith({ ids: ['a'] })
+		})
+
+		it('is sent with the tags first when they are not', async () => {
+			const { current } = actions()
+
+			await act(() => current.acceptItem(withTags(IntakeState.Ready), ['Fantasy']))
+
+			expect(review().mutateAsync).toHaveBeenCalledWith({
+				id: 'a',
+				input: { genres: ['Fantasy'] },
+			})
+			expect(accept().mutate).toHaveBeenCalledWith({ ids: ['a'] })
+		})
+	})
+
+	describe('approving', () => {
+		it('sends the tags the card shows first, so the book is filed with what the approver saw', async () => {
+			const { current } = actions()
+
+			await act(() => current.approveItem(withTags(IntakeState.PendingApproval), ['Fantasy']))
+
+			expect(review().mutateAsync).toHaveBeenCalledWith({
+				id: 'a',
+				input: { genres: ['Fantasy'] },
+			})
+			expect(approve().mutate).toHaveBeenCalledWith({ ids: ['a'] })
+			expect(review().mutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
+				approve().mutate.mock.invocationCallOrder[0] ?? 0,
+			)
+		})
+
+		it('approves at once when the tags are as the server has them', async () => {
+			const { current } = actions()
+
+			await act(() =>
+				current.approveItem(withTags(IntakeState.PendingApproval, ['Fantasy']), ['Fantasy']),
+			)
+
+			expect(review().mutateAsync).not.toHaveBeenCalled()
+			expect(approve().mutate).toHaveBeenCalledWith({ ids: ['a'] })
+		})
+
+		it('does not approve a book whose tags could not be saved', async () => {
+			review().mutateAsync.mockRejectedValueOnce(new Error('no'))
+			const { current } = actions()
+
+			await act(() => current.approveItem(withTags(IntakeState.PendingApproval), ['Fantasy']))
+
+			expect(approve().mutate).not.toHaveBeenCalled()
+		})
+
+		it('approves a page with the tags of each book, reviewing only the books whose tags differ', async () => {
+			const { current } = actions()
+			const same = { ...withTags(IntakeState.PendingApproval, ['Fantasy']), id: 'b' }
+			const differs = { ...withTags(IntakeState.PendingApproval), id: 'c' }
+
+			await act(() =>
+				current.approveWithGenres([
+					{ genres: ['Fantasy'], item: same },
+					{ genres: ['Fantasy'], item: differs },
+				]),
+			)
+
+			expect(review().mutateAsync).toHaveBeenCalledTimes(1)
+			expect(review().mutateAsync).toHaveBeenCalledWith({
+				id: 'c',
+				input: { genres: ['Fantasy'] },
+			})
+			// one approval, for the whole page
+			expect(approve().mutate).toHaveBeenCalledTimes(1)
+			expect(approve().mutate).toHaveBeenCalledWith({ ids: ['b', 'c'] })
+		})
 	})
 })

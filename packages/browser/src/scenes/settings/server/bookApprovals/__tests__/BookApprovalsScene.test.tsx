@@ -21,7 +21,8 @@ const queue = vi.hoisted(() => ({
 	totalCount: 0,
 }))
 const actions = vi.hoisted(() => ({
-	approve: vi.fn(),
+	approveItem: vi.fn(),
+	approveWithGenres: vi.fn(),
 	changeLibrary: vi.fn(),
 	isApproving: false,
 	isChangingLibrary: false,
@@ -49,7 +50,23 @@ vi.mock('@stump/client', async (importOriginal) => ({
 }))
 // the pickers ask the server for folders and tags: not what is tested here
 vi.mock('@/scenes/intake/FolderPicker', () => ({ default: () => <div>Folder picker</div> }))
-vi.mock('@/scenes/intake/TagPicker', () => ({ default: () => <div>Tag picker</div> }))
+vi.mock('@/scenes/intake/TagPicker', () => ({
+	default: () => <div>Tag picker</div>,
+	// the chips of the "Approve all" sheet
+	TagChip: ({
+		chip,
+		isOn,
+		onToggle,
+	}: {
+		chip: { value: string }
+		isOn: boolean
+		onToggle: () => void
+	}) => (
+		<button type="button" aria-pressed={isOn} onClick={onToggle}>
+			{chip.value}
+		</button>
+	),
+}))
 
 const pending = (id: string, overrides: Partial<IntakeItemData> = {}): IntakeItemData =>
 	item({
@@ -61,6 +78,14 @@ const pending = (id: string, overrides: Partial<IntakeItemData> = {}): IntakeIte
 		...overrides,
 	})
 
+const aDuplicate = {
+	fileName: 'a.epub',
+	mediaId: 'm1',
+	path: '',
+	reason: 'SAME_TITLE',
+	title: 'Dune',
+}
+
 const withTitle = (id: string, title: string, overrides: Partial<IntakeItemData> = {}) => {
 	const base = item()
 	return pending(id, {
@@ -69,6 +94,14 @@ const withTitle = (id: string, title: string, overrides: Partial<IntakeItemData>
 			: null,
 		...overrides,
 	})
+}
+
+const pendingWithDuplicate = (id: string, title: string) => {
+	const base = withTitle(id, title)
+	return {
+		...base,
+		proposal: base.proposal ? { ...base.proposal, duplicates: [aDuplicate] } : null,
+	}
 }
 
 function Where() {
@@ -138,7 +171,7 @@ describe('Book approvals', () => {
 		expect(screen.getByText('luis')).toBeInTheDocument()
 	})
 
-	it('approves one book from its card', () => {
+	it('approves one book from its card with the tags the card shows', () => {
 		queue.items = [withTitle('a', 'Dune'), withTitle('b', 'Emma')]
 		queue.totalCount = 2
 		renderPage()
@@ -146,7 +179,9 @@ describe('Book approvals', () => {
 		const card = within(screen.getByRole('article', { name: 'Emma' }))
 		fireEvent.click(card.getByRole('button', { name: 'Approve' }))
 
-		expect(actions.approve).toHaveBeenCalledWith(['b'])
+		// the one tag of the fixture is a weak guess the card leaves unticked, so none is written
+		expect(actions.approveItem).toHaveBeenCalledTimes(1)
+		expect(actions.approveItem).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }), [])
 	})
 
 	it('sends a book back with the note, from its card', () => {
@@ -180,14 +215,83 @@ describe('Book approvals', () => {
 		expect(dialog.getByText('Dune')).toBeInTheDocument()
 		expect(dialog.getByText('Ulysses')).toBeInTheDocument()
 		expect(dialog.queryByText('Emma')).not.toBeInTheDocument()
-		expect(dialog.getByText(/1 book has something to fix and stays here/)).toBeInTheDocument()
-		// nothing is approved by opening the dialog
-		expect(actions.approve).not.toHaveBeenCalled()
+		expect(
+			dialog.getByText(
+				/1 book is left out: it has something to fix, may already be in the library/,
+			),
+		).toBeInTheDocument()
+		// nothing is approved by opening the sheet
+		expect(actions.approveWithGenres).not.toHaveBeenCalled()
 
 		fireEvent.click(dialog.getByRole('button', { name: 'Approve 2 books' }))
 
-		expect(actions.approve).toHaveBeenCalledWith(['a', 'c'])
+		expect(actions.approveWithGenres).toHaveBeenCalledTimes(1)
+		const entries = actions.approveWithGenres.mock.calls[0]?.[0] as Array<{
+			item: { id: string }
+			genres: string[]
+		}>
+		expect(entries.map(({ item }) => item.id)).toEqual(['a', 'c'])
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+	})
+
+	it('leaves out of "Approve all" a book that may already be in the library, or that failed before', () => {
+		queue.items = [
+			withTitle('a', 'Dune'),
+			// possibly a copy of a book the person who sent it may not read: it is looked at alone
+			pendingWithDuplicate('b', 'Emma'),
+			withTitle('c', 'Ulysses', { error: 'Could not be written' }),
+			withTitle('d', 'Hamlet'),
+		]
+		queue.totalCount = 4
+		renderPage()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Approve all (2)' }))
+		const dialog = within(screen.getByRole('dialog'))
+
+		expect(dialog.getByText('Dune')).toBeInTheDocument()
+		expect(dialog.getByText('Hamlet')).toBeInTheDocument()
+		expect(dialog.queryByText('Emma')).not.toBeInTheDocument()
+		expect(dialog.queryByText('Ulysses')).not.toBeInTheDocument()
+		expect(
+			dialog.getByText(
+				/2 books are left out: they have something to fix, may already be in the library, or failed/,
+			),
+		).toBeInTheDocument()
+		fireEvent.click(dialog.getByRole('button', { name: 'Approve 2 books' }))
+		const entries = actions.approveWithGenres.mock.calls[0]?.[0] as Array<{ item: { id: string } }>
+		expect(entries.map(({ item }) => item.id)).toEqual(['a', 'd'])
+	})
+
+	it('can still approve a possible duplicate from its own card', () => {
+		queue.items = [pendingWithDuplicate('b', 'Emma'), withTitle('a', 'Dune')]
+		queue.totalCount = 2
+		renderPage()
+
+		const card = within(screen.getByRole('article', { name: 'Emma' }))
+		fireEvent.click(card.getByRole('button', { name: 'Approve' }))
+
+		expect(actions.approveItem).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }), [])
+	})
+
+	it('approves the tags the sheet shows: one untickable per book', () => {
+		queue.items = [withTitle('a', 'Dune'), withTitle('b', 'Emma')]
+		queue.totalCount = 2
+		renderPage()
+
+		fireEvent.click(screen.getByRole('button', { name: 'Approve all (2)' }))
+		const dialog = within(screen.getByRole('dialog'))
+		// the fixture's tag is a weak guess, so it is there but not ticked
+		const tags = dialog.getAllByRole('button', { name: 'Historical Fiction' })
+		expect(tags).toHaveLength(2)
+		fireEvent.click(tags[0] as HTMLElement)
+		fireEvent.click(dialog.getByRole('button', { name: 'Approve 2 books' }))
+
+		const entries = actions.approveWithGenres.mock.calls[0]?.[0] as Array<{
+			item: { id: string }
+			genres: string[]
+		}>
+		expect(entries.find(({ item }) => item.id === 'a')?.genres).toEqual(['Historical Fiction'])
+		expect(entries.find(({ item }) => item.id === 'b')?.genres).toEqual([])
 	})
 
 	it('has no "Approve all" for a single book', () => {

@@ -76,8 +76,8 @@ type Props = {
 	onAccept?: (item: IntakeItemData, genres: string[]) => void
 	/** `submit`: sends the item for approval with these tags (sent first when they differ) */
 	onSubmit?: (item: IntakeItemData, genres: string[]) => void
-	/** `review`: approves the item */
-	onApprove?: (ids: string[]) => void
+	/** `review`: approves the item with these tags (sent first when they differ from the server's) */
+	onApprove?: (item: IntakeItemData, genres: string[]) => void
 	/** `review`: sends the item back to its uploader with a note; `done` closes the note's dialog */
 	onSendBack?: (id: string, note: string, done: () => void) => void
 	/** `review`: the age limit of the uploader, for the warning that a rating hides the book */
@@ -663,7 +663,7 @@ export default function IntakeItemCard({
 				<Button
 					size="sm"
 					onClick={() => {
-						if (reviewing) onApprove?.([item.id])
+						if (reviewing) onApprove?.(item, chosenGenres)
 						else if (friend) onSubmit?.(item, chosenGenres)
 						else onAccept?.(item, chosenGenres)
 					}}

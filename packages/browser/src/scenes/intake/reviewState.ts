@@ -64,6 +64,23 @@ export function isReady(item: Pick<IntakeItemData, 'state' | 'problems'>) {
 	return item.state === IntakeState.Ready && item.problems.length === 0
 }
 
+/**
+ * Whether "Approve all" takes a book that waits for approval: it has a decision, nothing blocks
+ * it, nothing says it may already be in the library and it did not fail before. The others are
+ * for the approver to look at on their own card: a copy of a book somebody may not read can be
+ * among them, and nobody should file it in one click.
+ */
+export function approvableInBulk(
+	item: Pick<IntakeItemData, 'decision' | 'problems' | 'proposal' | 'error'>,
+) {
+	return (
+		!!item.decision &&
+		item.problems.length === 0 &&
+		(item.proposal?.duplicates.length ?? 0) === 0 &&
+		!item.error
+	)
+}
+
 /** Items that want the uploader's attention before filing */
 export function needsAttention(
 	item: Pick<IntakeItemData, 'state' | 'problems' | 'proposal'>,
@@ -296,6 +313,23 @@ export function effectiveGenres(item: ChipSource, tagsReviewed: boolean): string
 export function genresDiffer(item: ChipSource, genres: string[]) {
 	const current = item.decision?.metadata.genres ?? []
 	return current.length !== genres.length || current.some((g) => !genres.includes(g))
+}
+
+/**
+ * Whether a review has to go to the server before the book is sent, added or approved, even
+ * with a review's worth of nothing: the written tags differ from the server's; the book was
+ * flagged for a look (a review of one with nothing blocking makes it ready); or an approver sent
+ * it back, where a review is the only way to open it for sending again, changed or not.
+ */
+export function needsReviewFirst(
+	item: ChipSource & Pick<IntakeItemData, 'state'>,
+	genres: string[],
+) {
+	return (
+		item.state === IntakeState.NeedsReview ||
+		item.state === IntakeState.Rejected ||
+		genresDiffer(item, genres)
+	)
 }
 
 /** The tags shown as chips: the suggestions first, then any extra chosen tag */

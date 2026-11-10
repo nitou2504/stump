@@ -7,9 +7,11 @@ import {
 } from '@stump/graphql'
 import { describe, expect, it } from 'vitest'
 
+import type { IntakeItemData } from '../queries'
 import {
 	acceptableIds,
 	ageRatingHides,
+	approvableInBulk,
 	chosenTags,
 	confidenceLevel,
 	destinationPaths,
@@ -22,6 +24,7 @@ import {
 	isIntakeFile,
 	isSentBack,
 	needsAttention,
+	needsReviewFirst,
 	parseAuthors,
 	parseNumber,
 	planUploads,
@@ -450,5 +453,73 @@ describe('sizes', () => {
 		expect(formatBytes(2048)).toBe('2 KB')
 		expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB')
 		expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB')
+	})
+})
+
+describe('a review that has to come first', () => {
+	const tagged = (state: IntakeState, genres: string[]) => {
+		const base = item({ state })
+		if (!base.decision) throw new Error('the fixture has a decision')
+		return {
+			...base,
+			decision: { ...base.decision, metadata: { ...base.decision.metadata, genres } },
+		}
+	}
+
+	it('is not needed for a book that is ready, with the tags the server has', () => {
+		expect(needsReviewFirst(tagged(IntakeState.Ready, ['Fantasy']), ['Fantasy'])).toBe(false)
+		expect(
+			needsReviewFirst(tagged(IntakeState.PendingApproval, ['Fantasy', 'Horror']), [
+				'Horror',
+				'Fantasy',
+			]),
+		).toBe(false)
+	})
+
+	it('is needed when the tags written are not the server’s', () => {
+		expect(needsReviewFirst(tagged(IntakeState.Ready, ['Fantasy', 'Horror']), ['Fantasy'])).toBe(
+			true,
+		)
+		expect(needsReviewFirst(tagged(IntakeState.PendingApproval, []), ['Fantasy'])).toBe(true)
+	})
+
+	it('is needed for a book flagged for a look, and for one an approver sent back', () => {
+		expect(needsReviewFirst(tagged(IntakeState.NeedsReview, ['Fantasy']), ['Fantasy'])).toBe(true)
+		// the only way to open it for sending again, whether or not the person changed anything
+		expect(needsReviewFirst(tagged(IntakeState.Rejected, ['Fantasy']), ['Fantasy'])).toBe(true)
+	})
+})
+
+describe('what "Approve all" takes', () => {
+	const waiting = (overrides: Partial<IntakeItemData> = {}) =>
+		item({ state: IntakeState.PendingApproval, ...overrides })
+	const duplicate = {
+		fileName: 'rosa.epub',
+		mediaId: 'm1',
+		path: '',
+		reason: 'SAME_TITLE',
+		title: 'El nombre de la rosa',
+	}
+
+	it('takes a book with nothing in its way', () => {
+		expect(approvableInBulk(waiting())).toBe(true)
+	})
+
+	it('leaves out a book without a decision, or with something left to fix', () => {
+		expect(approvableInBulk(waiting({ decision: null }))).toBe(false)
+		expect(approvableInBulk(waiting({ problems: ['Choose a folder'] }))).toBe(false)
+	})
+
+	it('leaves out a book that may already be in the library: it is looked at on its own', () => {
+		const base = item()
+		expect(
+			approvableInBulk(
+				waiting({ proposal: base.proposal ? { ...base.proposal, duplicates: [duplicate] } : null }),
+			),
+		).toBe(false)
+	})
+
+	it('leaves out a book that failed before', () => {
+		expect(approvableInBulk(waiting({ error: 'Could not be written' }))).toBe(false)
 	})
 })

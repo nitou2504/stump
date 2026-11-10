@@ -26,7 +26,7 @@ export default function ReviewCard({ item, libraries, actions }: Props) {
 			uploaderAge={uploaderAge}
 			isBusy={busy}
 			isSendingBack={actions.isRejecting}
-			onApprove={actions.approve}
+			onApprove={actions.approveItem}
 			onSendBack={actions.reject}
 			onChangeLibrary={actions.changeLibrary}
 			onReanalyse={actions.reanalyse}
