@@ -51,8 +51,8 @@ use super::{
 	suggest::{merge_online, rank_suggestions, score_tags},
 	write::{
 		append_pdf_info, check_xml, comic_info, esc, file_as, num, opf_path, order_tags,
-		pdf_string, refined_ids, remove_matches, rewrite_zip, FileMetadata, KeptPdfInfo,
-		WriteError, WriteResult,
+		pdf_string, refined_ids, remove_descriptions, remove_matches, rewrite_zip,
+		FileMetadata, KeptPdfInfo, WriteError, WriteResult,
 	},
 };
 use crate::{
@@ -534,6 +534,9 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	let mut head = caps[1].to_string();
 	let mut body = caps[2].to_string();
 	let tail = caps[3].to_string();
+	// what is around the metadata block: edited only to take descriptions out of it
+	let mut before = opf[..whole.start()].to_string();
+	let mut after = opf[whole.end()..].to_string();
 	let package = Regex::new(r"<package\b[^>]*>")
 		.expect("valid regex")
 		.find(&opf)
@@ -581,22 +584,25 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	};
 
 	if let Some(Some(title)) = &changes.title {
-		let re = Regex::new(r"(?s)(<dc:title\b[^>]*>)(.*?)(</dc:title>)")
+		let re = Regex::new(r"(?s)(<(?:dc:)?title\b[^>]*>)(.*?)(</(?:dc:)?title>)")
 			.expect("valid regex");
 		if let Some(c) = re.captures(&body) {
 			let replaced = format!("{}{}{}", &c[1], esc(title), &c[3]);
 			body = body.replacen(c.get(0).expect("match").as_str(), &replaced, 1);
 		} else {
-			remove(&mut body, r"\s*<dc:title\b[^>]*/>");
+			remove(&mut body, r"\s*<(?:dc:)?title\b[^>]*/>");
 			add.insert(0, format!("<dc:title>{}</dc:title>", esc(title)));
 		}
 	}
 
 	if let Some(writers) = &changes.writers {
-		let ids = ids_of(&body, r#"<dc:creator\b[^>]*\bid=["']([^"']+)["']"#);
+		let ids = ids_of(&body, r#"<(?:dc:)?creator\b[^>]*\bid=["']([^"']+)["']"#);
 		remove_refines(&mut body, ids);
-		remove(&mut body, r"(?s)\s*<dc:creator\b[^>]*>.*?</dc:creator>");
-		remove(&mut body, r"\s*<dc:creator\b[^>]*/>");
+		remove(
+			&mut body,
+			r"(?s)\s*<(?:dc:)?creator\b[^>]*>.*?</(?:dc:)?creator>",
+		);
+		remove(&mut body, r"\s*<(?:dc:)?creator\b[^>]*/>");
 		for (i, author) in writers.iter().enumerate() {
 			if epub3 {
 				let id = format!("stump-creator-{}", i + 1);
@@ -616,8 +622,11 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	}
 
 	if let Some(genres) = &changes.genres {
-		remove(&mut body, r"(?s)\s*<dc:subject\b[^>]*>.*?</dc:subject>");
-		remove(&mut body, r"\s*<dc:subject\b[^>]*/>");
+		remove(
+			&mut body,
+			r"(?s)\s*<(?:dc:)?subject\b[^>]*>.*?</(?:dc:)?subject>",
+		);
+		remove(&mut body, r"\s*<(?:dc:)?subject\b[^>]*/>");
 		remove(
 			&mut body,
 			r#"\s*<meta\b[^>]*name=["']bcurator:(?:estante|shelf)["'][^>]*/>"#,
@@ -676,19 +685,24 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	}
 
 	if let Some(language) = &changes.language {
-		remove(&mut body, r"\s*<dc:language\b[^>]*>[^<]*</dc:language>");
-		remove(&mut body, r"\s*<dc:language\b[^>]*/>");
+		remove(
+			&mut body,
+			r"\s*<(?:dc:)?language\b[^>]*>[^<]*</(?:dc:)?language>",
+		);
+		remove(&mut body, r"\s*<(?:dc:)?language\b[^>]*/>");
 		if let Some(language) = language {
 			add.push(format!("<dc:language>{}</dc:language>", esc(language)));
 		}
 	}
 
 	if let Some(summary) = &changes.summary {
-		remove(
-			&mut body,
-			r"(?s)\s*<dc:description\b[^>]*>.*?</dc:description>",
-		);
-		remove(&mut body, r"\s*<dc:description\b[^>]*/>");
+		// every description the reader would find goes, whatever its form (with the `dc:` prefix
+		// or without: an OPF may declare the Dublin Core namespace as its default one; a calibre
+		// `meta`; in the metadata or around it): a description left in the file is read with
+		// the new one, and the book shows both
+		remove_descriptions(&mut body);
+		remove_descriptions(&mut before);
+		remove_descriptions(&mut after);
 		if let Some(summary) = summary {
 			add.push(format!("<dc:description>{}</dc:description>", esc(summary)));
 		}
@@ -696,7 +710,7 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 
 	if let Some(date) = &changes.date {
 		// the publication date: modification dates (opf:event) stay
-		let re = Regex::new(r"(?s)\s*<dc:date\b([^>]*)>([^<]*)</dc:date>")
+		let re = Regex::new(r"(?s)\s*<(?:dc:)?date\b([^>]*)>([^<]*)</(?:dc:)?date>")
 			.expect("valid regex");
 		body = re
 			.replace_all(&body, |c: &regex::Captures| {
@@ -713,8 +727,11 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	}
 
 	if let Some(publisher) = &changes.publisher {
-		remove(&mut body, r"(?s)\s*<dc:publisher\b[^>]*>.*?</dc:publisher>");
-		remove(&mut body, r"\s*<dc:publisher\b[^>]*/>");
+		remove(
+			&mut body,
+			r"(?s)\s*<(?:dc:)?publisher\b[^>]*>.*?</(?:dc:)?publisher>",
+		);
+		remove(&mut body, r"\s*<(?:dc:)?publisher\b[^>]*/>");
 		if let Some(publisher) = publisher {
 			add.push(format!("<dc:publisher>{}</dc:publisher>", esc(publisher)));
 		}
@@ -757,14 +774,7 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	} else {
 		format!("{}\n    {}\n  ", body.trim_end(), add.join("\n    "))
 	};
-	Ok(format!(
-		"{}{}{}{}{}",
-		&opf[..whole.start()],
-		head,
-		body,
-		tail,
-		&opf[whole.end()..]
-	))
+	Ok(format!("{before}{head}{body}{tail}{after}"))
 }
 
 /// Writes the changes into an EPUB file (in place, through a temporary file)
@@ -1217,7 +1227,18 @@ fn verify_read_back(
 		}
 	}
 	if let Some(summary) = &changes.summary {
-		if written.summary.is_some() != summary.is_some() {
+		let squash = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+		let same = match (summary, written.summary.as_deref()) {
+			(None, None) => true,
+			// an EPUB's description comes back as it was written, whitespace aside: a second
+			// description left in the file is read with the new one, and the book shows both
+			(Some(expected), Some(found)) if format == EditableFormat::Epub => {
+				squash(expected) == squash(found)
+			},
+			(Some(_), Some(_)) => true,
+			_ => false,
+		};
+		if !same {
 			wrong.push("summary");
 		}
 	}
@@ -2130,7 +2151,8 @@ pub async fn suggest_for_book(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::intake::write::{pdf_keywords, write_cbz, write_epub};
+	use crate::intake::write::{descriptions_in, pdf_keywords, write_cbz, write_epub};
+	use crate::media::processor::{epub::EpubProcessor, MediaProcessor};
 	use std::io::Read;
 
 	fn model() -> media_metadata::Model {
@@ -2775,6 +2797,11 @@ mod tests {
 </package>"##;
 
 	fn readable_epub(path: &Path) {
+		epub_with_opf(path, BOOK_OPF);
+	}
+
+	/// An EPUB the reader can open, whose OPF is `opf`
+	fn epub_with_opf(path: &Path, opf: &str) {
 		let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
 		zip.start_file(
 			"mimetype",
@@ -2787,7 +2814,7 @@ mod tests {
 		zip.write_all(br#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#).unwrap();
 		zip.start_file("OEBPS/content.opf", SimpleFileOptions::default())
 			.unwrap();
-		zip.write_all(BOOK_OPF.as_bytes()).unwrap();
+		zip.write_all(opf.as_bytes()).unwrap();
 		zip.start_file("OEBPS/chapter.xhtml", SimpleFileOptions::default())
 			.unwrap();
 		zip.write_all(b"<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>c</title></head><body><p>Hello</p></body></html>").unwrap();
@@ -3281,5 +3308,254 @@ mod tests {
 		assert_eq!(rating_value(4.0), "4");
 		assert_eq!(rating_value(4.126), "4.13");
 		assert_eq!(rating_value(7.0), "5");
+	}
+
+	// ---- descriptions an OPF carries in forms the writers did not recognise: the description
+	// ---- of a book filed or edited was written twice, and the reader joined both
+
+	/// A text of `words` words that is nobody's: `word1 word2 ...`
+	fn some_words(words: usize) -> String {
+		(1..=words)
+			.map(|i| format!("word{i}"))
+			.collect::<Vec<_>>()
+			.join(" ")
+	}
+
+	/// `BOOK_OPF` with a description as some tools write it: the Dublin Core namespace is the
+	/// element's own default one, so it has no `dc:` prefix (the other fields keep theirs)
+	fn opf_with_a_native_description(text: &str) -> String {
+		BOOK_OPF.replace(
+			"<dc:language>",
+			&format!(
+				r#"<description xmlns="http://purl.org/dc/elements/1.1/">{text}</description><dc:language>"#
+			),
+		)
+	}
+
+	/// What the reader says a book's description is
+	fn read_summary(path: &Path) -> Option<String> {
+		EpubProcessor
+			.process_metadata(path, OrganizationMode::Metadata)
+			.expect("the book is read")
+			.expect("the book has metadata")
+			.summary
+	}
+
+	fn element_count(opf: &str, name: &str) -> usize {
+		Regex::new(&format!(r"<(?:dc:)?{name}\b"))
+			.unwrap()
+			.find_iter(opf)
+			.count()
+	}
+
+	#[test]
+	fn a_summary_replaces_every_description_of_the_opf_whatever_its_form() {
+		let changes = FileChanges {
+			summary: Some(Some("A new summary".into())),
+			..Default::default()
+		};
+		let forms = [
+			// no prefix: the Dublin Core namespace is the element's default one
+			opf_with_a_native_description(&some_words(40)),
+			// a calibre meta
+			BOOK_OPF.replace(
+				"<dc:language>",
+				&format!(
+					r#"<meta name="calibre:description" content="{}"/><dc:language>"#,
+					some_words(40)
+				),
+			),
+			// both, and two with the prefix
+			opf_with_a_native_description(&some_words(40)).replace(
+				"<dc:language>",
+				"<dc:description>one</dc:description><dc:description>two</dc:description><dc:language>",
+			),
+			// around the metadata block
+			BOOK_OPF.replace(
+				"  <metadata",
+				&format!("  <description>{}</description>\n  <metadata", some_words(40)),
+			),
+		];
+		for opf in forms {
+			let new = apply_opf_changes(&opf, &changes).expect("the OPF is edited");
+			check_xml(&new).unwrap();
+			assert_eq!(
+				descriptions_in(&new),
+				vec!["A new summary".to_string()],
+				"{new}"
+			);
+			// and the same edit again leaves the same OPF
+			assert_eq!(apply_opf_changes(&new, &changes).unwrap(), new);
+		}
+		// removing it leaves none
+		let removed = apply_opf_changes(
+			&opf_with_a_native_description(&some_words(40)),
+			&FileChanges {
+				summary: Some(None),
+				..Default::default()
+			},
+		)
+		.unwrap();
+		assert!(descriptions_in(&removed).is_empty(), "{removed}");
+	}
+
+	/// The book the owner saw: its own description has no prefix, a summary was saved, and the
+	/// book showed the old description and the new one, one after the other
+	#[test]
+	fn a_book_with_a_native_description_reads_the_new_summary_once_after_an_edit() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("book.epub");
+		epub_with_opf(&path, &opf_with_a_native_description(&some_words(40)));
+		assert_eq!(read_summary(&path), Some(some_words(40)));
+
+		let changes = FileChanges {
+			summary: Some(Some("A new summary".into())),
+			..Default::default()
+		};
+		write_epub_changes(&path, &changes).expect("the book is written");
+		assert_eq!(read_summary(&path).as_deref(), Some("A new summary"));
+		assert_eq!(descriptions_in(&opf_of(&path)).len(), 1);
+		// saved again: still one
+		write_epub_changes(&path, &changes).expect("the book is written again");
+		assert_eq!(read_summary(&path).as_deref(), Some("A new summary"));
+		assert_eq!(descriptions_in(&opf_of(&path)).len(), 1);
+	}
+
+	/// The owner's upload: the file's own description is long, so it stays, and the reviewed
+	/// description (the same text) is not written as a second one
+	#[test]
+	fn a_book_filed_with_its_own_description_reads_it_once() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("book.epub");
+		let text = some_words(40);
+		epub_with_opf(&path, &opf_with_a_native_description(&text));
+		// the language differs from the file's: the file is rewritten
+		let meta = FileMetadata {
+			title: Some("Notes from the End of Everything".into()),
+			authors: vec!["Robert Pantano".into()],
+			language: Some("es".into()),
+			description: Some(text.clone()),
+			..Default::default()
+		};
+		write_epub(&path, &meta).expect("the book is written");
+		assert!(opf_of(&path).contains("<dc:language>es</dc:language>"));
+		assert_eq!(read_summary(&path), Some(text.clone()));
+		// filed again (a retry after a stop): the same
+		write_epub(&path, &meta).expect("the book is written again");
+		assert_eq!(read_summary(&path), Some(text));
+		assert_eq!(descriptions_in(&opf_of(&path)).len(), 1);
+	}
+
+	#[test]
+	fn the_fields_a_tool_wrote_without_the_prefix_are_replaced_not_doubled() {
+		let dc = r#" xmlns="http://purl.org/dc/elements/1.1/""#;
+		let opf = BOOK_OPF
+			.replace(
+				"<dc:title>Notes from the End of Everything</dc:title>",
+				&format!("<title{dc}>Old title</title>"),
+			)
+			.replace(
+				"<dc:creator>Robert Pantano</dc:creator>",
+				&format!("<creator{dc}>Old Author</creator>"),
+			)
+			.replace(
+				"<dc:language>en</dc:language>",
+				&format!(
+					"<language{dc}>fr</language><publisher{dc}>Old Publisher</publisher><date{dc}>1999</date>"
+				),
+			)
+			.replace(
+				"<dc:subject>Level: General Reader</dc:subject>",
+				&format!("<subject{dc}>Old subject</subject>"),
+			);
+		let changes = FileChanges {
+			title: Some(Some("New title".into())),
+			writers: Some(vec!["New Author".into()]),
+			language: Some(Some("en".into())),
+			publisher: Some(Some("New Publisher".into())),
+			genres: Some(vec!["New subject".into()]),
+			date: Some(Some((2020, None, None))),
+			..Default::default()
+		};
+		let new = apply_opf_changes(&opf, &changes).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		for old in [
+			"Old title",
+			"Old Author",
+			">fr<",
+			"Old Publisher",
+			"Old subject",
+			"Physics &amp; Astronomy",
+			">1999<",
+		] {
+			assert!(!new.contains(old), "{old} is still there: {new}");
+		}
+		for name in [
+			"title",
+			"creator",
+			"language",
+			"publisher",
+			"subject",
+			"date",
+		] {
+			assert_eq!(element_count(&new, name), 1, "{name}: {new}");
+		}
+	}
+
+	#[test]
+	fn the_read_back_check_catches_a_second_description_left_in_a_book() {
+		let changes = FileChanges {
+			summary: Some(Some("The new summary".into())),
+			..Default::default()
+		};
+		let read = |summary: Option<&str>| crate::metadata::ProcessedMediaMetadata {
+			summary: summary.map(str::to_string),
+			..Default::default()
+		};
+		// one description, however the file's whitespace came back
+		assert!(verify_read_back(
+			&read(Some("The new summary")),
+			&changes,
+			EditableFormat::Epub
+		)
+		.is_ok());
+		assert!(verify_read_back(
+			&read(Some("The new\n summary ")),
+			&changes,
+			EditableFormat::Epub
+		)
+		.is_ok());
+		// the old description left next to the new one is read with it
+		for doubled in [
+			"Old text\nThe new summary",
+			"The new summary\nThe new summary",
+		] {
+			assert!(
+				verify_read_back(&read(Some(doubled)), &changes, EditableFormat::Epub)
+					.unwrap_err()
+					.contains("summary"),
+				"{doubled}"
+			);
+		}
+		// none where there should be one, and one where there should be none
+		assert!(verify_read_back(&read(None), &changes, EditableFormat::Epub).is_err());
+		let removed = FileChanges {
+			summary: Some(None),
+			..Default::default()
+		};
+		assert!(verify_read_back(
+			&read(Some("Left over")),
+			&removed,
+			EditableFormat::Epub
+		)
+		.is_err());
+		assert!(verify_read_back(&read(None), &removed, EditableFormat::Epub).is_ok());
+		// other formats keep their own way of storing a summary: only that there is one is checked
+		assert!(verify_read_back(
+			&read(Some("As the PDF says it")),
+			&changes,
+			EditableFormat::Pdf
+		)
+		.is_ok());
 	}
 }
