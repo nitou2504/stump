@@ -5,6 +5,7 @@ use sea_orm::{prelude::*, QuerySelect};
 use crate::{
 	data::{AuthContext, CoreContext},
 	object::book_club_book::BookClubBook,
+	query::book_club_discussion::verify_read_access,
 };
 
 #[derive(Default)]
@@ -21,6 +22,11 @@ impl BookClubBookQuery {
 			.one(conn)
 			.await?
 			.ok_or("Book not found")?;
+
+		// like the club's discussions: its members (anyone, for a public club) read its books
+		verify_read_access(&book.book_club_id, user, conn)
+			.await
+			.map_err(|_| "Book not found")?;
 
 		if let Some(ref entity_id) = book.book_entity_id {
 			// Note: _Technically_ this could also fail if the book doesn't exist, which is

@@ -4,7 +4,7 @@ use models::entity::{
 };
 use sea_orm::{prelude::*, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 
-use crate::data::CoreContext;
+use crate::data::{AuthContext, CoreContext};
 use crate::object::book_club_book::BookClubBook;
 
 #[derive(Debug, SimpleObject)]
@@ -56,8 +56,9 @@ impl BookClubDiscussion {
 				}
 
 				if let Some(ref book_entity_id) = book.book_entity_id {
-					let record = media::Entity::find_by_id(book_entity_id.clone())
-						.left_join(media_metadata::Entity)
+					// the title of the book only if the user can see it
+					let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+					let record = media::Entity::find_for_user(user)
 						.select_only()
 						.column(media::Column::Name)
 						.column(media_metadata::Column::Title)

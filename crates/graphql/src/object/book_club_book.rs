@@ -6,7 +6,7 @@ use models::{
 use sea_orm::{prelude::*, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
 
-use crate::data::CoreContext;
+use crate::data::{AuthContext, CoreContext};
 use crate::object::book_club_discussion::BookClubDiscussion;
 use crate::object::media::Media;
 
@@ -55,12 +55,16 @@ impl BookClubBook {
 			return Ok(None);
 		};
 
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let model = media::ModelWithMetadata::find_by_id(book_entity_id.clone())
-			.into_model::<media::ModelWithMetadata>()
-			.one(conn)
-			.await?;
+		// the book itself only if the user can see it (its library hidden from them or above their
+		// age restriction is as good as not there)
+		let model =
+			media::ModelWithMetadata::find_by_id_for_user(book_entity_id.clone(), user)
+				.into_model::<media::ModelWithMetadata>()
+				.one(conn)
+				.await?;
 
 		Ok(model.map(Media::from))
 	}

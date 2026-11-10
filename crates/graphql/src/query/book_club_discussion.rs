@@ -256,7 +256,8 @@ impl BookClubDiscussionQuery {
 	}
 }
 
-async fn verify_read_access(
+/// Fails unless the user may read in the club: the server owner, a member, or anyone for a public club
+pub(crate) async fn verify_read_access(
 	book_club_id: &str,
 	user: &AuthUser,
 	conn: &DatabaseConnection,
