@@ -1448,13 +1448,26 @@ export type IntakeGenreSuggestion = {
   value: Scalars['String']['output'];
 };
 
-/** An item of the uploader's "Add books" inbox */
+/**
+ * An item of the uploader's "Add books" inbox
+ *
+ * What it shows depends on who looks. An approver (the server owner, or anyone who manages
+ * libraries) sees it as the analysis made it. Whoever uploaded it, and may not file books
+ * themselves, sees it through their own limits: no folders, no destination, and similar books,
+ * duplicates and suggested tags only from books they can read (see `stump_core::intake::scope`).
+ */
 export type IntakeItem = {
   __typename?: 'IntakeItem';
   createdAt: Scalars['DateTime']['output'];
-  /** What will be filed: the proposal's defaults plus the uploader's edits */
+  /**
+   * What will be filed: the proposal's defaults plus the uploader's edits. For somebody who
+   * can't choose where a book goes, without the folder and the file names
+   */
   decision?: Maybe<IntakeDecision>;
-  /** Where each file goes, relative to the library root */
+  /**
+   * Where each file goes, relative to the library root. Only for approvers: it is the
+   * library's own layout, and which names exist is an answer about the library
+   */
   destination?: Maybe<IntakeDestination>;
   error?: Maybe<Scalars['String']['output']>;
   filedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -1465,17 +1478,32 @@ export type IntakeItem = {
   libraryName: Scalars['String']['output'];
   /** The type of the item's library */
   libraryType: LibraryType;
-  /** The books created by the scan after filing (empty until the scan has run) */
+  /**
+   * The books created by the scan after filing that the viewer can read (empty until the scan
+   * has run)
+   */
   mediaIds: Array<Scalars['String']['output']>;
   /** The uploaded file or folder name */
   name: Scalars['String']['output'];
-  /** What still keeps the decision from being filed (empty when it can be accepted) */
+  /**
+   * What still keeps the decision from being filed (empty when it can be accepted). For
+   * somebody who may not file books themselves, what they can fix
+   */
   problems: Array<Scalars['String']['output']>;
   /** What the server proposes (empty while analysing) */
   proposal?: Maybe<IntakeProposal>;
-  /** What filing did */
+  /**
+   * What filing did. For somebody who files nothing themselves, the paths are inside the
+   * library, not on the server's disk
+   */
   result?: Maybe<IntakeResult>;
+  /** What the approver wrote when sending it back */
+  reviewNote?: Maybe<Scalars['String']['output']>;
+  /** When an approver last decided on it */
+  reviewedAt?: Maybe<Scalars['DateTime']['output']>;
   state: IntakeState;
+  /** When it was sent for approval, while it waits there */
+  submittedAt?: Maybe<Scalars['DateTime']['output']>;
   /**
    * A library of its own for what the item looks like, when it sits in a book or mixed
    * library: the first manga or light novel library (by name) the viewer may use. Only
@@ -1483,6 +1511,16 @@ export type IntakeItem = {
    */
   suggestedLibrary?: Maybe<IntakeSuggestedLibrary>;
   updatedAt: Scalars['DateTime']['output'];
+  /** Who uploaded it */
+  uploader?: Maybe<ReaderProfile>;
+};
+
+/** A page of the items waiting for approval */
+export type IntakeItemPage = {
+  __typename?: 'IntakeItemPage';
+  nodes: Array<IntakeItem>;
+  /** How many items wait in all, not only on this page */
+  totalCount: Scalars['Int']['output'];
 };
 
 /** A single book, or a series (a folder or zip of volumes: manga, light novels) */
@@ -1490,6 +1528,15 @@ export enum IntakeKind {
   Book = 'BOOK',
   Series = 'SERIES'
 }
+
+export type IntakeLimitValues = {
+  __typename?: 'IntakeLimitValues';
+  maxFileBytes: Scalars['Int']['output'];
+  maxFilesPerRequest: Scalars['Int']['output'];
+  maxItems: Scalars['Int']['output'];
+  maxRequestBytes: Scalars['Int']['output'];
+  quotaBytes: Scalars['Int']['output'];
+};
 
 /** The descriptive metadata of an item, with where each value came from */
 export type IntakeMetadata = {
@@ -1621,10 +1668,26 @@ export enum IntakeState {
   Failed = 'FAILED',
   /** Written into the library */
   Filed = 'FILED',
+  /**
+   * An approver said yes and the files are being written into the library. It is claimed
+   * with one statement (only one of two approvals wins) and finished by a task that survives
+   * the request; after a restart it goes back to waiting for approval
+   */
+  Filing = 'FILING',
   /** Something important is missing or uncertain (author folder, genres, title...) */
   NeedsReview = 'NEEDS_REVIEW',
+  /**
+   * Sent by somebody who may not file books themselves, and waiting for an approver (the
+   * server owner, or anyone who manages libraries)
+   */
+  PendingApproval = 'PENDING_APPROVAL',
   /** Everything needed to file it is known and confident; it can be accepted as is */
-  Ready = 'READY'
+  Ready = 'READY',
+  /**
+   * An approver sent it back with a note (`reviewNote`): the uploader can change it and send
+   * it again
+   */
+  Rejected = 'REJECTED'
 }
 
 /** A library an item could be filed into instead, for what it looks like */
@@ -1632,6 +1695,34 @@ export type IntakeSuggestedLibrary = {
   __typename?: 'IntakeSuggestedLibrary';
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
+};
+
+/** What the viewer may upload now, and how much of it they have used */
+export type IntakeUploadLimits = {
+  __typename?: 'IntakeUploadLimits';
+  /** Whether the viewer files books themselves: there is nobody to send them to */
+  canFileDirectly: Scalars['Boolean']['output'];
+  /** Why not, when they are not */
+  closedReason?: Maybe<Scalars['String']['output']>;
+  /** The biggest single file */
+  maxFileBytes: Scalars['Int']['output'];
+  maxFilesPerRequest: Scalars['Int']['output'];
+  /** The most open items (not filed, discarded or sent back) */
+  maxItems: Scalars['Int']['output'];
+  /** The most bytes in one upload request */
+  maxRequestBytes: Scalars['Int']['output'];
+  openItems: Scalars['Int']['output'];
+  /**
+   * Whether the quota and the item limit hold for the viewer (not for somebody who files
+   * books themselves)
+   */
+  quotaApplies: Scalars['Boolean']['output'];
+  /** The most bytes of the viewer's books waiting in their inbox */
+  quotaBytes: Scalars['Int']['output'];
+  /** Whether uploads from the viewer are accepted now */
+  uploadsOpen: Scalars['Boolean']['output'];
+  /** The bytes waiting there now */
+  usedBytes: Scalars['Int']['output'];
 };
 
 /** How an upload of several files is grouped into inbox items */
@@ -3180,26 +3271,52 @@ export type Mutation = {
   finishSeriesProgress: Scalars['Int']['output'];
   generateLibraryThumbnails: Scalars['Boolean']['output'];
   /**
-   * Files ready items into their library. Items that fail keep their state and get an
-   * `error`; the others become `FILED`.
+   * Files ready items into their library, for somebody who files books themselves. Items that
+   * fail keep their state and get an `error`; the others become `FILED`.
    */
   intakeAccept: Array<IntakeItem>;
   /**
+   * Approves items waiting in the approval queue of libraries the approver can use. Each is
+   * filed in the background (`FILING`, then `FILED`); an item already being filed comes back
+   * as it is
+   */
+  intakeApprove: Array<IntakeItem>;
+  /**
    * Moves an item to another library (one the user can use) and analyses it again there: the
-   * proposal, the folder and the file names are made for the library the item is in
+   * proposal, the folder and the file names are made for the library the item is in. An
+   * approver can move an item that waits for approval, to a library its uploader can use too
    */
   intakeChangeLibrary: IntakeItem;
   /** Throws items away with their staged files. Returns how many were discarded. */
   intakeDiscard: Scalars['Int']['output'];
   /** Analyses an item again (e.g. after a failure, or to look it up online) */
   intakeReanalyse: IntakeItem;
-  /** Saves the uploader's review of an item (omitted fields keep their value) */
+  /**
+   * Sends an item of the approval queue back to its uploader with a note (`reviewNote`): they
+   * can change it and send it again
+   */
+  intakeReject: IntakeItem;
+  /**
+   * Saves a review of an item (omitted fields keep their value). The uploader reviews their
+   * own; an approver can also review an item that waits for approval. Somebody who needs
+   * approval can't choose the folder, the file names or the kind of series, their texts are
+   * plain and of a sensible length, and the age rating can't go down.
+   */
   intakeReview: IntakeItem;
   /**
-   * Uploads books into the user's inbox for a library. Each book (or each folder / .zip
-   * of volumes) becomes an item that is analysed right away; poll `intakeItems`.
+   * Sends ready items to be approved, for somebody who may not file books themselves. They
+   * wait in the approval queue (`PENDING_APPROVAL`) until an approver files or sends them back
+   */
+  intakeSubmit: Array<IntakeItem>;
+  /**
+   * Uploads books into the user's inbox for a library, for somebody who files books
+   * themselves. Each book (or each folder / .zip of volumes) becomes an item that is analysed
+   * right away; poll `intakeItems`. Everybody else uploads through `POST /api/v2/intake/upload`,
+   * which streams the files to disk within the limits.
    */
   intakeUpload: Array<IntakeItem>;
+  /** Takes items back from the approval queue, to change them */
+  intakeWithdraw: Array<IntakeItem>;
   /** Deletes the membership of the caller to the target book club */
   leaveBookClub: BookClubMember;
   /** Lock or unlock a discussion (Moderator+) */
@@ -3415,6 +3532,11 @@ export type Mutation = {
   /** Update the status of a suggestion (Admin+) */
   updateSuggestionStatus: BookClubBookSuggestion;
   updateUser: User;
+  /**
+   * Gives a user limits of their own for what they may upload (the ones left out follow the
+   * server's), or takes them away with all fields null
+   */
+  updateUserIntakeLimits: UserIntakeLimits;
   updateUserLockStatus: User;
   updateViewer: User;
   updateViewerPreferences: UserPreferences;
@@ -3888,6 +4010,11 @@ export type MutationIntakeAcceptArgs = {
 };
 
 
+export type MutationIntakeApproveArgs = {
+  ids: Array<Scalars['ID']['input']>;
+};
+
+
 export type MutationIntakeChangeLibraryArgs = {
   id: Scalars['ID']['input'];
   libraryId: Scalars['ID']['input'];
@@ -3905,9 +4032,20 @@ export type MutationIntakeReanalyseArgs = {
 };
 
 
+export type MutationIntakeRejectArgs = {
+  id: Scalars['ID']['input'];
+  note: Scalars['String']['input'];
+};
+
+
 export type MutationIntakeReviewArgs = {
   id: Scalars['ID']['input'];
   input: IntakeReviewInput;
+};
+
+
+export type MutationIntakeSubmitArgs = {
+  ids: Array<Scalars['ID']['input']>;
 };
 
 
@@ -3916,6 +4054,11 @@ export type MutationIntakeUploadArgs = {
   libraryId: Scalars['ID']['input'];
   mode?: IntakeUploadMode;
   relativePaths?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+
+export type MutationIntakeWithdrawArgs = {
+  ids: Array<Scalars['ID']['input']>;
 };
 
 
@@ -4339,6 +4482,12 @@ export type MutationUpdateSuggestionStatusArgs = {
 export type MutationUpdateUserArgs = {
   id: Scalars['ID']['input'];
   input: UpdateUserInput;
+};
+
+
+export type MutationUpdateUserIntakeLimitsArgs = {
+  input: UserIntakeLimitsInput;
+  userId: Scalars['ID']['input'];
 };
 
 
@@ -5053,16 +5202,24 @@ export type Query = {
    * most recent first
    */
   heldFiles: Array<HeldFile>;
-  /** Existing author folders (no `seriesKind`) or series folders, for the folder picker */
+  /**
+   * Existing author folders (no `seriesKind`) or series folders, for the folder picker of
+   * somebody who chooses where books go (an approver)
+   */
   intakeFolders: Array<IntakeFolder>;
   intakeItem?: Maybe<IntakeItem>;
   /**
-   * The items of the user's "Add books" inbox, newest first. By default everything but
-   * discarded items.
+   * The items of the user's "Add books" inbox, newest first (the latest 100 at most). By
+   * default everything but discarded items.
    */
   intakeItems: Array<IntakeItem>;
   /** The libraries the user can add books to */
   intakeLibraries: Array<Library>;
+  /**
+   * What the viewer may upload, how much of it they have used, and whether uploads are open
+   * for them now
+   */
+  intakeUploadLimits: IntakeUploadLimits;
   /** The tags the library uses (most used first), for the tag picker */
   intakeVocabulary: Array<IntakeVocabularyEntry>;
   jobById?: Maybe<Job>;
@@ -5158,6 +5315,13 @@ export type Query = {
   onDeck: PaginatedMediaResponse;
   /** The online lookups' settings (whether a Google Books API key is set) */
   onlineLookupSettings: OnlineLookupSettings;
+  /** How many items wait for approval in the libraries the viewer can use */
+  pendingIntakeCount: Scalars['Int']['output'];
+  /**
+   * The items waiting for approval in the libraries the viewer can use, oldest first, for the
+   * approvers' review page
+   */
+  pendingIntakeItems: IntakeItemPage;
   /** Return all metadata fetch records that are awaiting user review. */
   pendingMetadataMatches: Array<MetadataFetchRecord>;
   /** Post-processing tasks, most recently updated first */
@@ -5223,6 +5387,11 @@ export type Query = {
   uploadConfig: UploadConfig;
   userById: User;
   userCount: Scalars['Int']['output'];
+  /**
+   * The upload limits an admin gave a user, and what applies to them. A user can read their
+   * own; reading somebody else's takes managing users
+   */
+  userIntakeLimits: UserIntakeLimits;
   users: PaginatedUserResponse;
 };
 
@@ -5525,6 +5694,13 @@ export type QueryOnDeckArgs = {
 };
 
 
+export type QueryPendingIntakeItemsArgs = {
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  page?: Scalars['Int']['input'];
+  pageSize?: Scalars['Int']['input'];
+};
+
+
 export type QueryPostProcessingTasksArgs = {
   kind?: InputMaybe<PostProcessKind>;
   libraryId?: InputMaybe<Scalars['ID']['input']>;
@@ -5639,8 +5815,21 @@ export type QueryUserByIdArgs = {
 };
 
 
+export type QueryUserIntakeLimitsArgs = {
+  userId: Scalars['ID']['input'];
+};
+
+
 export type QueryUsersArgs = {
   pagination?: Pagination;
+};
+
+export type ReaderProfile = {
+  __typename?: 'ReaderProfile';
+  /** The address of the person's avatar, when they have one. It changes when they set a new one */
+  avatarUrl?: Maybe<Scalars['String']['output']>;
+  id: Scalars['String']['output'];
+  username: Scalars['String']['output'];
 };
 
 export type ReadingDeviceModel = {
@@ -6918,6 +7107,31 @@ export type User = {
 
 export type UserContinueReadingArgs = {
   pagination?: Pagination;
+};
+
+/** The limits that apply to somebody, and the ones an admin gave them */
+export type UserIntakeLimits = {
+  __typename?: 'UserIntakeLimits';
+  /** What applies to them now, from the server's limits and their own */
+  effective: IntakeLimitValues;
+  /** The user's own limit, in MB; empty follows the server's */
+  maxFileMb?: Maybe<Scalars['Int']['output']>;
+  maxFilesPerRequest?: Maybe<Scalars['Int']['output']>;
+  maxItems?: Maybe<Scalars['Int']['output']>;
+  quotaMb?: Maybe<Scalars['Int']['output']>;
+  userId: Scalars['ID']['output'];
+};
+
+/** The limits an admin gives a user of their own. Left out (null), a limit follows the server's */
+export type UserIntakeLimitsInput = {
+  /** The biggest file, in MB */
+  maxFileMb?: InputMaybe<Scalars['Int']['input']>;
+  /** The most files in one upload request */
+  maxFilesPerRequest?: InputMaybe<Scalars['Int']['input']>;
+  /** The most inbox items that are not filed, discarded or sent back */
+  maxItems?: InputMaybe<Scalars['Int']['input']>;
+  /** The most MB of their books that may wait in their inbox */
+  quotaMb?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type UserLoginActivity = {
