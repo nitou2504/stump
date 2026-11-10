@@ -103,6 +103,16 @@ fn write_atomically(dir: &Path, body: &[u8]) -> std::io::Result<()> {
 	result
 }
 
+/// When the app last wrote the state file in `dir`, as the file says it (`None` when there is no
+/// file, or it is not one of ours)
+pub fn state_written_at(dir: &Path) -> Option<DateTime<Utc>> {
+	let text = std::fs::read_to_string(dir.join(STATE_FILE)).ok()?;
+	let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+	DateTime::parse_from_rfc3339(value.get("written")?.as_str()?)
+		.ok()
+		.map(|at| at.with_timezone(&Utc))
+}
+
 /// The folder the state file goes in, when the edge is configured with one
 pub fn state_dir(config: &StumpConfig) -> Option<PathBuf> {
 	config.edge.as_ref().and_then(|edge| edge.state_directory())

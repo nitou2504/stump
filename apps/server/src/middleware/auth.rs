@@ -9,12 +9,13 @@ use axum::{
 	Json,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use graphql::data::{AuthContext, ServiceContext};
+use graphql::data::{AuthContext, EdgeRequest, ServiceContext};
 use models::{
 	entity::{
 		api_key::{self, APIKeyWithUser},
 		user::{self, AuthUser},
 	},
+	services::access as access_service,
 	shared::{
 		api_key::{APIKeyPermissions, API_KEY_PREFIX},
 		enums::UserPermission,
@@ -80,7 +81,7 @@ pub async fn auth_middleware(
 	State(ctx): State<AppState>,
 	HostExtractor(host_details): HostExtractor,
 	mut session: Session,
-	mut req: Request,
+	req: Request,
 	next: Next,
 ) -> Result<Response, impl IntoResponse> {
 	let req_headers = req.headers().clone();
@@ -108,11 +109,11 @@ pub async fn auth_middleware(
 		})?;
 
 	if let Some(user) = session_user {
-		req.extensions_mut().insert(AuthContext {
+		let auth = AuthContext {
 			user: inject_avatar_url(user, service),
 			api_key: None,
-		});
-		return Ok(next.run(req).await);
+		};
+		return authorize(&ctx, auth, &request_uri, req, next).await;
 	}
 
 	if cfg!(debug_assertions) {
@@ -189,8 +190,79 @@ pub async fn auth_middleware(
 
 	req_ctx.user = inject_avatar_url(req_ctx.user, service);
 
-	req.extensions_mut().insert(req_ctx);
+	authorize(&ctx, req_ctx, &request_uri, req, next).await
+}
 
+/// What a user who has to choose their own password is told on every request but the ones that
+/// let them
+const MUST_CHANGE_PASSWORD: &str =
+	"You must choose a new password before you can use anything else";
+
+/// The answer to the server owner on a request that came through the public edge. It is a `401`
+/// like any refusal of who somebody says they are, **without** the `Set-Cookie` that deletes the
+/// session cookie (`APIError::Unauthorized` sends one): the cookie is not tied to a port, so
+/// deleting it from the public address would sign the owner out of the LAN and the tailnet too
+fn owner_through_the_edge() -> Response {
+	let body = serde_json::json!({ "status": 401, "message": "Unauthorized" });
+	let mut response = (StatusCode::UNAUTHORIZED, Json(body)).into_response();
+	response
+		.headers_mut()
+		.insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+	response
+}
+
+/// Whether a user who has to choose a new password may use `path`: signing out and asking who they
+/// are (`/api/v2/auth/…`) and the GraphQL endpoint (whose handler lets through only `me` and the
+/// password change). The websocket and everything else are refused
+fn allowed_while_password_must_change(path: &str) -> bool {
+	path.starts_with("/api/v2/auth/")
+		|| path == "/api/graphql"
+		|| path == "/api/graphql/"
+}
+
+/// The last step of authenticating a request, for every way of signing in (a session, a token or
+/// an API key, Basic auth): who the user is is settled, now whether this request may go on.
+///
+/// - **The internet is never the owner.** A request that came through the public edge with the
+///   server owner's credentials is refused, whatever they are (a cookie that is not tied to a
+///   port reaches the public address too). Owner-only operations are also guarded one by one;
+///   this is the layer that cannot be forgotten.
+/// - A user whose password the owner set can use nothing until they choose their own.
+async fn authorize(
+	ctx: &AppState,
+	mut auth: AuthContext,
+	path: &str,
+	mut req: Request,
+	next: Next,
+) -> Result<Response, Response> {
+	let via_public = req
+		.extensions()
+		.get::<EdgeRequest>()
+		.is_some_and(|edge| edge.via_public);
+	if via_public && auth.user.is_server_owner {
+		return Err(owner_through_the_edge());
+	}
+
+	match access_service::must_change_password(ctx.conn.as_ref(), &auth.user.id).await {
+		Ok(true) => {
+			auth.user.must_change_password = true;
+			if !allowed_while_password_must_change(path) {
+				return Err(
+					APIError::Forbidden(MUST_CHANGE_PASSWORD.to_string()).into_response()
+				);
+			}
+		},
+		Ok(false) => {},
+		Err(error) => {
+			tracing::error!(?error, "Failed to check whether the password must change");
+			return Err(APIError::InternalServerError(
+				"Failed to check the account".to_string(),
+			)
+			.into_response());
+		},
+	}
+
+	req.extensions_mut().insert(auth);
 	Ok(next.run(req).await)
 }
 
@@ -216,7 +288,7 @@ impl APIKeyPath {
 pub async fn api_key_middleware(
 	State(ctx): State<AppState>,
 	Path(params): Path<APIKeyPath>,
-	mut req: Request,
+	req: Request,
 	next: Next,
 ) -> Result<Response, impl IntoResponse> {
 	let Some(api_key) = params.get_key() else {
@@ -233,12 +305,18 @@ pub async fn api_key_middleware(
 		.await
 		.map_err(|e| e.into_response())?;
 
-	req.extensions_mut().insert(AuthContext {
-		user,
-		api_key: Some(api_key),
-	});
-
-	Ok(next.run(req).await)
+	let path = req.uri().path().to_string();
+	authorize(
+		&ctx,
+		AuthContext {
+			user,
+			api_key: Some(api_key),
+		},
+		&path,
+		req,
+		next,
+	)
+	.await
 }
 
 pub async fn validate_api_key(

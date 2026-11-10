@@ -10,6 +10,7 @@ path = "bin/main.rs"
 [dependencies]
 stump_core = { path = "../../core" }
 models = { path = "../models" }
+chrono = { workspace = true }
 migrations = { path = "../migrations" }
 
 sea-orm = { workspace = true }

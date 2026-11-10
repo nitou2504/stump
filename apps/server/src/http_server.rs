@@ -1,7 +1,9 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use apalis::prelude::*;
-use axum::{extract::connect_info::Connected, serve::IncomingStream, Extension, Router};
+use axum::{
+	extract::connect_info::Connected, http::Uri, serve::IncomingStream, Extension, Router,
+};
 use stump_core::{
 	config::{bootstrap_config_dir, logging::init_tracing},
 	job::dispatch_job,
@@ -84,6 +86,36 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 	let server_ctx = core.get_context();
 	let app_state = server_ctx.arced();
 
+	// Public access: say whether it is set up (never the key), write the file the edge follows
+	// before the first request is served, and keep pruning and refreshing it in the background
+	match config.edge.as_ref() {
+		Some(edge) => tracing::info!(
+			has_key = edge.usable_key().is_some(),
+			has_public_url = edge.public_base_url().is_some(),
+			has_state_dir = edge.state_directory().is_some(),
+			require_pass = edge.require_pass,
+			binds_person = edge.binds_person,
+			"Public access is configured"
+		),
+		None => tracing::info!("Public access is not configured (no STUMP_EDGE_* settings)"),
+	}
+	match stump_core::access::state::publish_if_configured(
+		server_ctx.conn.as_ref(),
+		&config,
+	)
+	.await
+	{
+		Ok(true) => tracing::info!("Public access: the edge's state file was written"),
+		Ok(false) => {},
+		Err(error) => {
+			tracing::error!(?error, "Public access: the edge's state file was not written");
+		},
+	}
+	stump_core::access::state::spawn_housekeeping(
+		server_ctx.conn.clone(),
+		server_ctx.config.clone(),
+	);
+
 	// Keeps the books of every smart list worked out in the background, so a reader finds them
 	// ready: at start-up, and a few seconds after the catalog stops changing (see
 	// `graphql::query::smart_list_cache`)
@@ -119,7 +151,17 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 		.layer(get_session_layer(app_state.clone()))
 		.layer(cors_layer)
 		.layer(CompressionLayer::new().compress_when(compression_predicate))
-		.layer(TraceLayer::new_for_http())
+		.layer(
+			TraceLayer::new_for_http()
+				.make_span_with(|request: &axum::http::Request<_>| {
+					tracing::debug_span!(
+						"request",
+						method = %request.method(),
+						uri = %loggable_uri(request.uri()),
+						version = ?request.version(),
+					)
+				}),
+		)
 		.layer(Extension(oidc_provider));
 
 	let shutdown_notify = Arc::new(Notify::new());
@@ -185,6 +227,17 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 	Ok(())
 }
 
+/// The address of a request as the trace spans record it. An invite link carries its token in the
+/// address (`/api/_i/<token>`, or `?t=` when it was pasted), so nothing after `/api/_i/` is kept:
+/// a token must not end up in a log
+pub(crate) fn loggable_uri(uri: &Uri) -> String {
+	if uri.path().starts_with("/api/_i/") {
+		"/api/_i/-hidden-".to_string()
+	} else {
+		uri.to_string()
+	}
+}
+
 #[allow(dead_code)]
 pub async fn bootstrap_http_server_config() -> Result<StumpConfig, EntryError> {
 	// Get STUMP_CONFIG_DIR to bootstrap startup
@@ -214,5 +267,27 @@ impl Connected<IncomingStream<'_, TcpListener>> for StumpRequestInfo {
 		StumpRequestInfo {
 			ip_addr: target.remote_addr().ip(),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn an_invite_token_is_never_in_a_logged_address() {
+		for uri in [
+			"/api/_i/abcdefghijklmnopqrstuv",
+			"/api/_i/",
+			"/api/_i/?t=abcdefghijklmnopqrstuv",
+			"https://g3.test/api/_i/abcdefghijklmnopqrstuv?x=1",
+		] {
+			let uri: Uri = uri.parse().unwrap();
+			let logged = loggable_uri(&uri);
+			assert_eq!(logged, "/api/_i/-hidden-");
+			assert!(!logged.contains("abcdefghij"));
+		}
+		let other: Uri = "/api/v2/ping?x=1".parse().unwrap();
+		assert_eq!(loggable_uri(&other), "/api/v2/ping?x=1");
 	}
 }
