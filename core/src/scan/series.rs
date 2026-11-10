@@ -467,8 +467,6 @@ mod tests {
 
 	use ::tests::{db::test_database, fake_data};
 	use apalis::prelude::MemoryStorage;
-	use models::entity::job;
-	use sea_orm::{ConnectionTrait, DbBackend, Schema};
 	use tokio::sync::broadcast;
 
 	use super::*;
@@ -477,10 +475,6 @@ mod tests {
 	#[tokio::test]
 	async fn test_finalize_without_library_config_or_owner() {
 		let db = test_database().await;
-		let schema = Schema::new(DbBackend::Sqlite);
-		db.execute(&schema.create_table_from_entity(job::Entity))
-			.await
-			.unwrap();
 		let library = fake_data::Library::default().insert(&db).await;
 		let mut config = library
 			.find_related(library_config::Entity)

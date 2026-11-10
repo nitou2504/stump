@@ -575,14 +575,13 @@ async fn test_retention_and_expired_books() {
 #[tokio::test]
 async fn test_automatic_purge_job() {
 	let setup = setup().await;
-	// the job's own tables, which the shared test database leaves out
+	// the log's table, which the shared test database leaves out (it has the jobs')
 	let schema = sea_orm::Schema::new(sea_orm::DbBackend::Sqlite);
-	for table in [
-		schema.create_table_from_entity(models::entity::job::Entity),
-		schema.create_table_from_entity(models::entity::log::Entity),
-	] {
-		setup.conn.execute(&table).await.unwrap();
-	}
+	setup
+		.conn
+		.execute(&schema.create_table_from_entity(models::entity::log::Entity))
+		.await
+		.unwrap();
 	let conn = Arc::new(setup.conn.clone());
 	let now = Utc::now();
 	assert!(purge_is_overdue(conn.as_ref(), now).await.unwrap());

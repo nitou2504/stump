@@ -869,11 +869,6 @@ mod tests {
 	#[tokio::test]
 	async fn skips_books_a_provider_already_answered() {
 		let conn = ::tests::db::test_database().await;
-		// the fetch records' table, which the shared test database leaves out
-		let schema = sea_orm::Schema::new(sea_orm::DbBackend::Sqlite);
-		conn.execute(&schema.create_table_from_entity(metadata_fetch_record::Entity))
-			.await
-			.unwrap();
 		let library = fake_data::Library::default().insert(&conn).await;
 		let series = fake_data::Series {
 			library_id: Some(library.id.clone()),
