@@ -1626,6 +1626,15 @@
         "items": "Items",
         "settings": "Settings"
       },
+      "moderation": {
+        "makePrivate": "Make Private",
+        "delete": "Delete",
+        "unpublishTitle": "Make This List Private?",
+        "unpublishDescription": "“{{name}}” is a public list by {{creator}}. Afterwards only they will see it.",
+        "unpublishConfirm": "Make Private",
+        "unpublishDone": "“{{name}}” is private now",
+        "unpublishError": "Failed to make the list private"
+      },
       "layout": {
         "missingIdError": "This scene requires an ID in the URL",
         "smartListNotFound": "Smart List Not Found",

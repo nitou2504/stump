@@ -54,9 +54,9 @@ export default function UserSmartListLayout() {
 
 	/**
 	 * The access role of the current user for this smart list. The server says who may change a
-	 * list (`canEdit`: the user who made it, and the server owner for a public list of someone
-	 * else); everyone else reads it. This is used to determine what actions the user can take on
-	 * the list
+	 * list (`canEdit`: the user who made it); everyone else reads it, the server owner too (who
+	 * can only take a public list of someone else back to private, or delete it: the header has
+	 * the menu for that). This is used to determine what actions the user can take on the list
 	 *
 	 * TODO: Support actual roles from the backend, i.e. Writer, CoCreator, Creator, Reader
 	 */

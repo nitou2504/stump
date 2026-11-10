@@ -388,6 +388,41 @@ export function useUpdateSmartList({ id, list }: { id: string; list?: SmartListP
 	}
 }
 
+/**
+ * Takes someone else's public smart list back to private: what the server owner may do with a
+ * list of a friend (moderation), apart from deleting it. The server applies the visibility only,
+ * so the rest of the input is just what the mutation needs to be well formed. The lists in the
+ * sidebar and on the lists page are refreshed; the list itself is not (it is not the server
+ * owner's to see once it is private, so the page it was on has to be left first)
+ */
+export function useUnpublishSmartList(list?: SmartListParsed) {
+	const { sdk } = useSDK()
+	const client = useQueryClient()
+	const { mutateAsync, isPending } = useGraphQLMutation(smartListUpdateMutation, {
+		mutationKey: [sdk.cacheKeys.smartListUpdate, list?.id, 'unpublish'],
+		onSuccess: () => {
+			client.invalidateQueries({ queryKey: [sdk.cacheKeys.smartLists] })
+		},
+	})
+
+	const unpublish = useCallback(async () => {
+		if (!list) return
+		await mutateAsync({
+			id: list.id,
+			input: {
+				name: list.name,
+				description: list.description,
+				defaultGrouping: list.defaultGrouping,
+				joiner: list.joiner?.toUpperCase() as typeof list.joiner,
+				filters: [],
+				visibility: EntityVisibility.Private,
+			},
+		})
+	}, [mutateAsync, list])
+
+	return { unpublish, isPending }
+}
+
 const setVisibilityMutation = graphql(`
 	mutation SetSmartListsVisibility($ids: [ID!]!, $visibility: EntityVisibility!) {
 		setSmartListsVisibility(ids: $ids, visibility: $visibility) {

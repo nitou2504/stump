@@ -1262,6 +1262,15 @@
         "items": "Ítems",
         "settings": "Ajustes"
       },
+      "moderation": {
+        "makePrivate": "Hacer privada",
+        "delete": "Eliminar",
+        "unpublishTitle": "¿Hacer privada esta lista?",
+        "unpublishDescription": "“{{name}}” es una lista pública de {{creator}}. Después solo esa persona la verá.",
+        "unpublishConfirm": "Hacer privada",
+        "unpublishDone": "“{{name}}” ahora es privada",
+        "unpublishError": "No se pudo hacer privada la lista"
+      },
       "layout": {
         "missingIdError": "Esta escena requiere un ID en la URL",
         "smartListNotFound": "Lista inteligente no encontrada",
