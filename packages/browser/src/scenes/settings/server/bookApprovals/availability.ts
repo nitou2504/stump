@@ -1,6 +1,6 @@
 /**
  * "Book approvals" (the books other people added, waiting for the owner or a library manager to
- * look at them) is built in pieces. Until it is finished the settings don't list it and its route
- * goes home. The package that finishes it (D2) turns this on.
+ * look at them): the settings list the page and the settings button shows how many wait. Turn it
+ * off to take the page out of the build: its route then goes home.
  */
-export const BOOK_APPROVALS_AVAILABLE = false as boolean
+export const BOOK_APPROVALS_AVAILABLE = true as boolean

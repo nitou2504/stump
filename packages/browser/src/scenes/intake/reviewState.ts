@@ -127,9 +127,15 @@ export function groupInbox(items: IntakeItemData[]): InboxGroups {
 	return groups
 }
 
-/** The ids "Accept all ready" files: ready, nothing blocking, no duplicate warning */
+/**
+ * The ids "Add all ready" (or "Send all ready") takes: ready, nothing blocking, no duplicate
+ * warning, and not a book an approver sent back (that one goes again by itself, once what the
+ * note asks for is done)
+ */
 export function acceptableIds(items: IntakeItemData[]) {
-	return items.filter((item) => isReady(item) && !needsAttention(item)).map(({ id }) => id)
+	return items
+		.filter((item) => isReady(item) && !needsAttention(item) && !isSentBack(item))
+		.map(({ id }) => id)
 }
 
 /** How often the inbox is read while something in it is moving (ms) */

@@ -9,26 +9,34 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	acceptableIds,
+	ageRatingHides,
 	chosenTags,
 	confidenceLevel,
 	destinationPaths,
 	effectiveGenres,
 	fieldSource,
+	formatBytes,
 	genreChips,
 	genresDiffer,
 	groupInbox,
 	isIntakeFile,
+	isSentBack,
 	needsAttention,
 	parseAuthors,
 	parseNumber,
 	planUploads,
+	POLL_FAST_MS,
+	POLL_SLOW_MS,
+	pollInterval,
 	shouldPoll,
 	sourceLabel,
 	tagKind,
 	tagWhy,
 	toggleGenre,
 	typedSeriesKind,
+	type UploadLimits,
 	uploadPercent,
+	uploadProblem,
 	weakGuesses,
 } from '../reviewState'
 import { item } from './fixtures'
@@ -275,5 +283,172 @@ describe('typedSeriesKind', () => {
 		}
 		expect(typedSeriesKind(undefined)).toBeNull()
 		expect(typedSeriesKind(null)).toBeNull()
+	})
+})
+
+describe('the inbox of somebody who needs approval', () => {
+	const sentBack = (overrides = {}) =>
+		item({ reviewNote: 'The author is spelled wrong', state: IntakeState.Rejected, ...overrides })
+
+	it('tells a book an approver sent back, changed or not', () => {
+		expect(isSentBack(sentBack())).toBe(true)
+		// a change makes it ready or in need of a look again, the note stays until it is sent anew
+		expect(isSentBack(item({ reviewNote: 'Fix it', state: IntakeState.Ready }))).toBe(true)
+		expect(isSentBack(item({ reviewNote: 'Fix it', state: IntakeState.NeedsReview }))).toBe(true)
+		expect(isSentBack(item())).toBe(false)
+		expect(isSentBack(item({ reviewNote: null }))).toBe(false)
+		// a book that is on its way to the library, or in it, is not "sent back" any more
+		expect(isSentBack(item({ reviewNote: 'Old note', state: IntakeState.PendingApproval }))).toBe(
+			false,
+		)
+		expect(isSentBack(item({ reviewNote: 'Old note', state: IntakeState.Filed }))).toBe(false)
+	})
+
+	it('groups what waits for an approver, what is being filed and what was sent back', () => {
+		const groups = groupInbox([
+			item({ id: 'ready' }),
+			item({ id: 'waiting', state: IntakeState.PendingApproval }),
+			item({ id: 'filing', state: IntakeState.Filing }),
+			sentBack({ id: 'back' }),
+			item({ id: 'edited', reviewNote: 'Fix it', state: IntakeState.Ready }),
+			item({ id: 'filed', state: IntakeState.Filed }),
+			item({ id: 'check', state: IntakeState.NeedsReview }),
+		])
+
+		expect(groups.ready.map((i) => i.id)).toEqual(['ready'])
+		expect(groups.waiting.map((i) => i.id)).toEqual(['waiting'])
+		expect(groups.filing.map((i) => i.id)).toEqual(['filing'])
+		expect(groups.sentBack.map((i) => i.id)).toEqual(['back', 'edited'])
+		expect(groups.filed.map((i) => i.id)).toEqual(['filed'])
+		expect(groups.toReview.map((i) => i.id)).toEqual(['check'])
+	})
+
+	it('does not offer a sent back book in "send all ready"', () => {
+		// it goes again one by one, after what the note asks for: changed or not
+		const edited = item({ id: 'c', reviewNote: 'Fix it', state: IntakeState.Ready })
+
+		expect(acceptableIds([item({ id: 'a' }), sentBack({ id: 'b' }), edited])).toEqual(['a'])
+	})
+
+	it('polls fast while a book is filed after its approval, slowly while it waits for one', () => {
+		expect(pollInterval([item()])).toBe(false)
+		expect(pollInterval([item({ state: IntakeState.Analysing })])).toBe(POLL_FAST_MS)
+		expect(pollInterval([item({ state: IntakeState.Filing })])).toBe(POLL_FAST_MS)
+		expect(pollInterval([item({ state: IntakeState.PendingApproval })])).toBe(POLL_SLOW_MS)
+		// what moves wins over what waits
+		expect(
+			pollInterval([
+				item({ state: IntakeState.PendingApproval }),
+				item({ state: IntakeState.Analysing }),
+			]),
+		).toBe(POLL_FAST_MS)
+		expect(shouldPoll([item({ state: IntakeState.Filing })])).toBe(true)
+	})
+})
+
+describe('the upload pre-check', () => {
+	const MB = 1024 * 1024
+	const limits: UploadLimits = {
+		maxFileBytes: 100 * MB,
+		maxFilesPerRequest: 5,
+		maxItems: 10,
+		maxRequestBytes: 300 * MB,
+		openItems: 2,
+		quotaApplies: true,
+		quotaBytes: 1000 * MB,
+		uploadsOpen: true,
+		usedBytes: 100 * MB,
+	}
+	const file = (name: string, mb: number) => ({ name, size: mb * MB }) as File
+	const batch = (files: File[], isFolder = false) => ({
+		files,
+		isFolder,
+		label: files[0]?.name ?? '',
+		totalBytes: files.reduce((sum, f) => sum + f.size, 0),
+	})
+
+	it('lets an upload that fits go', () => {
+		expect(uploadProblem(batch([file('a.epub', 10)]), limits)).toBeUndefined()
+	})
+
+	it("says why uploads are closed, in the server's words when it gave any", () => {
+		expect(
+			uploadProblem(batch([file('a.epub', 1)]), {
+				...limits,
+				closedReason: 'The owner has turned uploads off',
+				uploadsOpen: false,
+			}),
+		).toBe('The owner has turned uploads off')
+		expect(uploadProblem(batch([file('a.epub', 1)]), { ...limits, uploadsOpen: false })).toBe(
+			'Uploads are closed right now',
+		)
+	})
+
+	it('refuses a file over the biggest a book may be, naming it', () => {
+		const problem = uploadProblem(batch([file('small.epub', 1), file('huge.cbz', 150)]), limits)
+
+		expect(problem).toContain('huge.cbz')
+		expect(problem).toContain('150.0 MB')
+		expect(problem).toContain('100.0 MB')
+	})
+
+	it('refuses too many files in one go, for a folder and for loose files', () => {
+		const many = Array.from({ length: 6 }, (_, i) => file(`v${i}.cbz`, 1))
+
+		expect(uploadProblem(batch(many, true), limits)).toBe('A folder can hold at most 5 files')
+		expect(uploadProblem(batch(many), limits)).toBe('An upload can hold at most 5 files')
+	})
+
+	it('refuses more than one request can hold, though every file is small enough', () => {
+		const files = Array.from({ length: 4 }, (_, i) => file(`v${i}.cbz`, 90))
+
+		expect(uploadProblem(batch(files, true), limits)).toContain('smaller parts')
+	})
+
+	it('refuses what does not fit in the room left in the inbox', () => {
+		const problem = uploadProblem(batch([file('a.epub', 60)]), { ...limits, usedBytes: 980 * MB })
+
+		expect(problem).toContain('20.0 MB free')
+		expect(problem).toContain('60.0 MB')
+	})
+
+	it('refuses a book when the inbox already holds as many as it may', () => {
+		expect(uploadProblem(batch([file('a.epub', 1)]), { ...limits, openItems: 10 })).toBe(
+			'Your inbox is full (10 books): send or discard some first',
+		)
+	})
+
+	it('does not hold the quota against somebody it does not apply to', () => {
+		const unlimited = { ...limits, openItems: 10, quotaApplies: false, usedBytes: 5000 * MB }
+
+		expect(uploadProblem(batch([file('a.epub', 60)]), unlimited)).toBeUndefined()
+	})
+})
+
+describe('an age rating and the person who sent the book', () => {
+	it('hides a book rated above the limit', () => {
+		expect(ageRatingHides(18, { age: 13, restrictOnUnset: false })).toBe('hidden')
+		expect(ageRatingHides(13, { age: 13, restrictOnUnset: false })).toBeNull()
+		expect(ageRatingHides(0, { age: 13, restrictOnUnset: true })).toBeNull()
+	})
+
+	it('hides a book with no rating only from somebody who reads rated books only', () => {
+		expect(ageRatingHides(null, { age: 13, restrictOnUnset: true })).toBe('unrated')
+		expect(ageRatingHides(undefined, { age: 13, restrictOnUnset: true })).toBe('unrated')
+		expect(ageRatingHides(null, { age: 13, restrictOnUnset: false })).toBeNull()
+	})
+
+	it('has nothing to say when the person has no limit, or it is not known', () => {
+		expect(ageRatingHides(18, null)).toBeNull()
+		expect(ageRatingHides(18, undefined)).toBeNull()
+	})
+})
+
+describe('sizes', () => {
+	it('writes bytes in the unit that reads best', () => {
+		expect(formatBytes(500)).toBe('1 KB')
+		expect(formatBytes(2048)).toBe('2 KB')
+		expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB')
+		expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB')
 	})
 })
