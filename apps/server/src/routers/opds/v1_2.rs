@@ -13,7 +13,7 @@ use futures_util::StreamExt;
 use graphql::{data::AuthContext, pagination::OffsetPagination};
 use models::{
 	domain::reading_progress::compute_page_based_percentage,
-	entity::{library, media, reading_session, series, series_metadata},
+	entity::{library, media, reading_session, series},
 	services::reading_progress::{upsert_reading_session, NormalizedProgression},
 	shared::image_processor_options::{ImageProcessorOptions, SupportedImageFormat},
 };
@@ -606,8 +606,7 @@ async fn get_series(
 	let search_cpy = search.clone();
 	let series = series::Entity::find_for_user(&user)
 		.apply_if(search_cpy, |query, search| {
-			query
-				.left_join(series_metadata::Entity)
+			series::Entity::with_metadata_for_user(query, &user)
 				.filter(graphql::filter::search::series_search_condition(&search))
 		})
 		.order_by_asc(series::Column::Name)
@@ -618,8 +617,7 @@ async fn get_series(
 	let search_cpy = search.clone();
 	let count = series::Entity::find_for_user(&user)
 		.apply_if(search_cpy, |query, search| {
-			query
-				.left_join(series_metadata::Entity)
+			series::Entity::with_metadata_for_user(query, &user)
 				.filter(graphql::filter::search::series_search_condition(&search))
 		})
 		.count(ctx.conn.as_ref())
@@ -748,12 +746,14 @@ async fn search_feed(
 	}
 
 	// Search series
-	let series = series::Entity::find_for_user(&user)
-		.left_join(series_metadata::Entity)
-		.filter(graphql::filter::search::series_search_condition(&search))
-		.order_by_asc(series::Column::Name)
-		.all(ctx.conn.as_ref())
-		.await?;
+	let series = series::Entity::with_metadata_for_user(
+		series::Entity::find_for_user(&user),
+		&user,
+	)
+	.filter(graphql::filter::search::series_search_condition(&search))
+	.order_by_asc(series::Column::Name)
+	.all(ctx.conn.as_ref())
+	.await?;
 	for s in series {
 		entries.push(
 			OPDSEntryBuilder::<series::Model>::new(s, req.api_key())

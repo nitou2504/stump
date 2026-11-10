@@ -109,6 +109,17 @@ impl Entity {
 			})
 	}
 
+	/// Joins the series metadata, to filter on it (e.g. a search on the title). [`Self::find_for_user`]
+	/// already joins it for age-restricted users, and joining it twice is an SQL error ("ambiguous
+	/// column name"), so this joins it only when `select` doesn't have it yet.
+	pub fn with_metadata_for_user(select: Select<Entity>, user: &AuthUser) -> Select<Entity> {
+		if user.age_restriction.is_some() {
+			select
+		} else {
+			select.left_join(series_metadata::Entity)
+		}
+	}
+
 	pub fn find_series_ident_for_user_and_id(
 		user: &AuthUser,
 		id: String,
@@ -307,6 +318,28 @@ mod tests {
 			stmt_str,
 			r#"SELECT  FROM "series" LEFT JOIN "series_metadata" ON "series"."id" = "series_metadata"."series_id" WHERE "series"."deleted_at" IS NULL AND "series"."library_id" NOT IN (SELECT "library_id" FROM "library_exclusions" WHERE "library_exclusions"."user_id" = '42') AND "series_metadata"."age_rating" IS NOT NULL AND "series_metadata"."age_rating" <= 18"#
 		);
+	}
+
+	#[test]
+	fn with_metadata_for_user_joins_the_metadata_exactly_once() {
+		let join = r#"LEFT JOIN "series_metadata""#;
+
+		let user = get_default_user();
+		let select = Entity::with_metadata_for_user(Entity::find_for_user(&user), &user);
+		assert_eq!(select_no_cols_to_string(select).matches(join).count(), 1);
+
+		let mut restricted = get_default_user();
+		restricted.age_restriction = Some(age_restriction::Model {
+			id: 1,
+			age: 13,
+			restrict_on_unset: false,
+			user_id: restricted.id.clone(),
+		});
+		let select = Entity::with_metadata_for_user(
+			Entity::find_for_user(&restricted),
+			&restricted,
+		);
+		assert_eq!(select_no_cols_to_string(select).matches(join).count(), 1);
 	}
 
 	#[test]

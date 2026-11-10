@@ -274,6 +274,8 @@ impl From<CoreError> for APIError {
 			CoreError::IoError(err) => APIError::InternalServerError(err.to_string()),
 			CoreError::MigrationError(err) => APIError::InternalServerError(err),
 			CoreError::Unknown(err) => APIError::InternalServerError(err),
+			// e.g. an OPDS `page_size` of 0: the client's mistake, not a failure of the server
+			CoreError::BadRequest(err) => APIError::BadRequest(err),
 			CoreError::Utf8ConversionError(err) => {
 				APIError::InternalServerError(err.to_string())
 			},
