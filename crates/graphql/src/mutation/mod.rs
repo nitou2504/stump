@@ -19,6 +19,7 @@ mod metadata_provider;
 mod notifier;
 mod post_processing;
 mod reading_device;
+mod reading_history;
 mod reading_journal;
 mod reading_list;
 pub mod reading_progress;
@@ -55,6 +56,7 @@ use metadata_provider::MetadataProviderMutation;
 use notifier::NotifierMutation;
 use post_processing::PostProcessingMutation;
 use reading_device::ReadingDeviceMutation;
+use reading_history::ReadingHistoryMutation;
 use reading_journal::ReadingJournalMutation;
 use reading_list::ReadingListMutation;
 use reading_progress::ReadProgressMutation;
@@ -123,6 +125,7 @@ struct ReadingRelatedMutation(
 	ReadingSessionMutation,
 	ReadingJournalMutation,
 	ReadingDeviceMutation,
+	ReadingHistoryMutation,
 );
 
 #[derive(async_graphql::MergedObject, Default)]

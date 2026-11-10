@@ -1055,6 +1055,23 @@ input FilterableArrangementEntityLinkInput {
 	links: [FilterableArrangementEntityLink!]! = []
 }
 
+"A book the reader has finished: one read of it (a book read twice is listed twice)"
+type FinishedReading {
+	media: Media!
+	"Which read of the book it is, 1 for the first"
+	readthroughNumber: Int!
+	"The logical day the reader started this read"
+	startedOn: NaiveDate!
+	"The logical day the reader finished this read"
+	finishedOn: NaiveDate!
+}
+
+"A page of the books a reader has finished"
+type FinishedReadingPage {
+	nodes: [FinishedReading!]!
+	pageInfo: OffsetPaginationInfo!
+}
+
 """
 A resize option which will resize the image to fit within the given dimensions,
 maintaining the aspect ratio.
@@ -3271,6 +3288,13 @@ type Mutation {
 	upsertReadingDevice(id: String!, name: String!): ReadingDeviceModel!
 	"Deletes a reading device owned by the authenticated user"
 	deleteReadingDevice(deviceId: Int!): Boolean!
+	"""
+	Lets everyone on the server see what the authenticated user is reading now and has
+	finished, or stops it (the next request of anyone else gets nothing). It changes the
+	authenticated user's own setting and nobody else's: there is no way to name another user.
+	A person decides it for themselves, so an API key can't
+	"""
+	updateMyReadingPrivacy(shareReadingHistory: Boolean!): ReadingPrivacy!
 }
 
 """
@@ -4079,6 +4103,29 @@ type Query {
 	private and isn't the current user's, the same error is returned.
 	"""
 	readingListById(id: ID!): ReadingList!
+	"""
+	What the authenticated user lets the other people on the server see of their reading. It
+	is nothing until they say so
+	"""
+	myReadingPrivacy: ReadingPrivacy!
+	"""
+	The people, other than the authenticated user, who let everyone on the server see what
+	they are reading and have finished, by name. People who were deleted or locked are left
+	out
+	"""
+	readersSharingHistory: [ReaderProfile!]!
+	"""
+	The reading history of a person: the authenticated user's own when `userId` is left out,
+	or the history of somebody who lets everyone see it. Everything in it is what the
+	authenticated user may see: the books they may read, and nothing else.
+	
+	# Returns
+	
+	The history. If the person doesn't exist, never shared theirs, stopped sharing, or was
+	deleted or locked, the same error is returned for all of them. Nobody can read a history
+	that isn't shared, the server owner included.
+	"""
+	readingHistory(userId: ID): ReadingHistory!
 	"List the custom emojis available on this server"
 	customEmojis: [CustomEmoji!]!
 }
@@ -4102,6 +4149,38 @@ type ReadingDeviceModel {
 enum ReadingDirection {
 	LTR
 	RTL
+}
+
+"The reading history of one person (the reader), as the viewer may see it"
+type ReadingHistory {
+	"Whose history it is"
+	reader: ReaderProfile!
+	"Whether it is the history of the person asking"
+	isSelf: Boolean!
+	"""
+	How many books the reader finished in each year, the latest year first. A search counts
+	only the books it finds
+	"""
+	years(search: String): [ReadingYear!]!
+	"""
+	The books the reader is reading now, the one read last first: at most 200 (`limit` for
+	fewer)
+	"""
+	reading(limit: Int): [ReadingNow!]!
+	"""
+	The books the reader has finished, a page at a time (at most 200 a page), the last one
+	finished first. `search` finds books by title, author, series and the like (every word
+	must match), `year` keeps those finished in a year. A book read twice is listed twice
+	"""
+	finished(search: String, year: Int, order: ReadingHistoryOrder! = NEWEST_FIRST, pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): FinishedReadingPage!
+}
+
+"The order of the books a reader has finished"
+enum ReadingHistoryOrder {
+	"The last one finished first"
+	NEWEST_FIRST
+	"The first one finished first"
+	OLDEST_FIRST
 }
 
 "The different ways an image may be scaled to fit a reader's viewport"
@@ -4141,7 +4220,10 @@ type ReadingList {
 }
 
 input ReadingListInput {
-	"The list's ID, generated when omitted or empty"
+	"""
+	The list's ID, generated when omitted or empty. A chosen ID has 1 to 64 characters, only
+	letters, digits, `_` and `-` (a UUID fits): it ends up in the list's address
+	"""
 	id: String
 	name: String!
 	description: String
@@ -4169,6 +4251,29 @@ enum ReadingMode {
 	PAGED
 	CONTINUOUS_VERTICAL
 	CONTINUOUS_HORIZONTAL
+}
+
+"A book the reader is reading now"
+type ReadingNow {
+	media: Media!
+	"""
+	How far along the reader is, 0 to 100, when it can be told. It is the reader's, unlike the
+	progress of the book itself (`Media.readProgress`), which is always the viewer's
+	"""
+	percentage: Int
+	"The logical day the reader last read it"
+	lastReadOn: NaiveDate!
+	"Which read of the book it is, 1 for the first"
+	readthroughNumber: Int!
+}
+
+"What a person lets the other people on the server see of their reading"
+type ReadingPrivacy {
+	"""
+	Whether everyone on the server can see what the person is reading now and has finished.
+	It is off until they turn it on
+	"""
+	shareReadingHistory: Boolean!
 }
 
 type ReadingSession {
@@ -4277,6 +4382,12 @@ type ReadingTotals {
 	finishedCount: Int!
 	dnfCount: Int!
 	activeDayCount: Int!
+}
+
+"How many books were finished in a year"
+type ReadingYear {
+	year: Int!
+	count: Int!
 }
 
 type ReadiumLocation {
