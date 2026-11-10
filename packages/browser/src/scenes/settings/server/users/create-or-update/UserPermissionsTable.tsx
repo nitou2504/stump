@@ -208,7 +208,6 @@ const groups = [
 		groupKey: 'featureAccess',
 		permissions: [
 			UserPermission.AccessApiKeys,
-			UserPermission.AccessBookClub,
 			UserPermission.AccessKoreaderSync,
 			UserPermission.AccessKoboSync,
 			UserPermission.AccessSmartList,

@@ -2,7 +2,6 @@ import { NewCard } from '@stump/components'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
-import ServerEmojisSection from './ServerEmojisSection'
 import ServerPublicURL from './ServerPublicURL'
 
 export function ServerConfiguration() {
@@ -16,8 +15,6 @@ export function ServerConfiguration() {
 			>
 				<ServerPublicURL />
 			</NewCard.Row>
-
-			<ServerEmojisSection />
 		</NewCard>
 	)
 }
