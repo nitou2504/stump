@@ -1375,6 +1375,14 @@ type IntakeItem {
 	"What still keeps the decision from being filed (empty when it can be accepted)"
 	problems: [String!]!
 	libraryName: String!
+	"The type of the item's library"
+	libraryType: LibraryType!
+	"""
+	A library of its own for what the item looks like, when it sits in a book or mixed
+	library: the first manga or light novel library (by name) the viewer may use. Only
+	libraries the viewer may use are ever named.
+	"""
+	suggestedLibrary: IntakeSuggestedLibrary
 	"The books created by the scan after filing (empty until the scan has run)"
 	mediaIds: [String!]!
 }
@@ -1515,6 +1523,12 @@ enum IntakeState {
 	FAILED
 	"Thrown away by the uploader; its staged files are deleted"
 	DISCARDED
+}
+
+"A library an item could be filed into instead, for what it looks like"
+type IntakeSuggestedLibrary {
+	id: ID!
+	name: String!
 }
 
 "How an upload of several files is grouped into inbox items"
@@ -1729,7 +1743,8 @@ input LibraryFilterInput {
 
 """
 How the "Add books" intake files books into a library. A library without a row uses
-[`Model::defaults_for`].
+[`Model::defaults_for`]. An empty folder means that kind of series sits directly in the
+library root, as in a manga or light novel library.
 """
 type LibraryIntakeSettings {
 	libraryId: String!
@@ -3167,6 +3182,11 @@ type Mutation {
 		"Override the library's online lookup setting"
 		online: Boolean
 	): IntakeItem!
+	"""
+	Moves an item to another library (one the user can use) and analyses it again there: the
+	proposal, the folder and the file names are made for the library the item is in
+	"""
+	intakeChangeLibrary(id: ID!, libraryId: ID!): IntakeItem!
 	"""
 	Files ready items into their library. Items that fail keep their state and get an
 	`error`; the others become `FILED`.

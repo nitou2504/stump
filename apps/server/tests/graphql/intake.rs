@@ -1,12 +1,15 @@
 use std::{fs, path::PathBuf, time::Duration};
 
 use axum_test::multipart::{MultipartForm, Part};
-use models::shared::enums::UserPermission;
+use models::{
+	entity::library,
+	shared::enums::{LibraryType, UserPermission},
+};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tests::{fake_data, fixtures};
 
-use crate::common::{account::CreateTestUser, TestApp};
+use crate::common::{account::CreateTestUser, visibility::hide_library, TestApp};
 
 const UPLOAD: &str = r#"mutation Upload($libraryId: ID!, $files: [Upload!]!) {
 	intakeUpload(libraryId: $libraryId, files: $files) { id state }
@@ -159,8 +162,13 @@ async fn post_multipart(app: &TestApp, token: &str, form: MultipartForm) -> Valu
 
 /// waits for the background analysis of the inbox to finish
 async fn analysed_items(app: &TestApp, token: &str) -> Value {
+	analysed_items_with(app, token, ITEMS).await
+}
+
+/// the same, reading the inbox with the given query
+async fn analysed_items_with(app: &TestApp, token: &str, query: &str) -> Value {
 	for _ in 0..100 {
-		let response = app.execute_gql_with_token(ITEMS, None, token).await;
+		let response = app.execute_gql_with_token(query, None, token).await;
 		assert_no_errors(&response);
 		let items = response["data"]["intakeItems"].clone();
 		if items
@@ -445,4 +453,367 @@ async fn test_a_zip_bomb_pack_is_refused() {
 			.is_empty(),
 		"nothing is staged: {response:#}"
 	);
+}
+
+// ---- manga and light novel libraries: one folder per series, in the library root ----
+
+const SETTINGS_AT_ROOT: &str = r#"mutation Settings($libraryId: ID!, $dir: String!) {
+	updateLibraryIntakeSettings(libraryId: $libraryId, input: {
+		mangaDir: $dir, lightNovelDir: $dir, onlineLookup: false
+	}) { mangaDir lightNovelDir onlineLookup }
+}"#;
+const TYPED_ITEMS: &str = r#"query Items {
+	intakeItems {
+		id state kind name error problems libraryId libraryType
+		suggestedLibrary { id name }
+		proposal { seriesKind warnings }
+		decision { folder seriesKind }
+		destination { relativeDir files { relativePath exists } }
+	}
+}"#;
+const CHANGE_LIBRARY: &str = r#"mutation Change($id: ID!, $libraryId: ID!) {
+	intakeChangeLibrary(id: $id, libraryId: $libraryId) { id state libraryId }
+}"#;
+const REVIEW_KIND: &str = r#"mutation Review($id: ID!, $input: IntakeReviewInput!) {
+	intakeReview(id: $id, input: $input) {
+		state problems decision { seriesKind folder } destination { relativeDir }
+	}
+}"#;
+
+/// what the proposal says of a manga that is not in a manga library
+const LOOKS_LIKE_MANGA: &str = "This looks like manga, but this isn't a manga library";
+
+struct TypedFixture {
+	app: TestApp,
+	book_library: library::Model,
+	manga_library: library::Model,
+	book_dir: PathBuf,
+	manga_dir: PathBuf,
+	_tempdir: TempDir,
+}
+
+/// A book library (series in `_Manga` and `_Novela ligera`) and a manga library (series in its
+/// root), neither looking titles up online
+async fn typed_setup(manga_name: &str) -> TypedFixture {
+	let app = TestApp::new_with_default_user().await;
+	let tempdir = tempfile::tempdir().expect("tempdir");
+	let book_dir = tempdir.path().join("biblioteca");
+	let manga_dir = tempdir.path().join("manga");
+	fs::create_dir_all(&book_dir).expect("book library folder");
+	fs::create_dir_all(&manga_dir).expect("manga library folder");
+	let book_library = fake_data::Library {
+		name: Some("Biblioteca".to_string()),
+		path: Some(book_dir.to_string_lossy().to_string()),
+		library_type: Some(LibraryType::Book),
+		..Default::default()
+	}
+	.insert(app.conn())
+	.await;
+	let manga_library = fake_data::Library {
+		name: Some(manga_name.to_string()),
+		path: Some(manga_dir.to_string_lossy().to_string()),
+		library_type: Some(LibraryType::Manga),
+		..Default::default()
+	}
+	.insert(app.conn())
+	.await;
+	let response = app
+		.execute_gql(SETTINGS, Some(json!({ "libraryId": book_library.id })))
+		.await;
+	assert_no_errors(&response);
+	// the manga library keeps its series folders at its root: an empty folder setting
+	let response = app
+		.execute_gql(
+			SETTINGS_AT_ROOT,
+			Some(json!({ "libraryId": manga_library.id, "dir": "" })),
+		)
+		.await;
+	assert_no_errors(&response);
+	assert_eq!(
+		response["data"]["updateLibraryIntakeSettings"]["mangaDir"], "",
+		"{response:#}"
+	);
+	TypedFixture {
+		app,
+		book_library,
+		manga_library,
+		book_dir,
+		manga_dir,
+		_tempdir: tempdir,
+	}
+}
+
+/// a comic book archive of one page whose ComicInfo names the series and the volume
+fn cbz_of(series: &str, volume: u32) -> Vec<u8> {
+	// a 1x1 PNG
+	const PIXEL: &[u8] = &[
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+		0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06,
+		0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44,
+		0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d,
+		0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42,
+		0x60, 0x82,
+	];
+	let info = format!(
+		"<?xml version=\"1.0\"?><ComicInfo><Series>{series}</Series><Number>{volume}</Number></ComicInfo>"
+	);
+	zip_bytes(&[
+		("001.png", PIXEL, false),
+		("ComicInfo.xml", info.as_bytes(), true),
+	])
+}
+
+/// `Berserk.zip`: two volumes of one manga series
+fn manga_pack() -> Vec<u8> {
+	let (one, two) = (cbz_of("Berserk", 1), cbz_of("Berserk", 2));
+	zip_bytes(&[
+		("Berserk v01.cbz", &one, false),
+		("Berserk v02.cbz", &two, false),
+	])
+}
+
+async fn make_uploader(app: &TestApp) -> crate::common::account::TestUser {
+	CreateTestUser {
+		username: "uploader".to_string(),
+		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		..Default::default()
+	}
+	.insert(app)
+	.await
+}
+
+/// uploads the pack into a library and waits for its analysis: the one item of the inbox
+async fn upload_pack(app: &TestApp, token: &str, library_id: &str) -> Value {
+	let response = post_multipart(
+		app,
+		token,
+		upload_form_as(library_id, manga_pack(), "Berserk.zip", "application/zip"),
+	)
+	.await;
+	assert_no_errors(&response);
+	let items = analysed_items_with(app, token, TYPED_ITEMS).await;
+	assert_eq!(items.as_array().unwrap().len(), 1, "{items:#}");
+	items[0].clone()
+}
+
+/// a series uploaded to a manga library goes to `<library>/<Series>/`: no `_Manga` folder, and
+/// no path that starts with `/` (which would leave the library); the library holds series of
+/// its own kind only, whatever the review asks for
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_manga_library_files_a_series_in_its_root() {
+	let fixture = typed_setup("Manga").await;
+	let app = &fixture.app;
+	let uploader = make_uploader(app).await;
+
+	let item = upload_pack(app, &uploader.token, &fixture.manga_library.id).await;
+	assert_eq!(item["kind"], "SERIES", "{item:#}");
+	assert_eq!(item["libraryType"], "MANGA", "{item:#}");
+	assert_eq!(item["proposal"]["seriesKind"], "MANGA", "{item:#}");
+	assert_eq!(item["decision"]["folder"], "Berserk", "{item:#}");
+	assert_eq!(item["destination"]["relativeDir"], "Berserk", "{item:#}");
+	assert_eq!(
+		item["destination"]["files"][0]["relativePath"], "Berserk/Berserk v01.cbz",
+		"{item:#}"
+	);
+	assert_eq!(
+		item["destination"]["files"][1]["relativePath"], "Berserk/Berserk v02.cbz",
+		"{item:#}"
+	);
+	// it is a manga in a manga library: nothing to say about the fit, and no other library to offer
+	assert!(item["proposal"]["warnings"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.all(|w| !w.as_str().unwrap_or_default().contains("look")));
+	assert!(item["suggestedLibrary"].is_null(), "{item:#}");
+	assert_eq!(item["state"], "READY", "{item:#}");
+	let id = item["id"].as_str().expect("item id").to_string();
+
+	// the review can't take it out of its library's kind (a light novel, or a book by an author)
+	for input in [
+		json!({ "clearSeriesKind": true }),
+		json!({ "seriesKind": "LIGHT_NOVEL" }),
+	] {
+		let response = app
+			.execute_gql_with_token(
+				REVIEW_KIND,
+				Some(json!({ "id": id, "input": input })),
+				&uploader.token,
+			)
+			.await;
+		assert_no_errors(&response);
+		let reviewed = &response["data"]["intakeReview"];
+		assert_eq!(reviewed["decision"]["seriesKind"], "MANGA", "{reviewed:#}");
+		assert_eq!(
+			reviewed["destination"]["relativeDir"], "Berserk",
+			"{reviewed:#}"
+		);
+	}
+
+	let response = app
+		.execute_gql_with_token(ACCEPT, Some(json!({ "ids": [id] })), &uploader.token)
+		.await;
+	assert_no_errors(&response);
+	let filed = &response["data"]["intakeAccept"][0];
+	assert_eq!(filed["state"], "FILED", "{filed:#}");
+	assert!(fixture.manga_dir.join("Berserk/Berserk v01.cbz").is_file());
+	assert!(fixture.manga_dir.join("Berserk/Berserk v02.cbz").is_file());
+	for folder in ["_Manga", "_Novela ligera"] {
+		assert!(!fixture.manga_dir.join(folder).exists(), "{folder}");
+		assert!(!fixture.book_dir.join(folder).exists(), "{folder}");
+	}
+	// the library holds the series folder and nothing else
+	let entries: Vec<String> = fs::read_dir(&fixture.manga_dir)
+		.unwrap()
+		.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+		.collect();
+	assert_eq!(entries, vec!["Berserk".to_string()]);
+}
+
+/// a manga aimed at a book library is filed in that library's `_Manga` folder, with a note and the
+/// offer of the manga library; moving it analyses it again for the manga library
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_manga_aimed_at_a_book_library_can_move_to_the_manga_library() {
+	let fixture = typed_setup("Manga").await;
+	let app = &fixture.app;
+	let uploader = make_uploader(app).await;
+
+	let item = upload_pack(app, &uploader.token, &fixture.book_library.id).await;
+	assert_eq!(item["libraryType"], "BOOK", "{item:#}");
+	assert_eq!(item["proposal"]["seriesKind"], "MANGA", "{item:#}");
+	assert_eq!(
+		item["destination"]["relativeDir"], "_Manga/Berserk",
+		"{item:#}"
+	);
+	let warnings = item["proposal"]["warnings"].as_array().unwrap();
+	assert!(
+		warnings.iter().any(|w| w == LOOKS_LIKE_MANGA),
+		"the note is there: {item:#}"
+	);
+	// a note, not a block
+	assert!(item["problems"].as_array().unwrap().is_empty(), "{item:#}");
+	assert_eq!(
+		item["suggestedLibrary"],
+		json!({ "id": fixture.manga_library.id, "name": "Manga" }),
+		"{item:#}"
+	);
+	let id = item["id"].as_str().expect("item id").to_string();
+
+	let response = app
+		.execute_gql_with_token(
+			CHANGE_LIBRARY,
+			Some(json!({ "id": id, "libraryId": fixture.manga_library.id })),
+			&uploader.token,
+		)
+		.await;
+	assert_no_errors(&response);
+	let moved = &response["data"]["intakeChangeLibrary"];
+	assert_eq!(moved["libraryId"], fixture.manga_library.id, "{moved:#}");
+	assert_eq!(moved["state"], "ANALYSING", "{moved:#}");
+
+	let items = analysed_items_with(app, &uploader.token, TYPED_ITEMS).await;
+	assert_eq!(items.as_array().unwrap().len(), 1, "{items:#}");
+	let item = &items[0];
+	assert_eq!(item["libraryId"], fixture.manga_library.id, "{item:#}");
+	assert_eq!(item["libraryType"], "MANGA", "{item:#}");
+	assert_eq!(item["destination"]["relativeDir"], "Berserk", "{item:#}");
+	assert!(
+		!item["proposal"]["warnings"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|w| w == LOOKS_LIKE_MANGA),
+		"{item:#}"
+	);
+	assert!(item["suggestedLibrary"].is_null(), "{item:#}");
+	assert!(!fixture.book_dir.join("_Manga").exists());
+}
+
+/// a library the uploader may not use is never named in a proposal or an offer, and an item can't
+/// be moved into it
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_library_hidden_from_the_uploader_is_never_offered() {
+	let fixture = typed_setup("Estante Secreta").await;
+	let app = &fixture.app;
+	let uploader = make_uploader(app).await;
+	hide_library(app, &uploader, &fixture.manga_library).await;
+
+	let item = upload_pack(app, &uploader.token, &fixture.book_library.id).await;
+	assert_eq!(item["proposal"]["seriesKind"], "MANGA", "{item:#}");
+	assert!(item["suggestedLibrary"].is_null(), "{item:#}");
+	assert!(
+		!item.to_string().contains("Estante Secreta"),
+		"nothing names the hidden library: {item:#}"
+	);
+	let id = item["id"].as_str().expect("item id").to_string();
+
+	let response = app
+		.execute_gql_with_token(
+			CHANGE_LIBRARY,
+			Some(json!({ "id": id, "libraryId": fixture.manga_library.id })),
+			&uploader.token,
+		)
+		.await;
+	assert_eq!(
+		response["errors"][0]["message"], "Library not found",
+		"{response:#}"
+	);
+	// it is still in the library it was in
+	let items = analysed_items_with(app, &uploader.token, TYPED_ITEMS).await;
+	assert_eq!(items[0]["libraryId"], fixture.book_library.id, "{items:#}");
+
+	// and nobody else's item can be moved
+	let other = CreateTestUser {
+		username: "other".to_string(),
+		permissions: vec![UserPermission::AddBooks],
+		..Default::default()
+	}
+	.insert(app)
+	.await;
+	let response = app
+		.execute_gql_with_token(
+			CHANGE_LIBRARY,
+			Some(json!({ "id": id, "libraryId": fixture.book_library.id })),
+			&other.token,
+		)
+		.await;
+	assert!(response.get("errors").is_some(), "{response:#}");
+}
+
+/// an empty series folder is for manga and light novel libraries; a book library needs real ones
+#[tokio::test(flavor = "multi_thread")]
+async fn test_empty_series_folders_are_for_typed_libraries_only() {
+	let fixture = typed_setup("Manga").await;
+	let app = &fixture.app;
+
+	let response = app
+		.execute_gql(
+			SETTINGS_AT_ROOT,
+			Some(json!({ "libraryId": fixture.book_library.id, "dir": "" })),
+		)
+		.await;
+	assert_eq!(
+		response["errors"][0]["message"], "Series folders must be a single folder name",
+		"{response:#}"
+	);
+	// a typed library still refuses a folder that isn't one name
+	let response = app
+		.execute_gql(
+			SETTINGS_AT_ROOT,
+			Some(json!({ "libraryId": fixture.manga_library.id, "dir": "../outside" })),
+		)
+		.await;
+	assert_eq!(
+		response["errors"][0]["message"],
+		"Series folders must be empty or a single folder name",
+		"{response:#}"
+	);
+	// and takes a named one
+	let response = app
+		.execute_gql(
+			SETTINGS_AT_ROOT,
+			Some(json!({ "libraryId": fixture.manga_library.id, "dir": "Series" })),
+		)
+		.await;
+	assert_no_errors(&response);
 }

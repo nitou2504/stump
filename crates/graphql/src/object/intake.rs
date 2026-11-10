@@ -1,15 +1,18 @@
 use async_graphql::{ComplexObject, Context, Enum, Result, SimpleObject, ID};
 use models::{
-	entity::{intake_item, library, media},
-	shared::intake::{
-		IntakeDecision, IntakeDestination, IntakeFile, IntakeKind, IntakeProposal,
-		IntakeResult, IntakeState,
+	entity::{intake_item, library, library_config, media},
+	shared::{
+		enums::LibraryType,
+		intake::{
+			IntakeDecision, IntakeDestination, IntakeFile, IntakeKind, IntakeProposal,
+			IntakeResult, IntakeSeriesKind, IntakeState,
+		},
 	},
 };
-use sea_orm::{prelude::*, QuerySelect};
-use stump_core::intake::decision_problems;
+use sea_orm::{prelude::*, QueryOrder, QuerySelect};
+use stump_core::intake::{decision_problems, library_type_of};
 
-use crate::data::CoreContext;
+use crate::data::{AuthContext, CoreContext};
 
 /// How an upload of several files is grouped into inbox items
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Enum)]
@@ -94,6 +97,46 @@ impl IntakeItem {
 			.unwrap_or_default())
 	}
 
+	/// The type of the item's library
+	async fn library_type(&self, ctx: &Context<'_>) -> Result<LibraryType> {
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		Ok(library_type_of(conn, &self.library_id).await?)
+	}
+
+	/// A library of its own for what the item looks like, when it sits in a book or mixed
+	/// library: the first manga or light novel library (by name) the viewer may use. Only
+	/// libraries the viewer may use are ever named.
+	async fn suggested_library(
+		&self,
+		ctx: &Context<'_>,
+	) -> Result<Option<IntakeSuggestedLibrary>> {
+		let Some(kind) = self.proposal.as_ref().and_then(|p| p.series_kind) else {
+			return Ok(None);
+		};
+		let AuthContext { user, .. } = ctx.data()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		if !matches!(
+			library_type_of(conn, &self.library_id).await?,
+			LibraryType::Book | LibraryType::Mixed
+		) {
+			return Ok(None);
+		}
+		let wanted = match kind {
+			IntakeSeriesKind::Manga => LibraryType::Manga,
+			IntakeSeriesKind::LightNovel => LibraryType::LightNovel,
+		};
+		Ok(library::Entity::find_for_user(user)
+			.find_also_related(library_config::Entity)
+			.filter(library_config::Column::LibraryType.eq(wanted))
+			.order_by_asc(library::Column::Name)
+			.one(conn)
+			.await?
+			.map(|(library, _)| IntakeSuggestedLibrary {
+				id: library.id.into(),
+				name: library.name,
+			}))
+	}
+
 	/// The books created by the scan after filing (empty until the scan has run)
 	async fn media_ids(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
 		let Some(result) = &self.result else {
@@ -112,6 +155,13 @@ impl IntakeItem {
 			.all(conn)
 			.await?)
 	}
+}
+
+/// A library an item could be filed into instead, for what it looks like
+#[derive(Debug, Clone, SimpleObject)]
+pub struct IntakeSuggestedLibrary {
+	pub id: ID,
+	pub name: String,
 }
 
 /// A tag the library uses, for the tag picker
