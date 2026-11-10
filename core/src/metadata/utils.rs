@@ -43,8 +43,18 @@ pub(crate) fn parse_pdf_date(raw_date: &str) -> Option<(i32, Option<i32>, Option
 		.or_else(|| s.strip_prefix("d:"))
 		.unwrap_or(s);
 
+	// The date comes from the book (an EPUB's `dc:date`, a PDF's Info dictionary), so it may
+	// hold any text. Slicing a `str` at a byte offset inside a multi-byte character panics (and
+	// the server aborts on a panic), so the digit checks look at bytes: a range of ASCII digits
+	// always ends on a character boundary, which makes the `&s[..n]` slices below safe.
+	let ascii_digits = |range: std::ops::Range<usize>| {
+		s.as_bytes()
+			.get(range)
+			.is_some_and(|bytes| bytes.iter().all(u8::is_ascii_digit))
+	};
+
 	// 1. PDF spec: D:YYYYMMDDHHmmSS... parse digit-only prefixes
-	if s.len() >= 4 && s[..4].chars().all(|c| c.is_ascii_digit()) {
+	if ascii_digits(0..4) {
 		let has_digit_at_4 = s.chars().nth(4).is_some_and(|c| c.is_ascii_digit());
 		let has_separator_at_4 = s
 			.chars()
@@ -56,7 +66,7 @@ pub(crate) fn parse_pdf_date(raw_date: &str) -> Option<(i32, Option<i32>, Option
 				return Some((y, None, None));
 			}
 		} else if !has_separator_at_4 && has_digit_at_4 {
-			if s.len() >= 8 && s[4..8].chars().all(|c| c.is_ascii_digit()) {
+			if ascii_digits(4..8) {
 				if let Ok(d) = chrono::NaiveDate::parse_from_str(&s[..8], "%Y%m%d") {
 					return Some((
 						d.year(),
@@ -65,7 +75,7 @@ pub(crate) fn parse_pdf_date(raw_date: &str) -> Option<(i32, Option<i32>, Option
 					));
 				}
 			}
-			if s.len() >= 6 && s[4..6].chars().all(|c| c.is_ascii_digit()) {
+			if ascii_digits(4..6) {
 				if let Ok(d) =
 					chrono::NaiveDate::parse_from_str(&format!("{}01", &s[..6]), "%Y%m%d")
 				{
@@ -86,8 +96,8 @@ pub(crate) fn parse_pdf_date(raw_date: &str) -> Option<(i32, Option<i32>, Option
 	}
 
 	// Try parsing YYYY-MM or MM-YYYY formats by normalizing separators
-	if s.len() >= 7 {
-		let prefix7 = &s[..7];
+	// `get` is None when byte 7 falls inside a character: no date starts with one of those
+	if let Some(prefix7) = s.get(..7) {
 		let normalized7 = prefix7.replace(['/', '.'], "-");
 		// Try YYYY-MM (e.g. 2019-08)
 		if let Ok(d) =
@@ -255,5 +265,60 @@ mod tests {
 				raw
 			);
 		}
+	}
+
+	/// A book's date can be any text. Each of these used to slice a multi-byte character in
+	/// half and panic, which aborts the whole server (`panic = "abort"`).
+	#[test]
+	fn test_parse_pdf_date_with_non_ascii_text() {
+		let cases = vec![
+			// the cut at byte 4 falls inside a character
+			("日本語", None),
+			("令和3年", None),
+			("日付: 2019", Some((2019, None, None))),
+			// four digits, then a character the 6- and 8-byte cuts fall inside
+			("20201é", None),
+			("20201éé", None),
+			("2019é", Some((2019, None, None))),
+			// the cut at byte 7 falls inside a character
+			("xxxxxxé", None),
+			("2020-0é", Some((2020, None, None))),
+			// a year after non-ASCII text, and non-ASCII text after a full date
+			("📅2019", Some((2019, None, None))),
+			("D:20190101日本", Some((2019, Some(1), Some(1)))),
+			("2019-08-31é", Some((2019, Some(8), Some(31)))),
+			// full-width digits are not ASCII digits
+			("２０１９", None),
+		];
+
+		for (raw, expected) in cases {
+			assert_eq!(
+				parse_pdf_date(raw),
+				expected,
+				"Failed parsing pdf date for: {:?}",
+				raw
+			);
+		}
+	}
+
+	/// Every string up to six characters over an alphabet of digits, separators and 2, 3 and
+	/// 4-byte characters: none may panic, wherever a character boundary falls.
+	#[test]
+	fn test_parse_pdf_date_never_panics() {
+		const ALPHABET: [&str; 9] = ["2", "0", "-", "/", "D", ":", "é", "日", "📅"];
+
+		fn walk(prefix: &mut String, depth: usize) {
+			let _ = parse_pdf_date(prefix);
+			if depth == 0 {
+				return;
+			}
+			for symbol in ALPHABET {
+				prefix.push_str(symbol);
+				walk(prefix, depth - 1);
+				prefix.truncate(prefix.len() - symbol.len());
+			}
+		}
+
+		walk(&mut String::new(), 6);
 	}
 }
