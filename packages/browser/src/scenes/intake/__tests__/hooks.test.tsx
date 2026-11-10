@@ -1,15 +1,19 @@
-import { IntakeUploadMode } from '@stump/graphql'
+import { IntakeState, IntakeUploadMode } from '@stump/graphql'
 import { IntakeUploadError } from '@stump/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { PropsWithChildren } from 'react'
 
-import { useIntakeUploader } from '../hooks'
+import { useIntakeInbox, useIntakeUploader } from '../hooks'
 import type { IntakeLimitsData } from '../queries'
+import { POLL_FAST_MS, POLL_SLOW_MS } from '../reviewState'
+import { item } from './fixtures'
 
 const sdk = vi.hoisted(() => ({ auth: { me: vi.fn() }, intake: { upload: vi.fn() } }))
+const inbox = vi.hoisted(() => ({ data: undefined as unknown, refetch: vi.fn() }))
 vi.mock('@stump/client', async (importOriginal) => ({
 	...(await importOriginal<typeof import('@stump/client')>()),
+	useGraphQL: () => ({ data: inbox.data, refetch: inbox.refetch }),
 	useSDK: () => ({ sdk }),
 }))
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }))
@@ -244,5 +248,114 @@ describe('useIntakeUploader', () => {
 		act(() => result.current.clearFinished())
 
 		expect(result.current.entries.map((e) => e.status)).toEqual(['error'])
+	})
+})
+
+describe('useIntakeInbox', () => {
+	const withItems = (...states: IntakeState[]) => {
+		inbox.data = { intakeItems: states.map((state, i) => item({ id: String(i), state })) }
+	}
+	const hidden = (value: boolean) =>
+		Object.defineProperty(document, 'hidden', { configurable: true, value })
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+		vi.useFakeTimers()
+		hidden(false)
+	})
+	afterEach(() => {
+		vi.useRealTimers()
+		hidden(false)
+	})
+
+	it('hands back the items it read', () => {
+		withItems(IntakeState.Ready, IntakeState.NeedsReview)
+
+		const { result } = renderHook(() => useIntakeInbox(), { wrapper })
+
+		expect(result.current.items.map((i) => i.id)).toEqual(['0', '1'])
+	})
+
+	it('has no items before the first answer', () => {
+		inbox.data = undefined
+
+		const { result } = renderHook(() => useIntakeInbox(), { wrapper })
+
+		expect(result.current.items).toEqual([])
+	})
+
+	it('reads again fast while something is being analysed', () => {
+		withItems(IntakeState.Analysing)
+		renderHook(() => useIntakeInbox(), { wrapper })
+
+		vi.advanceTimersByTime(POLL_FAST_MS - 1)
+		expect(inbox.refetch).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(1)
+		expect(inbox.refetch).toHaveBeenCalledTimes(1)
+		vi.advanceTimersByTime(POLL_FAST_MS)
+		expect(inbox.refetch).toHaveBeenCalledTimes(2)
+	})
+
+	it('reads again fast while an approved book is being filed', () => {
+		withItems(IntakeState.Filing)
+		renderHook(() => useIntakeInbox(), { wrapper })
+
+		vi.advanceTimersByTime(POLL_FAST_MS)
+
+		expect(inbox.refetch).toHaveBeenCalledTimes(1)
+	})
+
+	it('reads again slowly while a book waits for an approver, who may take hours', () => {
+		withItems(IntakeState.PendingApproval)
+		renderHook(() => useIntakeInbox(), { wrapper })
+
+		vi.advanceTimersByTime(POLL_SLOW_MS - 1)
+		expect(inbox.refetch).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(1)
+		expect(inbox.refetch).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not read again when nothing moves', () => {
+		withItems(IntakeState.Ready, IntakeState.Rejected)
+		renderHook(() => useIntakeInbox(), { wrapper })
+
+		vi.advanceTimersByTime(POLL_SLOW_MS * 3)
+
+		expect(inbox.refetch).not.toHaveBeenCalled()
+	})
+
+	it('does not cancel a read that is still on its way for a new one', () => {
+		withItems(IntakeState.Analysing)
+		renderHook(() => useIntakeInbox(), { wrapper })
+
+		vi.advanceTimersByTime(POLL_FAST_MS)
+
+		expect(inbox.refetch).toHaveBeenCalledWith({ cancelRefetch: false })
+	})
+
+	it('does not read in a tab nobody is looking at', () => {
+		withItems(IntakeState.Analysing)
+		hidden(true)
+		renderHook(() => useIntakeInbox(), { wrapper })
+
+		vi.advanceTimersByTime(POLL_FAST_MS * 4)
+		expect(inbox.refetch).not.toHaveBeenCalled()
+
+		hidden(false)
+		vi.advanceTimersByTime(POLL_FAST_MS)
+		expect(inbox.refetch).toHaveBeenCalledTimes(1)
+	})
+
+	it('stops reading once the inbox is moving no more', () => {
+		withItems(IntakeState.Analysing)
+		const { rerender } = renderHook(() => useIntakeInbox(), { wrapper })
+		vi.advanceTimersByTime(POLL_FAST_MS)
+		expect(inbox.refetch).toHaveBeenCalledTimes(1)
+
+		withItems(IntakeState.Ready)
+		rerender()
+		vi.advanceTimersByTime(POLL_SLOW_MS * 2)
+
+		expect(inbox.refetch).toHaveBeenCalledTimes(1)
 	})
 })

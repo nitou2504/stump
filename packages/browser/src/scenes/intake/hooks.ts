@@ -24,8 +24,8 @@ import {
 	intakeRejectMutation,
 	intakeReviewMutation,
 	intakeSubmitMutation,
-	intakeUploadLimitsQuery,
 	intakeUploaderAgeQuery,
+	intakeUploadLimitsQuery,
 	intakeWithdrawMutation,
 	pendingIntakeCountQuery,
 	pendingIntakeItemsQuery,
@@ -36,8 +36,8 @@ import {
 	type PendingFile,
 	planUploads,
 	pollInterval,
-	uploadPercent,
 	type UploadBatch,
+	uploadPercent,
 	uploadProblem,
 } from './reviewState'
 
@@ -69,7 +69,12 @@ export function useIntakeInbox() {
 	const interval = pollInterval(items)
 	useEffect(() => {
 		if (!interval) return
-		const timer = setInterval(() => void refetch(), interval)
+		const timer = setInterval(() => {
+			// as the query's own interval does: not in a tab nobody looks at, and a read that is
+			// still on its way is not cancelled for a new one (a slow server would never answer)
+			if (document.hidden) return
+			void refetch({ cancelRefetch: false })
+		}, interval)
 		return () => clearInterval(timer)
 	}, [interval, refetch])
 
