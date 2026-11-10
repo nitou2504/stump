@@ -61,6 +61,15 @@ On the Smart lists page, each of your lists says whether it is *Shared* or *Priv
 	that older versions listed is not offered any more.
 </Callout>
 
+## How lists are kept
+
+A smart list's books are worked out once, for the whole library, and kept, rather than worked out again on every visit (opening the lists page used to mean working out every list several times). What a person gets from a list is always the kept books **narrowed to what they may read**, the same way every other list of books is, so a list never holds more for someone than they may see, however it is kept.
+
+- A change to a book, its metadata, its series, a tag or a library shows in the lists within a few seconds: Stump notices that the library changed, and a background task works the lists out again a few seconds after it stops changing. Saving a list's rules works it out at once.
+- Removing a book from the library (and putting it back) doesn't change a list: the book is left out for everyone while it is removed.
+- A list whose rules use **reading status** or **updated at** is different for each reader or changes with every write, so it is worked out whenever it is opened, as before.
+- The server owner can work the lists out again on demand with the `refreshSmartLists` mutation (all lists, or the ones given). They keep themselves up to date, so this is for the day something changed the database behind Stump's back, such as a restore.
+
 ## Views
 
 While interacting with a smart list on the UI, you can manipulate the view to your liking. This includes:
