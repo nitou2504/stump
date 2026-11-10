@@ -473,9 +473,11 @@ pub async fn claim_for_filing(
 	transition(conn, id, &[from], change, None).await
 }
 
-/// Files an approver's own ready item, now
+/// Files an approver's own ready item, now. Filing is a task of its own that the request waits
+/// for: a request that is dropped (a closed tab, a proxy's timeout) stops waiting, and the filing
+/// goes on, so the item is never left in `FILING` until a restart puts it back.
 pub async fn accept(
-	ctx: &Ctx,
+	ctx: &Arc<Ctx>,
 	approver: &AuthUser,
 	item: intake_item::Model,
 ) -> CoreResult<intake_item::Model> {
@@ -498,7 +500,10 @@ pub async fn accept(
 		)));
 	}
 	let claimed = reload(ctx.conn.as_ref(), &item.id).await?;
-	file_claimed(ctx, claimed, IntakeState::Ready).await
+	let task_ctx = ctx.clone();
+	tokio::spawn(async move { file_claimed(&task_ctx, claimed, IntakeState::Ready).await })
+		.await
+		.map_err(|error| CoreError::InternalError(error.to_string()))?
 }
 
 /// Puts back what a restart interrupted. An item that was being filed waits for approval again

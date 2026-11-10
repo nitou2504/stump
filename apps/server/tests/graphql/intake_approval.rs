@@ -2276,3 +2276,79 @@ async fn test_what_was_read_before_an_approval_does_not_undo_it() {
 	);
 }
 
+/// 40 MB of noise in an EPUB (a stored entry, so nothing makes it small): a book that takes a
+/// moment to file
+fn append_noise(path: &std::path::Path, bytes: usize) {
+	use std::io::Write;
+	let file = fs::OpenOptions::new()
+		.read(true)
+		.write(true)
+		.open(path)
+		.expect("the EPUB");
+	let mut zip = zip::ZipWriter::new_append(file).expect("an appendable zip");
+	zip.start_file(
+		"OEBPS/noise.bin",
+		zip::write::SimpleFileOptions::default()
+			.compression_method(zip::CompressionMethod::Stored),
+	)
+	.expect("an entry");
+	let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+	let mut chunk = vec![0u8; 1 << 20];
+	for _ in 0..(bytes >> 20) {
+		for piece in chunk.chunks_mut(8) {
+			x ^= x << 13;
+			x ^= x >> 7;
+			x ^= x << 17;
+			piece.copy_from_slice(&x.to_le_bytes()[..piece.len()]);
+		}
+		zip.write_all(&chunk).expect("noise");
+	}
+	zip.finish().expect("the zip");
+}
+
+/// a request that is dropped while the book is being filed (a closed tab, a proxy's timeout)
+/// doesn't leave it in FILING: the filing goes on without it
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_accept_that_is_dropped_does_not_leave_the_book_filing() {
+	let world = world().await;
+	let path = world.tmp.path().join("Big_Book.epub");
+	fixtures::write_test_epub(&path, "Big Book", "<dc:creator>Eco, Umberto</dc:creator>");
+	append_noise(&path, 40 << 20);
+	let owner_token = world.app.access_token.read().await.clone().unwrap();
+	let response = post_upload(
+		&world.app,
+		Some(&owner_token),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("Big Book.epub", fs::read(&path).unwrap()),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let body: Value = response.json();
+	let id = body["items"][0]["id"].as_str().expect("an item").to_string();
+	let row = world.wait_for_analysis(&id).await;
+	let ready = intake_item::ActiveModel {
+		state: Set(IntakeState::Ready),
+		..row.into()
+	};
+	ready.update(world.app.conn()).await.expect("ready");
+
+	let owner = approval::load_auth_user(world.app.conn(), &world.owner_id().await)
+		.await
+		.expect("the owner loads")
+		.expect("the owner exists");
+	let item = world.row(&id).await;
+	let ctx = world.app.ctx.clone();
+	let request = tokio::spawn(async move { approval::accept(&ctx, &owner, item).await });
+	// once it is being filed, the request is dropped on the floor
+	for _ in 0..10_000 {
+		if world.row(&id).await.state != IntakeState::Ready {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(1)).await;
+	}
+	request.abort();
+	world.wait_for(&id, IntakeState::Filed).await;
+	assert!(world.library_dir.join("Umberto_Eco/Big_Book.epub").exists());
+}
+
