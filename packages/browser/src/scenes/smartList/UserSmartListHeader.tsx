@@ -1,3 +1,4 @@
+import { AccessRole } from '@stump/graphql'
 import { Book, Layers, Library } from 'lucide-react'
 import { useLocation } from 'react-router'
 
@@ -18,6 +19,7 @@ export default function UserSmartListHeader() {
 	const {
 		list: { id, name },
 		meta,
+		viewerRole,
 	} = useSmartListContext()
 	const { prefetch } = usePrefetchSmartList()
 
@@ -56,7 +58,8 @@ export default function UserSmartListHeader() {
 			parents={[{ label: translate('shared.common.smartLists'), to: paths.smartLists() }]}
 			tabs={tabs}
 			stats={resolvedStats}
-			settingsLink={paths.smartListSettings(id)}
+			// a list's settings are for who may change it
+			settingsLink={viewerRole === AccessRole.Reader ? undefined : paths.smartListSettings(id)}
 		/>
 	)
 }

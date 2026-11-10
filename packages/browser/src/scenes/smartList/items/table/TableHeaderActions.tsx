@@ -28,12 +28,13 @@ export default function TableHeaderActions({ layoutControls, showColumnControls 
 	const selectedView = useSmartListViewStore((state) => state.selectedView)
 	const workingView = useSmartListViewStore((state) => state.workingView)
 	const {
-		list: { views },
+		list: { views, canEdit },
 	} = useSmartListContext()
 	// Only show the saved-view controls once they can do something: the selector when
-	// views exist, the save menu once the view (columns, sorting, search) was changed
+	// views exist, the save menu once the view (columns, sorting, search) was changed. A view is
+	// saved on the list, so only who may change the list saves one; anyone can pick the saved ones
 	const hasSavedViews = !!views?.length
-	const canSaveView = !!workingView || !!selectedView
+	const canSaveView = canEdit && (!!workingView || !!selectedView)
 
 	// The search is mirrored in the URL (`?search=`), so going back to the list restores it
 	const [searchParams, setSearchParams] = useSearchParams()

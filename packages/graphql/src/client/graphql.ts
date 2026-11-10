@@ -3066,6 +3066,11 @@ export type Mutation = {
    */
   createReadingList: ReadingList;
   createScheduledJob: ScheduledJob;
+  /**
+   * Creates a smart list owned by the current user. Everyone but the server owner has at most
+   * 20 lists, each with rules of at most 128 KB, a name of at most 200 characters and a
+   * description of at most 2,000.
+   */
   createSmartList: SmartList;
   createSmartListView: SmartListView;
   /**
@@ -3316,6 +3321,13 @@ export type Mutation = {
    * and unlinks removed ones. Returns the updated series.
    */
   setSeriesTags: Series;
+  /**
+   * Makes some of the current user's smart lists private or public in one go ("share all my
+   * lists"). A list is changed only by its creator, so any ID that isn't one of the user's own
+   * lists (somebody else's, or none at all) fails the whole request with the same answer and
+   * changes nothing. `SHARED` is not offered.
+   */
+  setSmartListsVisibility: Array<SmartList>;
   /** Suggest a book for the book club */
   suggestBook: BookClubBookSuggestion;
   /** Send a test email to verify the SMTP configuration is working */
@@ -4139,6 +4151,12 @@ export type MutationSetSeriesLockedFieldsArgs = {
 export type MutationSetSeriesTagsArgs = {
   id: Scalars['ID']['input'];
   tags: Array<Scalars['String']['input']>;
+};
+
+
+export type MutationSetSmartListsVisibilityArgs = {
+  ids: Array<Scalars['ID']['input']>;
+  visibility: EntityVisibility;
 };
 
 
@@ -6199,6 +6217,10 @@ export type SaveSmartListInput = {
   filters: Array<SmartListFilterGroupInput>;
   joiner: SmartListJoiner;
   name: Scalars['String']['input'];
+  /**
+   * `PUBLIC` shows the list to everyone on the server (each one with the books they may
+   * read); `PRIVATE` only to its creator. `SHARED` is not offered
+   */
   visibility: EntityVisibility;
 };
 
@@ -6615,9 +6637,25 @@ export type SharedWork = {
 export type SmartList = {
   __typename?: 'SmartList';
   books: Array<Media>;
+  /**
+   * Whether the user may change the list (its rules, its name, who sees it, its saved views)
+   * and delete it: the user who made it, and the server owner for a public list of someone
+   * else. Anyone else sees it read-only
+   */
+  canEdit: Scalars['Boolean']['output'];
+  /**
+   * Who made the list: their name and avatar. None when they can't be shown any more (a
+   * deleted or locked account's lists aren't listed at all)
+   */
+  creator?: Maybe<ReaderProfile>;
   creatorId: Scalars['String']['output'];
   defaultGrouping: SmartListGrouping;
   description?: Maybe<Scalars['String']['output']>;
+  /**
+   * The list's rules, as JSON. Only who may change the list gets them: they name paths,
+   * libraries and tags, so they would show people a list is made of things they may not see.
+   * Anyone else gets `[]`: what the list holds for them is what `books` and `items` give
+   */
   filters: Scalars['String']['output'];
   id: Scalars['String']['output'];
   items: SmartListItems;
@@ -10093,7 +10131,7 @@ export type UserTableQueryVariables = Exact<{
 
 export type UserTableQuery = { __typename?: 'Query', users: { __typename?: 'PaginatedUserResponse', nodes: Array<{ __typename?: 'User', id: string, avatarUrl?: string | null, username: string, isServerOwner: boolean, isLocked: boolean, createdAt: any, lastLogin?: any | null, loginSessionsCount: number }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalPages: number, currentPage: number, pageSize: number, pageOffset: number, zeroBased: boolean } } };
 
-export type SmartListWebGridItemFragment = { __typename?: 'SmartList', id: string, name: string, books: Array<{ __typename?: 'Media', thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }>, meta: { __typename?: 'SmartListMeta', matchedBooks: number, matchedSeries: number, matchedLibraries: number } } & { ' $fragmentName'?: 'SmartListWebGridItemFragment' };
+export type SmartListWebGridItemFragment = { __typename?: 'SmartList', id: string, name: string, creatorId: string, visibility: EntityVisibility, creator?: { __typename?: 'ReaderProfile', id: string, username: string } | null, books: Array<{ __typename?: 'Media', thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }>, meta: { __typename?: 'SmartListMeta', matchedBooks: number, matchedSeries: number, matchedLibraries: number } } & { ' $fragmentName'?: 'SmartListWebGridItemFragment' };
 
 export type SmartListsWithSearchQueryVariables = Exact<{
   input: SmartListsInput;
@@ -10101,7 +10139,7 @@ export type SmartListsWithSearchQueryVariables = Exact<{
 
 
 export type SmartListsWithSearchQuery = { __typename?: 'Query', smartLists: Array<(
-    { __typename?: 'SmartList', id: string }
+    { __typename?: 'SmartList', id: string, creatorId: string, visibility: EntityVisibility, meta: { __typename?: 'SmartListMeta', matchedBooks: number } }
     & { ' $fragmentRefs'?: { 'SmartListWebGridItemFragment': SmartListWebGridItemFragment } }
   )> };
 
@@ -10110,7 +10148,7 @@ export type SmartListByIdQueryVariables = Exact<{
 }>;
 
 
-export type SmartListByIdQuery = { __typename?: 'Query', smartListById?: { __typename?: 'SmartList', id: string, creatorId: string, description?: string | null, defaultGrouping: SmartListGrouping, filters: string, joiner: SmartListJoiner, name: string, visibility: EntityVisibility, views: Array<{ __typename?: 'SmartListView', id: number, listId: string, name: string, search?: string | null, bookColumns: Array<{ __typename?: 'SmartListViewColumn', id: string, position: number }>, bookSorting: Array<{ __typename?: 'SmartListViewSort', id: string, desc: boolean }>, groupColumns: Array<{ __typename?: 'SmartListViewColumn', id: string, position: number }>, groupSorting: Array<{ __typename?: 'SmartListViewSort', id: string, desc: boolean }> }> } | null };
+export type SmartListByIdQuery = { __typename?: 'Query', smartListById?: { __typename?: 'SmartList', id: string, creatorId: string, canEdit: boolean, description?: string | null, defaultGrouping: SmartListGrouping, filters: string, joiner: SmartListJoiner, name: string, visibility: EntityVisibility, creator?: { __typename?: 'ReaderProfile', id: string, username: string } | null, views: Array<{ __typename?: 'SmartListView', id: number, listId: string, name: string, search?: string | null, bookColumns: Array<{ __typename?: 'SmartListViewColumn', id: string, position: number }>, bookSorting: Array<{ __typename?: 'SmartListViewSort', id: string, desc: boolean }>, groupColumns: Array<{ __typename?: 'SmartListViewColumn', id: string, position: number }>, groupSorting: Array<{ __typename?: 'SmartListViewSort', id: string, desc: boolean }> }> } | null };
 
 export type SmartListMetaQueryVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -10145,6 +10183,14 @@ export type SmartListItemsQuery = { __typename?: 'Query', smartListItems: { __ty
     )> } };
 
 export type SmartListItemBookMetadataFragment = { __typename?: 'Media', metadata?: { __typename?: 'MediaMetadata', ageRating?: number | null, rating?: any | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, editors: Array<string>, genres: Array<string>, inkers: Array<string>, letterers: Array<string>, links: Array<string>, pencillers: Array<string>, publisher?: string | null, teams: Array<string>, writers: Array<string>, year?: number | null, month?: number | null, day?: number | null, format?: string | null, identifierAmazon?: string | null, identifierCalibre?: string | null, identifierGoogle?: string | null, identifierIsbn?: string | null, identifierMobiAsin?: string | null, identifierUuid?: string | null, language?: string | null, notes?: string | null, number?: any | null, pageCount?: number | null, series?: string | null, seriesGroup?: string | null, storyArc?: string | null, storyArcNumber?: any | null, title?: string | null, titleSort?: string | null, volume?: number | null } | null } & { ' $fragmentName'?: 'SmartListItemBookMetadataFragment' };
+
+export type SetSmartListsVisibilityMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+  visibility: EntityVisibility;
+}>;
+
+
+export type SetSmartListsVisibilityMutation = { __typename?: 'Mutation', setSmartListsVisibility: Array<{ __typename?: 'SmartList', id: string, visibility: EntityVisibility }> };
 
 export type CreateSmartListViewMutationVariables = Exact<{
   input: SaveSmartListView;
@@ -11935,6 +11981,12 @@ export const SmartListWebGridItemFragmentDoc = new TypedDocumentString(`
     fragment SmartListWebGridItem on SmartList {
   id
   name
+  creatorId
+  visibility
+  creator {
+    id
+    username
+  }
   books(limit: 5) {
     thumbnail {
       url
@@ -15805,7 +15857,7 @@ fragment LibraryOptionsMenu on Library {
 }`) as unknown as TypedDocumentString<LibrarySideBarSectionQuery, LibrarySideBarSectionQueryVariables>;
 export const SmartListSideBarSectionDocument = new TypedDocumentString(`
     query SmartListSideBarSection {
-  smartLists {
+  smartLists(input: {}) {
     id
     name
   }
@@ -19324,12 +19376,23 @@ export const SmartListsWithSearchDocument = new TypedDocumentString(`
     query SmartListsWithSearch($input: SmartListsInput!) {
   smartLists(input: $input) {
     id
+    creatorId
+    visibility
+    meta {
+      matchedBooks
+    }
     ...SmartListWebGridItem
   }
 }
     fragment SmartListWebGridItem on SmartList {
   id
   name
+  creatorId
+  visibility
+  creator {
+    id
+    username
+  }
   books(limit: 5) {
     thumbnail {
       url
@@ -19354,6 +19417,11 @@ export const SmartListByIdDocument = new TypedDocumentString(`
   smartListById(id: $id) {
     id
     creatorId
+    canEdit
+    creator {
+      id
+      username
+    }
     description
     defaultGrouping
     filters
@@ -19554,6 +19622,14 @@ fragment SmartListItemBookMetadata on Media {
     volume
   }
 }`) as unknown as TypedDocumentString<SmartListItemsQuery, SmartListItemsQueryVariables>;
+export const SetSmartListsVisibilityDocument = new TypedDocumentString(`
+    mutation SetSmartListsVisibility($ids: [ID!]!, $visibility: EntityVisibility!) {
+  setSmartListsVisibility(ids: $ids, visibility: $visibility) {
+    id
+    visibility
+  }
+}
+    `) as unknown as TypedDocumentString<SetSmartListsVisibilityMutation, SetSmartListsVisibilityMutationVariables>;
 export const CreateSmartListViewDocument = new TypedDocumentString(`
     mutation CreateSmartListView($input: SaveSmartListView!) {
   createSmartListView(input: $input) {

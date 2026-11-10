@@ -1314,7 +1314,7 @@
           "options": {
             "public": {
               "label": "Public",
-              "description": "Accessible to all users on the server"
+              "description": "Everyone on this server can open it, each person with the books they may read. Only you can change it"
             },
             "shared": {
               "label": "Shared",
@@ -1537,8 +1537,31 @@
               "library": "library"
             },
             "matches": "Matches"
-          }
+          },
+          "by": "by {{name}}",
+          "byHint": "Shared by {{name}}: everyone on this server can see it",
+          "shared": "Shared",
+          "sharedHint": "Everyone on this server can see this list",
+          "private": "Private",
+          "privateHint": "Only you can see this list"
         }
+      },
+      "share": {
+        "all": "Share all my lists",
+        "makePrivate": "Make my lists private",
+        "sharing": {
+          "title": "Share all your smart lists?",
+          "description": "Everyone with an account on this server will see your private smart lists. Each person sees only the books they may read in them, and only you can change them. You can make them private again at any time.",
+          "confirm": "Share"
+        },
+        "unsharing": {
+          "title": "Make all your smart lists private?",
+          "description": "Your shared smart lists will be yours alone again: nobody else will see them.",
+          "confirm": "Make Private"
+        },
+        "shared": "Your smart lists are shared",
+        "madePrivate": "Your smart lists are private",
+        "error": "Failed to change who sees your smart lists"
       }
     },
     "smartListSettingsScene": {

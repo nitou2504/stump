@@ -6,7 +6,6 @@ import { useMediaMatch } from 'rooks'
 
 import { SceneContainer } from '@/components/container'
 import { GenericSettingsHeader } from '@/components/settings'
-import { useAppContext } from '@/context'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -48,30 +47,22 @@ export default function UserSmartListLayout() {
 		list,
 	})
 
-	const { user } = useAppContext()
-
 	const { grouping, setGrouping, fieldGrouping, setFieldGrouping } = useSmartListGrouping(
 		id,
 		list?.defaultGrouping,
 	)
 
 	/**
-	 * Whether or not the current user is the creator of the smart list
-	 */
-	const isCreator = useMemo(
-		() => !!list?.creatorId && list?.creatorId === user.id,
-		[user.id, list?.creatorId],
-	)
-
-	/**
-	 * The access role of the current user for this smart list. This is used to determine
-	 * what actions the user can take on the list
+	 * The access role of the current user for this smart list. The server says who may change a
+	 * list (`canEdit`: the user who made it, and the server owner for a public list of someone
+	 * else); everyone else reads it. This is used to determine what actions the user can take on
+	 * the list
 	 *
 	 * TODO: Support actual roles from the backend, i.e. Writer, CoCreator, Creator, Reader
 	 */
 	const viewerRole = useMemo<AccessRole>(
-		() => (isCreator || user.isServerOwner ? AccessRole.CoCreator : AccessRole.Reader),
-		[isCreator, user.isServerOwner],
+		() => (list?.canEdit ? AccessRole.CoCreator : AccessRole.Reader),
+		[list?.canEdit],
 	)
 
 	// Create scoped store with default grouping from the list

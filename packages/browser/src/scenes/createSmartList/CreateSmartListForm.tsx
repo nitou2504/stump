@@ -56,7 +56,7 @@ export default function CreateSmartListForm({ onSubmit, isLoading }: Props) {
 				render: () => (
 					<>
 						<BasicDetails />
-						<AccessSettings isCreating />
+						<AccessSettings />
 					</>
 				),
 			},

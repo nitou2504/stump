@@ -1191,7 +1191,7 @@
           "options": {
             "public": {
               "label": "Pública",
-              "description": "Accesible a todos los usuarios de este servidor"
+              "description": "Todas las personas de este servidor pueden abrirla, cada una con los libros que puede leer. Solo tú puedes cambiarla"
             },
             "shared": {
               "label": "Compartida",
@@ -1230,8 +1230,31 @@
               "library": "biblioteca"
             },
             "matches": "Coincidencias"
-          }
+          },
+          "by": "de {{name}}",
+          "byHint": "Compartida por {{name}}: todas las personas de este servidor pueden verla",
+          "shared": "Compartida",
+          "sharedHint": "Todas las personas de este servidor pueden ver esta lista",
+          "private": "Privada",
+          "privateHint": "Solo tú puedes ver esta lista"
         }
+      },
+      "share": {
+        "all": "Compartir todas mis listas",
+        "makePrivate": "Hacer privadas mis listas",
+        "sharing": {
+          "title": "¿Compartir todas tus listas inteligentes?",
+          "description": "Todas las personas con una cuenta en este servidor verán tus listas inteligentes privadas. Cada persona ve en ellas solo los libros que puede leer, y solo tú puedes cambiarlas. Puedes volver a hacerlas privadas cuando quieras.",
+          "confirm": "Compartir"
+        },
+        "unsharing": {
+          "title": "¿Hacer privadas todas tus listas inteligentes?",
+          "description": "Tus listas inteligentes compartidas volverán a ser solo tuyas: nadie más las verá.",
+          "confirm": "Hacer privadas"
+        },
+        "shared": "Tus listas inteligentes están compartidas",
+        "madePrivate": "Tus listas inteligentes son privadas",
+        "error": "No se pudo cambiar quién ve tus listas inteligentes"
       }
     },
     "userSmartListScene": {

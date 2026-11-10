@@ -1,4 +1,4 @@
-import { Alert, AlertDescription, Label, NativeSelect, Text } from '@stump/components'
+import { Label, NativeSelect, Text } from '@stump/components'
 import { EntityVisibility } from '@stump/graphql'
 import { useFormContext, useWatch } from 'react-hook-form'
 
@@ -8,41 +8,30 @@ import { SmartListFormSchema } from '../schema'
 
 type SubSchema = Pick<SmartListFormSchema, 'visibility'>
 
-type Props = {
-	isCreating?: boolean
-}
-
-export default function AccessSettings({ isCreating }: Props) {
+/**
+ * Who sees the list: only its maker, or everyone on the server (each one with the books they may
+ * read). There is no sharing with some people: the server doesn't offer `SHARED`
+ */
+export default function AccessSettings() {
 	const form = useFormContext<SubSchema>()
 	const visibility = useWatch({ control: form.control, name: 'visibility' })
 
 	const { t } = useTranslate()
 
 	return (
-		<>
-			<div className="max-w-xs gap-y-1.5 flex flex-col">
-				<Label>{t(getKey('label'))}</Label>
-				<NativeSelect
-					options={[
-						{ label: t(getOptionKey(EntityVisibility.Public, 'label')), value: 'PUBLIC' },
-						{ label: t(getOptionKey(EntityVisibility.Shared, 'label')), value: 'SHARED' },
-						{ label: t(getOptionKey(EntityVisibility.Private, 'label')), value: 'PRIVATE' },
-					]}
-					{...form.register('visibility')}
-				/>
-				<Text variant="muted" size="sm">
-					{t(getOptionKey(visibility as EntityVisibility, 'description'))}
-				</Text>
-			</div>
-
-			{isCreating && visibility === EntityVisibility.Shared && (
-				<Alert variant="info" className="-mt-4 max-w-lg">
-					<AlertDescription>
-						{t(getOptionKey(visibility as EntityVisibility, 'createDisclaimer'))}
-					</AlertDescription>
-				</Alert>
-			)}
-		</>
+		<div className="max-w-xs gap-y-1.5 flex flex-col">
+			<Label>{t(getKey('label'))}</Label>
+			<NativeSelect
+				options={[
+					{ label: t(getOptionKey(EntityVisibility.Public, 'label')), value: 'PUBLIC' },
+					{ label: t(getOptionKey(EntityVisibility.Private, 'label')), value: 'PRIVATE' },
+				]}
+				{...form.register('visibility')}
+			/>
+			<Text variant="muted" size="sm">
+				{t(getOptionKey(visibility as EntityVisibility, 'description'))}
+			</Text>
+		</div>
 	)
 }
 

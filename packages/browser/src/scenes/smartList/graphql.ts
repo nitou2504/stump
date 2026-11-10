@@ -8,6 +8,7 @@ import {
 	useSuspenseGraphQL,
 } from '@stump/client'
 import {
+	EntityVisibility,
 	graphql,
 	MediaFilterInput,
 	SaveSmartListInput,
@@ -31,6 +32,11 @@ const listByIdQuery = graphql(`
 		smartListById(id: $id) {
 			id
 			creatorId
+			canEdit
+			creator {
+				id
+				username
+			}
 			description
 			defaultGrouping
 			filters
@@ -344,26 +350,23 @@ export function useUpdateSmartList({ id, list }: { id: string; list?: SmartListP
 	update: (updates: Partial<SaveSmartListInput>) => Promise<void>
 } {
 	const { sdk } = useSDK()
-	const listWithoutFields = useMemo(() => {
-		const listWithoutFields = {
-			...(list || {}),
-		}
-		delete listWithoutFields.id
-		delete listWithoutFields.creatorId
-		delete listWithoutFields.views
+	// A list is saved whole: its current details with the changes on top. Only what the input takes
+	// is sent (the list also carries who made it, whether the viewer can edit it, its views...)
+	const currentDetails = useMemo(() => {
+		if (!list) return {}
 
-		if (listWithoutFields.joiner) {
-			listWithoutFields.joiner =
-				listWithoutFields.joiner.toUpperCase() as typeof listWithoutFields.joiner
-		}
-		if (listWithoutFields.filters) {
-			listWithoutFields.filters = listWithoutFields.filters.map((group) => ({
+		const { name, description, joiner, defaultGrouping, visibility, filters } = list
+		return {
+			name,
+			description,
+			defaultGrouping,
+			visibility,
+			joiner: joiner?.toUpperCase() as typeof joiner,
+			filters: filters?.map((group) => ({
 				...group,
 				joiner: group.joiner.toUpperCase() as typeof group.joiner,
-			}))
+			})),
 		}
-
-		return listWithoutFields
 	}, [list])
 
 	const client = useQueryClient()
@@ -375,14 +378,48 @@ export function useUpdateSmartList({ id, list }: { id: string; list?: SmartListP
 	})
 	const update = useCallback(
 		async (updates: Partial<SaveSmartListInput>) => {
-			mutate({ id, input: { ...listWithoutFields, ...updates } as SaveSmartListInput })
+			mutate({ id, input: { ...currentDetails, ...updates } as SaveSmartListInput })
 		},
-		[mutate, id, listWithoutFields],
+		[mutate, id, currentDetails],
 	)
 
 	return {
 		update,
 	}
+}
+
+const setVisibilityMutation = graphql(`
+	mutation SetSmartListsVisibility($ids: [ID!]!, $visibility: EntityVisibility!) {
+		setSmartListsVisibility(ids: $ids, visibility: $visibility) {
+			id
+			visibility
+		}
+	}
+`)
+
+/**
+ * Makes some of the user's own smart lists public or private in one go. The server changes only
+ * what is theirs, all or none; the lists everywhere are refreshed after it.
+ */
+export function useSetSmartListsVisibility() {
+	const { sdk } = useSDK()
+	const client = useQueryClient()
+	const { mutateAsync, isPending } = useGraphQLMutation(setVisibilityMutation, {
+		mutationKey: [sdk.cacheKeys.smartListUpdate, 'visibility'],
+		onSuccess: () => {
+			client.invalidateQueries({ queryKey: [sdk.cacheKeys.smartLists] })
+			client.invalidateQueries({ queryKey: [sdk.cacheKeys.smartListById] })
+		},
+	})
+
+	const setVisibility = useCallback(
+		async (ids: string[], visibility: EntityVisibility) => {
+			await mutateAsync({ ids, visibility })
+		},
+		[mutateAsync],
+	)
+
+	return { setVisibility, isPending }
 }
 
 type UseSmartListByIdParams = {
