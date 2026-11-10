@@ -2,9 +2,13 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use axum_test::multipart::{MultipartForm, Part};
 use models::{
-	entity::library,
-	shared::enums::{LibraryType, UserPermission},
+	entity::{intake_item, library, library_intake_settings},
+	shared::{
+		enums::{LibraryType, UserPermission},
+		intake::IntakeState,
+	},
 };
+use sea_orm::{prelude::*, ActiveValue::Unchanged, Set};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tests::{fake_data, fixtures};
@@ -521,18 +525,14 @@ async fn typed_setup(manga_name: &str) -> TypedFixture {
 		.execute_gql(SETTINGS, Some(json!({ "libraryId": book_library.id })))
 		.await;
 	assert_no_errors(&response);
-	// the manga library keeps its series folders at its root: an empty folder setting
-	let response = app
-		.execute_gql(
-			SETTINGS_AT_ROOT,
-			Some(json!({ "libraryId": manga_library.id, "dir": "" })),
-		)
-		.await;
-	assert_no_errors(&response);
-	assert_eq!(
-		response["data"]["updateLibraryIntakeSettings"]["mangaDir"], "",
-		"{response:#}"
-	);
+	// the manga library has no settings row, as in a live one: what its uploads run on is the
+	// typed default (series folders at its root), not a row somebody saved
+	let row = library_intake_settings::Entity::find()
+		.filter(library_intake_settings::Column::LibraryId.eq(manga_library.id.clone()))
+		.one(app.conn())
+		.await
+		.unwrap();
+	assert!(row.is_none(), "{row:?}");
 	TypedFixture {
 		app,
 		book_library,
@@ -796,6 +796,18 @@ async fn test_empty_series_folders_are_for_typed_libraries_only() {
 		response["errors"][0]["message"], "Series folders must be a single folder name",
 		"{response:#}"
 	);
+	// a typed library takes an empty folder, and the setting reads back as saved
+	let response = app
+		.execute_gql(
+			SETTINGS_AT_ROOT,
+			Some(json!({ "libraryId": fixture.manga_library.id, "dir": "" })),
+		)
+		.await;
+	assert_no_errors(&response);
+	assert_eq!(
+		response["data"]["updateLibraryIntakeSettings"]["mangaDir"], "",
+		"{response:#}"
+	);
 	// a typed library still refuses a folder that isn't one name
 	let response = app
 		.execute_gql(
@@ -816,4 +828,105 @@ async fn test_empty_series_folders_are_for_typed_libraries_only() {
 		)
 		.await;
 	assert_no_errors(&response);
+}
+
+const REANALYSE: &str = r#"mutation Reanalyse($id: ID!) {
+	intakeReanalyse(id: $id, online: false) { id state libraryId }
+}"#;
+
+/// puts an inbox item in a state, as the server does when it files, discards or starts an analysis
+async fn set_item_state(app: &TestApp, id: &str, state: IntakeState) {
+	intake_item::ActiveModel {
+		id: Unchanged(id.to_string()),
+		state: Set(state),
+		..Default::default()
+	}
+	.update(app.conn())
+	.await
+	.unwrap();
+}
+
+/// an item moves to another library only while it waits for its uploader: not while it is being
+/// analysed, and not once it is filed or discarded; an analysis still marked as running can be
+/// asked again (it may never have answered), a filed or discarded item can't
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_item_moves_only_while_it_waits_for_its_uploader() {
+	let fixture = typed_setup("Manga").await;
+	let app = &fixture.app;
+	let uploader = make_uploader(app).await;
+	let item = upload_pack(app, &uploader.token, &fixture.book_library.id).await;
+	let id = item["id"].as_str().expect("item id").to_string();
+	let to_manga = Some(json!({ "id": id, "libraryId": fixture.manga_library.id }));
+	let message = |response: &Value| response["errors"][0]["message"].clone();
+
+	// being analysed: it can't be moved or reviewed; asking for the analysis again works
+	set_item_state(app, &id, IntakeState::Analysing).await;
+	let response = app
+		.execute_gql_with_token(CHANGE_LIBRARY, to_manga.clone(), &uploader.token)
+		.await;
+	assert_eq!(
+		message(&response),
+		"An item that is ANALYSING can't be moved to another library",
+		"{response:#}"
+	);
+	let response = app
+		.execute_gql_with_token(
+			REVIEW_KIND,
+			Some(json!({ "id": id, "input": { "title": "New title" } })),
+			&uploader.token,
+		)
+		.await;
+	assert_eq!(
+		message(&response),
+		"An item that is ANALYSING can't be changed",
+		"{response:#}"
+	);
+	let response = app
+		.execute_gql_with_token(REANALYSE, Some(json!({ "id": id })), &uploader.token)
+		.await;
+	assert_no_errors(&response);
+	let items = analysed_items_with(app, &uploader.token, TYPED_ITEMS).await;
+	assert_eq!(items.as_array().unwrap().len(), 1, "{items:#}");
+	assert_eq!(items[0]["libraryId"], fixture.book_library.id, "{items:#}");
+	assert!(
+		items[0]["state"] == "READY" || items[0]["state"] == "NEEDS_REVIEW",
+		"it is analysed again, in the library it was in: {items:#}"
+	);
+
+	// waiting for its uploader (analysed again): it moves, and is analysed in the new library
+	let response = app
+		.execute_gql_with_token(CHANGE_LIBRARY, to_manga.clone(), &uploader.token)
+		.await;
+	assert_no_errors(&response);
+	assert_eq!(
+		response["data"]["intakeChangeLibrary"]["libraryId"], fixture.manga_library.id,
+		"{response:#}"
+	);
+	let items = analysed_items_with(app, &uploader.token, TYPED_ITEMS).await;
+	assert_eq!(items[0]["libraryId"], fixture.manga_library.id, "{items:#}");
+
+	// filed or discarded: it is no longer in the inbox, so neither works
+	for closed in [IntakeState::Filed, IntakeState::Discarded] {
+		set_item_state(app, &id, closed).await;
+		let response = app
+			.execute_gql_with_token(
+				CHANGE_LIBRARY,
+				Some(json!({ "id": id, "libraryId": fixture.book_library.id })),
+				&uploader.token,
+			)
+			.await;
+		assert_eq!(
+			message(&response),
+			"This item is no longer in the inbox",
+			"{closed}: {response:#}"
+		);
+		let response = app
+			.execute_gql_with_token(REANALYSE, Some(json!({ "id": id })), &uploader.token)
+			.await;
+		assert_eq!(
+			message(&response),
+			"This item is no longer in the inbox",
+			"{closed}: {response:#}"
+		);
+	}
 }
