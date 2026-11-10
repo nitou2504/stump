@@ -8,7 +8,7 @@ mod koreader;
 mod opds;
 mod spa;
 
-pub(crate) use api::v2::auth::enforce_max_sessions;
+pub(crate) use api::v2::auth::{enforce_max_sessions, track_basic_auth_attempt};
 pub(crate) use spa::relative_favicon_path;
 
 pub async fn mount(app_state: AppState) -> Router<AppState> {

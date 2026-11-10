@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, net::IpAddr};
 
 use axum::{
 	body::Body,
@@ -41,13 +41,14 @@ use crate::{
 		state::AppState,
 	},
 	errors::{api_error_message, APIError, APIResult},
-	routers::{enforce_max_sessions, relative_favicon_path},
+	routers::{enforce_max_sessions, relative_favicon_path, track_basic_auth_attempt},
 	utils::{
-		current_utc_time, decode_base64_credentials, fetch_session_user, verify_password,
+		current_utc_time, decode_base64_credentials, fetch_session_user,
+		verify_dummy_password, verify_password,
 	},
 };
 
-use super::host::HostExtractor;
+use super::host::{ClientIp, HostExtractor};
 
 pub const STUMP_SAVE_BASIC_SESSION_HEADER: &str = "X-Stump-Save-Session";
 
@@ -162,11 +163,23 @@ pub async fn auth_middleware(
 		},
 		_ if auth_header.starts_with("Basic ") && auth_header.len() > 6 && is_opds => {
 			let encoded_credentials = auth_header[6..].to_owned();
+			let user_agent = req_headers
+				.get(header::USER_AGENT)
+				.and_then(|header| header.to_str().ok())
+				.unwrap_or("unknown")
+				.to_owned();
+			let ClientIp(client_ip) = ClientIp::find(
+				&req_headers,
+				req.extensions(),
+				ctx.config.trust_proxy_headers,
+			);
 			handle_basic_auth(
 				encoded_credentials,
-				ctx.conn.as_ref(),
+				&ctx,
 				&mut session,
 				save_basic_session,
+				user_agent,
+				client_ip,
 			)
 			.await
 			.map_err(|e| e.into_response())?
@@ -350,21 +363,31 @@ async fn handle_bearer_auth(
 /// attempt to authenticate the user. If the user is authenticated, a session will be created
 /// for the user.
 ///
+/// Attempts are tracked in the user's login activity and failures lock the account, exactly like
+/// the password login does (the server owner is never locked).
+///
 /// Note: Basic authentication is only allowed for OPDS requests.
 #[tracing::instrument(skip_all)]
 async fn handle_basic_auth(
 	encoded_credentials: String,
-	conn: &DatabaseConnection,
+	ctx: &AppState,
 	session: &mut Session,
 	save_session: bool,
+	user_agent: String,
+	client_ip: IpAddr,
 ) -> APIResult<AuthContext> {
+	let conn = ctx.conn.as_ref();
 	let decoded_bytes = STANDARD
 		.decode(encoded_credentials.as_bytes())
 		.map_err(|e| APIError::InternalServerError(e.to_string()))?;
 	let decoded_credentials = decode_base64_credentials(decoded_bytes)?;
 
 	let fetched_user = user::LoginUser::find()
-		.filter(user::Column::Username.eq(decoded_credentials.username.clone()))
+		.filter(
+			user::Column::Username
+				.eq(decoded_credentials.username.clone())
+				.and(user::Column::DeletedAt.is_null()),
+		)
 		.into_model::<user::LoginUser>()
 		.one(conn)
 		.await?;
@@ -374,20 +397,36 @@ async fn handle_basic_auth(
 			"No user found for username: {}",
 			&decoded_credentials.username
 		);
+		// an unknown username must take as long to refuse as a wrong password
+		verify_dummy_password(&decoded_credentials.password, &ctx.config);
 		return Err(APIError::Unauthorized);
 	};
 
+	if user.hashed_password.is_empty() {
+		// no password to check (an OIDC account): refuse like a wrong password, not with an error
+		verify_dummy_password(&decoded_credentials.password, &ctx.config);
+		return Err(APIError::Unauthorized);
+	}
+
 	let is_match = verify_password(&user.hashed_password, &decoded_credentials.password)?;
 
-	if is_match && user.is_locked {
-		tracing::error!(
-			username = &user.username,
-			"User is locked, denying authentication"
-		);
-		return Err(APIError::Forbidden(
-			api_error_message::LOCKED_ACCOUNT.to_string(),
-		));
-	} else if !is_match {
+	if user.is_locked {
+		return if is_match {
+			tracing::error!(
+				username = &user.username,
+				"User is locked, denying authentication"
+			);
+			Err(APIError::Forbidden(
+				api_error_message::LOCKED_ACCOUNT.to_string(),
+			))
+		} else {
+			Err(APIError::Unauthorized)
+		};
+	}
+
+	track_basic_auth_attempt(conn, &user, user_agent, client_ip, is_match).await?;
+
+	if !is_match {
 		return Err(APIError::Unauthorized);
 	}
 

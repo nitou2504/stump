@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use models::entity::user::{AuthUser, LoginUser};
 use sea_orm::DatabaseConnection;
 use stump_core::config::StumpConfig;
@@ -23,6 +25,23 @@ pub fn hash_password(password: &str, config: &StumpConfig) -> Result<String, Aut
 /// Verify a password against a hash using the bcrypt algorithm
 pub fn verify_password(hash: &str, password: &str) -> Result<bool, AuthError> {
 	Ok(bcrypt::verify(password, hash)?)
+}
+
+/// Checks a password against a throwaway hash and drops the result. It is for logins that have
+/// no real hash to check (an unknown username): refusing them then takes as long as refusing a
+/// wrong password for a real account, so the response time doesn't show which usernames exist.
+pub fn verify_dummy_password(password: &str, config: &StumpConfig) {
+	let _ = bcrypt::verify(password, dummy_hash(config));
+}
+
+/// A hash of a fixed password that nobody uses, made once with the configured cost so it is as
+/// slow to check as the real ones
+fn dummy_hash(config: &StumpConfig) -> &'static str {
+	static DUMMY_HASH: OnceLock<String> = OnceLock::new();
+	DUMMY_HASH.get_or_init(|| {
+		bcrypt::hash("stump-dummy-password", config.password_hash_cost)
+			.unwrap_or_default()
+	})
 }
 
 // TODO(axum-upgrade): rebase with develop to get relevant fixes for this
@@ -77,6 +96,17 @@ mod tests {
 	fn test_verify_password() {
 		let hash = bcrypt::hash("password", bcrypt::DEFAULT_COST).unwrap();
 		assert!(verify_password(&hash, "password").unwrap());
+	}
+
+	#[test]
+	fn test_dummy_hash_is_a_valid_hash_nobody_matches() {
+		let config = StumpConfig::debug();
+		let hash = dummy_hash(&config);
+		assert!(hash.starts_with("$2"), "not a bcrypt hash: {hash:?}");
+		assert!(!verify_password(hash, "password").unwrap());
+		// the same hash every time, and no panic when used
+		assert_eq!(hash, dummy_hash(&config));
+		verify_dummy_password("password", &config);
 	}
 
 	#[test]

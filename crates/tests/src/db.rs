@@ -5,7 +5,7 @@ use models::entity::{
 	media_purge, media_tag, post_processing_task, reading_device, reading_list,
 	reading_list_item, reading_list_rule, reading_session, refresh_token, series,
 	series_metadata, series_tag, server_config, session, tag, user, user_discover_rules,
-	user_preferences,
+	user_login_activity, user_preferences,
 };
 use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, DbErr, Schema};
 pub async fn test_database() -> DbConn {
@@ -39,6 +39,7 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(age_restriction::Entity),
 		schema.create_table_from_entity(user::Entity),
 		schema.create_table_from_entity(user_preferences::Entity),
+		schema.create_table_from_entity(user_login_activity::Entity),
 		schema.create_table_from_entity(library::Entity),
 		schema.create_table_from_entity(library_config::Entity),
 		schema.create_table_from_entity(intake_item::Entity),

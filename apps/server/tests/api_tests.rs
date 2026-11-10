@@ -1,3 +1,4 @@
+mod auth;
 mod common;
 mod epub;
 mod graphql;

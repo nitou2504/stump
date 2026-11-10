@@ -178,12 +178,28 @@ where
 		let app_state = AppState::from_ref(state);
 		let trust_proxy_headers = app_state.config.trust_proxy_headers;
 
-		let ip = extract_client_ip(&parts.headers, &parts.extensions, trust_proxy_headers)
+		Ok(ClientIp::find(
+			&parts.headers,
+			&parts.extensions,
+			trust_proxy_headers,
+		))
+	}
+}
+
+impl ClientIp {
+	/// Finds the client IP in the headers and extensions of a request, for code that can't use the
+	/// extractor (it would run on every request). It is localhost when there is none to be found.
+	pub(crate) fn find(
+		headers: &HeaderMap,
+		extensions: &Extensions,
+		trust_proxy_headers: bool,
+	) -> Self {
+		let ip = extract_client_ip(headers, extensions, trust_proxy_headers)
 			.unwrap_or_else(|| {
 				tracing::warn!("No client IP found in headers or connection info, defaulting to localhost");
 				"127.0.0.1".parse().unwrap()
 			});
-		Ok(ClientIp(ip))
+		ClientIp(ip)
 	}
 }
 
