@@ -10,6 +10,7 @@ use sea_orm::{
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	guard::ServerOwnerGuard,
 	object::{
 		book_club_discussion::BookClubDiscussion,
 		book_club_discussion_message::BookClubDiscussionMessage,
@@ -23,6 +24,7 @@ pub struct BookClubDiscussionQuery;
 #[Object]
 impl BookClubDiscussionQuery {
 	/// Get a discussion by ID
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn book_club_discussion(
 		&self,
 		ctx: &Context<'_>,
@@ -42,6 +44,7 @@ impl BookClubDiscussionQuery {
 	}
 
 	/// Get the discussions by the book they're associated with
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn book_club_discussion_by_book(
 		&self,
 		ctx: &Context<'_>,
@@ -72,6 +75,7 @@ impl BookClubDiscussionQuery {
 	}
 
 	/// Get all discussions for a book club, ordered by pinned first, then by date created
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn book_club_discussions(
 		&self,
 		ctx: &Context<'_>,
@@ -96,6 +100,7 @@ impl BookClubDiscussionQuery {
 	}
 
 	/// Get a single message by ID
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn book_club_discussion_message(
 		&self,
 		ctx: &Context<'_>,
@@ -120,7 +125,10 @@ impl BookClubDiscussionQuery {
 	}
 
 	/// Get messages in a discussion
-	#[graphql(complexity = "crate::complexity::cursor_pagination_cost(&pagination, child_complexity)")]
+	#[graphql(
+		complexity = "crate::complexity::cursor_pagination_cost(&pagination, child_complexity)",
+		guard = "ServerOwnerGuard"
+	)]
 	async fn book_club_discussion_messages(
 		&self,
 		ctx: &Context<'_>,
@@ -194,6 +202,7 @@ impl BookClubDiscussionQuery {
 		})
 	}
 
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn previous_book_club_discussions(
 		&self,
 		ctx: &Context<'_>,

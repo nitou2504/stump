@@ -55,11 +55,54 @@ async fn uploader_token(app: &TestApp) -> String {
 	.token
 }
 
-/// html should be rejected for emoji uploads
+/// the token of the server owner, who is the only one the emoji upload is open to
+async fn owner_token(app: &TestApp) -> String {
+	app.auth_header()
+		.await
+		.trim_start_matches("Bearer ")
+		.to_string()
+}
+
+/// the custom emoji are for the book clubs, which are off: a user who may upload files may not
+/// upload one, and what the upload would have been is not even looked at
+#[tokio::test]
+async fn test_upload_emoji_is_for_the_server_owner_only() {
+	let app = TestApp::new_with_default_user().await;
+	let token = uploader_token(&app).await;
+
+	let operations = json!({
+		"query": UPLOAD_EMOJI,
+		"variables": {
+			"input": { "name": "wave", "isAnimated": false },
+			"upload": null
+		}
+	});
+	let response = post(
+		&app,
+		&token,
+		form(operations, "variables.upload", "wave.png", "image/png"),
+	)
+	.await;
+
+	assert!(
+		response["errors"]
+			.to_string()
+			.contains("You do not have permission to perform this action"),
+		"{response:#}"
+	);
+	let emojis = app.execute_gql("query { customEmojis { id } }", None).await;
+	assert_eq!(
+		emojis["data"]["customEmojis"].as_array().map(Vec::len),
+		Some(0)
+	);
+}
+
+/// html should be rejected for emoji uploads (by the owner: for anybody else the guard answers
+/// first, and this checks the image, not the guard)
 #[tokio::test]
 async fn test_upload_emoji_rejects_html_disguised_as_image() {
 	let app = TestApp::new_with_default_user().await;
-	let token = uploader_token(&app).await;
+	let token = owner_token(&app).await;
 
 	for (file_name, mime) in [
 		("definitelysafe.html", "text/html"),
@@ -82,6 +125,12 @@ async fn test_upload_emoji_rejects_html_disguised_as_image() {
 		assert!(
 			response.get("errors").is_some(),
 			"{file_name} ({mime}) should be rejected: {response:#}"
+		);
+		assert!(
+			!response["errors"]
+				.to_string()
+				.contains("You do not have permission"),
+			"{file_name} ({mime}) was turned away by the guard, not the image check: {response:#}"
 		);
 	}
 

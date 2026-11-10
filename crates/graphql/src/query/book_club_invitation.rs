@@ -3,6 +3,7 @@ use models::entity::book_club_invitation;
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	guard::ServerOwnerGuard,
 	object::book_club_invitation::BookClubInvitation,
 };
 
@@ -12,6 +13,7 @@ pub struct BookClubInvitationQuery;
 #[Object]
 impl BookClubInvitationQuery {
 	/// Get all pending invitations for the current user
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn my_book_club_invitations(
 		&self,
 		ctx: &Context<'_>,

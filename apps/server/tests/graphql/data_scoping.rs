@@ -559,7 +559,9 @@ async fn the_avatar_route_does_not_tell_which_ids_are_users() {
 }
 
 /// A club book is read by the members of its club (anyone for a public club), not by whoever has the
-/// ID, and its title doesn't show for a book the user can't see
+/// ID, and its title doesn't show for a book the user can't see. Since the clubs are off (C1) the
+/// field is the server owner's alone, whoever the user is, so the user is turned away before the
+/// club is looked at; the check of membership stays under the guard as a second line.
 #[tokio::test]
 async fn a_club_book_is_for_the_members_of_its_club() {
 	let app = TestApp::new_with_default_user().await;
@@ -590,11 +592,14 @@ async fn a_club_book_is_for_the_members_of_its_club() {
 		club_book.id
 	);
 
-	// not a member of the private club: not found, like a book that doesn't exist
+	// not the server owner: turned away, and nothing of the club shows
 	let response = app
 		.execute_gql_with_token(&query, None, &friend.token)
 		.await;
-	assert!(errors(&response).contains("Book not found"), "{response}");
+	assert!(
+		errors(&response).contains("You do not have permission"),
+		"{response}"
+	);
 	assert!(!response.to_string().contains(&club.id), "{response}");
 
 	// the owner reads it, with the book

@@ -5,7 +5,7 @@ use sea_orm::{prelude::*, ActiveValue::Set, ColumnTrait, IntoActiveModel, QueryF
 use crate::{
 	data::{AuthContext, CoreContext},
 	error_message::FORBIDDEN_ACTION,
-	guard::{OptionalFeature, OptionalFeatureGuard, PermissionGuard},
+	guard::{OptionalFeature, OptionalFeatureGuard, PermissionGuard, ServerOwnerGuard},
 	input::book_club::{CreateCustomEmojiInput, UpdateCustomEmojiInput},
 	object::custom_emoji::CustomEmoji,
 };
@@ -19,7 +19,7 @@ pub struct CustomEmojiMutation;
 impl CustomEmojiMutation {
 	/// Upload a new custom emoji
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::new(&[UserPermission::UploadFile]))"
+		guard = "ServerOwnerGuard.and(OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::new(&[UserPermission::UploadFile])))"
 	)]
 	async fn upload_custom_emoji(
 		&self,
@@ -70,7 +70,9 @@ impl CustomEmojiMutation {
 	}
 
 	/// Delete a custom emoji. Only the person who uploaded it, or the server owner, can
-	#[graphql(guard = "PermissionGuard::new(&[UserPermission::UploadFile])")]
+	#[graphql(
+		guard = "ServerOwnerGuard.and(PermissionGuard::new(&[UserPermission::UploadFile]))"
+	)]
 	async fn delete_custom_emoji(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
@@ -102,7 +104,9 @@ impl CustomEmojiMutation {
 	}
 
 	/// Rename a custom emoji. Only the person who uploaded it, or the server owner, can
-	#[graphql(guard = "PermissionGuard::new(&[UserPermission::UploadFile])")]
+	#[graphql(
+		guard = "ServerOwnerGuard.and(PermissionGuard::new(&[UserPermission::UploadFile]))"
+	)]
 	async fn update_custom_emoji(
 		&self,
 		ctx: &Context<'_>,

@@ -3948,10 +3948,10 @@ type Query {
 	"""
 	metadataValueCounts(field: MetadataFacetField!, libraryId: ID, search: String): [MetadataValueCount!]!
 	"""
-	Finds a reading session by its ID, if it exists. Access control is enforced such that:
-	- The session owner (i.e., the reader) can always access their own session
-	- Other users can access the session if there are any progress-sharing rules in play
-	(e.g., the session owner and the viewer share a book club membership with it enabled)
+	Finds one of your own reading sessions by its ID. A reading session is its reader's: nobody
+	else gets it, not through a shared book club and not with its ID, and it isn't returned
+	either once its book is no longer visible to you (its library was hidden from you, it is
+	above your age restriction, or it was removed), the way the book itself wouldn't be.
 	"""
 	readingSessionById(id: Int!): ReadingSession
 	"""

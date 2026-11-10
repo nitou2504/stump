@@ -11,6 +11,7 @@ use sea_orm::{prelude::*, ActiveValue::Set, ColumnTrait, IntoActiveModel, QueryF
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	guard::ServerOwnerGuard,
 	input::book_club::SuggestBookInput,
 	object::book_club_book_suggestion::BookClubBookSuggestion,
 };
@@ -21,6 +22,7 @@ pub struct BookClubSuggestionMutation;
 #[Object]
 impl BookClubSuggestionMutation {
 	/// Suggest a book for the book club
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn suggest_book(
 		&self,
 		ctx: &Context<'_>,
@@ -65,6 +67,7 @@ impl BookClubSuggestionMutation {
 	}
 
 	/// Remove your own suggestion (only before it's resolved)
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn remove_suggestion(
 		&self,
 		ctx: &Context<'_>,
@@ -101,6 +104,7 @@ impl BookClubSuggestionMutation {
 	}
 
 	/// Toggle like on a suggestion
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn toggle_suggestion_like(
 		&self,
 		ctx: &Context<'_>,
@@ -146,6 +150,7 @@ impl BookClubSuggestionMutation {
 	}
 
 	/// Update the status of a suggestion (Admin+)
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn update_suggestion_status(
 		&self,
 		ctx: &Context<'_>,

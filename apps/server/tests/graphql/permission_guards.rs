@@ -698,35 +698,26 @@ async fn emoji_name(app: &TestApp, id: i32) -> Option<String> {
 		.map(|emoji| emoji.name)
 }
 
-/// an emoji is renamed or deleted by who uploaded it, or by the server owner
+/// The custom emoji were for the book clubs, which are off: an emoji is made, renamed or deleted by
+/// the server owner and by nobody else, not even by the one who uploaded it (its own check of the
+/// uploader stays under the guard, as a second line)
 #[tokio::test]
-async fn test_a_custom_emoji_is_changed_only_by_its_uploader_or_the_owner() {
+async fn test_a_custom_emoji_is_changed_only_by_the_owner() {
 	let app = TestApp::new_with_default_user().await;
 	let maker = user_with(&app, "maker", &[UserPermission::UploadFile]).await;
-	let other = user_with(&app, "other", &[UserPermission::UploadFile]).await;
 	let id = add_emoji(&app, &maker, "wave").await;
-
-	let response = run(
-		&app,
-		&other,
-		UPDATE_EMOJI,
-		json!({ "id": id.to_string(), "name": "mine" }),
-	)
-	.await;
-	assert!(is_forbidden(&response), "{response:#}");
-	let response = run(&app, &other, DELETE_EMOJI, json!({ "id": id.to_string() })).await;
-	assert!(is_forbidden(&response), "{response:#}");
-	assert_eq!(emoji_name(&app, id).await.as_deref(), Some("wave"));
 
 	let response = run(
 		&app,
 		&maker,
 		UPDATE_EMOJI,
-		json!({ "id": id.to_string(), "name": "hello" }),
+		json!({ "id": id.to_string(), "name": "mine" }),
 	)
 	.await;
-	assert!(!has_errors(&response), "{response:#}");
-	assert_eq!(emoji_name(&app, id).await.as_deref(), Some("hello"));
+	assert!(is_forbidden(&response), "{response:#}");
+	let response = run(&app, &maker, DELETE_EMOJI, json!({ "id": id.to_string() })).await;
+	assert!(is_forbidden(&response), "{response:#}");
+	assert_eq!(emoji_name(&app, id).await.as_deref(), Some("wave"));
 
 	let response = app
 		.execute_gql(
@@ -737,7 +728,9 @@ async fn test_a_custom_emoji_is_changed_only_by_its_uploader_or_the_owner() {
 	assert!(!has_errors(&response), "{response:#}");
 	assert_eq!(emoji_name(&app, id).await.as_deref(), Some("moderated"));
 
-	let response = run(&app, &maker, DELETE_EMOJI, json!({ "id": id.to_string() })).await;
+	let response = app
+		.execute_gql(DELETE_EMOJI, Some(json!({ "id": id.to_string() })))
+		.await;
 	assert!(!has_errors(&response), "{response:#}");
 	assert_eq!(emoji_name(&app, id).await, None);
 }

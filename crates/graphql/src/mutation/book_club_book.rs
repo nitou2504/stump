@@ -8,6 +8,7 @@ use sea_orm::{prelude::*, Set, TransactionTrait};
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	guard::ServerOwnerGuard,
 	input::book_club::AddBookToClubInput,
 	mutation::book_club::get_book_club_for_admin,
 	object::{book_club::BookClub, book_club_book::BookClubBookVariant},
@@ -19,6 +20,7 @@ pub struct BookClubBookMutation;
 #[Object]
 impl BookClubBookMutation {
 	/// Add a book to the club's queue
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn add_book_to_club(
 		&self,
 		ctx: &Context<'_>,
@@ -79,6 +81,7 @@ impl BookClubBookMutation {
 	}
 
 	/// Mark the current book as completed
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn complete_book(
 		&self,
 		ctx: &Context<'_>,
@@ -118,6 +121,7 @@ impl BookClubBookMutation {
 	}
 
 	/// Reorder uncompleted books in the club's queue. Completed books cannot be reordered since they are effectively archived
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn reorder_books(
 		&self,
 		ctx: &Context<'_>,

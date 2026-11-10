@@ -2,7 +2,9 @@ use async_graphql::{Context, Object, Result};
 use models::entity::custom_emoji;
 use sea_orm::EntityTrait;
 
-use crate::{data::CoreContext, object::custom_emoji::CustomEmoji};
+use crate::{
+	data::CoreContext, guard::ServerOwnerGuard, object::custom_emoji::CustomEmoji,
+};
 
 #[derive(Default)]
 pub struct CustomEmojiQuery;
@@ -10,6 +12,7 @@ pub struct CustomEmojiQuery;
 #[Object]
 impl CustomEmojiQuery {
 	/// List the custom emojis available on this server
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn custom_emojis(&self, ctx: &Context<'_>) -> Result<Vec<CustomEmoji>> {
 		let core = ctx.data::<CoreContext>()?;
 

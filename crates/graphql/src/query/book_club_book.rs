@@ -4,6 +4,7 @@ use sea_orm::{prelude::*, QuerySelect};
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	guard::ServerOwnerGuard,
 	object::book_club_book::BookClubBook,
 	query::book_club_discussion::verify_read_access,
 };
@@ -14,6 +15,7 @@ pub struct BookClubBookQuery;
 #[Object]
 impl BookClubBookQuery {
 	/// Get a club book by ID
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn book_club_book(&self, ctx: &Context<'_>, id: ID) -> Result<BookClubBook> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();

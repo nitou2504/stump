@@ -7,6 +7,7 @@ use sea_orm::{prelude::*, Set};
 
 use crate::{
 	data::{AuthContext, CoreContext},
+	guard::ServerOwnerGuard,
 	input::book_club::{
 		BookClubInvitationInput, BookClubInvitationResponseInput,
 		BookClubInvitationResponseValidator, BookClubMemberInput,
@@ -20,6 +21,7 @@ pub struct BookClubInvitationMutation;
 
 #[Object]
 impl BookClubInvitationMutation {
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn create_book_club_invitation(
 		&self,
 		ctx: &Context<'_>,
@@ -38,6 +40,7 @@ impl BookClubInvitationMutation {
 		Ok(created_invitation.into())
 	}
 
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn respond_to_book_club_invitation(
 		&self,
 		ctx: &Context<'_>,

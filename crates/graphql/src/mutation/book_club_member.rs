@@ -4,7 +4,7 @@ use sea_orm::prelude::*;
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::BookClubRoleGuard,
+	guard::{BookClubRoleGuard, ServerOwnerGuard},
 	input::book_club::CreateBookClubMemberInput,
 	object::book_club_member::BookClubMember,
 };
@@ -16,7 +16,7 @@ pub struct BookClubMemberMutation;
 impl BookClubMemberMutation {
 	/// Creates a new member in the book club
 	#[graphql(
-		guard = "BookClubRoleGuard::new(book_club_id.as_ref(), BookClubMemberRole::Admin)"
+		guard = "ServerOwnerGuard.and(BookClubRoleGuard::new(book_club_id.as_ref(), BookClubMemberRole::Admin))"
 	)]
 	async fn create_book_club_member(
 		&self,
@@ -35,7 +35,7 @@ impl BookClubMemberMutation {
 
 	/// Removes a member from the book club
 	#[graphql(
-		guard = "BookClubRoleGuard::new(book_club_id.as_ref(), BookClubMemberRole::Admin)"
+		guard = "ServerOwnerGuard.and(BookClubRoleGuard::new(book_club_id.as_ref(), BookClubMemberRole::Admin))"
 	)]
 	async fn remove_book_club_member(
 		&self,
@@ -60,6 +60,7 @@ impl BookClubMemberMutation {
 	}
 
 	/// Deletes the membership of the caller to the target book club
+	#[graphql(guard = "ServerOwnerGuard")]
 	async fn leave_book_club(
 		&self,
 		ctx: &Context<'_>,

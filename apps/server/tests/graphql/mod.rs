@@ -1,4 +1,5 @@
 mod annotations;
+mod book_clubs_disabled;
 mod book_removal;
 mod data_scoping;
 mod deleted_books;

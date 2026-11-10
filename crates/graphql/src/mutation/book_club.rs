@@ -7,7 +7,7 @@ use sea_orm::{prelude::*, IntoActiveModel, TransactionTrait};
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::{BookClubRoleGuard, PermissionGuard},
+	guard::{BookClubRoleGuard, PermissionGuard, ServerOwnerGuard},
 	input::book_club::{CreateBookClubInput, UpdateBookClubInput},
 	mutation::book_club_discussion::create_general_discussion,
 	object::book_club::BookClub,
@@ -18,7 +18,9 @@ pub struct BookClubMutation;
 
 #[Object]
 impl BookClubMutation {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::CreateBookClub)")]
+	#[graphql(
+		guard = "ServerOwnerGuard.and(PermissionGuard::one(UserPermission::CreateBookClub))"
+	)]
 	async fn create_book_club(
 		&self,
 		ctx: &Context<'_>,
@@ -43,7 +45,9 @@ impl BookClubMutation {
 		Ok(created_club.into())
 	}
 
-	#[graphql(guard = "BookClubRoleGuard::new(id.as_ref(), BookClubMemberRole::Admin)")]
+	#[graphql(
+		guard = "ServerOwnerGuard.and(BookClubRoleGuard::new(id.as_ref(), BookClubMemberRole::Admin))"
+	)]
 	async fn update_book_club(
 		&self,
 		ctx: &Context<'_>,
@@ -62,7 +66,9 @@ impl BookClubMutation {
 		Ok(updated_club.into())
 	}
 
-	#[graphql(guard = "BookClubRoleGuard::new(id.as_ref(), BookClubMemberRole::Creator)")]
+	#[graphql(
+		guard = "ServerOwnerGuard.and(BookClubRoleGuard::new(id.as_ref(), BookClubMemberRole::Creator))"
+	)]
 	async fn delete_book_club(&self, ctx: &Context<'_>, id: ID) -> Result<BookClub> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
