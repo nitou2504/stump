@@ -222,7 +222,17 @@ impl IntakeItem {
 		&self,
 		ctx: &Context<'_>,
 	) -> Result<Option<IntakeSuggestedLibrary>> {
-		let Some(kind) = self.proposal.as_ref().and_then(|p| p.series_kind) else {
+		// what the analysis took from the library is the approver's: somebody who may not file
+		// books themselves gets the kind their own view found
+		let detected = if sees_everything(ctx)? {
+			self.proposal.as_ref().and_then(|p| p.series_kind)
+		} else {
+			self.proposal
+				.as_ref()
+				.and_then(|p| p.uploader_view.as_ref())
+				.and_then(|view| view.series_kind)
+		};
+		let Some(kind) = detected else {
 			return Ok(None);
 		};
 		let AuthContext { user, .. } = ctx.data()?;

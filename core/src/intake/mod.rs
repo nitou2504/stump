@@ -40,6 +40,7 @@ use models::{
 			IntakeDecision, IntakeDestination, IntakeDestinationFile, IntakeDuplicate,
 			IntakeFile, IntakeKind, IntakeMetadata, IntakeProposal, IntakeResult,
 			IntakeReviewInput, IntakeSeriesKind, IntakeSource, IntakeState,
+			IntakeUploaderView,
 		},
 	},
 };
@@ -263,6 +264,49 @@ async fn analyse_item(
 	let similar = index.similar_by_description(conn, &description, 10).await;
 	let group_name = (item.kind == IntakeKind::Series).then(|| item.name.clone());
 
+	// What somebody who may not file books themselves is shown is made from the books they can
+	// read alone: the same analysis over a narrower library (see `scope`). The proposal below
+	// is the approver's, made from the whole of it.
+	let uploader_can_file = approval::uploader_can_file_directly(conn, &item.user_id).await?;
+	let uploader_view = if uploader_can_file {
+		None
+	} else {
+		let viewer = approval::load_auth_user(conn, &item.user_id).await?;
+		let viewer_index = library_index::viewer_index(
+			conn,
+			viewer.as_ref(),
+			&item.user_id,
+			&library.id,
+			&root,
+			&settings.manga_dir,
+			&settings.light_novel_dir,
+		)
+		.await?;
+		let viewer_similar = viewer_index
+			.similar_by_description(conn, &description, 10)
+			.await;
+		let restricted = build_proposal(Inputs {
+			kind: item.kind,
+			index: &viewer_index,
+			file_meta: file_meta.clone(),
+			online: online_records.clone(),
+			formats: formats.clone(),
+			series_hint,
+			group_name: group_name.clone(),
+			similar: viewer_similar,
+			library_type,
+		});
+		let mut warnings = restricted.warnings;
+		warnings.extend(lookup.notes());
+		Some(IntakeUploaderView {
+			series_kind: restricted.series_kind,
+			genre_suggestions: restricted.genre_suggestions,
+			similar_books: restricted.similar_books,
+			warnings,
+			confidence: restricted.confidence,
+		})
+	};
+
 	let mut proposal = build_proposal(Inputs {
 		kind: item.kind,
 		index: &index,
@@ -277,6 +321,7 @@ async fn analyse_item(
 	proposal.looked_up_online = lookup.found();
 	proposal.warnings.extend(lookup.notes());
 	proposal.online_lookups = lookup.sources;
+	proposal.uploader_view = uploader_view.clone();
 
 	// duplicates: the same file, or the same author and title
 	for file in &files {
@@ -323,16 +368,33 @@ async fn analyse_item(
 			.push("This book may already be in the library".to_string());
 	}
 
-	let decision = default_decision(item.kind, &files, &proposal);
+	// the proposal the default decision and the state come from: an uploader who may not file
+	// gets the choices (the kind of series, the tags) and the confidence of their own view
+	let decision_source = match &uploader_view {
+		Some(view) => IntakeProposal {
+			series_kind: view.series_kind,
+			genre_suggestions: view.genre_suggestions.clone(),
+			confidence: view.confidence,
+			..proposal.clone()
+		},
+		None => proposal.clone(),
+	};
+	let mut decision = default_decision(item.kind, &files, &decision_source);
+	if uploader_view.is_some() {
+		// the folder is worked out from the whole library, as for every change an uploader
+		// makes: they never see it
+		decision.folder = derived_folder(conn, &library, &settings, &decision).await?;
+		decision.file_names = default_file_names(&files, &decision);
+	}
 	let destination = compute_destination(&root, &settings, &files, &decision);
 	// an item in the approval queue stays there; for somebody who may not file, the state is
 	// what they can see and fix, not what only the library knows (that the book may be in it)
 	let state = if item.submitted_at.is_some() {
 		IntakeState::PendingApproval
-	} else if approval::uploader_can_file_directly(conn, &item.user_id).await? {
+	} else if uploader_can_file {
 		state_for(&proposal, &decision, &destination)
 	} else {
-		state_for_uploader(&proposal, &decision, &destination)
+		state_for_uploader(&decision_source, &decision, &destination)
 	};
 
 	// the item may have been moved to another library, discarded or filed while this ran, or

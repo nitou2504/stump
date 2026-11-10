@@ -934,6 +934,7 @@ pub fn build_proposal(inputs: Inputs<'_>) -> IntakeProposal {
 		confidence: (confidence * 100.0).round() / 100.0,
 		looked_up_online: !online.is_empty(),
 		online_lookups: vec![],
+		uploader_view: None,
 	}
 }
 

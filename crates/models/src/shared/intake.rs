@@ -339,6 +339,26 @@ pub struct IntakeProposal {
 	pub looked_up_online: bool,
 	/// How each online source answered, when they were asked
 	pub online_lookups: Vec<OnlineLookup>,
+	/// What the analysis found when it looked only at the books the uploader can read. Everything
+	/// above that comes from the whole library (the kind of series, the tags, the similar books, the
+	/// warnings, the confidence) says what the library holds, hidden books included: somebody who
+	/// may not file books themselves gets this instead, and never the proposal itself. Not part of
+	/// the API.
+	#[graphql(skip)]
+	pub uploader_view: Option<IntakeUploaderView>,
+}
+
+/// The parts of a proposal that depend on the books of the library, as one person can see them
+/// (the library hidden from them, their age restriction and the books removed from it left out)
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IntakeUploaderView {
+	pub series_kind: Option<IntakeSeriesKind>,
+	pub genre_suggestions: Vec<IntakeGenreSuggestion>,
+	pub similar_books: Vec<IntakeSimilarBook>,
+	pub warnings: Vec<String>,
+	/// 0-1
+	pub confidence: f64,
 }
 
 /// The values that will be filed: the proposal's defaults, then the uploader's edits

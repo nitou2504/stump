@@ -14,7 +14,8 @@ use models::{
 	shared::intake::{
 		IntakeDecision, IntakeDestination, IntakeDestinationFile, IntakeDuplicate,
 		IntakeFile, IntakeFiles, IntakeFolderCandidate, IntakeGenreSuggestion,
-		IntakeKind, IntakeMetadata, IntakeProposal, IntakeSimilarBook, IntakeState,
+		IntakeKind, IntakeMetadata, IntakeProposal, IntakeSeriesKind, IntakeSimilarBook,
+		IntakeState, IntakeUploaderView,
 	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set};
@@ -102,6 +103,21 @@ const CHANGE_LIBRARY: &str = r#"mutation Change($id: ID!, $libraryId: ID!) {
 	intakeChangeLibrary(id: $id, libraryId: $libraryId) { id state libraryId }
 }"#;
 const DISCARD: &str = r#"mutation Discard($ids: [ID!]!) { intakeDiscard(ids: $ids) }"#;
+const ANA_VIEW: &str = r#"query View {
+	intakeItems(states: [NEEDS_REVIEW, READY, FAILED]) {
+		id name state problems error
+		suggestedLibrary { name }
+		proposal {
+			warnings confidence seriesKind
+			authorFolders { folder }
+			seriesFolders { folder }
+			genreSuggestions { value confidence libraryCount reasons selected kind }
+			similarBooks { mediaId title authors reason }
+			duplicates { mediaId path title reason fileName }
+		}
+		decision { seriesKind folder fileNames metadata { genres } }
+	}
+}"#;
 const VOCABULARY: &str = r#"query Vocabulary($libraryId: ID!) {
 	intakeVocabulary(libraryId: $libraryId) { value count kind }
 }"#;
@@ -206,6 +222,54 @@ impl World {
 			.as_str()
 			.expect("an item id")
 			.to_string()
+	}
+
+	/// ana uploads an EPUB over REST whose package carries `metadata` as it is (a creator, a
+	/// series...), and the id of the item it makes
+	async fn ana_uploads_epub(&self, title: &str, metadata: &str) -> String {
+		let path = self
+			.tmp
+			.path()
+			.join(format!("{}.epub", title.replace(' ', "_")));
+		fixtures::write_test_epub(&path, title, metadata);
+		let bytes = fs::read(path).expect("epub bytes");
+		let response = post_upload(
+			&self.app,
+			Some(&self.vis.ana.token),
+			&self.library.id,
+			None,
+			&UploadBody::new().file(&format!("{title}.epub"), bytes),
+		)
+		.await;
+		assert_eq!(response.status_code(), 200, "{}", response.text());
+		let body: Value = response.json();
+		body["items"][0]["id"]
+			.as_str()
+			.expect("an item id")
+			.to_string()
+	}
+
+	/// a book of the library, at `<folder>/<name>.epub` under its root (the folder exists on the
+	/// disk too, as one the library was filled from)
+	async fn add_book_at(
+		&self,
+		folder: &str,
+		name: &str,
+		meta: Meta<'_>,
+	) -> models::entity::media::Model {
+		fs::create_dir_all(self.library_dir.join(folder)).expect("a folder");
+		let series = add_series(&self.app, &self.library, name).await;
+		let book = add_book(&self.app, &series, name, meta).await;
+		let path = self.library_dir.join(folder).join(format!("{name}.epub"));
+		models::entity::media::ActiveModel {
+			id: sea_orm::ActiveValue::Unchanged(book.id.clone()),
+			path: Set(path.to_string_lossy().into_owned()),
+			..Default::default()
+		}
+		.update(self.app.conn())
+		.await
+		.expect("the book's path");
+		book
 	}
 
 	async fn gql(&self, token: &str, query: &str, variables: Value) -> Value {
@@ -910,6 +974,19 @@ async fn test_a_friend_never_learns_what_only_books_they_cannot_read_say() {
 		confidence: 0.5,
 		..Default::default()
 	};
+	// what the analysis found for her own view of the library. It can be older than what she
+	// may read now (a book rated up since, a library hidden since): what she may not read is
+	// taken out when she looks
+	let proposal = IntakeProposal {
+		uploader_view: Some(IntakeUploaderView {
+			series_kind: None,
+			genre_suggestions: proposal.genre_suggestions.clone(),
+			similar_books: proposal.similar_books.clone(),
+			warnings: proposal.warnings.clone(),
+			confidence: proposal.confidence,
+		}),
+		..proposal
+	};
 	let first = insert_item(
 		&world,
 		&vis.ana.id,
@@ -928,6 +1005,16 @@ async fn test_a_friend_never_learns_what_only_books_they_cannot_read_say() {
 			"This book may already be in the library".to_string(),
 			"No title found".to_string(),
 		],
+		uploader_view: Some(IntakeUploaderView {
+			series_kind: None,
+			genre_suggestions: proposal.genre_suggestions.clone(),
+			similar_books: vec![similar(&vis.hidden)],
+			warnings: vec![
+				"This book may already be in the library".to_string(),
+				"No title found".to_string(),
+			],
+			confidence: 0.5,
+		}),
 		..proposal.clone()
 	};
 	let second =
@@ -1804,4 +1891,163 @@ async fn test_an_approver_only_sees_the_queue_of_libraries_they_can_use() {
 		.gql(&manager.token, APPROVE, json!({ "ids": [open] }))
 		.await;
 	assert_ok(&response);
+}
+
+
+/// what ana is shown of one item, without what is about the file itself (its id and name)
+fn ana_view_of(items: &Value, name: &str) -> Value {
+	let mut item = items
+		.as_array()
+		.expect("a list of items")
+		.iter()
+		.find(|item| item["name"] == name)
+		.unwrap_or_else(|| panic!("no item named {name}: {items:#}"))
+		.clone();
+	item.as_object_mut().expect("an item").remove("id");
+	item.as_object_mut().expect("an item").remove("name");
+	item
+}
+
+/// A real analysis over a library whose author folder and series folder hold only books ana can't
+/// read: what she is shown of her own upload is what she is shown for an author and a series
+/// the library has never heard of (the confidence, the state, the kind of series, the tags the
+/// books vote for, the warnings), while the approver's own view of the analysis knows both
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_analysis_does_not_tell_a_friend_what_a_folder_of_hidden_books_holds() {
+	let world = world().await;
+	// a book she can read, with a tag that the books she can't read share
+	world
+		.add_book_at(
+			"Visible_Author",
+			"Light",
+			Meta {
+				age: Some(0),
+				writer: Some("Visible Author"),
+				genre: Some("Horror: Gore"),
+				..Default::default()
+			},
+		)
+		.await;
+	// an author's folder and a light novel series' folder that hold only books rated 18 (she
+	// reads nothing above 16)
+	for (folder, name, writer) in [
+		("Hidden_Author", "Dark", "Hidden Author"),
+		("_Novela ligera/Hidden Saga", "Saga 1", "Hidden Writer"),
+	] {
+		world
+			.add_book_at(
+				folder,
+				name,
+				Meta {
+					age: Some(18),
+					writer: Some(writer),
+					genre: Some("Horror: Gore"),
+					..Default::default()
+				},
+			)
+			.await;
+	}
+	// the premise: she reads one book with the tag, the owner three
+	let response = world
+		.gql(
+			&world.vis.ana.token,
+			VOCABULARY,
+			json!({ "libraryId": world.library.id }),
+		)
+		.await;
+	assert_ok(&response);
+	let count_of = |response: &Value| {
+		response["data"]["intakeVocabulary"]
+			.as_array()
+			.expect("a list")
+			.iter()
+			.find(|tag| tag["value"] == "Horror: Gore")
+			.map(|tag| tag["count"].clone())
+	};
+	assert_eq!(count_of(&response), Some(json!(1)), "{response:#}");
+	let response = world
+		.as_owner(VOCABULARY, json!({ "libraryId": world.library.id }))
+		.await;
+	assert_eq!(count_of(&response), Some(json!(3)), "{response:#}");
+
+	// the same uploads, once for what the hidden books know and once for what nobody does
+	let by_hidden_author = world
+		.ana_uploads_epub(
+			"Known Author",
+			r#"<dc:creator>Hidden Author</dc:creator><dc:subject>Novela</dc:subject>"#,
+		)
+		.await;
+	world
+		.ana_uploads_epub(
+			"Unknown Author",
+			r#"<dc:creator>Nobody Known</dc:creator><dc:subject>Novela</dc:subject>"#,
+		)
+		.await;
+	let in_hidden_series = world
+		.ana_uploads_epub(
+			"Known Series",
+			r#"<dc:creator>Some Writer</dc:creator><meta name="calibre:series" content="Hidden Saga"/>"#,
+		)
+		.await;
+	world
+		.ana_uploads_epub(
+			"Unknown Series",
+			r#"<dc:creator>Some Writer</dc:creator><meta name="calibre:series" content="Never Heard Saga"/>"#,
+		)
+		.await;
+	world.ana_items().await;
+
+	let response = world
+		.gql(&world.vis.ana.token, ANA_VIEW, json!({}))
+		.await;
+	assert_ok(&response);
+	let items = &response["data"]["intakeItems"];
+	assert_eq!(items.as_array().map(Vec::len), Some(4), "{response:#}");
+	assert_eq!(
+		ana_view_of(items, "Known Author.epub"),
+		ana_view_of(items, "Unknown Author.epub"),
+		"an author folder of books she can't read must answer as an author the library doesn't know"
+	);
+	assert_eq!(
+		ana_view_of(items, "Known Series.epub"),
+		ana_view_of(items, "Unknown Series.epub"),
+		"a series folder of books she can't read must answer as a series the library doesn't know"
+	);
+	// nothing of what the hidden books say is in her view of the item, in any field
+	for name in ["Known Author.epub", "Known Series.epub"] {
+		let view = ana_view_of(items, name);
+		assert!(view["proposal"]["seriesKind"].is_null(), "{view:#}");
+		assert!(view["decision"]["seriesKind"].is_null(), "{view:#}");
+		assert!(
+			view["proposal"]["authorFolders"]
+				.as_array()
+				.is_some_and(Vec::is_empty),
+			"{view:#}"
+		);
+		let text = view.to_string();
+		for word in ["Hidden_Author", "Hidden Saga", "Hidden Author", "Hidden Writer", "Dark"] {
+			assert!(!text.contains(word), "{word} reached her: {view:#}");
+		}
+	}
+
+	// the approver's own analysis does know them: the folder, the kind of series, and her item has a
+	// view of its own
+	let row = world.row(&by_hidden_author).await;
+	let proposal = row.proposal.expect("a proposal");
+	assert_eq!(
+		proposal.author_folders.first().map(|c| c.folder.as_str()),
+		Some("Hidden_Author"),
+		"{proposal:#?}"
+	);
+	assert!(proposal.uploader_view.is_some());
+	assert_eq!(
+		row.decision.expect("a decision").folder,
+		"Hidden_Author",
+		"the folder is worked out from the whole library, for the approver"
+	);
+	let row = world.row(&in_hidden_series).await;
+	assert_eq!(
+		row.proposal.expect("a proposal").series_kind,
+		Some(IntakeSeriesKind::LightNovel)
+	);
 }

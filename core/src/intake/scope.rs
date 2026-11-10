@@ -7,9 +7,15 @@
 //! in "similar books" is a title. So nothing is taken out of the stored item; each person gets
 //! the item **through** their own limits, at the moment they ask.
 //!
+//! - Everything the analysis took from the whole library (the kind of series, the suggested
+//!   tags and how sure they are, the similar books, the warnings, the confidence) is replaced by
+//!   what the analysis found over the books the uploader can read alone, its **uploader view**
+//!   (`IntakeProposal::uploader_view`). An item without one is shown without any of it: the
+//!   confidence of a folder that matches, or of a tag that books vote for, says what the library
+//!   holds, hidden books included.
 //! - `similarBooks` and `duplicates` keep only the books the viewer can read (and a duplicate
-//!   carries no path). The warning that a book may already be in the library goes when no
-//!   duplicate is left to explain it.
+//!   carries no path). The warning that a book may already be in the library comes back only
+//!   while a duplicate they can read is left to explain it.
 //! - Folder candidates, the destination, the folder and the file names are for approvers: they
 //!   are the library's own layout, and a name that exists or doesn't is an answer about the
 //!   library.
@@ -142,6 +148,24 @@ pub async fn proposal_for_uploader(
 	library_id: &str,
 	mut proposal: IntakeProposal,
 ) -> CoreResult<IntakeProposal> {
+	match proposal.uploader_view.take() {
+		Some(view) => {
+			proposal.series_kind = view.series_kind;
+			proposal.genre_suggestions = view.genre_suggestions;
+			proposal.similar_books = view.similar_books;
+			proposal.warnings = view.warnings;
+			proposal.confidence = view.confidence;
+		},
+		None => {
+			// no view of their own (it was analysed for somebody who files books themselves):
+			// nothing that came from the library
+			proposal.series_kind = None;
+			proposal.genre_suggestions.clear();
+			proposal.similar_books.clear();
+			proposal.warnings.clear();
+			proposal.confidence = 0.0;
+		},
+	}
 	let mut ids: Vec<String> = proposal
 		.similar_books
 		.iter()
@@ -162,8 +186,9 @@ pub async fn proposal_for_uploader(
 		// a path is the library's layout
 		duplicate.path = String::new();
 	}
-	if proposal.duplicates.is_empty() {
-		proposal.warnings.retain(|w| w != DUPLICATE_WARNING);
+	proposal.warnings.retain(|w| w != DUPLICATE_WARNING);
+	if !proposal.duplicates.is_empty() {
+		proposal.warnings.push(DUPLICATE_WARNING.to_string());
 	}
 
 	// the folders are the library's own layout
