@@ -1,0 +1,275 @@
+use async_graphql::{Context, Object, Result, ID};
+use chrono::Utc;
+use models::{
+	entity::user,
+	services::{
+		access::{self as service, AccessError},
+		user::revoke_user_sessions,
+	},
+	shared::enums::UserPermission,
+};
+use sea_orm::{prelude::*, sea_query::Expr, TransactionTrait};
+use stump_core::access::{pass, state as edge_state};
+
+use crate::{
+	data::{AuthContext, CoreContext},
+	guard::{NotViaPublicEdgeGuard, SameOriginGuard, ServerOwnerGuard},
+	object::access::{AccessInvite, CreatedAccessInvite, CreateAccessInviteInput, INVITE_HOURS},
+};
+
+/// What the admin is told when a change is made but the edge could not be: the app refuses the
+/// device at once itself, and the edge follows once the state file can be written again
+const EDGE_NOT_TOLD: &str = "Done, and Stump refuses it at once, but the edge could not be told (its state file was not written). Check the state folder, then try again";
+
+/// The shortest password the owner can set for somebody
+const MIN_PASSWORD_CHARS: usize = 8;
+/// The longest (bcrypt only reads the first 72 bytes of one anyway)
+const MAX_PASSWORD_CHARS: usize = 128;
+
+/// The mutations of the *Public access* page. Every one is for the server owner only, refused on
+/// a request that came through the public edge, and refused when another site may have made the
+/// browser send it (a forged form)
+#[derive(Default)]
+pub struct AccessMutation;
+
+fn access_error(error: AccessError) -> async_graphql::Error {
+	match error {
+		AccessError::Db(error) => {
+			tracing::error!(?error, "Public access: a database error");
+			"Something went wrong".into()
+		},
+		other => other.to_string().into(),
+	}
+}
+
+/// Writes the state file so the edge follows a change, and says so if it can't
+async fn tell_the_edge(ctx: &Context<'_>) -> Result<()> {
+	let core_ctx = ctx.data::<CoreContext>()?;
+	match edge_state::publish_if_configured(core_ctx.conn.as_ref(), core_ctx.config.as_ref())
+		.await
+	{
+		Ok(_) => Ok(()),
+		Err(error) => {
+			tracing::error!(?error, "Public access: the edge could not be told");
+			Err(EDGE_NOT_TOLD.into())
+		},
+	}
+}
+
+#[Object]
+impl AccessMutation {
+	/// Makes an invite link for a person and a device. The link is in the response and nowhere
+	/// else: Stump keeps a hash of the token, not the token
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn create_access_invite(
+		&self,
+		ctx: &Context<'_>,
+		input: CreateAccessInviteInput,
+	) -> Result<CreatedAccessInvite> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let core_ctx = ctx.data::<CoreContext>()?;
+		let conn = core_ctx.conn.as_ref();
+
+		let edge = core_ctx.config.edge.as_ref();
+		let Some(base_url) = edge.and_then(|edge| edge.public_base_url()) else {
+			return Err("The public address is not set (STUMP_EDGE_PUBLIC_URL)".into());
+		};
+		if edge.and_then(|edge| edge.usable_key()).is_none() {
+			return Err("There is no key to sign passes with (STUMP_EDGE_KEY)".into());
+		}
+		if !INVITE_HOURS.contains(&input.valid_for_hours) {
+			return Err("That validity is not allowed".into());
+		}
+
+		let (token, token_hash) = pass::new_invite_token().map_err(|error| {
+			tracing::error!(error, "Public access: could not make a token");
+			async_graphql::Error::new("Something went wrong")
+		})?;
+
+		let now = Utc::now();
+		let invite = service::create_invite(
+			conn,
+			now,
+			service::NewInvite {
+				person_id: input.person_id,
+				label: input.label,
+				created_by: user.username.clone(),
+				token_hash,
+				valid_hours: i64::from(input.valid_for_hours),
+				max_uses: input.max_uses,
+			},
+		)
+		.await
+		.map_err(access_error)?;
+
+		Ok(CreatedAccessInvite {
+			link: format!("{base_url}/api/_i/{token}"),
+			invite: AccessInvite::new(invite, now),
+		})
+	}
+
+	/// Revokes an invite: it can't be opened any more. The devices that were made from it keep
+	/// their pass (revoke those one by one)
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn revoke_access_invite(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		Ok(service::revoke_invite(conn, Utc::now(), id.as_str(), &user.username).await?)
+	}
+
+	/// Revokes a device: its pass stops working, at once for the app and within a couple of
+	/// seconds at the edge. The invite it came from is revoked with it. Returns whether it
+	/// changed
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn revoke_access_device(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let changed =
+			service::revoke_device(conn, Utc::now(), id.as_str(), &user.username).await?;
+		tell_the_edge(ctx).await?;
+		Ok(changed)
+	}
+
+	/// Brings a revoked device back. Its invite stays revoked. Returns whether it changed
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn restore_access_device(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let changed =
+			service::restore_device(conn, Utc::now(), id.as_str(), &user.username).await?;
+		tell_the_edge(ctx).await?;
+		Ok(changed)
+	}
+
+	/// Cuts a person off: every device of theirs is revoked, so is every open invite of theirs,
+	/// and their sessions and refresh tokens are removed. Returns how many devices were revoked
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn revoke_access_devices_of_person(
+		&self,
+		ctx: &Context<'_>,
+		person_id: ID,
+	) -> Result<u64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let revoked = service::revoke_devices_of_person(
+			conn,
+			Utc::now(),
+			person_id.as_str(),
+			&user.username,
+		)
+		.await?;
+		tell_the_edge(ctx).await?;
+		Ok(revoked.devices)
+	}
+
+	/// Gives a device a fresh daily sign-in budget at the edge. Returns whether the device exists
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn reset_access_device_budget(
+		&self,
+		ctx: &Context<'_>,
+		id: ID,
+	) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let found =
+			service::reset_device_budget(conn, Utc::now(), id.as_str(), &user.username)
+				.await?;
+		tell_the_edge(ctx).await?;
+		Ok(found)
+	}
+
+	/// Unlocks an account and forgives the failed sign-ins of the last 24 hours, so that the next
+	/// typo doesn't lock it again. Returns whether the account exists
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn unblock_user(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		Ok(service::unblock_user(conn, Utc::now(), id.as_str(), &user.username).await?)
+	}
+
+	/// Sets somebody's password. With `requireChange` (the default) they must choose their own
+	/// before they can use anything else: until then they can only change the password and sign
+	/// out. It ends their sessions. The server owner's password is never set here.
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn set_user_password(
+		&self,
+		ctx: &Context<'_>,
+		id: ID,
+		password: String,
+		#[graphql(default = true)] require_change: bool,
+	) -> Result<bool> {
+		let AuthContext { user: admin, .. } = ctx.data::<AuthContext>()?;
+		let core_ctx = ctx.data::<CoreContext>()?;
+		let conn = core_ctx.conn.as_ref();
+
+		let length = password.chars().count();
+		if !(MIN_PASSWORD_CHARS..=MAX_PASSWORD_CHARS).contains(&length) {
+			return Err(format!(
+				"The password must have {MIN_PASSWORD_CHARS} to {MAX_PASSWORD_CHARS} characters"
+			)
+			.into());
+		}
+
+		let target = user::Entity::find_by_id(id.to_string())
+			.filter(user::Column::DeletedAt.is_null())
+			.one(conn)
+			.await?
+			.ok_or("User not found")?;
+		if target.is_server_owner {
+			return Err("The server owner's password is not set from here".into());
+		}
+		if require_change {
+			// somebody who may not change their password could never replace the one they were
+			// given
+			let permissions = models::shared::permission_set::PermissionSet::from(
+				target.permissions.clone().unwrap_or_default(),
+			)
+			.resolve_into_vec();
+			if !permissions.contains(&UserPermission::ChangePassword) {
+				return Err("That person may not change their password, so they could not replace this one. Allow it for them first, or set it without the requirement".into());
+			}
+		}
+
+		let hashed = bcrypt::hash(password, core_ctx.config.password_hash_cost)?;
+		let now = Utc::now();
+		let txn = conn.begin().await?;
+		user::Entity::update_many()
+			.col_expr(user::Column::HashedPassword, Expr::value(hashed))
+			.filter(user::Column::Id.eq(target.id.clone()))
+			.exec(&txn)
+			.await?;
+		revoke_user_sessions(&txn, &target.id, None).await?;
+		if require_change {
+			service::require_password_change(&txn, now, &target.id, &admin.username)
+				.await?;
+		} else {
+			service::clear_password_change(&txn, &target.id).await?;
+		}
+		service::audit(
+			&txn,
+			now,
+			&admin.username,
+			"user.password_set",
+			&target.id,
+			&format!(
+				"{} ({})",
+				target.username,
+				if require_change {
+					"must choose their own"
+				} else {
+					"no requirement"
+				}
+			),
+		)
+		.await?;
+		txn.commit().await?;
+
+		Ok(true)
+	}
+}

@@ -1,3 +1,4 @@
+pub mod access_person;
 pub mod author;
 pub mod favorite;
 pub mod library;

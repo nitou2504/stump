@@ -1,3 +1,4 @@
+pub mod access;
 pub mod api_key;
 pub mod author;
 pub mod book_club;

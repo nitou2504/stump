@@ -5,7 +5,7 @@ use models::{
 };
 
 use crate::{
-	data::{AuthContext, CoreContext},
+	data::{AuthContext, CoreContext, EdgeRequest},
 	error_message,
 };
 
@@ -20,6 +20,41 @@ impl Guard for ServerOwnerGuard {
 			Ok(())
 		} else {
 			Err(error_message::FORBIDDEN_ACTION.into())
+		}
+	}
+}
+
+/// Guard: the request must not have come through the public edge, whoever sent it. The owner's
+/// session cookie is not tied to a port, so an owner who opens an invite link in their own browser
+/// would otherwise reach their admin pages through the internet.
+///
+/// A request with no [`EdgeRequest`] (a handler that forgot to add it) is refused: not knowing
+/// how a request arrived is not a reason to let it in.
+pub struct NotViaPublicEdgeGuard;
+
+impl Guard for NotViaPublicEdgeGuard {
+	async fn check(&self, ctx: &Context<'_>) -> Result<()> {
+		match ctx.data_opt::<EdgeRequest>() {
+			Some(edge) if !edge.via_public => Ok(()),
+			_ => Err(error_message::FORBIDDEN_ACTION.into()),
+		}
+	}
+}
+
+/// Guard for the mutations of the admin pages: a browser that another site made send the request
+/// is refused. A form on another site can post a GraphQL multipart request (and, from the same
+/// site, `SameSite=Lax` cookies still go along), so the check is on where the browser says the
+/// request comes from. Clients that are not browsers (a script with a token) send neither header
+/// and are not affected.
+///
+/// A request with no [`EdgeRequest`] is refused, like in [`NotViaPublicEdgeGuard`].
+pub struct SameOriginGuard;
+
+impl Guard for SameOriginGuard {
+	async fn check(&self, ctx: &Context<'_>) -> Result<()> {
+		match ctx.data_opt::<EdgeRequest>() {
+			Some(edge) if !edge.cross_site => Ok(()),
+			_ => Err(error_message::FORBIDDEN_ACTION.into()),
 		}
 	}
 }

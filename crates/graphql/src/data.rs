@@ -64,6 +64,33 @@ impl ServiceContext {
 	}
 }
 
+/// A pass the public edge sent with the request, checked by the app: the device it belongs to
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EdgeDevice {
+	/// The pass id (`ana-phone-k3f9x`)
+	pub id: String,
+	/// The person the device was made for. `None` for a legacy pass (made in the terminal)
+	pub person_id: Option<String>,
+}
+
+/// How a request reached the app: through the public edge or not, with which pass, and whether
+/// another site may have made the browser send it. The server's edge middleware makes one for
+/// **every** request and the HTTP and websocket handlers copy it into the GraphQL data; a request
+/// that has none is treated as the least trustworthy kind (see the guards).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EdgeRequest {
+	/// The request came through the public edge (the marker header the edge adds to everything it
+	/// forwards from the internet was present). Always what the marker says, whatever the
+	/// configuration
+	pub via_public: bool,
+	/// The device whose pass came with the request and checked out (and is not revoked)
+	pub device: Option<EdgeDevice>,
+	/// The browser may have been made to send this request by another site: `Sec-Fetch-Site`
+	/// says `same-site` or `cross-site`, or (when the browser sends none) `Origin` is neither the
+	/// request's own origin nor an allowed one
+	pub cross_site: bool,
+}
+
 /// A struct to represent the authenticated user in the current request context. A user is
 /// authenticated if they meet one of the following criteria:
 /// - They have a valid session

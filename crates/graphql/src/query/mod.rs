@@ -1,3 +1,4 @@
+mod access;
 mod api_key;
 mod author;
 mod book_club;
@@ -57,6 +58,7 @@ use job::JobQuery;
 use library::LibraryQuery;
 use log::LogQuery;
 use media::MediaQuery;
+use access::AccessQuery;
 use media_metadata_overview::MediaMetadataOverviewQuery;
 use metadata_edit::MetadataEditQuery;
 use metadata_facets::MetadataFacetQuery;
@@ -110,6 +112,7 @@ struct UserAndNotifsQueries(UserQuery, EmailerQuery, EmailDeviceQuery, NotifierQ
 
 #[derive(async_graphql::MergedObject, Default)]
 struct SystemQueries(
+	AccessQuery,
 	APIKeyQuery,
 	JobQuery,
 	LogQuery,
