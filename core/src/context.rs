@@ -78,7 +78,12 @@ impl Ctx {
 
 	/// Creates a [Ctx] instance for testing **only**
 	pub fn for_testing(conn: DatabaseConnection) -> Ctx {
-		let config = Arc::new(StumpConfig::debug());
+		Self::for_testing_with_config(conn, StumpConfig::debug())
+	}
+
+	/// Creates a [Ctx] instance for testing **only**, with the given configuration
+	pub fn for_testing_with_config(conn: DatabaseConnection, config: StumpConfig) -> Ctx {
+		let config = Arc::new(config);
 		let conn = Arc::new(conn);
 		let event_channel = Arc::new(channel::<CoreEvent>(1024));
 		let job_storage = MemoryStorage::<StumpJob>::new();

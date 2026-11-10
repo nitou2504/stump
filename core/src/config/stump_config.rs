@@ -201,6 +201,60 @@ pub struct StumpConfig {
 	#[graphql(skip)]
 	pub archive_max_pack_books: u64,
 
+	/// The most megabytes in one "Add books" upload request (a request holds many files). The
+	/// server answers a bigger one before it reads the body. A reverse proxy in front of Stump
+	/// needs a limit of at least this
+	#[setting(default = 300)]
+	#[graphql(skip)]
+	pub intake_max_request_mb: u64,
+
+	/// The biggest single file, in MB, someone who needs approval may upload (an approver's own
+	/// uploads follow `max_file_upload_size`). A user can have a limit of their own
+	#[setting(default = 300)]
+	#[graphql(skip)]
+	pub intake_max_file_mb: u64,
+
+	/// The most files in one "Add books" upload request
+	#[setting(default = 50)]
+	#[graphql(skip)]
+	pub intake_max_files_per_request: u64,
+
+	/// The most MB of a user's uploads that wait in their inbox at once (staged, not yet filed
+	/// or discarded). A user can have a limit of their own
+	#[setting(default = 2048)]
+	#[graphql(skip)]
+	pub intake_user_quota_mb: u64,
+
+	/// The most inbox items a user can have open at once (not filed, discarded or sent back)
+	#[setting(default = 100)]
+	#[graphql(skip)]
+	pub intake_user_max_items: u64,
+
+	/// Uploads are refused when the disk holding the config folder has less than this many GB
+	/// free, so a full inbox can't fill the disk the database lives on
+	#[setting(default = 20)]
+	#[graphql(skip)]
+	pub intake_min_free_gb: u64,
+
+	/// The most GB of uploads that wait in all the inboxes together
+	#[setting(default = 50)]
+	#[graphql(skip)]
+	pub intake_total_max_gb: u64,
+
+	/// An upload that sends nothing for this many seconds is given up (and what it staged is
+	/// removed), so a stalled connection can't hold a slot of the quota
+	#[setting(default = 60)]
+	#[graphql(skip)]
+	pub intake_upload_idle_secs: u64,
+
+	/// How the files of people who need approval are checked. `off`: they may not upload at all.
+	/// `inprocess`: they are read inside the server like any other book, which is only for a
+	/// server whose uploaders are trusted: until the isolated checker exists, grant "Add books"
+	/// to friends only with this set deliberately
+	#[setting(default = "off")]
+	#[graphql(skip)]
+	pub intake_probe_mode: String,
+
 	/// OIDC authentication configuration
 	#[setting(nested)]
 	#[graphql(skip)]
@@ -247,6 +301,9 @@ impl StumpConfig {
 			enable_koreader_sync: true,
 			enable_kobo_sync: true,
 			enable_upload: true,
+			// a development machine has no isolated checker and no disk floor to keep
+			intake_probe_mode: "inprocess".to_string(),
+			intake_min_free_gb: 0,
 			..Default::default()
 		}
 	}
@@ -447,6 +504,37 @@ mod tests {
 				assert_eq!(config.archive_max_entry_mb, 64);
 				assert_eq!(config.archive_max_xml_mb, 16);
 				assert_eq!(config.archive_max_pack_books, 20);
+			},
+		);
+	}
+
+	#[test]
+	fn test_intake_limits_defaults_and_env_override() {
+		let dir = tempfile::tempdir().expect("should create temp dir");
+		let config =
+			StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+		assert_eq!(config.intake_max_request_mb, 300);
+		assert_eq!(config.intake_max_file_mb, 300);
+		assert_eq!(config.intake_max_files_per_request, 50);
+		assert_eq!(config.intake_user_quota_mb, 2048);
+		assert_eq!(config.intake_user_max_items, 100);
+		assert_eq!(config.intake_min_free_gb, 20);
+		assert_eq!(config.intake_total_max_gb, 50);
+		assert_eq!(config.intake_upload_idle_secs, 60);
+		assert_eq!(config.intake_probe_mode, "off");
+
+		temp_env::with_vars(
+			[
+				("STUMP_INTAKE_USER_QUOTA_MB", Some("512")),
+				("STUMP_INTAKE_PROBE_MODE", Some("inprocess")),
+			],
+			|| {
+				let dir = tempfile::tempdir().expect("should create temp dir");
+				let config = StumpConfig::load(dir.path().to_path_buf())
+					.expect("should load config");
+				assert_eq!(config.intake_user_quota_mb, 512);
+				assert_eq!(config.intake_probe_mode, "inprocess");
+				assert_eq!(config.intake_user_max_items, 100);
 			},
 		);
 	}
