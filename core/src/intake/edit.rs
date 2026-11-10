@@ -51,7 +51,8 @@ use super::{
 	suggest::{merge_online, rank_suggestions, score_tags},
 	write::{
 		append_pdf_info, check_xml, comic_info, esc, file_as, num, opf_path, order_tags,
-		pdf_string, rewrite_zip, FileMetadata, KeptPdfInfo, WriteError, WriteResult,
+		pdf_string, refined_ids, remove_matches, rewrite_zip, FileMetadata, KeptPdfInfo,
+		WriteError, WriteResult,
 	},
 };
 use crate::{
@@ -555,30 +556,28 @@ pub fn apply_opf_changes(opf: &str, changes: &FileChanges) -> WriteResult<String
 	}
 
 	let mut add: Vec<String> = vec![];
-	let remove = |body: &mut String, pattern: &str| {
-		let re = Regex::new(pattern).expect("valid regex");
-		*body = re.replace_all(body, "").into_owned();
-	};
+	let remove = |body: &mut String, pattern: &str| remove_matches(body, pattern);
 	let remove_refines = |body: &mut String, ids: Vec<String>| {
 		for id in ids {
 			let id = regex::escape(&id);
-			let re = Regex::new(&format!(
-				r#"(?s)\s*<meta\b[^>]*refines=["']#{id}["'][^>]*>.*?</meta>"#
-			))
-			.expect("valid regex");
-			*body = re.replace_all(body, "").into_owned();
-			let re =
-				Regex::new(&format!(r#"\s*<meta\b[^>]*refines=["']#{id}["'][^>]*/>"#))
-					.expect("valid regex");
-			*body = re.replace_all(body, "").into_owned();
+			remove_matches(
+				body,
+				&format!(r#"(?s)\s*<meta\b[^>]*refines=["']#{id}["'][^>]*>.*?</meta>"#),
+			);
+			remove_matches(
+				body,
+				&format!(r#"\s*<meta\b[^>]*refines=["']#{id}["'][^>]*/>"#),
+			);
 		}
 	};
+	// the ids come from the book's own OPF: only so many, of a sane length (see `refined_ids`)
 	let ids_of = |body: &str, pattern: &str| -> Vec<String> {
-		Regex::new(pattern)
-			.expect("valid regex")
-			.captures_iter(body)
-			.map(|c| c[1].to_string())
-			.collect()
+		refined_ids(
+			Regex::new(pattern)
+				.expect("valid regex")
+				.captures_iter(body)
+				.map(|c| c[1].to_string()),
+		)
 	};
 
 	if let Some(Some(title)) = &changes.title {
@@ -2233,6 +2232,70 @@ mod tests {
     <dc:identifier id="id">urn:isbn:9798667150664</dc:identifier>
   </metadata>
 </package>"##;
+
+	/// The creator and a collection of an OPF carry `id`, as do the `refines` elements after them
+	fn opf_with_ids(id: &str) -> String {
+		OPF3.replace(
+			"<dc:identifier",
+			&format!(
+				r##"<meta property="belongs-to-collection" id="{id}">Old</meta><meta refines="#{id}" property="collection-type">series</meta><dc:creator id="{id}">Eco, Umberto</dc:creator><meta refines="#{id}" property="file-as">Eco, Umberto</meta><dc:identifier"##
+			),
+		)
+	}
+
+	/// A huge id makes the pattern for its `refines` elements too big to compile: the editor's
+	/// `.expect("valid regex")` aborted the server on every metadata edit of such a book
+	#[test]
+	fn an_opf_with_a_huge_id_is_edited_not_aborted() {
+		let opf = opf_with_ids(&"A".repeat(1024 * 1024));
+		let changes = FileChanges {
+			writers: Some(vec!["Someone Else".into()]),
+			series: Some((Some("New".into()), Some(1.0))),
+			..Default::default()
+		};
+		let new = apply_opf_changes(&opf, &changes).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert!(new.contains(">Someone Else</dc:creator>"));
+		assert!(new.contains(r#"<meta name="calibre:series" content="New"/>"#));
+		assert!(!new.contains("Eco, Umberto</dc:creator>"));
+	}
+
+	#[test]
+	fn an_opf_with_thousands_of_ids_follows_only_the_first_ones() {
+		use std::fmt::Write;
+
+		let mut creators = String::new();
+		for i in 0..1000 {
+			write!(
+				creators,
+				r##"<dc:creator id="c{i}">Author {i}</dc:creator><meta refines="#c{i}" property="role">aut</meta>"##
+			)
+			.unwrap();
+		}
+		let opf = OPF3.replace("<dc:creator", &format!("{creators}<dc:creator"));
+		let changes = FileChanges {
+			writers: Some(vec!["Someone Else".into()]),
+			..Default::default()
+		};
+		let new = apply_opf_changes(&opf, &changes).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert!(new.contains(">Someone Else</dc:creator>"));
+		assert!(!new.contains(r##"refines="#c0""##));
+		assert!(!new.contains(r##"refines="#c62""##));
+		assert!(new.contains(r##"refines="#c999""##));
+	}
+
+	#[test]
+	fn an_id_with_regex_syntax_in_it_is_a_literal() {
+		let opf = opf_with_ids(r"a.b(c)[d]*+?|^$\");
+		let changes = FileChanges {
+			writers: Some(vec!["Someone Else".into()]),
+			..Default::default()
+		};
+		let new = apply_opf_changes(&opf, &changes).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert!(!new.contains("file-as\">Eco, Umberto"));
+	}
 
 	#[test]
 	fn rewrites_only_the_changed_fields_of_an_opf() {

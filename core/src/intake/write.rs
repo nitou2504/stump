@@ -243,6 +243,33 @@ pub(crate) fn check_xml(text: &str) -> WriteResult<()> {
 	}
 }
 
+/// The most ids an OPF is followed through when its `<meta refines="#id">` elements are removed
+const MAX_REFINED_IDS: usize = 64;
+/// An id longer than this is not one a book has: real ids are a few bytes. The pattern built from
+/// a huge one would not compile (`CompiledTooBig`)
+const MAX_ID_BYTES: usize = 256;
+
+/// The ids of an OPF (a creator's, a collection's) to remove the `refines` elements of. The OPF
+/// is the book's own text, so it may hold a hundred thousand of them or one the size of the
+/// file: each id costs two regex compiles and two passes over the whole OPF, so only the first
+/// [`MAX_REFINED_IDS`] ids of a sane length are followed (the rest of their elements stay)
+pub(crate) fn refined_ids(ids: impl Iterator<Item = String>) -> Vec<String> {
+	ids.filter(|id| id.len() <= MAX_ID_BYTES)
+		.take(MAX_REFINED_IDS)
+		.collect()
+}
+
+/// Removes everything `pattern` matches from `body`. A pattern that does not compile removes
+/// nothing: `Regex::new(..).expect(..)` on one built from a book's text would abort the server
+pub(crate) fn remove_matches(body: &mut String, pattern: &str) {
+	match Regex::new(pattern) {
+		Ok(re) => *body = re.replace_all(body, "").into_owned(),
+		Err(error) => {
+			tracing::warn!(?error, "Skipped an OPF edit: its pattern does not compile");
+		},
+	}
+}
+
 /// Edits the OPF text: the reviewed values replace what the file had
 pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	// the XML declaration must say UTF-8, the encoding we write
@@ -275,10 +302,7 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 	}
 
 	let mut add: Vec<String> = vec![];
-	let remove = |body: &mut String, pattern: &str| {
-		let re = Regex::new(pattern).expect("valid regex");
-		*body = re.replace_all(body, "").into_owned();
-	};
+	let remove = |body: &mut String, pattern: &str| remove_matches(body, pattern);
 
 	// title
 	if let Some(title) = meta.title.as_deref().filter(|t| !t.trim().is_empty()) {
@@ -305,11 +329,12 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 			.map(|c| html_unescape(c[2].trim()))
 			.collect();
 		if current != meta.authors {
-			let ids: Vec<String> = Regex::new(r#"<dc:creator\b[^>]*\bid=["']([^"']+)["']"#)
-				.expect("valid regex")
-				.captures_iter(&body)
-				.map(|c| c[1].to_string())
-				.collect();
+			let ids = refined_ids(
+				Regex::new(r#"<dc:creator\b[^>]*\bid=["']([^"']+)["']"#)
+					.expect("valid regex")
+					.captures_iter(&body)
+					.map(|c| c[1].to_string()),
+			);
 			for id in ids {
 				remove(
 					&mut body,
@@ -356,12 +381,12 @@ pub fn edit_opf(opf: &str, meta: &FileMetadata) -> WriteResult<String> {
 
 	// series
 	if let Some(series) = meta.series.as_deref().filter(|s| !s.trim().is_empty()) {
-		let ids: Vec<String> =
+		let ids = refined_ids(
 			Regex::new(r#"<meta[^>]*property=["']belongs-to-collection["'][^>]*id=["']([^"']+)["']"#)
 				.expect("valid regex")
 				.captures_iter(&body)
-				.map(|c| c[1].to_string())
-				.collect();
+				.map(|c| c[1].to_string()),
+		);
 		for id in ids {
 			remove(
 				&mut body,
@@ -808,6 +833,122 @@ pub fn append_pdf_info(path: &Path, info: &[(String, String)]) -> WriteResult<()
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// An OPF whose creator, and the `refines` element after it, carry `id`
+	fn opf_with_a_creator_id(id: &str) -> String {
+		format!(
+			r##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Title</dc:title>
+    <dc:creator id="{id}">Eco, Umberto</dc:creator>
+    <meta refines="#{id}" property="file-as">Eco, Umberto</meta>
+    <dc:identifier id="uid">urn:isbn:1</dc:identifier>
+  </metadata>
+</package>"##
+		)
+	}
+
+	fn authors(names: &[&str]) -> FileMetadata {
+		FileMetadata {
+			authors: names.iter().map(|n| n.to_string()).collect(),
+			..Default::default()
+		}
+	}
+
+	/// A creator id the size of the OPF's own limit makes the pattern for its `refines`
+	/// elements too big to compile: `.expect("valid regex")` aborted the server on Accept
+	#[test]
+	fn an_opf_with_a_huge_creator_id_is_edited_not_aborted() {
+		let opf = opf_with_a_creator_id(&"A".repeat(1024 * 1024));
+		let new = edit_opf(&opf, &authors(&["Someone Else"])).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert!(new.contains(">Someone Else</dc:creator>"));
+		assert!(!new.contains("Eco, Umberto</dc:creator>"));
+	}
+
+	#[test]
+	fn an_opf_with_a_huge_collection_id_is_edited_not_aborted() {
+		let id = "B".repeat(1024 * 1024);
+		let opf = opf_with_a_creator_id("c1").replace(
+			"<dc:identifier",
+			&format!(
+				r##"<meta property="belongs-to-collection" id="{id}">Old</meta><meta refines="#{id}" property="collection-type">series</meta><dc:identifier"##
+			),
+		);
+		let meta = FileMetadata {
+			series: Some("New".into()),
+			..Default::default()
+		};
+		let new = edit_opf(&opf, &meta).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert!(new.contains(r#"<meta name="calibre:series" content="New"/>"#));
+	}
+
+	/// Each id costs two regex compiles and two passes over the OPF: the first `MAX_REFINED_IDS`
+	/// are followed, the rest of an OPF of thousands is left as it is
+	#[test]
+	fn an_opf_with_thousands_of_ids_follows_only_the_first_ones() {
+		use std::fmt::Write;
+
+		let mut creators = String::new();
+		for i in 0..1000 {
+			write!(
+				creators,
+				r##"<dc:creator id="c{i}">Author {i}</dc:creator><meta refines="#c{i}" property="role">aut</meta>"##
+			)
+			.unwrap();
+		}
+		let opf = opf_with_a_creator_id("first")
+			.replace("<dc:creator", &format!("{creators}<dc:creator"));
+		let new = edit_opf(&opf, &authors(&["Someone Else"])).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		// the creators are replaced, the `refines` elements of the first ids go with them
+		assert!(new.contains(">Someone Else</dc:creator>"));
+		assert!(!new.contains("Author 5<"));
+		assert!(!new.contains(r##"refines="#c0""##));
+		assert!(!new.contains(r##"refines="#c62""##));
+		// ... and the ones past the limit stay
+		assert!(new.contains(r##"refines="#c999""##));
+	}
+
+	#[test]
+	fn an_id_with_regex_syntax_in_it_is_a_literal() {
+		let opf = opf_with_a_creator_id(r"a.b(c)[d]*+?|^$\");
+		let new = edit_opf(&opf, &authors(&["Someone Else"])).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		// its refines element is found and removed, as the exact text
+		assert!(!new.contains(">Eco, Umberto</meta>"));
+		assert!(new.contains(">Someone Else</dc:creator>"));
+	}
+
+	#[test]
+	fn only_ids_of_a_sane_length_are_followed() {
+		let ids = vec![
+			"a".to_string(),
+			"b".repeat(MAX_ID_BYTES),
+			"c".repeat(MAX_ID_BYTES + 1),
+			"d".to_string(),
+		];
+		let kept = refined_ids(ids.into_iter());
+		assert_eq!(kept.len(), 3);
+		assert!(kept.iter().all(|id| id.len() <= MAX_ID_BYTES));
+
+		let many = (0..MAX_REFINED_IDS * 3).map(|i| i.to_string());
+		assert_eq!(refined_ids(many).len(), MAX_REFINED_IDS);
+	}
+
+	#[test]
+	fn a_pattern_that_does_not_compile_removes_nothing() {
+		let mut body = String::from("keep me");
+		remove_matches(&mut body, "(unclosed");
+		assert_eq!(body, "keep me");
+		// a pattern too big to compile is an error too, not a panic
+		remove_matches(&mut body, "(a{1000}){1000}");
+		assert_eq!(body, "keep me");
+		remove_matches(&mut body, "me$");
+		assert_eq!(body, "keep ");
+	}
 
 	fn meta() -> FileMetadata {
 		FileMetadata {
