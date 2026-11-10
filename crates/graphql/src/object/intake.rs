@@ -44,6 +44,7 @@ pub struct IntakeItem {
 	pub destination: Option<IntakeDestination>,
 	#[graphql(skip)]
 	pub result: Option<IntakeResult>,
+	#[graphql(skip)]
 	pub error: Option<String>,
 	pub created_at: DateTimeWithTimeZone,
 	pub updated_at: DateTimeWithTimeZone,
@@ -142,6 +143,19 @@ impl IntakeItem {
 			Some(destination) => Ok(scope::destination_for_uploader(destination)),
 			None => Ok(None),
 		}
+	}
+
+	/// Why the last try with the item failed. For somebody who may not file books themselves,
+	/// without what only the library knows (that a file with the name is in it, that a copy of
+	/// the book was added)
+	async fn error(&self, ctx: &Context<'_>) -> Result<Option<String>> {
+		let Some(error) = self.error.clone() else {
+			return Ok(None);
+		};
+		if sees_everything(ctx)? {
+			return Ok(Some(error));
+		}
+		Ok(scope::error_for_uploader(&error))
 	}
 
 	/// What filing did. For somebody who files nothing themselves, the paths are inside the

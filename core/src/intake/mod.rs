@@ -1181,9 +1181,10 @@ async fn file_claimed_inner(
 	let destination = compute_destination(&root, &settings, &files, &decision);
 	let mut problems = decision_problems(&decision, &destination);
 	problems.extend(extension_problems(&decision, &files));
-	// a name taken since the review gets a suffix instead of failing
-	let clash_only = problems.iter().all(|p| p == scope::EXISTS_PROBLEM);
-	if !problems.is_empty() && !clash_only {
+	// a name taken since the review gets a suffix instead of failing: it is no reason, and an
+	// error that says the library holds a file is not for whoever reads it
+	problems.retain(|p| p != scope::EXISTS_PROBLEM);
+	if !problems.is_empty() {
 		return Err(CoreError::BadRequest(problems.join("; ")));
 	}
 	// a copy of the file that is in the library since the book was looked at: told to whoever

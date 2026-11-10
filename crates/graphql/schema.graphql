@@ -1367,7 +1367,6 @@ type IntakeItem {
 	"The uploaded file or folder name"
 	name: String!
 	files: [IntakeFile!]!
-	error: String
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	filedAt: DateTime
@@ -1389,6 +1388,12 @@ type IntakeItem {
 	library's own layout, and which names exist is an answer about the library
 	"""
 	destination: IntakeDestination
+	"""
+	Why the last try with the item failed. For somebody who may not file books themselves,
+	without what only the library knows (that a file with the name is in it, that a copy of
+	the book was added)
+	"""
+	error: String
 	"""
 	What filing did. For somebody who files nothing themselves, the paths are inside the
 	library, not on the server's disk

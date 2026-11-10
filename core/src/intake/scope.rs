@@ -256,15 +256,30 @@ pub fn destination_for_uploader(
 pub fn problems_for_uploader(problems: Vec<String>) -> Vec<String> {
 	problems
 		.into_iter()
-		.filter(|problem| {
-			problem != EXISTS_PROBLEM
-				&& problem != "Choose a folder"
-				&& problem != "The folder is outside the library"
-				&& !problem.starts_with("Invalid file name")
-				&& !problem.starts_with("The file name '")
-				&& problem != "Two files would get the same name"
-		})
+		.filter(|problem| !only_the_library_knows(problem))
 		.collect()
+}
+
+/// Whether a reason is an answer about the library (its folders, its names, its books) and not
+/// about what an uploader sent
+fn only_the_library_knows(problem: &str) -> bool {
+	problem == EXISTS_PROBLEM
+		|| problem == ADDED_SINCE
+		|| problem == "Choose a folder"
+		|| problem == "The folder is outside the library"
+		|| problem.starts_with("Invalid file name")
+		|| problem.starts_with("The file name '")
+		|| problem == "Two files would get the same name"
+}
+
+/// Why the last try with an item failed, as somebody who may not file books themselves reads it:
+/// what is left when the answers about the library are taken out (`None` when none is)
+pub fn error_for_uploader(error: &str) -> Option<String> {
+	let kept: Vec<&str> = error
+		.split("; ")
+		.filter(|reason| !only_the_library_knows(reason))
+		.collect();
+	(!kept.is_empty()).then(|| kept.join("; "))
 }
 
 #[cfg(test)]
@@ -284,6 +299,21 @@ mod tests {
 		assert_eq!(
 			problems_for_uploader(problems),
 			["Add a title", "Add an author"]
+		);
+	}
+
+	#[test]
+	fn an_uploader_is_not_told_what_only_the_library_knows_about_a_failure() {
+		// the reasons are joined with "; ": the ones about the library go, the others stay
+		assert_eq!(
+			error_for_uploader(&format!("Add a title; {EXISTS_PROBLEM}")),
+			Some("Add a title".to_string())
+		);
+		assert_eq!(error_for_uploader(EXISTS_PROBLEM), None);
+		assert_eq!(error_for_uploader(ADDED_SINCE), None);
+		assert_eq!(
+			error_for_uploader("Analysis failed: the file is damaged"),
+			Some("Analysis failed: the file is damaged".to_string())
 		);
 	}
 

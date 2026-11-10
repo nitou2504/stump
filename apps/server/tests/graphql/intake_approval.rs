@@ -2442,3 +2442,49 @@ async fn test_a_copy_added_since_the_book_was_looked_at_is_not_filed_silently() 
 	);
 }
 
+/// what only the library knows (a name that is taken) isn't in the reason a book wasn't filed,
+/// and a friend's view of the reason has none of it either
+#[tokio::test(flavor = "multi_thread")]
+async fn test_the_reason_a_book_was_not_filed_says_nothing_of_the_library() {
+	let world = world().await;
+	let id = insert_item(
+		&world,
+		&world.ana_id(),
+		IntakeState::PendingApproval,
+		IntakeProposal::default(),
+	)
+	.await;
+	// no title, and the name its file would get is taken
+	let row = world.row(&id).await;
+	let mut decision = row.decision.clone().expect("a decision");
+	decision.metadata.title = None;
+	intake_item::ActiveModel {
+		decision: Set(Some(decision)),
+		..row.into()
+	}
+	.update(world.app.conn())
+	.await
+	.expect("the decision");
+	fs::write(world.library_dir.join("Umberto_Eco/crafted.epub"), b"taken").unwrap();
+
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
+	let row = world.wait_for(&id, IntakeState::PendingApproval).await;
+	for _ in 0..100 {
+		if world.row(&id).await.error.is_some() {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+	let error = world.row(&id).await.error.expect("a reason");
+	assert!(error.contains("Add a title"), "{error}");
+	assert!(!error.contains("already in the library"), "{error}");
+	drop(row);
+	let items = world.ana_items().await;
+	let hers = items
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|item| item["id"] == id)
+		.expect("her item");
+	assert!(!hers.to_string().contains("already in the library"), "{hers:#}");
+}

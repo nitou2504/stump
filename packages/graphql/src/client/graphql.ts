@@ -1469,6 +1469,11 @@ export type IntakeItem = {
    * library's own layout, and which names exist is an answer about the library
    */
   destination?: Maybe<IntakeDestination>;
+  /**
+   * Why the last try with the item failed. For somebody who may not file books themselves,
+   * without what only the library knows (that a file with the name is in it, that a copy of
+   * the book was added)
+   */
   error?: Maybe<Scalars['String']['output']>;
   filedAt?: Maybe<Scalars['DateTime']['output']>;
   files: Array<IntakeFile>;
