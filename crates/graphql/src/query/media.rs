@@ -26,8 +26,8 @@ use crate::{
 	},
 	order::{order_spec, MediaOrderBy},
 	pagination::{
-		CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse, Pagination,
-		PaginationValidator,
+		list_limit, CursorPaginationInfo, OffsetPaginationInfo, PaginatedResponse,
+		Pagination, PaginationValidator,
 	},
 	utils::{db_statement, letter_counts},
 };
@@ -500,6 +500,10 @@ impl MediaQuery {
 	/// The books at these paths (as Stump stores them), in the order asked: `media` is null
 	/// for a path with no book the user can see. For scripts that know their files by path,
 	/// e.g. before `editMediaMetadataBatch`. At most 500 paths per call
+	// One match, with whatever is selected inside it, for every path asked (the same book again
+	// for a path asked twice): the cost is per path, or 500 aliases of it would ask for a book
+	// 250,000 times
+	#[graphql(complexity = "paths.len().saturating_mul(child_complexity)")]
 	async fn media_by_paths(
 		&self,
 		ctx: &Context<'_>,
@@ -1079,6 +1083,8 @@ impl MediaQuery {
 		}
 	}
 
+	/// The books that share their file with another book, at most 200 (the first by hash)
+	#[graphql(complexity = "crate::complexity::list_cost(None, child_complexity)")]
 	async fn duplicate_media(&self, ctx: &Context<'_>) -> Result<Vec<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -1095,6 +1101,9 @@ impl MediaQuery {
 						.to_owned(),
 				),
 			)
+			.order_by_asc(media::Column::Hash)
+			.order_by_asc(media::Column::Id)
+			.limit(list_limit(None))
 			.into_model::<media::ModelWithMetadata>()
 			.all(conn)
 			.await?;

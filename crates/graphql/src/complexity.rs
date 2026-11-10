@@ -66,7 +66,8 @@ mod tests {
 		pagination::{OffsetPagination, Unpaginated, MAX_LIST_SIZE},
 		schema::build_schema_bare,
 	};
-	use async_graphql::Request;
+	use async_graphql::{Request, Variables};
+	use serde_json::{json, Value};
 
 	#[test]
 	fn lists_cost_their_size_at_most_the_maximum() {
@@ -106,12 +107,28 @@ mod tests {
 
 	/// Runs the query against the real schema, without any data (nothing is resolved without an
 	/// authenticated user). Only the validation matters: it is where the complexity is checked.
-	async fn rejected_as_too_complex(query: &str) -> bool {
-		let response = build_schema_bare().execute(Request::new(query)).await;
-		response
+	/// The errors it gives, without the ones about the missing data of the resolvers.
+	async fn validation_errors(query: &str, variables: Value) -> Vec<String> {
+		let request = Request::new(query).variables(Variables::from_json(variables));
+		build_schema_bare()
+			.execute(request)
+			.await
 			.errors
+			.into_iter()
+			.map(|error| error.message)
+			.filter(|message| !message.contains("does not exist"))
+			.collect()
+	}
+
+	async fn rejected_as_too_complex_with(query: &str, variables: Value) -> bool {
+		validation_errors(query, variables)
+			.await
 			.iter()
-			.any(|error| error.message.contains("too complex"))
+			.any(|message| message.contains("too complex"))
+	}
+
+	async fn rejected_as_too_complex(query: &str) -> bool {
+		rejected_as_too_complex_with(query, Value::Null).await
 	}
 
 	#[tokio::test]
@@ -157,6 +174,34 @@ mod tests {
 			.collect::<Vec<_>>()
 			.join(" ");
 		assert!(rejected_as_too_complex(&format!("{{ {aliases} }}")).await);
+		// mediaByPaths answers once for every path, the same book again for a path asked twice:
+		// 500 times the same visible path, each book with the 200 books of its series
+		let by_paths = r#"query($p: [String!]!) {
+			mediaByPaths(paths: $p) { media { series { media(take: 200) { id } } } }
+		}"#;
+		assert!(
+			rejected_as_too_complex_with(by_paths, json!({ "p": vec!["/a.epub"; 500] }))
+				.await
+		);
+		// the same many times over: 90 aliases of it asked for 9 million books
+		let aliases = (0..90)
+			.map(|i| format!("a{i}: mediaByPaths(paths: $p) {{ media {{ series {{ media(take: 200) {{ id }} }} }} }}"))
+			.collect::<Vec<_>>()
+			.join(" ");
+		assert!(
+			rejected_as_too_complex_with(
+				&format!("query($p: [String!]!) {{ {aliases} }}"),
+				json!({ "p": vec!["/a.epub"; 500] })
+			)
+			.await
+		);
+		// the books that share their file: up to 200, each with its series' books
+		assert!(
+			rejected_as_too_complex(
+				r#"{ duplicateMedia { series { media(take: 200) { id } } } }"#
+			)
+			.await
+		);
 	}
 
 	#[tokio::test]
@@ -198,6 +243,14 @@ mod tests {
 				r#"{ libraryById(id: "x") { id authors { name books { id } } } }"#
 			)
 			.await
+		);
+		// book-curator finds 500 books by their paths at once (book-curator/src/stump_descriptions.py)
+		let q_paths = r#"query($p: [String!]!) {
+			mediaByPaths(paths: $p) { path media { id metadata { lockedFields } } }
+		}"#;
+		assert_eq!(
+			validation_errors(q_paths, json!({ "p": vec!["/a.epub"; 500] })).await,
+			Vec::<String>::new()
 		);
 	}
 }

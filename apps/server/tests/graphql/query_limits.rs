@@ -2,6 +2,8 @@ use crate::common::{
 	account::CreateTestUser, series::setup_single_series_with_n_books, TestApp,
 };
 use graphql::input::user::AgeRestrictionInput;
+use models::entity::media;
+use sea_orm::{prelude::*, sea_query::Expr, QueryFilter};
 use serde_json::{json, Value};
 use tests::fake_data;
 
@@ -227,4 +229,33 @@ async fn opds_series_search_works_for_age_restricted_users() {
 			);
 		}
 	}
+}
+
+/// `duplicateMedia` is a list like the others: at most 200 books, in a fixed order
+#[tokio::test]
+async fn duplicate_books_come_at_most_200_at_a_time() {
+	let app = TestApp::new_with_default_user().await;
+	setup_single_series_with_n_books(&app, fake_data::Series::default(), 230).await;
+	// one file, 230 times
+	media::Entity::update_many()
+		.col_expr(media::Column::Hash, Expr::value("one-file"))
+		.filter(media::Column::DeletedAt.is_null())
+		.exec(app.conn())
+		.await
+		.expect("should set the hashes");
+
+	let query = "{ duplicateMedia { id } }";
+	let first = app.execute_gql(query, None).await;
+	assert!(first.get("errors").is_none(), "{first:#}");
+	let ids = |response: &Value| -> Vec<String> {
+		response["data"]["duplicateMedia"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|book| book["id"].as_str().unwrap().to_string())
+			.collect()
+	};
+	assert_eq!(ids(&first).len(), 200);
+	// the same 200 every time
+	assert_eq!(ids(&app.execute_gql(query, None).await), ids(&first));
 }
