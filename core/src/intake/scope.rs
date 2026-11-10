@@ -230,6 +230,7 @@ pub fn problems_for_uploader(problems: Vec<String>) -> Vec<String> {
 				&& problem != "Choose a folder"
 				&& problem != "The folder is outside the library"
 				&& !problem.starts_with("Invalid file name")
+				&& !problem.starts_with("The file name '")
 				&& problem != "Two files would get the same name"
 		})
 		.collect()

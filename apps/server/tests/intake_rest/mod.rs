@@ -211,6 +211,36 @@ async fn test_who_may_upload() {
 	.await;
 	assert_eq!(response.status_code(), 403, "{}", response.text());
 
+	// a locked account, whatever it holds
+	let locked = CreateTestUser {
+		username: "locked".to_string(),
+		permissions: vec![UserPermission::AddBooks],
+		..Default::default()
+	}
+	.insert(&rest.app)
+	.await;
+	models::entity::user::ActiveModel {
+		id: sea_orm::Set(locked.id.clone()),
+		is_locked: sea_orm::Set(true),
+		..Default::default()
+	}
+	.update(rest.app.conn())
+	.await
+	.expect("should lock the account");
+	let response = post_upload(
+		&rest.app,
+		Some(&locked.token),
+		&rest.library_id,
+		None,
+		&body,
+	)
+	.await;
+	assert!(
+		matches!(response.status_code().as_u16(), 401 | 403),
+		"{}",
+		response.status_code()
+	);
+
 	// a library hidden from the friend, and one that isn't there
 	let hidden = fake_data::Library::default().insert(rest.app.conn()).await;
 	crate::common::visibility::hide_library(&rest.app, &rest.friend, &hidden).await;

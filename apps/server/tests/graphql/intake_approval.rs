@@ -8,6 +8,7 @@
 
 use std::{fs, path::PathBuf, time::Duration};
 
+use models::shared::enums::UserPermission;
 use models::{
 	entity::{intake_item, library},
 	shared::intake::{
@@ -23,6 +24,7 @@ use tempfile::TempDir;
 use tests::{fake_data, fixtures};
 
 use crate::common::{
+	account::CreateTestUser,
 	upload::{message, post_upload, UploadBody},
 	visibility::{add_book, add_series, errors, Meta, VisibilityFixture},
 	TestApp,
@@ -93,6 +95,13 @@ const ACCEPT: &str = r#"mutation Accept($ids: [ID!]!) {
 const GQL_UPLOAD: &str = r#"mutation Upload($libraryId: ID!, $files: [Upload!]!) {
 	intakeUpload(libraryId: $libraryId, files: $files) { id state }
 }"#;
+const REANALYSE: &str = r#"mutation Reanalyse($id: ID!) {
+	intakeReanalyse(id: $id) { id state }
+}"#;
+const CHANGE_LIBRARY: &str = r#"mutation Change($id: ID!, $libraryId: ID!) {
+	intakeChangeLibrary(id: $id, libraryId: $libraryId) { id state libraryId }
+}"#;
+const DISCARD: &str = r#"mutation Discard($ids: [ID!]!) { intakeDiscard(ids: $ids) }"#;
 const VOCABULARY: &str = r#"query Vocabulary($libraryId: ID!) {
 	intakeVocabulary(libraryId: $libraryId) { value count kind }
 }"#;
@@ -315,8 +324,27 @@ async fn test_a_friend_uploads_and_the_owner_approves() {
 	assert_eq!(item["uploader"]["username"], "ana");
 	world.vis.assert_none_hidden(&items);
 
-	// she can't file it herself, nor upload the way somebody who files does
-	assert_refused(&world.gql(&ana.token, ACCEPT, json!({ "ids": [id] })).await);
+	// she can't file it herself, even when it is as ready as can be, nor upload the way
+	// somebody who files does
+	let ready = world.row(&id).await;
+	intake_item::ActiveModel {
+		state: Set(IntakeState::Ready),
+		..ready.into()
+	}
+	.update(world.app.conn())
+	.await
+	.expect("should make it ready");
+	let response = world.gql(&ana.token, ACCEPT, json!({ "ids": [id] })).await;
+	assert_refused(&response);
+	assert!(
+		errors(&response).contains("permission"),
+		"refused for who she is, not for the state of the book: {response:#}"
+	);
+	assert_eq!(world.row(&id).await.state, IntakeState::Ready);
+	assert!(!world
+		.library_dir
+		.join("Umberto_Eco/El_nombre_de_la_rosa.epub")
+		.exists());
 	assert_refused(
 		&world
 			.gql(
@@ -1469,4 +1497,158 @@ async fn test_uploads_that_wait_for_approval_are_closed_by_default() {
 	)
 	.await;
 	assert_eq!(response.status_code(), 200, "{}", response.text());
+}
+
+/// every way to change an item is its uploader's; an approver may change one only while it waits
+/// for them, and nobody finds out that an item they can't change exists
+#[tokio::test(flavor = "multi_thread")]
+async fn test_nobody_changes_somebody_elses_item() {
+	let world = world().await;
+	let id = world.ana_uploads("Not yours").await;
+	world.ana_items().await;
+	let carl = CreateTestUser {
+		username: "carl".to_string(),
+		permissions: vec![UserPermission::AddBooks],
+		..Default::default()
+	}
+	.insert(&world.app)
+	.await;
+
+	let attempts = || {
+		[
+			(REVIEW, json!({ "id": id, "input": { "title": "x" } })),
+			(REANALYSE, json!({ "id": id })),
+			(
+				CHANGE_LIBRARY,
+				json!({ "id": id, "libraryId": world.library.id }),
+			),
+			(DISCARD, json!({ "ids": [id] })),
+			(WITHDRAW, json!({ "ids": [id] })),
+			(SUBMIT, json!({ "ids": [id] })),
+		]
+	};
+	for who in [&world.vis.ben, &carl] {
+		for (query, variables) in attempts() {
+			let response = world.gql(&who.token, query, variables).await;
+			assert_refused(&response);
+			// somebody with "Add books" is told the same as for an item that isn't there
+			if who.username == "carl" {
+				assert!(
+					errors(&response).contains("not found"),
+					"{query}: {response:#}"
+				);
+			}
+		}
+	}
+	// the owner approves books: but this one isn't waiting for approval, so it isn't theirs to
+	// change, and isn't found
+	for (query, variables) in [
+		(REVIEW, json!({ "id": id, "input": { "title": "x" } })),
+		(REANALYSE, json!({ "id": id })),
+		(DISCARD, json!({ "ids": [id] })),
+	] {
+		let response = world.as_owner(query, variables).await;
+		assert_refused(&response);
+		assert!(
+			errors(&response).contains("not found"),
+			"{query}: {response:#}"
+		);
+	}
+	let row = world.row(&id).await;
+	assert_ne!(row.state, IntakeState::Discarded);
+	assert_eq!(
+		row.decision.unwrap().metadata.title.as_deref(),
+		Some("Not yours")
+	);
+
+	// carl's inbox has nothing of ana's
+	let response = world.gql(&carl.token, MY_ITEMS, json!({})).await;
+	assert_eq!(response["data"]["intakeItems"], json!([]));
+
+	// once ana sends it, the owner can look at it again, and move it to another library her
+	// own account can use: never to one that is hidden from her
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
+	let hidden = &world.vis.hidden_library;
+	assert_refused(
+		&world
+			.as_owner(CHANGE_LIBRARY, json!({ "id": id, "libraryId": hidden.id }))
+			.await,
+	);
+	assert_ok(&world.as_owner(REANALYSE, json!({ "id": id })).await);
+	let row = world.wait_for(&id, IntakeState::PendingApproval).await;
+	assert!(
+		row.submitted_at.is_some(),
+		"it is still in the queue after being read again"
+	);
+	// it is still not the owner's to throw away: the uploader discards, an approver sends back
+	assert_refused(&world.as_owner(DISCARD, json!({ "ids": [id] })).await);
+
+	// a list of ids is only so long
+	let many: Vec<String> = (0..101).map(|i| format!("id-{i}")).collect();
+	let response = world
+		.gql(&world.vis.ana.token, DISCARD, json!({ "ids": many }))
+		.await;
+	assert_refused(&response);
+	assert!(errors(&response).contains("At most 100"), "{response:#}");
+}
+
+/// a file name ends in the extension of the format it names: an EPUB isn't filed as a PDF
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_file_name_keeps_the_extension_of_its_format() {
+	let world = world().await;
+	let token = world.app.access_token.read().await.clone().unwrap();
+	let response = post_upload(
+		&world.app,
+		Some(&token),
+		&world.library.id,
+		None,
+		&UploadBody::new()
+			.file("owner.epub", world.epub("Wrong extension", "Eco, Umberto")),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	world.wait_for_analysis(&id).await;
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "fileNames": ["Wrong_extension.pdf"], "genres": ["History"] } }),
+		)
+		.await;
+	assert_ok(&response);
+	let item = &response["data"]["intakeReview"];
+	assert_eq!(item["state"], "NEEDS_REVIEW", "{item:#}");
+	assert!(
+		item["problems"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.any(|p| p == "The file name 'Wrong_extension.pdf' must end in .epub"),
+		"{item:#}"
+	);
+	let response = world.as_owner(ACCEPT, json!({ "ids": [id] })).await;
+	assert_ok(&response);
+	assert_ne!(response["data"]["intakeAccept"][0]["state"], "FILED");
+	assert!(
+		!world
+			.library_dir
+			.join("Umberto_Eco/Wrong_extension.pdf")
+			.exists(),
+		"nothing was filed"
+	);
+	// with the right extension it is filed
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "fileNames": ["Right.epub"] } }),
+		)
+		.await;
+	assert_eq!(response["data"]["intakeReview"]["state"], "READY");
 }

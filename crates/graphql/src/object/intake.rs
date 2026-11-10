@@ -11,7 +11,8 @@ use models::{
 };
 use sea_orm::{prelude::*, QueryOrder, QuerySelect};
 use stump_core::intake::{
-	approval::can_file_directly, decision_problems, library_type_of, scope,
+	approval::can_file_directly, decision_problems, extension_problems, library_type_of,
+	scope,
 };
 
 use crate::{
@@ -174,7 +175,9 @@ impl IntakeItem {
 	async fn problems(&self, ctx: &Context<'_>) -> Result<Vec<String>> {
 		let problems = match (&self.decision, &self.destination) {
 			(Some(decision), Some(destination)) => {
-				decision_problems(decision, destination)
+				let mut problems = decision_problems(decision, destination);
+				problems.extend(extension_problems(decision, &self.files));
+				problems
 			},
 			_ => vec![],
 		};

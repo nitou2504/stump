@@ -58,6 +58,17 @@ pub struct UserIntakeLimitsInput {
 	pub max_items: Option<u32>,
 }
 
+/// The most items one mutation acts on: each is looked up and changed one by one
+const MOST_IDS: usize = 100;
+
+fn check_ids(ids: &[ID]) -> Result<()> {
+	if ids.len() > MOST_IDS {
+		Err(format!("At most {MOST_IDS} items can be changed at once").into())
+	} else {
+		Ok(())
+	}
+}
+
 async fn own_item(
 	ctx: &Context<'_>,
 	user: &AuthUser,
@@ -289,6 +300,7 @@ impl IntakeMutation {
 		ctx: &Context<'_>,
 		ids: Vec<ID>,
 	) -> Result<Vec<IntakeItem>> {
+		check_ids(&ids)?;
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let mut out = vec![];
@@ -317,6 +329,7 @@ impl IntakeMutation {
 		ctx: &Context<'_>,
 		ids: Vec<ID>,
 	) -> Result<Vec<IntakeItem>> {
+		check_ids(&ids)?;
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
@@ -334,6 +347,7 @@ impl IntakeMutation {
 		ctx: &Context<'_>,
 		ids: Vec<ID>,
 	) -> Result<Vec<IntakeItem>> {
+		check_ids(&ids)?;
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
@@ -353,6 +367,7 @@ impl IntakeMutation {
 		ctx: &Context<'_>,
 		ids: Vec<ID>,
 	) -> Result<Vec<IntakeItem>> {
+		check_ids(&ids)?;
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
@@ -380,6 +395,7 @@ impl IntakeMutation {
 	/// Throws items away with their staged files. Returns how many were discarded.
 	#[graphql(guard = "PermissionGuard::one(UserPermission::AddBooks)")]
 	async fn intake_discard(&self, ctx: &Context<'_>, ids: Vec<ID>) -> Result<i32> {
+		check_ids(&ids)?;
 		let AuthContext { user, .. } = ctx.data()?;
 		let core = ctx.data::<CoreContext>()?;
 		let mut count = 0;

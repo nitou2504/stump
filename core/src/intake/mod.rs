@@ -546,6 +546,26 @@ pub fn state_for_uploader(
 	}
 }
 
+/// A file name must end in the extension of the format of the file it names: a book that is an
+/// EPUB is not filed as `Title.pdf`
+pub fn extension_problems(
+	decision: &IntakeDecision,
+	files: &[IntakeFile],
+) -> Vec<String> {
+	decision
+		.file_names
+		.iter()
+		.zip(files.iter())
+		.filter(|(name, file)| extension_of(name) != file.format.to_lowercase())
+		.map(|(name, file)| {
+			format!(
+				"The file name '{name}' must end in .{}",
+				file.format.to_lowercase()
+			)
+		})
+		.collect()
+}
+
 /// What keeps a decision from being filed
 pub fn decision_problems(
 	decision: &IntakeDecision,
@@ -862,6 +882,7 @@ pub async fn apply_review(
 	let destination =
 		compute_destination(Path::new(&library.path), &settings, &files, &decision);
 	let mut problems = decision_problems(&decision, &destination);
+	problems.extend(extension_problems(&decision, &files));
 	if !reviewer.approver {
 		problems = scope::problems_for_uploader(problems);
 	}
@@ -1018,7 +1039,8 @@ async fn file_claimed_inner(
 	let root = PathBuf::from(&library.path);
 	let files = item.files.0.clone();
 	let destination = compute_destination(&root, &settings, &files, &decision);
-	let problems = decision_problems(&decision, &destination);
+	let mut problems = decision_problems(&decision, &destination);
+	problems.extend(extension_problems(&decision, &files));
 	// a name taken since the review gets a suffix instead of failing
 	let clash_only = problems.iter().all(|p| p == scope::EXISTS_PROBLEM);
 	if !problems.is_empty() && !clash_only {
@@ -1462,6 +1484,24 @@ mod tests {
 			dir.path(),
 			&dir.path().join("New_Author")
 		));
+	}
+
+	#[test]
+	fn a_file_name_keeps_the_extension_of_its_format() {
+		let files = vec![file("a.epub", "epub", None), file("b.cbz", "cbz", None)];
+		let mut decision = IntakeDecision {
+			file_names: vec!["Book.epub".into(), "Comic.CBZ".into()],
+			..Default::default()
+		};
+		assert!(extension_problems(&decision, &files).is_empty());
+		decision.file_names = vec!["Book.pdf".into(), "Comic".into()];
+		assert_eq!(
+			extension_problems(&decision, &files),
+			[
+				"The file name 'Book.pdf' must end in .epub",
+				"The file name 'Comic' must end in .cbz"
+			]
+		);
 	}
 
 	/// every state is decided here: a state added later doesn't compile until someone says
