@@ -1130,6 +1130,25 @@ export type FilterableArrangementEntityLinkInput = {
   orderBy?: InputMaybe<Scalars['String']['input']>;
 };
 
+/** A book the reader has finished: one read of it (a book read twice is listed twice) */
+export type FinishedReading = {
+  __typename?: 'FinishedReading';
+  /** The logical day the reader finished this read */
+  finishedOn: Scalars['NaiveDate']['output'];
+  media: Media;
+  /** Which read of the book it is, 1 for the first */
+  readthroughNumber: Scalars['Int']['output'];
+  /** The logical day the reader started this read */
+  startedOn: Scalars['NaiveDate']['output'];
+};
+
+/** A page of the books a reader has finished */
+export type FinishedReadingPage = {
+  __typename?: 'FinishedReadingPage';
+  nodes: Array<FinishedReading>;
+  pageInfo: OffsetPaginationInfo;
+};
+
 /**
  * A resize option which will resize the image to fit within the given dimensions,
  * maintaining the aspect ratio.
@@ -3364,6 +3383,13 @@ export type Mutation = {
    * replacing what was saved before
    */
   updateMyReaderSettings: Scalars['Boolean']['output'];
+  /**
+   * Lets everyone on the server see what the authenticated user is reading now and has
+   * finished, or stops it (the next request of anyone else gets nothing). It changes the
+   * authenticated user's own setting and nobody else's: there is no way to name another user.
+   * A person decides it for themselves, so an API key can't
+   */
+  updateMyReadingPrivacy: ReadingPrivacy;
   updateNavigationArrangement: Arrangement;
   updateNavigationArrangementLock: Arrangement;
   updateNotifier: Notifier;
@@ -4240,6 +4266,11 @@ export type MutationUpdateMyDiscoverRulesArgs = {
 
 export type MutationUpdateMyReaderSettingsArgs = {
   settings: Scalars['String']['input'];
+};
+
+
+export type MutationUpdateMyReadingPrivacyArgs = {
+  shareReadingHistory: Scalars['Boolean']['input'];
 };
 
 
@@ -5120,6 +5151,11 @@ export type Query = {
    * null before the first save
    */
   myReaderSettings?: Maybe<Scalars['String']['output']>;
+  /**
+   * What the authenticated user lets the other people on the server see of their reading. It
+   * is nothing until they say so
+   */
+  myReadingPrivacy: ReadingPrivacy;
   /** Reading stats for the authenticated user within the provided range */
   myReadingStats: ReadingStats;
   /** The current streaks held for the authenticated user */
@@ -5149,6 +5185,24 @@ export type Query = {
    * `No picks` tag on the book, its series or library, by default)
    */
   randomMedia: Array<Media>;
+  /**
+   * The people, other than the authenticated user, who let everyone on the server see what
+   * they are reading and have finished, by name. People who were deleted or locked are left
+   * out
+   */
+  readersSharingHistory: Array<ReaderProfile>;
+  /**
+   * The reading history of a person: the authenticated user's own when `userId` is left out,
+   * or the history of somebody who lets everyone see it. Everything in it is what the
+   * authenticated user may see: the books they may read, and nothing else.
+   *
+   * # Returns
+   *
+   * The history. If the person doesn't exist, never shared theirs, stopped sharing, or was
+   * deleted or locked, the same error is returned for all of them. Nobody can read a history
+   * that isn't shared, the server owner included.
+   */
+  readingHistory: ReadingHistory;
   /**
    * Retrieves a reading list by ID for the current user.
    *
@@ -5529,6 +5583,11 @@ export type QueryRandomMediaArgs = {
 };
 
 
+export type QueryReadingHistoryArgs = {
+  userId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type QueryReadingListByIdArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5646,6 +5705,60 @@ export enum ReadingDirection {
   Rtl = 'RTL'
 }
 
+/** The reading history of one person (the reader), as the viewer may see it */
+export type ReadingHistory = {
+  __typename?: 'ReadingHistory';
+  /**
+   * The books the reader has finished, a page at a time (at most 200 a page), the last one
+   * finished first. `search` finds books by title, author, series and the like (every word
+   * must match), `year` keeps those finished in a year. A book read twice is listed twice
+   */
+  finished: FinishedReadingPage;
+  /** Whether it is the history of the person asking */
+  isSelf: Scalars['Boolean']['output'];
+  /** Whose history it is */
+  reader: ReaderProfile;
+  /**
+   * The books the reader is reading now, the one read last first: at most 200 (`limit` for
+   * fewer)
+   */
+  reading: Array<ReadingNow>;
+  /**
+   * How many books the reader finished in each year, the latest year first. A search counts
+   * only the books it finds
+   */
+  years: Array<ReadingYear>;
+};
+
+
+/** The reading history of one person (the reader), as the viewer may see it */
+export type ReadingHistoryFinishedArgs = {
+  order?: ReadingHistoryOrder;
+  pagination?: OffsetPagination;
+  search?: InputMaybe<Scalars['String']['input']>;
+  year?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+/** The reading history of one person (the reader), as the viewer may see it */
+export type ReadingHistoryReadingArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+/** The reading history of one person (the reader), as the viewer may see it */
+export type ReadingHistoryYearsArgs = {
+  search?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** The order of the books a reader has finished */
+export enum ReadingHistoryOrder {
+  /** The last one finished first */
+  NewestFirst = 'NEWEST_FIRST',
+  /** The first one finished first */
+  OldestFirst = 'OLDEST_FIRST'
+}
+
 /** The different ways an image may be scaled to fit a reader's viewport */
 export enum ReadingImageScaleFit {
   Auto = 'AUTO',
@@ -5691,7 +5804,10 @@ export type ReadingListBooksArgs = {
 
 export type ReadingListInput = {
   description?: InputMaybe<Scalars['String']['input']>;
-  /** The list's ID, generated when omitted or empty */
+  /**
+   * The list's ID, generated when omitted or empty. A chosen ID has 1 to 64 characters, only
+   * letters, digits, `_` and `-` (a UUID fits): it ends up in the list's address
+   */
   id?: InputMaybe<Scalars['String']['input']>;
   /** The list's first books, in order */
   mediaIds?: Array<Scalars['String']['input']>;
@@ -5719,6 +5835,31 @@ export enum ReadingMode {
   ContinuousVertical = 'CONTINUOUS_VERTICAL',
   Paged = 'PAGED'
 }
+
+/** A book the reader is reading now */
+export type ReadingNow = {
+  __typename?: 'ReadingNow';
+  /** The logical day the reader last read it */
+  lastReadOn: Scalars['NaiveDate']['output'];
+  media: Media;
+  /**
+   * How far along the reader is, 0 to 100, when it can be told. It is the reader's, unlike the
+   * progress of the book itself (`Media.readProgress`), which is always the viewer's
+   */
+  percentage?: Maybe<Scalars['Int']['output']>;
+  /** Which read of the book it is, 1 for the first */
+  readthroughNumber: Scalars['Int']['output'];
+};
+
+/** What a person lets the other people on the server see of their reading */
+export type ReadingPrivacy = {
+  __typename?: 'ReadingPrivacy';
+  /**
+   * Whether everyone on the server can see what the person is reading now and has finished.
+   * It is off until they turn it on
+   */
+  shareReadingHistory: Scalars['Boolean']['output'];
+};
 
 export type ReadingSession = {
   __typename?: 'ReadingSession';
@@ -5836,6 +5977,13 @@ export type ReadingTotals = {
   finishedCount: Scalars['Int']['output'];
   sessionCount: Scalars['Int']['output'];
   totalSeconds: Scalars['Int']['output'];
+};
+
+/** How many books were finished in a year */
+export type ReadingYear = {
+  __typename?: 'ReadingYear';
+  count: Scalars['Int']['output'];
+  year: Scalars['Int']['output'];
 };
 
 export type ReadiumLocation = {
@@ -9205,6 +9353,43 @@ export type RegenerateThumbnailsMutationVariables = Exact<{
 
 
 export type RegenerateThumbnailsMutation = { __typename?: 'Mutation', generateLibraryThumbnails: boolean };
+
+export type ReadingHistoryPeopleQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ReadingHistoryPeopleQuery = { __typename?: 'Query', myReadingPrivacy: { __typename?: 'ReadingPrivacy', shareReadingHistory: boolean }, readersSharingHistory: Array<{ __typename?: 'ReaderProfile', id: string, username: string, avatarUrl?: string | null }> };
+
+export type ReadingHistoryReaderQueryVariables = Exact<{
+  userId?: InputMaybe<Scalars['ID']['input']>;
+}>;
+
+
+export type ReadingHistoryReaderQuery = { __typename?: 'Query', readingHistory: { __typename?: 'ReadingHistory', isSelf: boolean, reader: { __typename?: 'ReaderProfile', id: string, username: string, avatarUrl?: string | null } } };
+
+export type ReadingHistoryNowQueryVariables = Exact<{
+  userId?: InputMaybe<Scalars['ID']['input']>;
+}>;
+
+
+export type ReadingHistoryNowQuery = { __typename?: 'Query', readingHistory: { __typename?: 'ReadingHistory', reading: Array<{ __typename?: 'ReadingNow', percentage?: number | null, lastReadOn: any, readthroughNumber: number, media: { __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string } } }> } };
+
+export type ReadingHistoryFinishedQueryVariables = Exact<{
+  userId?: InputMaybe<Scalars['ID']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  year?: InputMaybe<Scalars['Int']['input']>;
+  page: Scalars['Int']['input'];
+  pageSize: Scalars['Int']['input'];
+}>;
+
+
+export type ReadingHistoryFinishedQuery = { __typename?: 'Query', readingHistory: { __typename?: 'ReadingHistory', years: Array<{ __typename?: 'ReadingYear', year: number, count: number }>, finished: { __typename?: 'FinishedReadingPage', nodes: Array<{ __typename?: 'FinishedReading', readthroughNumber: number, startedOn: any, finishedOn: any, media: { __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string> } | null } }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalItems: number, totalPages: number, currentPage: number } } } };
+
+export type UpdateMyReadingPrivacyMutationVariables = Exact<{
+  share: Scalars['Boolean']['input'];
+}>;
+
+
+export type UpdateMyReadingPrivacyMutation = { __typename?: 'Mutation', updateMyReadingPrivacy: { __typename?: 'ReadingPrivacy', shareReadingHistory: boolean } };
 
 export type ReadingListGridItemFragment = { __typename?: 'ReadingList', id: string, name: string, visibility: string, canEdit: boolean, bookCount: number, creator?: { __typename?: 'ReaderProfile', id: string, username: string } | null, books: Array<{ __typename?: 'Media', id: string, thumbnail: { __typename?: 'ImageRef', url: string, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null } }> } & { ' $fragmentName'?: 'ReadingListGridItemFragment' };
 
@@ -17861,6 +18046,91 @@ export const RegenerateThumbnailsDocument = new TypedDocumentString(`
   generateLibraryThumbnails(id: $id, forceRegenerate: $forceRegenerate)
 }
     `) as unknown as TypedDocumentString<RegenerateThumbnailsMutation, RegenerateThumbnailsMutationVariables>;
+export const ReadingHistoryPeopleDocument = new TypedDocumentString(`
+    query ReadingHistoryPeople {
+  myReadingPrivacy {
+    shareReadingHistory
+  }
+  readersSharingHistory {
+    id
+    username
+    avatarUrl
+  }
+}
+    `) as unknown as TypedDocumentString<ReadingHistoryPeopleQuery, ReadingHistoryPeopleQueryVariables>;
+export const ReadingHistoryReaderDocument = new TypedDocumentString(`
+    query ReadingHistoryReader($userId: ID) {
+  readingHistory(userId: $userId) {
+    isSelf
+    reader {
+      id
+      username
+      avatarUrl
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<ReadingHistoryReaderQuery, ReadingHistoryReaderQueryVariables>;
+export const ReadingHistoryNowDocument = new TypedDocumentString(`
+    query ReadingHistoryNow($userId: ID) {
+  readingHistory(userId: $userId) {
+    reading {
+      percentage
+      lastReadOn
+      readthroughNumber
+      media {
+        id
+        resolvedName
+        thumbnail {
+          url
+        }
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<ReadingHistoryNowQuery, ReadingHistoryNowQueryVariables>;
+export const ReadingHistoryFinishedDocument = new TypedDocumentString(`
+    query ReadingHistoryFinished($userId: ID, $search: String, $year: Int, $page: Int!, $pageSize: Int!) {
+  readingHistory(userId: $userId) {
+    years(search: $search) {
+      year
+      count
+    }
+    finished(
+      search: $search
+      year: $year
+      pagination: {page: $page, pageSize: $pageSize}
+    ) {
+      nodes {
+        readthroughNumber
+        startedOn
+        finishedOn
+        media {
+          id
+          resolvedName
+          thumbnail {
+            url
+          }
+          metadata {
+            writers
+          }
+        }
+      }
+      pageInfo {
+        totalItems
+        totalPages
+        currentPage
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<ReadingHistoryFinishedQuery, ReadingHistoryFinishedQueryVariables>;
+export const UpdateMyReadingPrivacyDocument = new TypedDocumentString(`
+    mutation UpdateMyReadingPrivacy($share: Boolean!) {
+  updateMyReadingPrivacy(shareReadingHistory: $share) {
+    shareReadingHistory
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateMyReadingPrivacyMutation, UpdateMyReadingPrivacyMutationVariables>;
 export const ReadingListsSceneDocument = new TypedDocumentString(`
     query ReadingListsScene {
   readingLists(pagination: {none: {unpaginated: true}}) {

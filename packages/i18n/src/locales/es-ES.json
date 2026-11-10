@@ -1389,6 +1389,50 @@
         "unpublish": "No se pudo hacer privada la lista"
       }
     },
+    "readingHistory": {
+      "title": "Mi lectura",
+      "titleOf": "Lectura de {{name}}",
+      "helmet": "Lectura",
+      "read_ordinal_other": "{{count}}.ª lectura",
+      "people": {
+        "label": "De quién es la lectura",
+        "me": "Yo"
+      },
+      "privacy": {
+        "label": "Compartir mi lectura",
+        "switch": "Dejar que todas las personas de este servidor vean mi lectura",
+        "privateTitle": "Solo tú puedes ver esta página",
+        "sharedTitle": "Todas las personas de este servidor pueden ver esta página",
+        "description": "Ven lo que estás leyendo ahora y los libros que has terminado, solo los que ellas mismas pueden leer. Nunca ven cuánto tiempo lees, tus marcadores ni tus notas. Puedes desactivarlo cuando quieras.",
+        "cardDescription": "Quién puede ver lo que lees y lo que has terminado",
+        "saveFailed": "No se pudo cambiar quién ve tu lectura"
+      },
+      "now": {
+        "heading": "Leyendo ahora",
+        "empty": "Nada en curso",
+        "lastRead": "Última lectura: {{date}}",
+        "progress": "{{percent}}% leído"
+      },
+      "finished": {
+        "heading": "Terminados",
+        "count_one": "{{count}} libro",
+        "count_other": "{{count}} libros",
+        "search": "Buscar libros terminados…",
+        "years": "Año de lectura",
+        "allYears": "Todos",
+        "empty": "Aún no hay libros terminados",
+        "emptyHint": "Los libros aparecen aquí cuando terminas de leerlos",
+        "noMatch": "Ningún libro terminado coincide",
+        "noMatchHint": "Prueba con otra búsqueda u otro año"
+      },
+      "unavailable": {
+        "title": "Esta lectura no está disponible",
+        "description": "Esa persona no comparte lo que lee, o ya no está en este servidor"
+      },
+      "errors": {
+        "load": "No se pudo cargar la lectura"
+      }
+    },
     "settingsScene": {
       "navigation": {
         "logs": "Registros",
