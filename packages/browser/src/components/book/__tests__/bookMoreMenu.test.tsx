@@ -128,15 +128,22 @@ describe('buildBookMoreMenu', () => {
 			expect(cover?.subItems?.map((item) => item.label)).toEqual([KEY.choosePage, KEY.upload])
 		})
 
-		it("an EPUB's cover is changed by an upload, not by picking a page, and it isn't analyzed", () => {
+		it("an EPUB's cover is put back by picking its one page, or changed by an upload, and it isn't analyzed", () => {
 			const groups = menuFor('owner', 'epub', 'untouched')
 
 			const cover = groups.flatMap((group) => group.items).find((item) => item.label === KEY.cover)
-			expect(cover?.subItems?.map((item) => item.label)).toEqual([KEY.upload])
+			expect(cover?.subItems?.map((item) => item.label)).toEqual([KEY.choosePage, KEY.upload])
 			expect(labels(groups).flat()).not.toContain(KEY.analyze)
 
-			// with no upload to offer there is no way to change the cover of an EPUB: no empty item
-			expect(labels(menuFor('manager', 'epub', 'untouched')).flat()).not.toContain(KEY.cover)
+			// without an upload to offer, an editor of thumbnails still has the picker to restore the
+			// EPUB's own cover: the item is there with that one entry
+			const managerCover = menuFor('manager', 'epub', 'untouched')
+				.flatMap((group) => group.items)
+				.find((item) => item.label === KEY.cover)
+			expect(managerCover?.subItems?.map((item) => item.label)).toEqual([KEY.choosePage])
+
+			// and someone who may not edit thumbnails is offered no cover item at all
+			expect(labels(menuFor('friend', 'epub', 'untouched')).flat()).not.toContain(KEY.cover)
 		})
 
 		it('the removal of a book is a destructive item of its own at the end', () => {
@@ -212,12 +219,10 @@ describe('buildBookMoreMenu', () => {
 				format !== 'epub' && has(UserPermission.ManageLibrary),
 			)
 			expect(names.includes(REMOVE_FROM_LIBRARY_LABEL)).toBe(has(UserPermission.RemoveBook))
-			expect(cover !== undefined).toBe(
-				has(UserPermission.EditThumbnails) && (format !== 'epub' || !!person.canUploadCover),
-			)
+			expect(cover !== undefined).toBe(has(UserPermission.EditThumbnails))
 			if (cover) {
 				expect(cover.subItems?.map((item) => item.label)).toEqual([
-					...(format !== 'epub' ? [KEY.choosePage] : []),
+					KEY.choosePage,
 					...(person.canUploadCover ? [KEY.upload] : []),
 				])
 			}

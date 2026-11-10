@@ -60,8 +60,8 @@ export const REMOVE_FROM_LIBRARY_LABEL = 'Remove from library'
  * 1. **Reading**: from the beginning (for a book already begun or finished), incognito, mark as
  *    read, reset progress, mark as unread
  * 2. **Get**: the browser's PDF viewer and email
- * 3. **Book**: file info, edit details, the cover, analyze (not for an EPUB: it has no pages to
- *    measure)
+ * 3. **Book**: file info, edit details, the cover (pick a page, for an EPUB its own cover, or upload
+ *    an image), analyze (not for an EPUB: it has no pages to measure)
  * 4. **Remove from library**, last because it is the one that can't be taken back by a click
  *
  * The reading items need no permission, so the menu is never empty: someone with no permission at
@@ -138,17 +138,15 @@ export function buildBookMoreMenu(ctx: BookMoreMenuContext): DropdownItemGroup[]
 			: []),
 	]
 
-	// an EPUB's cover is the book's own, with no page to pick: only an upload can change it
+	// picking a page is for every format: an EPUB has one to pick, its own cover (the page grid and the
+	// server both stop at page 1), which is how a user who may edit thumbnails but not upload files puts
+	// the book's cover back after an upload
 	const coverItems: DropdownItem[] = [
-		...(format !== 'epub'
-			? [
-					{
-						label: t('thumbnailSelector.chooseAPage'),
-						leftIcon: <ImagePlus />,
-						onClick: actions.chooseCoverPage,
-					},
-				]
-			: []),
+		{
+			label: t('thumbnailSelector.chooseAPage'),
+			leftIcon: <ImagePlus />,
+			onClick: actions.chooseCoverPage,
+		},
 		...(ctx.canUploadCover
 			? [
 					{
@@ -175,7 +173,7 @@ export function buildBookMoreMenu(ctx: BookMoreMenuContext): DropdownItemGroup[]
 					},
 				]
 			: []),
-		...(permissions.canEditThumbnail && coverItems.length > 0
+		...(permissions.canEditThumbnail
 			? [
 					{
 						label: translate('shared.common.thumbnail'),
