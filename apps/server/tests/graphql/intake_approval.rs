@@ -2352,3 +2352,93 @@ async fn test_an_accept_that_is_dropped_does_not_leave_the_book_filing() {
 	assert!(world.library_dir.join("Umberto_Eco/Big_Book.epub").exists());
 }
 
+/// the same file twice: the one filed first is filed, the other waits for its approver, who is
+/// told that a copy was added since (and who files it as well by approving once more). Of two
+/// approved together only one goes on. A friend is told nothing of it: it is what the library
+/// holds
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_copy_added_since_the_book_was_looked_at_is_not_filed_silently() {
+	let world = world().await;
+	let bytes = world.epub("Twin Copy", "Eco, Umberto");
+	let mut ids = vec![];
+	for name in ["Twin Copy.epub", "Twin Copy again.epub"] {
+		let response = post_upload(
+			&world.app,
+			Some(&world.vis.ana.token),
+			&world.library.id,
+			None,
+			&UploadBody::new().file(name, bytes.clone()),
+		)
+		.await;
+		assert_eq!(response.status_code(), 200, "{}", response.text());
+		let body: Value = response.json();
+		ids.push(body["items"][0]["id"].as_str().expect("an item").to_string());
+	}
+	world.ana_items().await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": ids }))
+			.await,
+	);
+	// approved together: one is filed, the other is held back
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": ids })).await);
+	let mut states = vec![];
+	for id in &ids {
+		for _ in 0..150 {
+			if world.row(id).await.state != IntakeState::Filing {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(100)).await;
+		}
+		states.push(world.row(id).await);
+	}
+	states.sort_by_key(|row| row.state.to_string());
+	assert_eq!(
+		states.iter().map(|row| row.state).collect::<Vec<_>>(),
+		[IntakeState::Filed, IntakeState::PendingApproval],
+		"{states:#?}"
+	);
+	let held = states.remove(1);
+	assert!(
+		held.error
+			.as_deref()
+			.is_some_and(|e| e.contains("added to the library after")),
+		"the approver is told why: {:?}",
+		held.error
+	);
+	assert!(
+		held.proposal
+			.as_ref()
+			.is_some_and(|p| p.duplicates.iter().any(|d| d.reason == "SAME_FILE")),
+		"and shown the copy"
+	);
+	assert_eq!(
+		names_in(&world.library_dir.join("Umberto_Eco"))
+			.iter()
+			.filter(|name| name.starts_with("Twin_Copy"))
+			.count(),
+		1
+	);
+	// the friend is not told what the library holds
+	let items = world.ana_items().await;
+	let hers = items
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|item| item["id"] == held.id)
+		.expect("her item");
+	assert!(hers["error"].is_null(), "{hers:#}");
+	assert_eq!(hers["state"], "PENDING_APPROVAL");
+
+	// the approver has been told and looks at the copy: approving once more files it as well
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [held.id] })).await);
+	world.wait_for(&held.id, IntakeState::Filed).await;
+	assert_eq!(
+		names_in(&world.library_dir.join("Umberto_Eco"))
+			.iter()
+			.filter(|name| name.starts_with("Twin_Copy"))
+			.count(),
+		2
+	);
+}
+

@@ -1186,6 +1186,32 @@ async fn file_claimed_inner(
 	if !problems.is_empty() && !clash_only {
 		return Err(CoreError::BadRequest(problems.join("; ")));
 	}
+	// a copy of the file that is in the library since the book was looked at: told to whoever
+	// approves, who decides (approving once more files it as well)
+	let fresh = unseen_duplicates(conn, item).await?;
+	if !fresh.is_empty() {
+		let mut proposal = item.proposal.clone().unwrap_or_default();
+		proposal.duplicates.extend(fresh);
+		if !proposal
+			.warnings
+			.iter()
+			.any(|w| w == scope::DUPLICATE_WARNING)
+		{
+			proposal.warnings.push(scope::DUPLICATE_WARNING.to_string());
+		}
+		let seen = intake_item::ActiveModel {
+			proposal: Set(Some(proposal)),
+			updated_at: Set(chrono::Utc::now().into()),
+			..Default::default()
+		};
+		intake_item::Entity::update_many()
+			.set(seen)
+			.filter(intake_item::Column::Id.eq(item.id.clone()))
+			.filter(intake_item::Column::State.eq(IntakeState::Filing))
+			.exec(conn)
+			.await?;
+		return Err(CoreError::BadRequest(scope::ADDED_SINCE.to_string()));
+	}
 
 	// a book from somebody who needs approval is filed with a plain description of its own: the
 	// file's (an EPUB's long one is kept otherwise) could carry markup that the library renders
@@ -1327,6 +1353,95 @@ async fn file_claimed_inner(
 	scope::forget_vocabularies();
 	enqueue_scan(ctx, &library, config.as_ref(), &dir).await;
 	Ok(updated)
+}
+
+/// The copies of this item's files that are in the library now and weren't when it was looked at.
+/// What the approver was shown (the duplicates of the proposal) is theirs to decide; what came
+/// after is not: another copy of the file was filed (by another approval, or by hand), or is being
+/// filed this moment. Of two items being filed together only the one claimed first goes on.
+async fn unseen_duplicates(
+	conn: &DatabaseConnection,
+	item: &intake_item::Model,
+) -> CoreResult<Vec<IntakeDuplicate>> {
+	let hashed: Vec<(&str, &str)> = item
+		.files
+		.0
+		.iter()
+		.filter_map(|f| Some((f.hash.as_deref()?, f.original_name.as_str())))
+		.collect();
+	if hashed.is_empty() {
+		return Ok(vec![]);
+	}
+	let seen: std::collections::HashSet<&str> = item
+		.proposal
+		.as_ref()
+		.map(|p| {
+			p.duplicates
+				.iter()
+				.filter(|d| d.reason == "SAME_FILE")
+				.map(|d| d.media_id.as_str())
+				.collect()
+		})
+		.unwrap_or_default();
+	let mut fresh: Vec<IntakeDuplicate> = vec![];
+	let mut note = |id: String, title: String, file_name: &str| {
+		if !seen.contains(id.as_str()) && !fresh.iter().any(|d| d.media_id == id) {
+			fresh.push(IntakeDuplicate {
+				media_id: id,
+				path: String::new(),
+				title,
+				reason: "SAME_FILE".to_string(),
+				file_name: file_name.to_string(),
+			});
+		}
+	};
+	// books of the library (a book that was filed here has the hash of the file as it was
+	// written, so only a copy added some other way is found like this)
+	for book in media::Entity::find()
+		.filter(media::Column::Hash.is_in(hashed.iter().map(|(hash, _)| String::from(*hash))))
+		.filter(media::Column::DeletedAt.is_null())
+		.all(conn)
+		.await?
+	{
+		let file_name = hashed
+			.iter()
+			.find(|(hash, _)| Some(*hash) == book.hash.as_deref())
+			.map(|(_, name)| *name)
+			.unwrap_or_default();
+		note(book.id, book.name, file_name);
+	}
+	// items filed from the same file: their book may not be in the library yet (the scan after
+	// filing makes it), and what they filed has other bytes than what was uploaded
+	for (hash, file_name) in &hashed {
+		let others = intake_item::Entity::find()
+			.filter(intake_item::Column::Id.ne(item.id.clone()))
+			.filter(
+				intake_item::Column::State.is_in([IntakeState::Filing, IntakeState::Filed]),
+			)
+			.filter(sea_orm::sea_query::Expr::cust_with_values(
+				"CAST(files AS TEXT) LIKE ?",
+				[format!("%{hash}%")],
+			))
+			.all(conn)
+			.await?;
+		for other in others {
+			let still_there = match other.state {
+				// the one claimed first files; the other waits (its approver approves again)
+				IntakeState::Filing => {
+					(other.reviewed_at, &other.id) < (item.reviewed_at, &item.id)
+				},
+				// a filed book that was taken out of the library since is no copy
+				_ => other
+					.result
+					.as_ref()
+					.is_some_and(|r| r.paths.iter().any(|p| Path::new(p).exists())),
+			};
+			if still_there {
+				note(format!("intake:{}", other.id), other.name.clone(), file_name);
+			}
+		}
+	}
+	Ok(fresh)
 }
 
 /// A volume's own title, unless it is just the series name: then `<Series> vNN`

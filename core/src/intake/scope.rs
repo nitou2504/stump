@@ -46,6 +46,12 @@ pub const DUPLICATE_WARNING: &str = "This book may already be in the library";
 /// What only the library can say about a filing: not for somebody who may not file
 pub const EXISTS_PROBLEM: &str = "A file with that name is already in the library";
 
+/// Why a book that was approved wasn't filed: a copy of one of its files was added to the library
+/// after the book was looked at. Only an approver is told (to a friend it would say that the
+/// library holds the file, books they can't read included)
+pub const ADDED_SINCE: &str =
+	"A copy of this book was added to the library after it was looked at: approve it again to file it as well";
+
 /// How long the tags a viewer can read are remembered
 const VOCABULARY_TTL: Duration = Duration::from_secs(60);
 
