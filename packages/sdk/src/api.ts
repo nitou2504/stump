@@ -6,6 +6,7 @@ import { cacheKeys } from './constants'
 import {
 	AuthAPI,
 	EpubAPI,
+	IntakeAPI,
 	JwtTokenPair,
 	LibraryAPI,
 	MediaAPI,
@@ -536,6 +537,13 @@ export class Api {
 	 */
 	get library(): LibraryAPI {
 		return new LibraryAPI(this)
+	}
+
+	/**
+	 * Get an instance for the IntakeAPI
+	 */
+	get intake(): IntakeAPI {
+		return new IntakeAPI(this)
 	}
 
 	/**
