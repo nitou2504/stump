@@ -64,6 +64,31 @@ fn general_only(world: &VisibilityFixture) -> Value {
 	}])
 }
 
+/// The rules of a list of the hidden library's books, the general book and the 18+ one: for
+/// anyone who may read the general book only, there is nothing 18+ to offer an age facet for
+fn hidden_general_and_adult(world: &VisibilityFixture) -> Value {
+	json!([{
+		"groups": [
+			{ "media": { "libraryId": { "eq": world.hidden_library.id } } },
+			{ "media": { "name": { "eq": world.general.name } } },
+			{ "media": { "name": { "eq": world.adult.name } } },
+		],
+		"joiner": "OR",
+	}])
+}
+
+/// The rules of a list that matches nothing, with so many values in one rule that they are a chain
+/// of ORs longer than SQLite will evaluate (an expression tree is at most 1,000 deep). It is well
+/// within the size a person may save a list at, so anybody who may use smart lists can make one
+fn too_long_to_evaluate() -> Value {
+	let values: Vec<String> =
+		(0..1_200).map(|n| format!("no-such-book-{n:04}")).collect();
+	json!([{
+		"groups": [{ "media": { "name": { "likeAnyOf": values } } }],
+		"joiner": "AND",
+	}])
+}
+
 /// Makes a shelf as `token` and returns its ID
 async fn create(
 	app: &TestApp,
@@ -251,19 +276,21 @@ async fn a_description_is_text_whoever_wrote_it() {
 #[tokio::test]
 async fn the_books_of_a_shelf_are_the_ones_the_viewer_may_read() {
 	let (app, world) = world().await;
+	// the shelf also holds the 18+ book, so that what an age facet counts can be told apart: the
+	// owner is offered it, and ana, who may not read it, is not
 	let recs = create(
 		&app,
 		&world.owner_token,
 		"Recs",
 		None,
 		"PUBLIC",
-		hidden_library_and_general(&world),
+		hidden_general_and_adult(&world),
 	)
 	.await;
 	let path = format!("{SHELVES}/{recs}");
 
-	// ana is given the one book of the two she may read, and nothing of the other: no title, no
-	// ID, no path, and the facets count what she may read
+	// ana is given the one of the three books that she may read, and nothing of the others: no
+	// title, no ID, no path, and the facets count what she may read
 	let text = feed(&app, &world.ana.token, &path).await;
 	assert_eq!(titles(&text), vec![world.general.name.clone()], "{text}");
 	assert!(text.contains(&world.general.id), "{text}");
@@ -274,15 +301,66 @@ async fn the_books_of_a_shelf_are_the_ones_the_viewer_may_read() {
 		facet_counts(&text)
 	);
 	assert!(
+		!text.contains("Adult (18+)") && !text.contains("General (no 18+)"),
+		"an age facet is offered for a book she may not read: {text}"
+	);
+	assert!(
 		text.contains(&format!("<title>Recs · {OWNER}</title>")),
 		"{text}"
 	);
 
-	// the owner is given two, under the shelf's own name
+	// the owner is given three, under the shelf's own name, and the age facet that counts the 18+
+	// book (so its absence for ana is the limit at work, not a feed that never has one)
 	let text = feed(&app, &world.owner_token, &path).await;
 	assert!(text.contains(&world.general.id), "{text}");
+	assert!(text.contains(&world.adult.id), "{text}");
 	assert!(text.contains(&world.hidden.id), "{text}");
+	assert!(text.contains("Adult (18+)"), "{text}");
 	assert!(text.contains("<title>Recs</title>"), "{text}");
+}
+
+/// A shelf that somebody else made and that can't be evaluated must not turn the shelves of
+/// everybody into an error: it is left out, and the others are shown
+#[tokio::test]
+async fn a_shared_shelf_that_cannot_be_counted_is_left_out_and_the_others_are_shown() {
+	let (app, world) = world().await;
+	let cat = friend_with_lists(&app, "cat").await;
+	let broken = create(
+		&app,
+		&cat.token,
+		"Broken",
+		Some("too long"),
+		"PUBLIC",
+		too_long_to_evaluate(),
+	)
+	.await;
+	create(
+		&app,
+		&cat.token,
+		"Alpha",
+		None,
+		"PUBLIC",
+		general_only(&world),
+	)
+	.await;
+
+	// the shelves of everybody else answer, with the one that works and not the broken one
+	for token in [&world.ana.token, &world.owner_token] {
+		let (status, text) = answer(&app, token, SHELVES).await;
+		assert_eq!(status, 200, "{text}");
+		assert_eq!(titles(&text), vec!["Alpha · cat".to_string()], "{text}");
+		for trace in ["Broken", "too long", broken.as_str()] {
+			assert!(!text.contains(trace), "{trace} in {text}");
+		}
+	}
+
+	// its maker still has it among their own shelves (nothing is counted for those), so it was
+	// made, and what is left out above is left out for not being readable, not for being gone
+	let text = feed(&app, &cat.token, SHELVES).await;
+	assert_eq!(
+		titles(&text),
+		vec!["Alpha".to_string(), "Broken".to_string()]
+	);
 }
 
 #[tokio::test]
