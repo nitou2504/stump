@@ -8,5 +8,8 @@
 //! too: what goes into the library is a file the probe made, from the reviewed metadata.
 
 pub mod active;
+pub mod check;
 pub mod contract;
+pub mod job;
+pub mod runner;
 pub mod zipscan;

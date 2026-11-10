@@ -1081,7 +1081,7 @@ fn same_text(a: &str, b: &str) -> bool {
 /// A format that is written (`rewritten`) carries the plain description it was given, or none:
 /// anything else is the file's own that was not replaced. A format that can't be written (a RAR)
 /// keeps its own, which then only has to be plain text already.
-async fn only_the_plain_description(
+pub(crate) async fn only_the_plain_description(
 	config: &crate::config::StumpConfig,
 	staged: &Path,
 	original_name: &str,

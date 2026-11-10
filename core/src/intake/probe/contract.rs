@@ -68,6 +68,7 @@ pub mod code {
 	pub const MALFORMED_XHTML: &str = "MALFORMED_XHTML";
 	pub const CONVERTED_CBR: &str = "CONVERTED_CBR";
 	pub const NO_COVER: &str = "NO_COVER";
+	pub const PAGE_COUNT: &str = "PAGE_COUNT";
 }
 
 /// The limits one check is held to. They come in each request from the server (its configuration),
@@ -255,6 +256,10 @@ pub struct Request {
 	pub size: u64,
 	pub sha256: String,
 	pub limits: Limits,
+	/// The uploader may file books themselves (the server owner, or somebody who manages
+	/// libraries): what can't be cleaned is told to them, not refused
+	#[serde(default)]
+	pub approver: bool,
 	pub active_content: ActiveContent,
 	/// Convert a RAR comic to a ZIP one when filing it (UnRAR then never reads it in the server)
 	pub cbr_to_cbz: bool,
@@ -321,6 +326,83 @@ pub struct ActiveItem {
 	pub count: u64,
 }
 
+/// What a book says about itself that the server uses: the fields of Stump's own metadata that the
+/// inbox reads, as plain values (Stump's type has readers of its own for files, which a verdict
+/// doesn't go through)
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BookMetadata {
+	pub format: Option<String>,
+	pub title: Option<String>,
+	pub series: Option<String>,
+	pub number: Option<f64>,
+	pub summary: Option<String>,
+	pub age_rating: Option<i32>,
+	pub rating: Option<f64>,
+	pub genres: Option<Vec<String>>,
+	pub tags: Option<Vec<String>>,
+	pub language: Option<String>,
+	pub year: Option<i32>,
+	pub identifier_isbn: Option<String>,
+	pub writers: Option<Vec<String>>,
+	pub publisher: Option<String>,
+}
+
+impl BookMetadata {
+	pub fn from_processed(metadata: &ProcessedMediaMetadata) -> Self {
+		let mut mine = Self {
+			format: metadata.format.clone(),
+			title: metadata.title.clone(),
+			series: metadata.series.clone(),
+			number: metadata.number,
+			summary: metadata.summary.clone(),
+			age_rating: metadata.age_rating,
+			rating: metadata.rating,
+			genres: metadata.genres.clone(),
+			tags: metadata.tags.clone(),
+			language: metadata.language.clone(),
+			year: metadata.year,
+			identifier_isbn: metadata.identifier_isbn.clone(),
+			writers: metadata.writers.clone(),
+			publisher: metadata.publisher.clone(),
+		};
+		mine.cap();
+		mine
+	}
+
+	/// Cuts the texts and lists to what a book can have (what the probe says about a book is
+	/// somebody else's text, and the server cuts it again)
+	pub fn cap(&mut self) {
+		if let Ok(mut value) = serde_json::to_value(&*self) {
+			cap_json(&mut value);
+			if let Ok(capped) = serde_json::from_value(value) {
+				*self = capped;
+			}
+		}
+	}
+
+	/// As Stump's own type, for the code that reads an uploaded file the same way for every book
+	pub fn into_processed(self) -> ProcessedMediaMetadata {
+		ProcessedMediaMetadata {
+			format: self.format,
+			title: self.title,
+			series: self.series,
+			number: self.number,
+			summary: self.summary,
+			age_rating: self.age_rating,
+			rating: self.rating,
+			genres: self.genres,
+			tags: self.tags,
+			language: self.language,
+			year: self.year,
+			identifier_isbn: self.identifier_isbn,
+			writers: self.writers,
+			publisher: self.publisher,
+			..ProcessedMediaMetadata::default()
+		}
+	}
+}
+
 /// The checked file as the probe saw it
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -337,7 +419,7 @@ pub struct Book {
 	pub unpacked_bytes: u64,
 	pub max_entry_bytes: u64,
 	/// What the embedded metadata says
-	pub metadata: Option<ProcessedMediaMetadata>,
+	pub metadata: Option<BookMetadata>,
 	/// An EPUB's original title (`dc:title` of a translation's source)
 	pub original_title: Option<String>,
 	/// What an EPUB's title page says
@@ -407,6 +489,33 @@ impl Verdict {
 /// The revision of this build
 pub fn probe_revision() -> &'static str {
 	env!("GIT_REV")
+}
+
+/// The longest text of a metadata field, in characters
+pub const MAX_TEXT_CHARS: usize = 20_000;
+/// The most items of a list in the metadata
+pub const MAX_LIST_ITEMS: usize = 500;
+
+/// Cuts every text and list of a JSON value to what a book can have, and takes the control
+/// characters out of the texts: what the probe says about a book is somebody else's text
+pub fn cap_json(value: &mut serde_json::Value) {
+	use serde_json::Value;
+	match value {
+		Value::String(text) => {
+			let cleaned: String = text
+				.chars()
+				.filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+				.take(MAX_TEXT_CHARS)
+				.collect();
+			*text = cleaned;
+		},
+		Value::Array(items) => {
+			items.truncate(MAX_LIST_ITEMS);
+			items.iter_mut().for_each(cap_json);
+		},
+		Value::Object(fields) => fields.values_mut().for_each(cap_json),
+		_ => {},
+	}
 }
 
 /// A path that is relative and stays inside what it is relative to

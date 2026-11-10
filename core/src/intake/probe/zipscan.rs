@@ -201,7 +201,7 @@ fn zip64_fields(extra: &[u8], size: &mut u64, compressed: &mut u64, offset: &mut
 }
 
 /// Whether the name of an entry is one a book can have: relative, inside the archive, plain
-fn name_problem(raw: &[u8], name: &str) -> Option<&'static str> {
+pub(super) fn name_problem(raw: &[u8], name: &str) -> Option<&'static str> {
 	if raw.len() > MAX_NAME_BYTES {
 		return Some("is longer than a name can be");
 	}
