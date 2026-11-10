@@ -4,156 +4,22 @@
 //! they visited, progress writes and club books.
 
 use crate::common::{
-	account::{CreateTestUser, TestUser},
+	account::CreateTestUser,
+	visibility::{
+		add_book, add_library, add_series, errors, friend, hide_library, ids, kid,
+		sorted, strings, Meta,
+	},
 	TestApp,
 };
-use graphql::input::user::AgeRestrictionInput;
 use models::{
 	entity::{
-		book_club, book_club_book, last_library_visit, library, library_exclusion, media,
-		media_metadata, media_tag, reading_session, series, tag,
+		book_club, book_club_book, last_library_visit, library, media, media_tag,
+		reading_session, series, tag,
 	},
 	shared::enums::UserPermission,
 };
 use sea_orm::{prelude::*, ActiveModelTrait, QueryFilter, Set};
 use serde_json::Value;
-use tests::fake_data;
-
-/// What to put in a book's metadata (nothing is as good as no metadata)
-#[derive(Default)]
-struct Meta<'a> {
-	age: Option<i32>,
-	writer: Option<&'a str>,
-	publisher: Option<&'a str>,
-	genre: Option<&'a str>,
-}
-
-async fn add_library(app: &TestApp, name: &str) -> library::Model {
-	fake_data::Library {
-		name: Some(name.to_string()),
-		..Default::default()
-	}
-	.insert(app.conn())
-	.await
-}
-
-async fn add_series(
-	app: &TestApp,
-	library: &library::Model,
-	name: &str,
-) -> series::Model {
-	fake_data::Series {
-		name: Some(name.to_string()),
-		library_id: Some(library.id.clone()),
-		..Default::default()
-	}
-	.insert(app.conn())
-	.await
-}
-
-async fn add_book(
-	app: &TestApp,
-	series: &series::Model,
-	name: &str,
-	meta: Meta<'_>,
-) -> media::Model {
-	let book = fake_data::Media {
-		series_id: series.id.clone(),
-		name: Some(name.to_string()),
-		pages: Some(10),
-		..Default::default()
-	}
-	.insert(app.conn())
-	.await;
-
-	if meta.age.is_some()
-		|| meta.writer.is_some()
-		|| meta.publisher.is_some()
-		|| meta.genre.is_some()
-	{
-		media_metadata::ActiveModel {
-			media_id: Set(Some(book.id.clone())),
-			age_rating: Set(meta.age),
-			writers: Set(meta.writer.map(str::to_string)),
-			publisher: Set(meta.publisher.map(str::to_string)),
-			genres: Set(meta.genre.map(str::to_string)),
-			..Default::default()
-		}
-		.insert(app.conn())
-		.await
-		.expect("should insert the metadata");
-	}
-
-	book
-}
-
-/// A user who may read nothing rated above 13 (and has no permissions)
-async fn kid(app: &TestApp) -> TestUser {
-	CreateTestUser {
-		username: "kid".to_string(),
-		age_restriction: Some(AgeRestrictionInput {
-			age: 13,
-			restrict_on_unset: false,
-		}),
-		..Default::default()
-	}
-	.insert(app)
-	.await
-}
-
-/// A user with no permissions and no restrictions (until a library is hidden from them)
-async fn friend(app: &TestApp) -> TestUser {
-	CreateTestUser {
-		username: "friend".to_string(),
-		..Default::default()
-	}
-	.insert(app)
-	.await
-}
-
-async fn hide_library(app: &TestApp, user: &TestUser, library: &library::Model) {
-	library_exclusion::ActiveModel {
-		user_id: Set(user.id.clone()),
-		library_id: Set(library.id.clone()),
-		..Default::default()
-	}
-	.insert(app.conn())
-	.await
-	.expect("should hide the library");
-}
-
-fn errors(response: &Value) -> String {
-	response["errors"].to_string()
-}
-
-fn ids(nodes: &Value) -> Vec<String> {
-	let mut ids = nodes
-		.as_array()
-		.expect("a list")
-		.iter()
-		.map(|node| node["id"].as_str().expect("an id").to_string())
-		.collect::<Vec<_>>();
-	ids.sort();
-	ids
-}
-
-fn sorted(mut values: Vec<String>) -> Vec<String> {
-	values.sort();
-	values
-}
-
-fn strings(list: &Value, field: Option<&str>) -> Vec<String> {
-	sorted(
-		list.as_array()
-			.expect("a list")
-			.iter()
-			.map(|item| match field {
-				Some(field) => item[field].as_str().expect("a string").to_string(),
-				None => item.as_str().expect("a string").to_string(),
-			})
-			.collect(),
-	)
-}
 
 /// A library "Shelf" with three series: Alpha (two general books), Xenon (two books rated 18) and
 /// Mixed (a general book and two rated 18)
@@ -190,6 +56,7 @@ async fn setup_shelf(app: &TestApp) -> Shelf {
 		writer: Some("Zed Writer"),
 		publisher: Some("Hidden House"),
 		genre: Some("Hidden Genre"),
+		..Default::default()
 	};
 	let adult_book = add_book(app, &xenon, "Xenon 1", adult).await;
 	add_book(

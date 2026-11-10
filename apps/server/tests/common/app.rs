@@ -125,6 +125,15 @@ impl TestApp {
 		response
 	}
 
+	/// issue a GET request to the specified path as the holder of `token` (for REST and OPDS, the
+	/// way `execute_gql_with_token` is for GraphQL), returning the response directly
+	pub async fn get_with_token(&self, path: &str, token: &str) -> TestResponse {
+		self.server
+			.get(path)
+			.add_header("Authorization", format!("Bearer {token}"))
+			.await
+	}
+
 	/// issue a DELETE request to the specified path with auth headers, returning the response directly
 	pub async fn delete(&self, path: &str) -> TestResponse {
 		self.server
