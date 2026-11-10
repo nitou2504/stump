@@ -34,13 +34,16 @@ use super::{
 	extension_of,
 	limits::{free_bytes, limits_for, min_free_bytes, total_max_bytes, IntakeLimits},
 	staging::{
-		books_in_zip, count_items, create_items, group_of, spawn_analysis, Staged,
+		books_in_zip_within, count_items, create_items, group_of, spawn_analysis, Staged,
 		StagedSource,
 	},
 };
 use crate::{CoreError, Ctx};
 
 const MIB: u64 = 1024 * 1024;
+
+/// What is said of a pack that would use up the disk's spare room
+const POOR_DISK: &str = "The server is short of disk space for a zip that big";
 
 /// The extensions that can be uploaded: the books, and a `.zip` of books
 pub const UPLOAD_EXTENSIONS: &[&str] = &["epub", "pdf", "cbz", "cbr", "zip"];
@@ -83,6 +86,18 @@ static ADMISSION: LazyLock<tokio::sync::Mutex<()>> =
 static RESERVED: LazyLock<Mutex<HashMap<String, u64>>> =
 	LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// The inbox items the uploads that are being made into items right now will make, per user
+static RESERVED_ITEMS: LazyLock<Mutex<HashMap<String, u64>>> =
+	LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn reserved_items_by(user_id: &str) -> u64 {
+	RESERVED_ITEMS
+		.lock()
+		.ok()
+		.and_then(|map| map.get(user_id).copied())
+		.unwrap_or(0)
+}
+
 fn reserved_by(user_id: &str) -> u64 {
 	RESERVED
 		.lock()
@@ -95,10 +110,12 @@ fn reserved_total() -> u64 {
 	RESERVED.lock().map(|map| map.values().sum()).unwrap_or(0)
 }
 
-/// Room held for an upload that is arriving; given back when it ends, however it ends
+/// Room held for an upload that is arriving: bytes, and the items it is about to make. Given
+/// back when it ends, however it ends.
 struct Reservation {
 	user_id: String,
 	bytes: u64,
+	items: u64,
 }
 
 impl Reservation {
@@ -109,18 +126,52 @@ impl Reservation {
 		Self {
 			user_id: user_id.to_string(),
 			bytes,
+			items: 0,
 		}
+	}
+
+	/// Holds `bytes` in all: what a pack turned out to unpack to is more than the compressed
+	/// request that was let in
+	fn grow_to(&mut self, bytes: u64) {
+		if bytes > self.bytes {
+			if let Ok(mut map) = RESERVED.lock() {
+				*map.entry(self.user_id.clone()).or_default() += bytes - self.bytes;
+			}
+			self.bytes = bytes;
+		}
+	}
+
+	/// Holds the room of `items` more inbox items, until they are stored
+	fn hold_items(&mut self, items: u64) {
+		if let Ok(mut map) = RESERVED_ITEMS.lock() {
+			*map.entry(self.user_id.clone()).or_default() += items;
+		}
+		self.items += items;
+	}
+
+	/// The items are stored (and counted with the others now)
+	fn release_items(&mut self) {
+		release(&RESERVED_ITEMS, &self.user_id, self.items);
+		self.items = 0;
 	}
 }
 
 impl Drop for Reservation {
 	fn drop(&mut self) {
-		if let Ok(mut map) = RESERVED.lock() {
-			if let Some(held) = map.get_mut(&self.user_id) {
-				*held = held.saturating_sub(self.bytes);
-				if *held == 0 {
-					map.remove(&self.user_id);
-				}
+		release(&RESERVED, &self.user_id, self.bytes);
+		release(&RESERVED_ITEMS, &self.user_id, self.items);
+	}
+}
+
+fn release(map: &Mutex<HashMap<String, u64>>, user_id: &str, held: u64) {
+	if held == 0 {
+		return;
+	}
+	if let Ok(mut map) = map.lock() {
+		if let Some(all) = map.get_mut(user_id) {
+			*all = all.saturating_sub(held);
+			if *all == 0 {
+				map.remove(user_id);
 			}
 		}
 	}
@@ -223,6 +274,19 @@ pub fn sniff_format(extension: &str, head: &[u8]) -> Result<String, UploadError>
 		"pdf" if pdf => Ok("pdf".to_string()),
 		_ => Err(mismatch()),
 	}
+}
+
+/// The format of a book taken out of a pack, from its first bytes: its name in the pack is only
+/// a name, so a PDF or a RAR called `.epub` is not filed as one. The file is left at its start.
+pub fn sniff_pack_book(
+	name: &str,
+	book: &mut std::fs::File,
+) -> Result<String, UploadError> {
+	use std::io::{Read, Seek};
+	let mut head = Vec::with_capacity(1024);
+	book.by_ref().take(1024).read_to_end(&mut head)?;
+	book.rewind()?;
+	sniff_format(&extension_of(name), &head)
 }
 
 /// A file that arrived whole
@@ -369,7 +433,11 @@ impl IncomingUpload {
 						limits.quota_bytes / MIB
 					)));
 				}
-				if open_items(conn, &user.id).await? >= limits.max_items {
+				if open_items(conn, &user.id)
+					.await?
+					.saturating_add(reserved_items_by(&user.id))
+					>= limits.max_items
+				{
 					return Err(UploadError::TooMany(format!(
 						"You have {} books waiting already: file, send or remove some first",
 						limits.max_items
@@ -443,8 +511,46 @@ impl IncomingUpload {
 		self.files.push(file);
 	}
 
+	/// How many bytes of packs may be unpacked: what is left of the user's quota (what they hold,
+	/// what their other uploads are bringing and the books of this request that aren't packs
+	/// come off it), and half of what the disk has to spare (what is unpacked is staged by
+	/// copying it, so both exist for a while). Says what to say when a pack goes past it.
+	async fn pack_room(&self, plain_bytes: u64) -> Result<(u64, String), UploadError> {
+		let mut room = u64::MAX;
+		let mut too_much = "The zip unpacks to more than the maximum size".to_string();
+		if let Some(free) = free_bytes(&self.ctx.config.config_directory()) {
+			room = free.saturating_sub(min_free_bytes(&self.ctx.config)) / 2;
+			too_much = POOR_DISK.to_string();
+		}
+		if !self.approver {
+			let conn = self.ctx.conn.as_ref();
+			let used = inbox_bytes(conn, Some(&self.user.id)).await?;
+			let others =
+				reserved_by(&self.user.id).saturating_sub(self._reservation.bytes);
+			let left = self
+				.limits
+				.quota_bytes
+				.saturating_sub(used)
+				.saturating_sub(others)
+				.saturating_sub(plain_bytes);
+			if left <= room {
+				room = left;
+				too_much = format!(
+					"This is more than your inbox can hold ({} MB)",
+					self.limits.quota_bytes / MIB
+				);
+			}
+		}
+		Ok((room, too_much))
+	}
+
 	/// Makes items of what arrived (a `.zip` is opened, and its books are the files) and starts
 	/// reading them. The room the upload reserved is given back; the items hold it now.
+	///
+	/// A pack is unpacked into the upload's own folder and no further than the room its user has
+	/// left, so what a few KiB of zip says it holds can't fill the disk before the quota is looked
+	/// at. What came out is checked again, and the room it needs is held, in one step with
+	/// everybody else's: of two uploads that each fit alone, only the ones that fit together go in.
 	pub async fn finish(
 		mut self,
 		mode: IntakeUploadMode,
@@ -454,8 +560,14 @@ impl IncomingUpload {
 				"No files were uploaded".to_string(),
 			));
 		}
+		let plain_bytes: u64 = self
+			.files
+			.iter()
+			.filter(|file| file.format != "zip")
+			.map(|file| file.size)
+			.sum();
+		let (mut room, too_much) = self.pack_room(plain_bytes).await?;
 		let mut staged: Vec<Staged> = vec![];
-		let mut unpacked: u64 = 0;
 		for file in std::mem::take(&mut self.files) {
 			if file.format == "zip" {
 				let zip_name = Path::new(&file.original_name)
@@ -463,9 +575,38 @@ impl IncomingUpload {
 					.map(|s| s.to_string_lossy().into_owned())
 					.unwrap_or_else(|| "Series".to_string());
 				let (path, max_file) = (file.path.clone(), self.limits.max_file_bytes);
+				let (dir, message) = (self.dir.clone(), too_much.clone());
+				let (left, pack_name) = (room, zip_name.clone());
 				let books = tokio::task::spawn_blocking(move || {
 					let mut zip = std::fs::File::open(path)?;
-					books_in_zip(&mut zip, max_file)
+					// what is said when the room is used up is told as what it is: the quota is
+					// too much (413), the disk is not open (503)
+					let books = books_in_zip_within(&mut zip, max_file, left, &dir, &message)
+						.map_err(|error| match error {
+							CoreError::BadRequest(said) if said == message => {
+								if said == POOR_DISK {
+									UploadError::Unavailable(said)
+								} else {
+									UploadError::TooLarge(said)
+								}
+							},
+							other => other.into(),
+						})?;
+					// the name of a book says nothing about what it is: look at its first bytes
+					let mut sniffed = Vec::with_capacity(books.len());
+					for (name, mut book, size) in books {
+						let format =
+							sniff_pack_book(&name, &mut book).map_err(|error| match error {
+								UploadError::UnsupportedType(message) => {
+									UploadError::UnsupportedType(format!(
+										"{pack_name}/{name}: {message}"
+									))
+								},
+								other => other,
+							})?;
+						sniffed.push((name, book, size, format));
+					}
+					Ok::<_, UploadError>(sniffed)
 				})
 				.await
 				.map_err(|e| CoreError::InternalError(e.to_string()))??;
@@ -477,12 +618,12 @@ impl IncomingUpload {
 				}
 				let _ = tokio::fs::remove_file(&file.path).await;
 				let single = books.len() == 1;
-				for (name, book, size) in books {
-					unpacked = unpacked.saturating_add(size);
+				for (name, book, size, format) in books {
+					room = room.saturating_sub(size);
 					staged.push(Staged {
 						group: (!single).then(|| zip_name.clone()),
 						original_name: format!("{zip_name}/{name}"),
-						format: extension_of(&name),
+						format,
 						size: size as i64,
 						source: StagedSource::Open(book),
 					});
@@ -499,9 +640,12 @@ impl IncomingUpload {
 		}
 		if !self.approver {
 			// what came out of the packs is staged now, and was not part of the request: the
-			// room it needs is checked again, with what other uploads of this user hold
+			// room it needs is checked again, with what other uploads of this user hold, and held
+			// from then on (the admission lock makes the check and the holding one step)
 			let conn = self.ctx.conn.as_ref();
 			let staged_total: u64 = staged.iter().map(|s| s.size.max(0) as u64).sum();
+			let wanted = count_items(mode, &staged) as u64;
+			let _admission = ADMISSION.lock().await;
 			let others =
 				reserved_by(&self.user.id).saturating_sub(self._reservation.bytes);
 			let used = inbox_bytes(conn, Some(&self.user.id)).await?;
@@ -513,9 +657,9 @@ impl IncomingUpload {
 					self.limits.quota_bytes / MIB
 				)));
 			}
-			let wanted = count_items(mode, &staged) as u64;
 			if open_items(conn, &self.user.id)
 				.await?
+				.saturating_add(reserved_items_by(&self.user.id))
 				.saturating_add(wanted)
 				> self.limits.max_items
 			{
@@ -524,9 +668,13 @@ impl IncomingUpload {
 					self.limits.max_items
 				)));
 			}
+			self._reservation.grow_to(staged_total);
+			self._reservation.hold_items(wanted);
 		}
 		let items =
 			create_items(&self.ctx, &self.user, &self.library, mode, staged).await?;
+		// they are items now, and counted as such
+		self._reservation.release_items();
 		spawn_analysis(
 			self.ctx.clone(),
 			items.iter().map(|i| i.id.clone()).collect(),

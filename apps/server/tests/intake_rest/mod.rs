@@ -616,6 +616,115 @@ async fn test_a_zip_of_books_is_taken_and_a_bomb_is_not() {
 	assert_eq!(rest.staged(), before, "nothing of the refused pack stays");
 }
 
+/// the name of a book in a pack says nothing about what it is: a PDF called `.epub` is refused
+/// with the pack, and a `.cbr` that is really a zip is a CBZ
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_book_in_a_pack_is_what_its_name_says() {
+	let rest = rest().await;
+	let pack = zip_bytes(&[
+		("Series/v01.epub", &rest.epub("Real"), false),
+		("Series/v02.epub", &pdf_bytes(), false),
+	]);
+	let response = rest
+		.upload(&UploadBody::new().file("Series.zip", pack))
+		.await;
+	assert_eq!(response.status_code(), 415, "{}", response.text());
+	assert!(
+		message(&response).contains("Series/v02.epub"),
+		"it says which: {}",
+		message(&response)
+	);
+	assert!(rest.items().await.is_empty());
+	assert!(!rest.staged().iter().any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
+
+	let comic = zip_bytes(&[("page-1.png", b"png", false)]);
+	let pack = zip_bytes(&[
+		("Saga/v01.cbr", &comic, false),
+		("Saga/v02.cbz", &comic, false),
+	]);
+	let response = rest.upload(&UploadBody::new().file("Saga.zip", pack)).await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let items = rest.items().await;
+	let formats: Vec<&str> = items[0].files.0.iter().map(|f| f.format.as_str()).collect();
+	assert_eq!(formats, ["cbz", "cbz"], "a cbr that is a zip is a cbz");
+}
+
+/// a pack is unpacked only as far as the room its user has left, however small the zip is: it
+/// doesn't fill the disk before the quota is looked at
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_pack_is_unpacked_only_as_far_as_the_quota_goes() {
+	let rest = rest_with(|c| c.intake_user_quota_mb = 1).await;
+	// a few KiB of zip that holds ~5 MB of books (each 800 KB of zeros after a real EPUB: under
+	// the size at which the ratio of an entry is looked at)
+	let books: Vec<(String, Vec<u8>)> = (0..6)
+		.map(|i| {
+			let mut bytes = rest.epub(&format!("Volume {i}"));
+			bytes.extend(vec![0u8; 800 * 1024]);
+			(format!("Saga/v{i:02}.epub"), bytes)
+		})
+		.collect();
+	let entries: Vec<(&str, &[u8], bool)> = books
+		.iter()
+		.map(|(name, bytes)| (name.as_str(), bytes.as_slice(), true))
+		.collect();
+	let pack = zip_bytes(&entries);
+	assert!(pack.len() < 100 * 1024, "the premise: a small zip ({})", pack.len());
+	let response = rest.upload(&UploadBody::new().file("Saga.zip", pack)).await;
+	assert_eq!(response.status_code(), 413, "{}", response.text());
+	assert!(
+		message(&response).contains("inbox can hold"),
+		"{}",
+		message(&response)
+	);
+	assert!(rest.items().await.is_empty());
+	assert!(!rest.staged().iter().any(|p| p.contains("_incoming/") || p.ends_with(".upload")));
+}
+
+/// two uploads that each fit the quota (or the number of items) alone, and don't together: only
+/// one goes in, whichever comes first
+#[tokio::test(flavor = "multi_thread")]
+async fn test_uploads_that_fit_alone_but_not_together_are_not_both_let_in() {
+	// the quota: two packs of ~2 MB, a quota of 3 MB
+	let rest = rest_with(|c| c.intake_user_quota_mb = 3).await;
+	let pack = |name: &str| {
+		let books: Vec<(String, Vec<u8>)> = (0..4)
+			.map(|i| {
+				let mut bytes = rest.epub(&format!("{name} {i}"));
+				bytes.extend(vec![0u8; 500 * 1024]);
+				(format!("{name}/v{i}.epub"), bytes)
+			})
+			.collect();
+		let entries: Vec<(&str, &[u8], bool)> = books
+			.iter()
+			.map(|(n, b)| (n.as_str(), b.as_slice(), true))
+			.collect();
+		zip_bytes(&entries)
+	};
+	let (a, b) = (
+		UploadBody::new().file("A.zip", pack("A")),
+		UploadBody::new().file("B.zip", pack("B")),
+	);
+	let (first, second) = tokio::join!(rest.upload(&a), rest.upload(&b));
+	let mut codes = [first.status_code().as_u16(), second.status_code().as_u16()];
+	codes.sort();
+	assert_eq!(codes, [200, 413], "{} / {}", first.text(), second.text());
+	assert_eq!(rest.items().await.len(), 1);
+
+	// the items: two requests of two books each, room for three
+	let rest = rest_with(|c| c.intake_user_max_items = 3).await;
+	let two = |a: &str, b: &str| {
+		UploadBody::new()
+			.file(&format!("{a}.epub"), rest.epub(a))
+			.file(&format!("{b}.epub"), rest.epub(b))
+	};
+	let (a, b) = (two("A1", "A2"), two("B1", "B2"));
+	let (first, second) = tokio::join!(rest.upload(&a), rest.upload(&b));
+	let mut codes = [first.status_code().as_u16(), second.status_code().as_u16()];
+	codes.sort();
+	assert_eq!(codes, [200, 429], "{} / {}", first.text(), second.text());
+	assert_eq!(rest.items().await.len(), 2);
+}
+
 /// the way in works for somebody who files books themselves too, with no quota in the way
 #[tokio::test(flavor = "multi_thread")]
 async fn test_an_approver_is_not_held_to_the_quota() {

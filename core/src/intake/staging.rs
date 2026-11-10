@@ -83,11 +83,50 @@ pub fn books_in_zip(
 	)
 }
 
+/// The same, where the books of a pack are unpacked into `dir` (the upload's own folder, on the
+/// disk the staged books are on, and covered by the check of its free space) and no more than
+/// `room` bytes of them: what a user has left of their quota. `too_much` is what is said when
+/// the room is not enough.
+pub fn books_in_zip_within(
+	file: &mut std::fs::File,
+	max_size: u64,
+	room: u64,
+	dir: &Path,
+	too_much: &str,
+) -> CoreResult<Vec<PackBook>> {
+	read_pack_in(
+		file,
+		max_size,
+		bounded::max_unpacked_bytes().min(room),
+		bounded::max_pack_books(),
+		Some(dir),
+		too_much,
+	)
+}
+
 pub fn read_pack(
 	file: &mut std::fs::File,
 	max_size: u64,
 	max_unpacked: u64,
 	max_books: usize,
+) -> CoreResult<Vec<PackBook>> {
+	read_pack_in(
+		file,
+		max_size,
+		max_unpacked,
+		max_books,
+		None,
+		"The zip unpacks to more than the maximum size",
+	)
+}
+
+fn read_pack_in(
+	file: &mut std::fs::File,
+	max_size: u64,
+	max_unpacked: u64,
+	max_books: usize,
+	dir: Option<&Path>,
+	too_much: &str,
 ) -> CoreResult<Vec<PackBook>> {
 	let bad = |message: String| CoreError::BadRequest(message);
 	let mut archive = ZipArchive::new(&mut *file)
@@ -126,26 +165,30 @@ pub fn read_pack(
 		}
 		declared_total = declared_total.saturating_add(entry.size());
 		if declared_total > max_unpacked {
-			return Err(bad(
-				"The zip unpacks to more than the maximum size".to_string()
-			));
+			return Err(bad(too_much.to_string()));
 		}
-		let mut book = tempfile::tempfile()?;
-		let size = match bounded::copy_capped(&mut entry, &mut book, max_size) {
+		let mut book = match dir {
+			Some(dir) => tempfile::tempfile_in(dir)?,
+			None => tempfile::tempfile()?,
+		};
+		// no more than is left of the room, however much the zip says
+		let cap = max_size.min(max_unpacked.saturating_sub(unpacked_total));
+		let size = match bounded::copy_capped(&mut entry, &mut book, cap) {
 			Ok(size) => size,
 			Err(error) if bounded::is_too_large(&error) => {
-				return Err(bad(format!(
-					"{name} is larger than the maximum upload size"
-				)))
+				// the book's own limit, or what is left of the room, whichever stopped it
+				return Err(bad(if cap < max_size {
+					too_much.to_string()
+				} else {
+					format!("{name} is larger than the maximum upload size")
+				}))
 			},
 			Err(error) => return Err(error.into()),
 		};
 		// what the zip says is only what it says: the total counts what came out
 		unpacked_total = unpacked_total.saturating_add(size);
 		if unpacked_total > max_unpacked {
-			return Err(bad(
-				"The zip unpacks to more than the maximum size".to_string()
-			));
+			return Err(bad(too_much.to_string()));
 		}
 		book.rewind()?;
 		books.push((name, book, size));
@@ -471,6 +514,43 @@ mod tests {
 			error.to_string().contains("unpacks to more than"),
 			"{error}"
 		);
+	}
+
+	/// The room a user has left is a cap on what comes out of the pack as it comes out, whatever
+	/// the zip says: the unpacking stops there, with what is said for it
+	#[test]
+	fn a_pack_is_unpacked_only_as_far_as_the_room_goes() {
+		let dir = tempfile::tempdir().unwrap();
+		let entries: Vec<(String, Vec<u8>)> = (0..50)
+			.map(|i| (format!("{i:02}.epub"), vec![i as u8; 1000]))
+			.collect();
+		let entries: Vec<(&str, &[u8], bool)> = entries
+			.iter()
+			.map(|(n, b)| (n.as_str(), b.as_slice(), false))
+			.collect();
+		let mut zip = zip_of(&entries);
+		let error = books_in_zip_within(
+			&mut zip,
+			10 * MIB,
+			2500,
+			dir.path(),
+			"This is more than your inbox can hold",
+		)
+		.unwrap_err();
+		assert_eq!(error.to_string(), "This is more than your inbox can hold");
+		// the same pack fits a room that is big enough, and its books are readable
+		let mut zip = zip_of(&entries);
+		let books =
+			books_in_zip_within(&mut zip, 10 * MIB, 50_000, dir.path(), "too much").unwrap();
+		assert_eq!(books.len(), 50);
+		assert_eq!(read_back(books.into_iter().nth(3).unwrap().1), vec![3u8; 1000]);
+		// a lying zip is stopped by the room too, while it is being read
+		let honest = zip_of(&[("bomb.epub", &vec![0u8; 3 * MIB as usize], true)]);
+		let mut lying = declaring(honest, 100);
+		let error =
+			books_in_zip_within(&mut lying, 10 * MIB, 500_000, dir.path(), "too much")
+				.unwrap_err();
+		assert!(error.to_string().contains("too much"), "{error}");
 	}
 
 	#[test]

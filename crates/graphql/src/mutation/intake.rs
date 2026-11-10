@@ -25,6 +25,7 @@ use stump_core::intake::{
 	staging::{
 		books_in_zip, create_items, group_of, spawn_analysis, Staged, StagedSource,
 	},
+	upload::sniff_pack_book,
 	Reviewer,
 };
 
@@ -174,11 +175,15 @@ impl IntakeMutation {
 					return Err(format!("{} contains no books", value.filename).into());
 				}
 				let single = books.len() == 1;
-				for (name, book, size) in books {
+				for (name, mut book, size) in books {
+					// the name of a book in a pack says nothing about what it is
+					let format = sniff_pack_book(&name, &mut book).map_err(|error| {
+						async_graphql::Error::new(format!("{zip_name}/{name}: {error}"))
+					})?;
 					staged.push(Staged {
 						group: (!single).then(|| zip_name.clone()),
 						original_name: format!("{zip_name}/{name}"),
-						format: extension_of(&name),
+						format,
 						size: size as i64,
 						source: StagedSource::Open(book),
 					});
