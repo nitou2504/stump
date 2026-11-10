@@ -46,6 +46,16 @@ pub enum IntakeState {
 	Failed,
 	/// Thrown away by the uploader; its staged files are deleted
 	Discarded,
+	/// Sent by somebody who may not file books themselves, and waiting for an approver (the
+	/// server owner, or anyone who manages libraries)
+	PendingApproval,
+	/// An approver sent it back with a note (`reviewNote`): the uploader can change it and send
+	/// it again
+	Rejected,
+	/// An approver said yes and the files are being written into the library. It is claimed
+	/// with one statement (only one of two approvals wins) and finished by a task that survives
+	/// the request; after a restart it goes back to waiting for approval
+	Filing,
 }
 
 /// A single book, or a series (a folder or zip of volumes: manga, light novels)
@@ -75,6 +85,19 @@ pub enum IntakeState {
 pub enum IntakeKind {
 	#[default]
 	Book,
+	Series,
+}
+
+/// How an upload of several files is grouped into inbox items
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Enum)]
+pub enum IntakeUploadMode {
+	/// Files in a folder (or books inside a .zip) make one series item; loose files are
+	/// one book each
+	#[default]
+	Auto,
+	/// Every file is its own book
+	Books,
+	/// All the files are the volumes of one series
 	Series,
 }
 

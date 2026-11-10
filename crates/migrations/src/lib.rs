@@ -54,6 +54,7 @@ mod m20261106_000000_metadata_fetch_after_scan;
 mod m20261107_000000_user_reader_settings;
 mod m20261108_000000_reading_lists;
 mod m20261109_000000_user_discover_rules;
+mod m20261112_000000_intake_approval;
 
 pub struct Migrator;
 
@@ -114,6 +115,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261107_000000_user_reader_settings::Migration),
 			Box::new(m20261108_000000_reading_lists::Migration),
 			Box::new(m20261109_000000_user_discover_rules::Migration),
+			Box::new(m20261112_000000_intake_approval::Migration),
 		]
 	}
 }
