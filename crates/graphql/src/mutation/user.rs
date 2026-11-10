@@ -27,7 +27,7 @@ use models::{
 		arrangement::{Arrangement, HomeArrangement},
 		discover::DiscoverRules,
 		enums::UserPermission,
-		permission_set::PermissionSet,
+		permission_set::{user_has_all_permissions, PermissionSet},
 	},
 };
 use sea_orm::{
@@ -177,6 +177,9 @@ impl UserMutation {
 		ctx: &Context<'_>,
 		input: CreateUserInput,
 	) -> Result<User> {
+		let AuthContext { user: creator, .. } = ctx.data::<AuthContext>()?;
+		ensure_can_grant(creator, &input.permissions)?;
+
 		let core_ctx = ctx.data::<CoreContext>()?;
 		let hashed_password =
 			bcrypt::hash(input.password, core_ctx.config.password_hash_cost)?;
@@ -297,6 +300,16 @@ impl UserMutation {
 				.await?
 				.ok_or("User not found")?;
 			if target.is_server_owner {
+				return Err(FORBIDDEN_ACTION.into());
+			}
+
+			// Whoever manages users can't change, or reset the password of, an account
+			// that holds permissions they don't hold themselves: signing in to it would
+			// hand them those permissions
+			let target_permissions =
+				PermissionSet::from(target.permissions.unwrap_or_default())
+					.resolve_into_vec();
+			if !user_has_all_permissions(user, &target_permissions) {
 				return Err(FORBIDDEN_ACTION.into());
 			}
 		}
@@ -649,6 +662,16 @@ async fn update_user(
 		return Err("You do not have permission to change the username".into());
 	}
 
+	// TODO(permissions): server owner goes away
+	// only a server owner or a user with ManageUsers may set another user's
+	// permissions, age restriction, and session cap.
+	let can_manage_privileged_fields = (by_user.is_server_owner
+		|| by_user.has_permission(UserPermission::ManageUsers))
+		&& !is_self_update;
+	if can_manage_privileged_fields {
+		ensure_can_grant(by_user, &input.permissions)?;
+	}
+
 	let mut update_user = user::ActiveModel {
 		id: Set(for_user_id.clone()),
 		username: Set(input.username.clone()),
@@ -665,12 +688,6 @@ async fn update_user(
 
 	let txn = conn.begin().await?;
 
-	// TODO(permissions): server owner goes away
-	// only a server owner or a user with ManageUsers may set another user's
-	// permissions, age restriction, and session cap.
-	let can_manage_privileged_fields = (by_user.is_server_owner
-		|| by_user.has_permission(UserPermission::ManageUsers))
-		&& !is_self_update;
 	if can_manage_privileged_fields {
 		update_user.max_sessions_allowed = Set(input.max_sessions_allowed);
 		update_user_age_restriction(&for_user_id, &input.age_restriction, &txn).await?;
@@ -683,6 +700,17 @@ async fn update_user(
 	txn.commit().await?;
 
 	Ok(User::from(updated_user_entity))
+}
+
+/// Only the permissions the person granting them holds can be granted, to a new account or an
+/// existing one. Otherwise `ManageUsers` would be a way to every other permission (a user
+/// created with all of them). The server owner holds them all.
+fn ensure_can_grant(granter: &AuthUser, permissions: &[UserPermission]) -> Result<()> {
+	if user_has_all_permissions(granter, permissions) {
+		Ok(())
+	} else {
+		Err("You can only grant the permissions you hold yourself".into())
+	}
 }
 
 async fn update_user_age_restriction(
