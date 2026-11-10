@@ -6,6 +6,7 @@ import {
 	BookOpen,
 	BookPlus,
 	Brush,
+	ClipboardCheck,
 	KeyRound,
 	Mail,
 	PackageSearch,
@@ -20,6 +21,7 @@ import {
 
 import { RouteGroup } from '@/hooks/useRouteGroups'
 
+import { BOOK_APPROVALS_AVAILABLE } from './server/bookApprovals/availability'
 import { prefetchScheduler } from './server/jobs/JobScheduler'
 import { prefetchJobs } from './server/jobs/JobTable'
 import { prefetchLoginActivity, prefetchUsersTable, prefetchUserStats } from './server/users'
@@ -182,6 +184,18 @@ export const createRouteGroups = (client: QueryClient, api: Api): RouteGroup[] =
 				permissions: [UserPermission.ManageLibrary],
 				to: '/settings/deleted-books',
 			},
+			// listed once the page is finished (package D2)
+			...(BOOK_APPROVALS_AVAILABLE
+				? [
+						{
+							icon: ClipboardCheck,
+							label: 'Book approvals',
+							localeKey: 'server/bookApprovals',
+							permissions: [UserPermission.ManageLibrary],
+							to: '/settings/book-approvals',
+						},
+					]
+				: []),
 		],
 		label: 'Management',
 	},

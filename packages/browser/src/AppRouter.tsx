@@ -11,7 +11,6 @@ const HomeScene = lazy(() => import('./scenes/home'))
 const LibraryRouter = lazy(() => import('./scenes/library/LibraryRouter.tsx'))
 const SeriesRouter = lazy(() => import('./scenes/series/SeriesRouter.tsx'))
 const BookRouter = lazy(() => import('./scenes/book/BookRouter.tsx'))
-const BookClubRouter = lazy(() => import('./scenes/bookClub/BookClubRouter.tsx'))
 const SmartListRouter = lazy(() => import('./scenes/smartList/SmartListRouter.tsx'))
 const ReadingListRouter = lazy(() => import('./scenes/readingList/ReadingListRouter.tsx'))
 const SettingsRouter = lazy(() => import('./scenes/settings/SettingsRouter.tsx'))
@@ -22,6 +21,7 @@ const ServerConnectionErrorScene = lazy(
 const LoginOrClaimScene = lazy(() => import('./scenes/auth'))
 const BrowseIndexScene = lazy(() => import('./scenes/browse'))
 const IntakeScene = lazy(() => import('./scenes/intake'))
+const ReadingHistoryScene = lazy(() => import('./scenes/readingHistory'))
 
 type AppRouterProps = {
 	basePath?: string
@@ -54,7 +54,8 @@ export function AppRouter({ basePath }: AppRouterProps = {}) {
 					<Route path="books/*" element={<BookRouter />} />
 					<Route path="browse/:index" element={<BrowseIndexScene />} />
 					<Route path="add-books" element={<IntakeScene />} />
-					<Route path="clubs/*" element={<BookClubRouter />} />
+					<Route path="reading" element={<ReadingHistoryScene />} />
+					<Route path="reading/:userId" element={<ReadingHistoryScene />} />
 					<Route path="/smart-lists/*" element={<SmartListRouter />} />
 					<Route path="reading-lists/*" element={<ReadingListRouter />} />
 					<Route path="settings/*" element={<SettingsRouter />} />

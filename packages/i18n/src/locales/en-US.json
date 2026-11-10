@@ -2806,6 +2806,10 @@
       "server/deletedBooks": {
         "title": "Deleted books",
         "description": "Restore removed books or delete them permanently"
+      },
+      "server/bookApprovals": {
+        "title": "Book approvals",
+        "description": "Review the books other people added before they join the library"
       }
     },
     "jobOverlay": {
@@ -2846,6 +2850,7 @@
         "themeToggle": "Toggle Theme",
         "noSmartlists": "No Smart Lists",
         "createSmartlist": "Create Smart List",
+        "myReading": "My reading",
         "seeAll": "See All"
       },
       "libraryOptions": {

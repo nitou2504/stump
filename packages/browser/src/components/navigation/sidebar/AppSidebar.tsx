@@ -7,7 +7,7 @@ import {
 	UserPermission,
 } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
-import { Book, BookMarked, BookPlus, Home, Tags, Users } from 'lucide-react'
+import { Book, BookCheck, BookMarked, BookPlus, Home, Tags, Users } from 'lucide-react'
 import { Fragment, Suspense, useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router'
 import { match } from 'ts-pattern'
@@ -16,14 +16,14 @@ import { useAppContext, useRouterContext } from '@/context'
 import { useTheme } from '@/hooks'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
-import { BOOK_CLUBS_AVAILABLE } from '@/scenes/bookClub/availability'
 import { useHomeArrangementKey } from '@/scenes/home/arrangement'
+import { MY_READING_AVAILABLE } from '@/scenes/readingHistory/availability'
 import { useLocalPreferencesStore } from '@/stores/user'
 
 import UserMenu from '../../UserMenu'
 import { Sidebar, useSidebar } from './base'
 import { useIsSidebarIconMode } from './CollapsedSidebarItems'
-import { BookClubSideBarSection, LibrarySideBarSection, SmartListSideBarSection } from './sections'
+import { LibrarySideBarSection, SmartListSideBarSection } from './sections'
 import SideBarButtonLink from './SideBarButtonLink'
 import SideBarFooter from './SideBarFooter'
 
@@ -79,9 +79,7 @@ export default function AppSidebar() {
 
 	const checkSectionPermission = useCallback(
 		(variant: SystemArrangement) => {
-			if (variant === SystemArrangement.BookClubs) {
-				return BOOK_CLUBS_AVAILABLE && checkPermission(UserPermission.AccessBookClub)
-			} else if (variant === SystemArrangement.SmartLists) {
+			if (variant === SystemArrangement.SmartLists) {
 				return checkPermission(UserPermission.AccessSmartList)
 			} else {
 				return true
@@ -147,6 +145,15 @@ export default function AppSidebar() {
 						>
 							{t('readingLists.title')}
 						</SideBarButtonLink>
+						{MY_READING_AVAILABLE && (
+							<SideBarButtonLink
+								to={paths.myReading()}
+								icon={BookCheck}
+								isActive={location.pathname.startsWith(paths.myReading())}
+							>
+								{t('sidebar.buttons.myReading')}
+							</SideBarButtonLink>
+						)}
 						{canAddBooks && (
 							<SideBarButtonLink
 								to={paths.addBooks()}
@@ -166,11 +173,6 @@ export default function AppSidebar() {
 				.with(SystemArrangement.SmartLists, () => (
 					<Suspense key="smartlists-sidebar-navlink">
 						<SmartListSideBarSection links={config.links} />
-					</Suspense>
-				))
-				.with(SystemArrangement.BookClubs, () => (
-					<Suspense key="book-clubs-sidebar-navlink">
-						<BookClubSideBarSection isMobile={isMobile} links={config.links} />
 					</Suspense>
 				))
 				.otherwise(() => null),

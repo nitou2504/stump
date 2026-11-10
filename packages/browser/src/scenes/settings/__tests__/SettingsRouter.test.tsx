@@ -53,6 +53,7 @@ const renderAt = (subPath: string, permissions: UserPermission[] = []) => {
 		<MemoryRouter initialEntries={[`/settings/${subPath}`]}>
 			<Suspense fallback={null}>
 				<Routes>
+					<Route path="/" element={<div data-testid="home" />} />
 					<Route path="/settings/*" element={<SettingsRouter />} />
 				</Routes>
 			</Suspense>
@@ -75,6 +76,20 @@ describe('SettingsRouter', () => {
 			renderAt('users', [])
 			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
 			expect(screen.queryByTestId('users-router')).not.toBeInTheDocument()
+		})
+	})
+
+	// the page is not built yet (its flag is off): approvers get sent home, others to their account
+	describe('book approvals route', () => {
+		it('goes home for those who may manage libraries while the page is not built', async () => {
+			renderAt('book-approvals', [UserPermission.ManageLibrary])
+			expect(await screen.findByTestId('home')).toBeInTheDocument()
+		})
+
+		it('is not there for anyone else', async () => {
+			renderAt('book-approvals', [UserPermission.AddBooks])
+			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
+			expect(screen.queryByTestId('home')).not.toBeInTheDocument()
 		})
 	})
 

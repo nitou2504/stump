@@ -27,12 +27,14 @@ type SettingsPage =
 	| 'notifications'
 	| 'recently-added'
 	| 'deleted-books'
+	| 'book-approvals'
 type DocTopic = 'access-control' | 'features/book-clubs'
 type BookClubTab = 'overview' | 'members' | 'discussion' | 'settings'
 export type BrowseIndex = 'genres' | 'authors'
 
 const pathsInternal = {
 	addBooks: (libraryId?: string) => `/add-books${libraryId ? `?library=${libraryId}` : ''}`,
+	bookApprovals: () => pathsInternal.settings('book-approvals'),
 	bookClub: (slug: string, tab?: BookClubTab) => `/clubs/${slug}${tab ? `/${tab}` : ''}`,
 	bookClubCreate: () => '/clubs/create',
 	bookClubDiscussion: (slug: string, discussionId?: string) => {
@@ -116,6 +118,7 @@ const pathsInternal = {
 		}
 		return `/libraries/${id}/series`
 	},
+	myReading: (userId?: string) => `/reading${userId ? `/${userId}` : ''}`,
 	notFound: () => '/404',
 	notifications: () => '/notifications',
 	readingList: (id: string) => `/reading-lists/${id}`,
@@ -153,6 +156,7 @@ export function usePaths() {
 
 	return {
 		addBooks: (libraryId?: string) => `${basePath}${pathsInternal.addBooks(libraryId)}`,
+		bookApprovals: () => `${basePath}${pathsInternal.bookApprovals()}`,
 		bookClub: (id: string, tab?: BookClubTab) => `${basePath}${pathsInternal.bookClub(id, tab)}`,
 		bookClubCreate: () => `${basePath}${pathsInternal.bookClubCreate()}`,
 		bookClubDiscussion: (id: string, discussionId?: string) =>
@@ -186,6 +190,7 @@ export function usePaths() {
 		libraryOneshots: (id: string) => `${basePath}${pathsInternal.libraryOneshots(id)}`,
 		librarySeries: (id: string, page?: number) =>
 			`${basePath}${pathsInternal.librarySeries(id, page)}`,
+		myReading: (userId?: string) => `${basePath}${pathsInternal.myReading(userId)}`,
 		notFound: () => `${basePath}${pathsInternal.notFound()}`,
 		notifications: () => `${basePath}${pathsInternal.notifications()}`,
 		readingList: (id: string) => `${basePath}${pathsInternal.readingList(id)}`,

@@ -2309,6 +2309,10 @@
             }
           }
         }
+      },
+      "server/bookApprovals": {
+        "title": "Libros por aprobar",
+        "description": "Revisa los libros que han añadido otras personas antes de que pasen a la biblioteca"
       }
     },
     "jobOverlay": {
@@ -2347,6 +2351,7 @@
         "themeToggle": "Alternar Tema",
         "noSmartlists": "Sin listas inteligentes",
         "createSmartlist": "Crear lista inteligente",
+        "myReading": "Mi lectura",
         "seeAll": "Ver todo"
       },
       "libraryOptions": {

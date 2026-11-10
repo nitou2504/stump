@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
+import ApprovalsBadge from '@/scenes/intake/ApprovalsBadge'
 
 export default function SettingsButton() {
 	const navigate = useNavigate()
@@ -26,6 +27,7 @@ export default function SettingsButton() {
 				onClick={() => navigate(paths.settings())}
 			>
 				<Settings className="h-4 w-4 -scale-x-[1] transform" />
+				<ApprovalsBadge />
 			</IconButton>
 		</ToolTip>
 	)
