@@ -48,9 +48,16 @@ export default function BookApprovalsScene() {
 
 	// the last book of the last page was approved: the page is gone, go back to the new last one
 	useEffect(() => {
-		if (!isLoading && page > pages) setParam('page', pages > 1 ? String(pages) : undefined)
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isLoading, page, pages])
+		if (isLoading || page <= pages) return
+		setParams(
+			(prev) => {
+				if (pages > 1) prev.set('page', String(pages))
+				else prev.delete('page')
+				return prev
+			},
+			{ replace: true },
+		)
+	}, [isLoading, page, pages, setParams])
 
 	// a book with something left to fix can't be approved: it is left out of "Approve all"
 	const approvable = useMemo(

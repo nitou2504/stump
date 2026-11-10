@@ -2,8 +2,8 @@ import { IntakeState } from '@stump/graphql'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 
-import type { IntakeItemData } from '@/scenes/intake/queries'
 import { item } from '@/scenes/intake/__tests__/fixtures'
+import type { IntakeItemData } from '@/scenes/intake/queries'
 
 import BookApprovalsRoute from '../index'
 
