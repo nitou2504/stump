@@ -1,13 +1,17 @@
 use crate::{
 	data::{AuthContext, CoreContext, ServiceContext},
 	input::smart_lists::SmartListFilterGroupInput,
+	loader::reader_profile::ReaderProfileLoader,
 	object::{
-		media::Media, smart_list_item::SmartListItems, smart_list_view::SmartListView,
+		media::Media, reader_profile::ReaderProfile, smart_list_item::SmartListItems,
+		smart_list_view::SmartListView,
 	},
 	pagination::list_limit,
 	query::smart_lists_builder::{build_books_query, build_smart_list_items},
 };
-use async_graphql::{ComplexObject, Context, Result, SimpleObject};
+use async_graphql::{
+	dataloader::DataLoader, ComplexObject, Context, Result, SimpleObject,
+};
 use models::{
 	entity::{media, smart_list, smart_list_view},
 	shared::image::ImageRef,
@@ -37,10 +41,33 @@ impl From<smart_list::Model> for SmartList {
 
 #[ComplexObject]
 impl SmartList {
-	async fn filters(&self) -> Result<String> {
+	/// The list's rules, as JSON. Only who may change the list gets them: they name paths,
+	/// libraries and tags, so they would show people a list is made of things they may not see.
+	/// Anyone else gets `[]`: what the list holds for them is what `books` and `items` give
+	async fn filters(&self, ctx: &Context<'_>) -> Result<String> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		if !self.model.is_editable_by(user) {
+			return Ok("[]".to_string());
+		}
+
 		let filters: Vec<SmartListFilterGroupInput> =
 			serde_json::from_slice(&self.model.filters)?;
 		Ok(serde_json::to_string(&filters)?)
+	}
+
+	/// Whether the user may change the list (its rules, its name, who sees it, its saved views)
+	/// and delete it: the user who made it, and the server owner for a public list of someone
+	/// else. Anyone else sees it read-only
+	async fn can_edit(&self, ctx: &Context<'_>) -> Result<bool> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		Ok(self.model.is_editable_by(user))
+	}
+
+	/// Who made the list: their name and avatar. None when they can't be shown any more (a
+	/// deleted or locked account's lists aren't listed at all)
+	async fn creator(&self, ctx: &Context<'_>) -> Result<Option<ReaderProfile>> {
+		let loader = ctx.data::<DataLoader<ReaderProfileLoader>>()?;
+		Ok(loader.load_one(self.model.creator_id.clone()).await?)
 	}
 
 	// TODO(thumb-placeholders): We need to refactor how non-book thumbs are handled so we can pull

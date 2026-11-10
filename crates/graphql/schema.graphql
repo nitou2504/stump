@@ -3210,8 +3210,20 @@ type Mutation {
 	intakeDiscard(ids: [ID!]!): Int!
 	"Changes how the intake files books into a library"
 	updateLibraryIntakeSettings(libraryId: ID!, input: LibraryIntakeSettingsInput!): LibraryIntakeSettings!
+	"""
+	Creates a smart list owned by the current user. Everyone but the server owner has at most
+	20 lists, each with rules of at most 128 KB, a name of at most 200 characters and a
+	description of at most 2,000.
+	"""
 	createSmartList(input: SaveSmartListInput!): SmartList!
 	updateSmartList(id: ID!, input: SaveSmartListInput!): SmartList!
+	"""
+	Makes some of the current user's smart lists private or public in one go ("share all my
+	lists"). A list is changed only by its creator, so any ID that isn't one of the user's own
+	lists (somebody else's, or none at all) fails the whole request with the same answer and
+	changes nothing. `SHARED` is not offered.
+	"""
+	setSmartListsVisibility(ids: [ID!]!, visibility: EntityVisibility!): [SmartList!]!
 	deleteSmartList(id: ID!): SmartList!
 	createSmartListView(input: SaveSmartListView!): SmartListView!
 	updateSmartListView(originalName: String!, input: SaveSmartListView!): SmartListView!
@@ -4591,6 +4603,10 @@ input SaveSmartListInput {
 	description: String
 	joiner: SmartListJoiner!
 	defaultGrouping: SmartListGrouping!
+	"""
+	`PUBLIC` shows the list to everyone on the server (each one with the books they may
+	read); `PRIVATE` only to its creator. `SHARED` is not offered
+	"""
 	visibility: EntityVisibility!
 }
 
@@ -4981,7 +4997,23 @@ type SmartList {
 	defaultGrouping: SmartListGrouping!
 	visibility: EntityVisibility!
 	creatorId: String!
+	"""
+	The list's rules, as JSON. Only who may change the list gets them: they name paths,
+	libraries and tags, so they would show people a list is made of things they may not see.
+	Anyone else gets `[]`: what the list holds for them is what `books` and `items` give
+	"""
 	filters: String!
+	"""
+	Whether the user may change the list (its rules, its name, who sees it, its saved views)
+	and delete it: the user who made it, and the server owner for a public list of someone
+	else. Anyone else sees it read-only
+	"""
+	canEdit: Boolean!
+	"""
+	Who made the list: their name and avatar. None when they can't be shown any more (a
+	deleted or locked account's lists aren't listed at all)
+	"""
+	creator: ReaderProfile
 	thumbnail: ImageRef!
 	views: [SmartListView!]!
 	books(limit: Int = null): [Media!]!

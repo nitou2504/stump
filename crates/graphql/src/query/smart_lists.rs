@@ -50,12 +50,15 @@ impl SmartListsQuery {
 			return Err("Cannot query all and mine at the same time".into());
 		}
 
+		// by name, the same order everywhere the lists are listed (the sidebar, the lists page)
 		let smart_lists = smart_list::Entity::find_for_user(
 			user,
 			input.all.unwrap_or(false),
 			input.mine.unwrap_or(false),
 			input.search,
 		)
+		.order_by_asc(Expr::cust(r#"LOWER("smart_lists"."name")"#))
+		.order_by_asc(smart_list::Column::Id)
 		.all(conn)
 		.await?;
 

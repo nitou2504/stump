@@ -1,7 +1,9 @@
 use async_graphql::{Enum, SimpleObject, ID};
 use filter_gen::Ordering;
 use sea_orm::{
-	prelude::*, Condition, DeriveActiveEnum, EnumIter, QuerySelect, QueryTrait,
+	prelude::*,
+	sea_query::{Query, SelectStatement},
+	Condition, DeriveActiveEnum, EnumIter, QuerySelect, QueryTrait,
 };
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -117,6 +119,27 @@ pub struct Model {
 
 impl ActiveModelBehavior for ActiveModel {}
 
+impl Model {
+	/// Whether the user may change or delete this list: the user who made it, and the server
+	/// owner for a public list of someone else (moderation: a friend's private list is out of
+	/// reach, see [`Entity::find_by_id_for_edit`])
+	pub fn is_editable_by(&self, user: &AuthUser) -> bool {
+		self.creator_id == user.id
+			|| (user.is_server_owner && self.visibility == EntityVisibility::Public)
+	}
+}
+
+/// The people whose smart lists can be shown to others: not deleted and not locked. A list stays
+/// in the database when its creator goes, and is back when they are unlocked
+fn active_users() -> SelectStatement {
+	Query::select()
+		.column(user::Column::Id)
+		.from(user::Entity)
+		.and_where(user::Column::DeletedAt.is_null())
+		.and_where(user::Column::IsLocked.eq(false))
+		.to_owned()
+}
+
 fn get_access_condition_base_subquery(
 	user: &AuthUser,
 ) -> Select<smart_list_access_rule::Entity> {
@@ -147,6 +170,8 @@ fn get_access_condition_for_user_public(
 	let select = get_access_condition_base_subquery(user);
 	Condition::all()
 		.add(Column::Visibility.eq(EntityVisibility::Public))
+		// a public list is for everyone while the one who made it is still around
+		.add(Column::CreatorId.in_subquery(active_users()))
 		// This asserts the reader rule is present OR there is no rule for the user
 		.add(
 			Condition::any()
@@ -249,6 +274,37 @@ mod tests {
 	use crate::tests::common::*;
 	use pretty_assertions::assert_eq;
 
+	fn list(creator_id: &str, visibility: EntityVisibility) -> Model {
+		Model {
+			id: "list".to_string(),
+			name: "A list".to_string(),
+			description: None,
+			filters: vec![],
+			joiner: SmartListJoiner::And,
+			default_grouping: SmartListGrouping::ByBooks,
+			visibility,
+			creator_id: creator_id.to_string(),
+		}
+	}
+
+	#[test]
+	fn test_is_editable_by() {
+		// the default user is "42"
+		let mut user = get_default_user();
+		user.is_server_owner = false;
+		assert!(list("42", EntityVisibility::Private).is_editable_by(&user));
+		assert!(list("42", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Private).is_editable_by(&user));
+
+		// the server owner moderates the public lists of others, and a friend's private list is
+		// out of reach
+		user.is_server_owner = true;
+		assert!(list("42", EntityVisibility::Private).is_editable_by(&user));
+		assert!(list("7", EntityVisibility::Public).is_editable_by(&user));
+		assert!(!list("7", EntityVisibility::Private).is_editable_by(&user));
+	}
+
 	#[test]
 	fn test_access_rules_base_rule() {
 		let user = get_default_user();
@@ -276,8 +332,9 @@ mod tests {
 		let sql = condition_to_string(&condition);
 		assert_eq!(
 			sql,
-			r#"SELECT  WHERE "smart_lists"."visibility" = 'PUBLIC' AND (TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
-				.to_string() + r#"FROM "smart_list_access_rules" INNER JOIN "smart_lists" ON "#
+			r#"SELECT  WHERE "smart_lists"."visibility" = 'PUBLIC' AND "#.to_string()
+				+ r#""smart_lists"."creator_id" IN (SELECT "id" FROM "users" WHERE "users"."deleted_at" IS NULL AND "users"."is_locked" = FALSE) AND (TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
+				+ r#"FROM "smart_list_access_rules" INNER JOIN "smart_lists" ON "#
 				+ r#""smart_list_access_rules"."smart_list_id" = "smart_lists"."id" WHERE "#
 				+ r#""smart_list_access_rules"."user_id" = '42')"#
 				+ r#")"#
@@ -294,7 +351,9 @@ mod tests {
 			sql,
 			r#"SELECT  WHERE "#.to_string()
 				+ r#""smart_lists"."creator_id" = '42' OR ("#
-				+ r#""smart_lists"."visibility" = 'PUBLIC' AND (TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
+				+ r#""smart_lists"."visibility" = 'PUBLIC' AND "#
+				+ r#""smart_lists"."creator_id" IN (SELECT "id" FROM "users" WHERE "users"."deleted_at" IS NULL AND "users"."is_locked" = FALSE) AND "#
+				+ r#"(TRUE OR "smart_lists"."id" NOT IN (SELECT "smart_lists"."id" "#
 				+ r#"FROM "smart_list_access_rules" INNER JOIN "smart_lists" ON "#
 				+ r#""smart_list_access_rules"."smart_list_id" = "smart_lists"."id" WHERE "#
 				+ r#""smart_list_access_rules"."user_id" = '42')"#

@@ -17,5 +17,6 @@ mod random_media;
 mod reading_history;
 mod reading_lists;
 mod smart_list_paging;
+mod smart_lists;
 mod upload;
 mod user_mutations;
