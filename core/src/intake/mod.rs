@@ -246,6 +246,11 @@ async fn analyse_item(
 	// The books of somebody who needs approval are not read here: the isolated checker reads them
 	// (once: what it said is kept in the file) and what is used is its verdict
 	let sandboxed = !uploader_can_file && queue::sandboxed(&ctx.config);
+	// ... and with checking off nothing reads them: only `inprocess` has the server read the books
+	// of people who need approval (an item left from before the setting was changed too)
+	if !uploader_can_file && !sandboxed && !queue::reads_here(&ctx.config) {
+		return Err(CoreError::BadRequest(queue::OFF_TEXT.to_string()));
+	}
 	let mut books: Vec<Option<probe::contract::Book>> = vec![];
 	let mut screening_warnings: Vec<String> = vec![];
 	let mut refused: Option<String> = None;
@@ -265,6 +270,17 @@ async fn analyse_item(
 			extract::extracted_from_book(book, &file.original_name)
 		} else {
 			books.push(None);
+			// a book that is read here is told to whoever reads its card for the scripts and other
+			// active content it carries (it is filed as it is: only the checker takes them out)
+			if file.format == "epub" {
+				screening_warnings.extend(
+					queue::own_book_warnings(
+						&staging.join(&file.staged_name),
+						&ctx.config,
+					)
+					.await,
+				);
+			}
 			extract_file(
 				&staging.join(&file.staged_name),
 				&file.original_name,
@@ -1184,6 +1200,56 @@ fn is_copy_of(placed: &Path, staged: &Path) -> bool {
 /// Copies `source` to `target` without ever replacing an existing file: the copy goes to
 /// a temporary name in the target folder, then is hard-linked into place
 fn place_file(source: &Path, target: &Path) -> std::io::Result<()> {
+	place_checked(source, target, None)
+}
+
+/// Copies `source` into a new file at `to`: the source is opened once, without following a link, and
+/// must be a regular file; with `expected` (a SHA-256), what is copied is hashed as it goes, so the
+/// bytes that were hashed are the bytes that are copied, and not whatever the path names a moment
+/// later (a file that the checker's process can write to could be swapped between the two)
+fn copy_once(source: &Path, to: &Path, expected: Option<&str>) -> std::io::Result<()> {
+	use std::{
+		io::{Read as _, Write as _},
+		os::unix::fs::OpenOptionsExt,
+	};
+	let mut input = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(libc::O_NOFOLLOW)
+		.open(source)?;
+	if !input.metadata()?.is_file() {
+		return Err(std::io::Error::other("the file to place is not a regular file"));
+	}
+	let mut output = std::fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(to)?;
+	let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+	let mut buf = vec![0u8; 1 << 20];
+	loop {
+		let n = input.read(&mut buf)?;
+		if n == 0 {
+			break;
+		}
+		context.update(&buf[..n]);
+		output.write_all(&buf[..n])?;
+	}
+	output.flush()?;
+	if let Some(expected) = expected {
+		if probe::job::hex(context.finish().as_ref()) != expected {
+			return Err(std::io::Error::other(
+				"the file the checker made is not the one it said",
+			));
+		}
+	}
+	Ok(())
+}
+
+/// [`place_file`], holding the bytes copied to a SHA-256 when there is one
+fn place_checked(
+	source: &Path,
+	target: &Path,
+	expected: Option<&str>,
+) -> std::io::Result<()> {
 	let dir = target
 		.parent()
 		.ok_or_else(|| std::io::Error::other("no parent folder"))?;
@@ -1197,7 +1263,7 @@ fn place_file(source: &Path, target: &Path) -> std::io::Result<()> {
 		.map(|n| n.to_string_lossy().chars().take(40).collect())
 		.unwrap_or_default();
 	let tmp = dir.join(format!(".{start}.{}.intake", Uuid::new_v4().simple()));
-	if let Err(error) = std::fs::copy(source, &tmp) {
+	if let Err(error) = copy_once(source, &tmp, expected) {
 		let _ = std::fs::remove_file(&tmp);
 		return Err(error);
 	}
@@ -1393,6 +1459,10 @@ async fn file_claimed_inner(
 	let untrusted = !approval::uploader_can_file_directly(conn, &item.user_id).await?;
 	// ... and its bytes are not read here: the isolated checker makes the file that is filed
 	let sandbox = untrusted && queue::sandboxed(&ctx.config);
+	// with checking off nothing reads the bytes of such a book, so it isn't filed either
+	if untrusted && !sandbox && !queue::reads_here(&ctx.config) {
+		return Err(CoreError::BadRequest(queue::OFF_TEXT.to_string()));
+	}
 
 	let staging = PathBuf::from(&item.staging_dir);
 	let dir = root.join(&destination.relative_dir);
@@ -1551,19 +1621,11 @@ async fn file_claimed_inner(
 			paths.push(target.to_string_lossy().into_owned());
 			record_progress(conn, &item.id, &paths, &notes).await?;
 			let (from, to) = (staged.clone(), target.clone());
-			// what the checker made is hashed again right before it is copied: it must still be
-			// the file the verdict said it was
+			// what the checker made is hashed as it is copied: it must still be the file the
+			// verdict said it was
 			let expected = made.expected_hash(i);
 			let put = tokio::task::spawn_blocking(move || {
-				if let Some(expected) = expected {
-					let (hash, _) = probe::job::sha256_of(&from)?;
-					if hash != expected {
-						return Err(std::io::Error::other(
-							"the file the checker made is not the one it said",
-						));
-					}
-				}
-				place_file(&from, &to)
+				place_checked(&from, &to, expected.as_deref())
 			})
 			.await
 			.map_err(|e| CoreError::InternalError(e.to_string()))?;
@@ -2355,6 +2417,35 @@ mod tests {
 			dir.path(),
 			&dir.path().join("New_Author")
 		));
+	}
+
+	#[test]
+	fn a_file_is_placed_as_it_was_hashed_and_a_link_is_not_followed() {
+		let dir = tempfile::tempdir().unwrap();
+		let library = dir.path().join("lib");
+		std::fs::create_dir_all(&library).unwrap();
+		let real = dir.path().join("real.epub");
+		std::fs::write(&real, b"the book").unwrap();
+		let hash = probe::job::sha256_of(&real).unwrap().0;
+		// the hash it has: placed
+		let target = library.join("a.epub");
+		place_checked(&real, &target, Some(&hash)).unwrap();
+		assert_eq!(std::fs::read(&target).unwrap(), b"the book");
+		// another hash: refused, nothing placed, and no temporary file left over
+		let other = library.join("b.epub");
+		assert!(place_checked(&real, &other, Some(&"0".repeat(64))).is_err());
+		assert!(!other.exists());
+		assert_eq!(std::fs::read_dir(&library).unwrap().count(), 1);
+		// a link is not followed, even to a file with the right hash
+		let link = dir.path().join("link.epub");
+		std::os::unix::fs::symlink(&real, &link).unwrap();
+		let third = library.join("c.epub");
+		assert!(place_checked(&link, &third, Some(&hash)).is_err());
+		assert!(place_file(&link, &third).is_err());
+		assert!(!third.exists());
+		assert_eq!(std::fs::read_dir(&library).unwrap().count(), 1);
+		// and what is not a regular file at all
+		assert!(place_checked(dir.path(), &library.join("d.epub"), None).is_err());
 	}
 
 	#[test]

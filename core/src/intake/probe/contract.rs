@@ -383,6 +383,30 @@ impl BookMetadata {
 				*self = capped;
 			}
 		}
+		// then each field to what that field can be (the design's caps): a title is 300 characters,
+		// there are 50 writers of 200, 100 genres and tags of 100, and so on, so that what is
+		// kept of a book is not what its file chose to say
+		let text = |field: &mut Option<String>, chars: usize| {
+			if let Some(value) = field {
+				cut_chars(value, chars);
+			}
+		};
+		text(&mut self.format, 20);
+		text(&mut self.title, 300);
+		text(&mut self.series, 300);
+		text(&mut self.summary, MAX_TEXT_CHARS);
+		text(&mut self.language, 35);
+		text(&mut self.identifier_isbn, 64);
+		text(&mut self.publisher, 300);
+		let list = |field: &mut Option<Vec<String>>, count: usize, chars: usize| {
+			if let Some(items) = field {
+				items.truncate(count);
+				items.iter_mut().for_each(|item| cut_chars(item, chars));
+			}
+		};
+		list(&mut self.writers, 50, 200);
+		list(&mut self.genres, 100, 100);
+		list(&mut self.tags, 100, 100);
 	}
 
 	/// As Stump's own type, for the code that reads an uploaded file the same way for every book
@@ -522,6 +546,13 @@ pub fn cap_json(value: &mut serde_json::Value) {
 	}
 }
 
+/// A text cut to `chars` characters (its newlines stay)
+pub fn cut_chars(text: &mut String, chars: usize) {
+	if let Some((at, _)) = text.char_indices().nth(chars) {
+		text.truncate(at);
+	}
+}
+
 /// A ticket id: the letters of a UUID, nothing a path could use
 pub fn is_valid_ticket(id: &str) -> bool {
 	!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
@@ -562,6 +593,45 @@ mod tests {
 		assert_eq!(limits.deadline_secs(0), 120);
 		assert_eq!(limits.deadline_secs(300 * MIB), 420);
 		assert_eq!(limits.deadline_secs(u64::MAX), Limits::hard().timeout_secs);
+	}
+
+	#[test]
+	fn what_a_book_says_about_itself_is_cut_to_what_each_field_can_be() {
+		let long = |n: usize| "é".repeat(n);
+		let mut metadata = BookMetadata {
+			format: Some(long(100)),
+			title: Some(long(5_000)),
+			series: Some(long(5_000)),
+			summary: Some(format!("{}\n{}", long(30_000), long(30_000))),
+			language: Some(long(100)),
+			identifier_isbn: Some(long(500)),
+			publisher: Some(long(5_000)),
+			writers: Some(vec![long(5_000); 400]),
+			genres: Some(vec![long(500); 400]),
+			tags: Some(vec![long(500); 400]),
+			..BookMetadata::default()
+		};
+		metadata.cap();
+		let chars = |text: &Option<String>| text.as_deref().map_or(0, |t| t.chars().count());
+		assert_eq!(chars(&metadata.format), 20);
+		assert_eq!(chars(&metadata.title), 300);
+		assert_eq!(chars(&metadata.series), 300);
+		assert_eq!(chars(&metadata.summary), MAX_TEXT_CHARS);
+		assert_eq!(chars(&metadata.language), 35);
+		assert_eq!(chars(&metadata.identifier_isbn), 64);
+		assert_eq!(chars(&metadata.publisher), 300);
+		let writers = metadata.writers.as_ref().unwrap();
+		assert!(writers.len() == 50 && writers.iter().all(|w| w.chars().count() == 200));
+		for list in [&metadata.genres, &metadata.tags] {
+			let list = list.as_ref().unwrap();
+			assert!(list.len() == 100 && list.iter().all(|t| t.chars().count() == 100));
+		}
+		// a text with a line break keeps it, and one shorter than the cap is not touched
+		let mut text = "a\nb".to_string();
+		cut_chars(&mut text, 10);
+		assert_eq!(text, "a\nb");
+		cut_chars(&mut text, 2);
+		assert_eq!(text, "a\n");
 	}
 
 	#[test]

@@ -20,9 +20,10 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use super::probe::{
+	check, zipscan,
 	contract::{
-		code, is_safe_relative, probe_revision, ActiveContent, Book, Kind, Limits,
-		Reason, Request, Status, Verdict, CONTRACT_VERSION, MAX_VERDICT_BYTES,
+		code, cut_chars, is_safe_relative, probe_revision, ActiveContent, Book, Kind,
+		Limits, Reason, Request, Status, Verdict, CONTRACT_VERSION, MAX_VERDICT_BYTES,
 	},
 	job,
 	runner::{self, Spawn, Spool, OFFLINE_AFTER_SECS},
@@ -57,6 +58,18 @@ pub fn mode(config: &StumpConfig) -> Mode {
 pub fn sandboxed(config: &StumpConfig) -> bool {
 	matches!(mode(config), Mode::Subprocess | Mode::Queue)
 }
+
+/// Whether the server may read the books of people who need approval itself: only where their
+/// uploaders are trusted (`inprocess`). With the checker on (`subprocess`, `queue`) it reads them,
+/// and with checking `off` (the way back from it) nothing reads them: such a book is neither
+/// analysed nor filed, whatever was uploaded before the setting was changed
+pub fn reads_here(config: &StumpConfig) -> bool {
+	matches!(mode(config), Mode::InProcess)
+}
+
+/// What somebody is told when a book of a person who needs approval would have to be read with
+/// checking off
+pub const OFF_TEXT: &str = "Checking is turned off on this server, so books from people who need approval aren't read or filed (the owner can turn it on)";
 
 /// The folder the server and the checker share: `queue/`, `running/`, `done/`, `out/`, `worker.json`
 pub fn spool(config: &StumpConfig) -> Spool {
@@ -466,9 +479,79 @@ async fn request_for(
 	})
 }
 
+/// The most a stored screening takes of an item's `files` column. The column is read whole each
+/// time the item is loaded (the inbox reloads every 1.5 s while something moves), and a person can
+/// have thousands of files in it, so what is kept of a book is a summary, not what its file said
+const STORED_VERDICT_BYTES: usize = 48 * 1024;
+
+/// A verdict as it is kept: what the analysis needs again, in a few KB. The texts are cut shorter
+/// than the server uses them once (a description to 8,000 characters), the lists are shortened,
+/// and if that is still more than the budget the longest parts go first
+pub fn trimmed(verdict: &Verdict) -> Verdict {
+	let mut kept = verdict.clone();
+	kept.reasons.truncate(5);
+	kept.warnings.truncate(12);
+	for reason in kept.reasons.iter_mut().chain(kept.warnings.iter_mut()) {
+		cut(&mut reason.detail, 300);
+	}
+	let size = |verdict: &Verdict| serde_json::to_vec(verdict).map_or(usize::MAX, |v| v.len());
+	if let Some(book) = kept.book.as_mut() {
+		book.title_page_authors.truncate(10);
+		book.active_content.items.truncate(10);
+		if let Some(metadata) = book.metadata.as_mut() {
+			if let Some(summary) = metadata.summary.as_mut() {
+				cut_chars(summary, 8_000);
+			}
+			for (list, count) in [
+				(&mut metadata.writers, 20),
+				(&mut metadata.genres, 40),
+				(&mut metadata.tags, 40),
+			] {
+				if let Some(items) = list {
+					items.truncate(count);
+				}
+			}
+		}
+	}
+	// still over the budget: the parts that can be worked out again, or done without, go
+	for step in 0..4 {
+		if size(&kept) <= STORED_VERDICT_BYTES {
+			break;
+		}
+		match step {
+			0 => {
+				if let Some(summary) = kept
+					.book
+					.as_mut()
+					.and_then(|b| b.metadata.as_mut())
+					.and_then(|m| m.summary.as_mut())
+				{
+					cut_chars(summary, 2_000);
+				}
+			},
+			1 => {
+				if let Some(metadata) = kept.book.as_mut().and_then(|b| b.metadata.as_mut()) {
+					for list in [&mut metadata.genres, &mut metadata.tags] {
+						if let Some(items) = list {
+							items.truncate(10);
+						}
+					}
+				}
+			},
+			2 => kept.warnings.truncate(3),
+			_ => {
+				if let Some(book) = kept.book.as_mut() {
+					book.metadata = None;
+				}
+			},
+		}
+	}
+	kept
+}
+
 /// What is stored of a screening in an item's file
 fn stored(config: &StumpConfig, verdict: &Verdict) -> serde_json::Value {
-	serde_json::json!({ "fingerprint": fingerprint(config), "verdict": verdict })
+	serde_json::json!({ "fingerprint": fingerprint(config), "verdict": trimmed(verdict) })
 }
 
 /// The verdict stored for a file, if it was made under the same checker and limits as now
@@ -592,6 +675,44 @@ pub fn warning_lines(verdict: &Verdict) -> Vec<String> {
 		.collect()
 }
 
+/// The biggest EPUB looked at for what its owner is told about it
+const OWN_BOOK_SCAN_BYTES: u64 = 300 * MIB;
+
+/// What a book that the server reads itself carries (the book of somebody who files their own
+/// books): the scripts and other active content in its pages, told to whoever reads its card. It is
+/// filed as it is: only the books of people who need approval have theirs taken out. A file that
+/// isn't a well formed zip says nothing here (the readers have their own errors for it)
+pub async fn own_book_warnings(path: &Path, config: &StumpConfig) -> Vec<String> {
+	let (path, limits) = (path.to_path_buf(), limits_of(config));
+	tokio::task::spawn_blocking(move || {
+		if std::fs::metadata(&path).map_or(true, |m| m.len() > OWN_BOOK_SCAN_BYTES) {
+			return vec![];
+		}
+		let Ok(report) = zipscan::scan(&path, &limits) else {
+			return vec![];
+		};
+		match check::check_epub(&path, &report, &limits, ActiveContent::Warn, true, None) {
+			Ok(facts) => facts
+				.warnings
+				.into_iter()
+				.filter(|w| {
+					matches!(
+						w.code.as_str(),
+						code::ACTIVE_CONTENT
+							| code::ACTIVE_CONTENT_UNSTRIPPABLE
+							| code::REMOTE_RESOURCES
+							| code::MALFORMED_XHTML
+					)
+				})
+				.map(|w| w.detail)
+				.collect(),
+			Err(_) => vec![],
+		}
+	})
+	.await
+	.unwrap_or_default()
+}
+
 /// The book of a passing verdict
 pub fn book_of(verdict: &Verdict) -> Option<&Book> {
 	(verdict.status == Status::Ok)
@@ -602,7 +723,7 @@ pub fn book_of(verdict: &Verdict) -> Option<&Book> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::intake::probe::contract::{Book, Output, Usage};
+	use crate::intake::probe::contract::{Book, BookMetadata, Output, Usage};
 
 	fn request() -> Request {
 		Request {
@@ -638,6 +759,75 @@ mod tests {
 			}),
 			usage: Usage::default(),
 		}
+	}
+
+	#[tokio::test]
+	async fn somebody_who_files_their_own_books_is_told_what_is_in_them() {
+		use crate::intake::probe::job::tests::{epub_with, CLEAN, SCRIPTED};
+		let dir = tempfile::tempdir().unwrap();
+		let config = StumpConfig::default();
+		let scripted = dir.path().join("scripted.epub");
+		std::fs::write(&scripted, epub_with(SCRIPTED)).unwrap();
+		let lines = own_book_warnings(&scripted, &config).await;
+		assert!(
+			lines.iter().any(|l| l.contains("scripts or other active content")),
+			"{lines:?}"
+		);
+		// nothing is taken out: it is only told
+		assert_eq!(std::fs::read(&scripted).unwrap(), epub_with(SCRIPTED));
+		let clean = dir.path().join("clean.epub");
+		std::fs::write(&clean, epub_with(CLEAN)).unwrap();
+		assert!(own_book_warnings(&clean, &config).await.is_empty());
+		// what isn't a zip, or isn't there, says nothing
+		let junk = dir.path().join("junk.epub");
+		std::fs::write(&junk, b"not a zip at all, but long enough to be looked at").unwrap();
+		assert!(own_book_warnings(&junk, &config).await.is_empty());
+		assert!(own_book_warnings(&dir.path().join("none.epub"), &config).await.is_empty());
+	}
+
+	#[test]
+	fn what_is_stored_of_a_verdict_is_a_summary_of_a_few_kb() {
+		let request = request();
+		let mut verdict = pass(&request);
+		{
+			let book = verdict.book.as_mut().unwrap();
+			book.pages = 12;
+			book.stump_hash = Some("f".repeat(64));
+			book.metadata = Some(BookMetadata {
+				title: Some("A title".to_string()),
+				summary: Some(format!("{}\nsecond paragraph", "é".repeat(20_000))),
+				writers: Some(vec!["w".repeat(200); 50]),
+				genres: Some(vec!["g".repeat(100); 100]),
+				tags: Some(vec!["t".repeat(100); 100]),
+				..BookMetadata::default()
+			});
+			book.title_page_authors = vec!["a".repeat(200); 20];
+		}
+		verdict.warnings = vec![Reason::new(code::NESTED_ARCHIVE, "x".repeat(400)); 30];
+		let kept = trimmed(&verdict);
+		let size = serde_json::to_vec(&kept).unwrap().len();
+		assert!(size <= STORED_VERDICT_BYTES, "{size} bytes");
+		// what the analysis uses again is there
+		let book = kept.book.as_ref().unwrap();
+		assert_eq!((book.format.as_str(), book.pages), ("epub", 12));
+		assert_eq!(book.sha256, request.sha256);
+		assert!(book.stump_hash.is_some());
+		let metadata = book.metadata.as_ref().unwrap();
+		assert_eq!(metadata.title.as_deref(), Some("A title"));
+		assert!(metadata.summary.as_ref().unwrap().chars().count() <= 8_000);
+		assert!(kept.warnings.len() <= 12);
+		// and the whole of a book that says little is kept as it is
+		let small = pass(&request);
+		assert_eq!(
+			serde_json::to_value(trimmed(&small)).unwrap(),
+			serde_json::to_value(&small).unwrap()
+		);
+		// a screening is stored trimmed, and read back the same under the same checker
+		let config = StumpConfig::default();
+		let stored = stored(&config, &verdict);
+		let mut file = IntakeFile::default();
+		file.screening = Some(stored);
+		assert!(stored_verdict(&config, &file).is_some());
 	}
 
 	#[tokio::test]
@@ -764,6 +954,9 @@ mod tests {
 			config.intake_probe_mode = text.to_string();
 			assert_eq!(mode(&config), expected);
 			assert_eq!(sandboxed(&config), sandbox);
+			// the server reads a friend's book itself only where uploaders are trusted: never with
+			// checking off, and never where the checker reads it
+			assert_eq!(reads_here(&config), expected == Mode::InProcess);
 		}
 		// the limits come from the configuration, under the ceilings
 		config.intake_probe_max_entries = 5;
