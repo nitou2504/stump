@@ -546,8 +546,10 @@ fn raster_data_url(url: &str) -> bool {
 }
 
 fn is_handler(key: &str) -> bool {
+	// bytes, not a string slice: an attribute name such as `a\u{e9}` or `\u{30a2}x` is a valid XML
+	// name, and slicing it at 2 would panic in the middle of a character (and the checker aborts)
 	key.len() > 2
-		&& key[..2].eq_ignore_ascii_case("on")
+		&& key.as_bytes()[..2].eq_ignore_ascii_case(b"on")
 		&& key.chars().all(|c| c.is_ascii_alphabetic())
 }
 
@@ -1056,6 +1058,7 @@ fn write_svg(el: &El, cx: &mut Cx) -> Result<(), Refusal> {
 		cx.out.push_str(SVG_NS);
 		cx.out.push_str("\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
 	}
+	let mut href_written = false;
 	for (key, value) in &el.attrs {
 		let key = key.as_str();
 		if key.starts_with("xmlns") {
@@ -1077,6 +1080,12 @@ fn write_svg(el: &El, cx: &mut Cx) -> Result<(), Refusal> {
 				}
 			},
 			"href" | "xlink:href" => {
+				// `href` and `xlink:href` on one element would both be written as `xlink:href`, and a
+				// page with a repeated attribute is not well formed XML (the reader draws nothing):
+				// the first one that is valid is kept
+				if href_written {
+					continue;
+				}
 				let kept = match name {
 					"image" => load_url(&value, cx, true),
 					"use" => fragment_only(&value).then(|| value.trim().to_string()),
@@ -1084,6 +1093,7 @@ fn write_svg(el: &El, cx: &mut Cx) -> Result<(), Refusal> {
 				};
 				if let Some(kept) = kept {
 					put_attribute(cx, "xlink:href", &kept);
+					href_written = true;
 				}
 			},
 			_ => {
@@ -1430,6 +1440,25 @@ mod tests {
 	}
 
 	#[test]
+	fn an_svg_image_with_both_href_spellings_is_written_with_one() {
+		// `href` and `xlink:href` on one element were both written as `xlink:href`: a repeated
+		// attribute is not well formed XML, and the reader draws nothing for such a page
+		let source = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 10 20\">\
+			<image width=\"10\" height=\"20\" href=\"../images/a.jpg\" xlink:href=\"../images/b.jpg\"/>\
+			<image width=\"10\" height=\"20\" xlink:href=\"../images/c.jpg\" href=\"../images/d.jpg\"/>\
+			<image width=\"10\" height=\"20\" href=\"http://evil.example/e.jpg\" xlink:href=\"../images/f.jpg\"/>\
+			<use href=\"#g\" xlink:href=\"#h\"/></svg></body></html>";
+		let output = page(source);
+		assert!(well_formed(&output), "not well formed: {output}");
+		assert_eq!(output.matches("xlink:href=").count(), 4, "{output}");
+		assert!(output.contains("../images/a.jpg") && !output.contains("../images/b.jpg"), "{output}");
+		assert!(output.contains("../images/c.jpg") && !output.contains("../images/d.jpg"), "{output}");
+		// the first one that is valid: the address that leaves the book is dropped, the next one stays
+		assert!(output.contains("../images/f.jpg") && !output.contains("evil.example"), "{output}");
+		assert!(output.contains("#g") && !output.contains("#h"), "{output}");
+	}
+
+	#[test]
 	fn a_book_that_reads_like_the_ones_people_make_comes_out_as_it_went_in() {
 		let source = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"es\" lang=\"es\"><head><title>Capítulo 1</title><link rel=\"stylesheet\" type=\"text/css\" href=\"../styles/main.css\"/><style>p.x{margin:0}</style></head><body class=\"c1\"><h1 id=\"t\">Título</h1><p class=\"x\">Uno&nbsp;dos<a id=\"p1\"/> tres <a epub:type=\"noteref\" href=\"#n1\">1</a></p><aside epub:type=\"footnote\" id=\"n1\"><p>Nota</p></aside><table><tr><th colspan=\"2\">H</th></tr><tr><td>a</td><td>b</td></tr></table><ruby>漢<rt>kan</rt></ruby><pre>  keep\n  this</pre></body></html>";
 		let output = page(source);
@@ -1489,5 +1518,21 @@ mod tests {
 		}
 		let output = String::from_utf8(clean_page(&bytes, "", set()).unwrap().bytes).unwrap();
 		assert!(output.contains("héllo"));
+	}
+
+	#[test]
+	fn an_attribute_name_with_a_multibyte_character_does_not_abort_the_checker() {
+		// valid in XML and in HTML; slicing such a name at byte 2 split a character and panicked
+		// (the checking process aborts on a panic, and the book was refused as a crash)
+		for name in ["a\u{e9}", "\u{30a2}x", "\u{e9}\u{e9}k", "o\u{e9}", "on\u{e9}", "\u{e9}n"] {
+			let source = format!(
+				"<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p {name}=\"v\" onclick=\"alert(1)\">hello</p>\
+				 <svg xmlns=\"http://www.w3.org/2000/svg\"><rect {name}=\"v\" onload=\"alert(1)\" width=\"1\" height=\"1\"/></svg></body></html>"
+			);
+			let output = page(&source);
+			assert!(output.contains("hello"), "{name}: {output}");
+			assert_clean(&output);
+		}
+		assert!(is_handler("onclick") && is_handler("ONLOAD") && !is_handler("on") && !is_handler("o\u{e9}"));
 	}
 }
