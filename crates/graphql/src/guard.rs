@@ -233,7 +233,7 @@ impl Guard for BookClubRoleGuard {
 mod tests {
 	use super::*;
 	use crate::{data::EdgeRequest, tests::common::get_default_user};
-	use async_graphql::{EmptyMutation, EmptySubscription, GuardExt, Object, Request, Schema};
+	use async_graphql::{EmptyMutation, EmptySubscription, Object, Request, Schema};
 	use models::entity::user::AuthUser;
 
 	struct Query;
@@ -297,7 +297,10 @@ mod tests {
 	/// not knowing how a request arrived is not a reason to let it in
 	#[tokio::test]
 	async fn the_admin_pages_are_for_the_owner_at_home_only() {
-		assert!(ask("{ adminPage }", owner(), Some(home())).await.errors.is_empty());
+		assert!(ask("{ adminPage }", owner(), Some(home()))
+			.await
+			.errors
+			.is_empty());
 
 		for (label, user, edge) in [
 			("the owner through the edge", owner(), Some(public())),
@@ -317,8 +320,14 @@ mod tests {
 			cross_site: true,
 			..Default::default()
 		};
-		assert!(ask("{ form }", owner(), Some(home())).await.errors.is_empty());
-		assert_eq!(ask("{ form }", owner(), Some(same_site)).await.errors.len(), 1);
+		assert!(ask("{ form }", owner(), Some(home()))
+			.await
+			.errors
+			.is_empty());
+		assert_eq!(
+			ask("{ form }", owner(), Some(same_site)).await.errors.len(),
+			1
+		);
 		// no information is no reason to trust it
 		assert_eq!(ask("{ form }", owner(), None).await.errors.len(), 1);
 	}

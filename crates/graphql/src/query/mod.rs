@@ -40,6 +40,7 @@ mod tag;
 pub(crate) mod trash;
 pub(crate) mod user;
 
+use access::AccessQuery;
 use api_key::APIKeyQuery;
 use author::AuthorQuery;
 use book_club::BookClubQuery;
@@ -58,7 +59,6 @@ use job::JobQuery;
 use library::LibraryQuery;
 use log::LogQuery;
 use media::MediaQuery;
-use access::AccessQuery;
 use media_metadata_overview::MediaMetadataOverviewQuery;
 use metadata_edit::MetadataEditQuery;
 use metadata_facets::MetadataFacetQuery;
