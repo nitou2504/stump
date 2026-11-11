@@ -1185,6 +1185,57 @@ fn child_named<'a>(el: &'a El, name: &str) -> Option<&'a El> {
 	})
 }
 
+/// A page size from a `viewport` meta, as a plain number (`1200`, `1200px`, `812.5`): `device-width`
+/// and everything else that isn't one is none
+fn viewport_size(value: &str) -> Option<String> {
+	let value = value.trim().trim_end_matches("px").trim();
+	let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+	let digits = |text: &str| text.bytes().all(|b| b.is_ascii_digit());
+	let ok = !whole.is_empty()
+		&& whole.len() <= 6
+		&& digits(whole)
+		&& fraction.len() <= 3
+		&& digits(fraction)
+		&& value.parse::<f64>().is_ok_and(|n| n > 0.0);
+	ok.then(|| value.to_string())
+}
+
+/// The size of a fixed-layout page, from the `viewport` meta of its head, rebuilt from its numbers
+/// alone. Every other `meta` goes (a refresh, a cookie, a content type), but the reader takes the
+/// page's size from this one, and without it a manga or a picture book is drawn at the wrong size.
+fn viewport_meta(head: Option<&El>) -> Option<String> {
+	let head = head?;
+	let meta = head.children.iter().find_map(|child| match child {
+		Node::Element(e)
+			if e.ns == Ns::Html
+				&& e.name == "meta"
+				&& e.attrs.iter().any(|(k, v)| k == "name" && v.trim().eq_ignore_ascii_case("viewport")) =>
+		{
+			Some(e)
+		},
+		_ => None,
+	})?;
+	let content = meta.attrs.iter().find(|(k, _)| k == "content").map(|(_, v)| v.as_str())?;
+	let (mut width, mut height) = (None, None);
+	for part in content.split([',', ';', ' ']) {
+		if let Some((key, value)) = part.split_once('=') {
+			match key.trim().to_ascii_lowercase().as_str() {
+				"width" if width.is_none() => width = viewport_size(value),
+				"height" if height.is_none() => height = viewport_size(value),
+				_ => {},
+			}
+		}
+	}
+	let mut parts = Vec::new();
+	if let Some(width) = width {
+		parts.push(format!("width={width}"));
+	}
+	if let Some(height) = height {
+		parts.push(format!("height={height}"));
+	}
+	(!parts.is_empty()).then(|| format!("<meta name=\"viewport\" content=\"{}\"/>", parts.join(", ")))
+}
+
 fn write_page(root: &El, cx: &mut Cx) -> Result<(), Refusal> {
 	if root.ns != Ns::Html || root.name != "html" {
 		return Err(Refusal::NotADocument);
@@ -1211,6 +1262,9 @@ fn write_page(root: &El, cx: &mut Cx) -> Result<(), Refusal> {
 	cx.out.push_str("<title>");
 	escape_text(&title.chars().take(300).collect::<String>(), &mut cx.out);
 	cx.out.push_str("</title>");
+	if let Some(meta) = viewport_meta(head) {
+		cx.out.push_str(&meta);
+	}
 	if let Some(head) = head {
 		for child in &head.children {
 			if let Node::Element(child) = child {
@@ -1517,6 +1571,41 @@ mod tests {
 		assert!(result.findings.get("script-address").is_some_and(|n| *n >= 3), "{:?}", result.findings);
 		// and what came out is clean for the check that the output goes through
 		assert!(matches!(super::super::active::scan_document(&result.bytes, false), super::super::active::Outcome::Clean { .. }));
+	}
+
+	#[test]
+	fn a_fixed_layout_page_keeps_its_size_and_no_other_meta_stays() {
+		// the reader takes a fixed-layout page's size from the viewport meta; without it a manga or a
+		// picture book is drawn at the wrong size
+		let page_with = |head: &str| {
+			let source = format!("<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title>{head}</head><body><p>hello</p></body></html>");
+			page(&source)
+		};
+		let output = page_with("<meta name=\"viewport\" content=\"width=1200, height=1920\"/><meta http-equiv=\"refresh\" content=\"0;url=http://evil.example\"/><meta name=\"x\" content=\"y\"/>");
+		assert!(output.contains("<meta name=\"viewport\" content=\"width=1200, height=1920\"/>"), "{output}");
+		assert_eq!(output.matches("<meta").count(), 1, "{output}");
+		assert!(!output.contains("refresh") && !output.contains("evil.example"), "{output}");
+		assert!(well_formed(&output), "{output}");
+		// other spellings of the same two numbers
+		let output = page_with("<meta name=\"VIEWPORT\" content=\"height=812.5px;width=375\"/>");
+		assert!(output.contains("content=\"width=375, height=812.5\""), "{output}");
+		// only numbers are written: whatever else is in the content, and a size that isn't one, is not
+		for hostile in [
+			"width=device-width, initial-scale=1",
+			"width=\"><script>alert(1)</script>, height=1",
+			"width=1e9999, height=-5",
+			"width=12345678, height=0",
+			"width=1200 onload=alert(1)",
+		] {
+			let output = page_with(&format!("<meta name=\"viewport\" content=\"{}\"/>", hostile.replace('"', "&quot;")));
+			assert_clean(&output);
+			let meta = output.find("<meta").map(|at| &output[at..]);
+			for forbidden in ["device", "scale", "onload", "e9999", "-5"] {
+				assert!(!meta.is_some_and(|m| m.split("/>").next().unwrap_or("").contains(forbidden)), "{hostile}: {output}");
+			}
+		}
+		// a page with no viewport gets no meta
+		assert!(!page_with("").contains("<meta"));
 	}
 
 	#[test]
