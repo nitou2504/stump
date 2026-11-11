@@ -18,8 +18,9 @@
 #      stump-intake-probe service; set `image: *stump_image` on stump-fork too
 #   3. in ./config/Stump.toml (or the environment): intake_probe_mode = "queue"
 #   4. docker compose up -d --no-build stump-fork stump-intake-probe
-#   5. docker logs stump-intake-probe      -> "selftest ok", "stump-intake-probe <rev> ready"
-#      (a WARN on "no network" or "inbox read-only" means the container is not isolated: fix it)
+#   5. docker logs stump-intake-probe      -> one "selftest <check>: ok" line per check, then "stump-intake-probe <rev> ready"
+#      (a WARN on "no network" or "inbox read-only" means the container is not isolated: fix it; a FAIL is an
+#      essential check that failed. The checker says "ready" after either, so count them: grep -cE 'selftest .*: (WARN|FAIL)')
 # Checking is offline (and friends can't upload) while ./config/workers/intake/worker.json is older
 # than 25 seconds, or names another build than the server: recreate both services together.
 #

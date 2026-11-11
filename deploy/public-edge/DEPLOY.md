@@ -278,9 +278,10 @@ none of their bytes. The compose service is in `docker/compose.fork-intake-probe
 ```sh
 cd /mnt/data2/containers/stump-fork
 mkdir -p ./config/workers/intake ./config/intake && ls -ld ./config/workers/intake ./config/intake     # owned by sthefano (uid 1000), not root
+cp -a docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-intake-probe       # the backup first, then the merge:
 # merge the example's `x-stump-image` anchor and its `stump-intake-probe` service into docker-compose.yml, and
 # make stump-fork use the same anchor (`image: *stump_image`), with the anchor's default set to the tag in use today
-cp -a docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-intake-probe
+# (the one that stump-fork's own `image: ${STUMP_FORK_IMAGE:-stump:fork-<rev>}` line names now)
 ```
 
 Then the setting, in the compose file's `environment:` for `stump-fork` (not in `Stump.toml`: Stump rewrites that file
@@ -296,15 +297,19 @@ books inside the server: never for the internet. `off` closes uploads for everyo
 
 ```sh
 docker compose config -q && docker compose up -d --no-build stump-fork stump-intake-probe     # BOTH, together
-sleep 15; docker logs --since 1m stump-intake-probe 2>&1 | grep -E 'selftest|ready|WARN'
-#   selftest ok / stump-intake-probe <rev> ready; a WARN about no network or a read-only inbox means it is NOT isolated: fix that first
-find config/workers/intake/worker.json -mmin -1 && echo "checker heartbeat is fresh"
+sleep 15; docker logs --since 2m stump-intake-probe 2>&1 | grep -E 'selftest|ready'
+#   one `selftest <check>: ok …` line per check, then `stump-intake-probe <rev> ready`
+docker logs --since 2m stump-intake-probe 2>&1 | grep -cE 'selftest .*: (WARN|FAIL)'      # 0
+#   a WARN (no network? a read-only inbox?) means it is NOT isolated, a FAIL that an essential check failed: the checker
+#   still says `ready` after either, so look at this count and not only at `ready`; fix it first
+hb=config/workers/intake/worker.json; [ -f $hb ] && { a=$(( $(date +%s) - $(stat -c %Y $hb) )); [ $a -lt 25 ] && echo "checker heartbeat fresh (${a}s old)" || echo "NOT fresh (${a}s old): the server sees the checker as offline"; } || echo "no worker.json yet: the checker has not started"
 ```
 
 **From now on every Stump image change recreates both services**: `docker compose up -d --no-build stump-fork
 stump-intake-probe`. The checker and the server must be the same build; with another version the checker is "out of
 date", checking is offline, and friends' uploads close until both are recreated (the owner's own uploads are not
-affected). The deploy routine in `AGENTS.md` names only `stump-fork`.
+affected). The deploy routine in `AGENTS.md` says the same, and keeps the image tag in the one `x-stump-image` line
+that pins both.
 
 Limits (Stump.toml or `STUMP_<KEY>` in the environment; the server sends the checker its limits with every request,
 and the checker keeps them under ceilings of its own): `intake_max_request_mb` 300, `intake_max_file_mb` 300, `intake_max_files_per_request`
@@ -319,9 +324,11 @@ off on this server").
 ### 3. The permission
 
 In **Settings → Users**, give the friend **Add books** and nothing else of this family. Never *Upload files*,
-*Manage library*, *Delete library* or *Manage users* (the first two let a person file books without approval, from
-home). Restrict what they may see with library exclusions and an age restriction as usual: what an uploader is shown
-(similar books, folders, tags) is limited to the books they can read.
+*Manage library*, *Delete library* or *Manage users*: a friend needs none of them. *Manage library* (which *Delete
+library* includes) files books without any approval, from home only. *Upload files* alone no longer files books (the
+server asks for *Manage library* too), but it is the permission of the library upload paths, which friends have no use
+for. *Manage users* hands out permissions. Restrict what they may see with library exclusions and an age restriction
+as usual: what an uploader is shown (similar books, folders, tags) is limited to the books they can read.
 
 ### 4. Check it (loopback port of the public listener; use a test person and a test device)
 
@@ -400,8 +407,9 @@ access**, remove the test person if you made one, and `rm -f /tmp/hostile.epub /
 ### Back out
 
 ```sh
-# friends can't upload any more; what is in their inboxes stays
-#   in the compose file: STUMP_INTAKE_PROBE_MODE=off
+# friends can't upload any more; what is in their inboxes stays. In the compose file, in the `environment:` of
+# stump-fork, SET `STUMP_INTAKE_PROBE_MODE=off`: do not just delete the line, because Stump writes the value in effect
+# back into Stump.toml at every start, so `queue` would stay in force
 docker compose up -d --no-build stump-fork && docker compose stop stump-intake-probe
 # the edge's upload location (optional: without the setting nothing can be uploaded anyway)
 cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf
