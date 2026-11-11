@@ -325,6 +325,11 @@ home). Restrict what they may see with library exclusions and an age restriction
 
 ### 4. Check it (loopback port of the public listener; use a test person and a test device)
 
+The test person is an ordinary friend account with **Add books** and nothing else (step 3). Run the blocks below in
+one shell, in this order.
+
+**a. A pass, a sign-in and an upload:**
+
 ```sh
 cd /mnt/data2/containers/stump-fork; E=http://127.0.0.1:10803
 # a pass for a test device (Settings → Public access → Invite links; the break-glass script does the same) as in step 7
@@ -332,26 +337,65 @@ L=$(/mnt/data2/containers/edge-common/invite.sh stump uptest 1 | sed 's|https://
 C=$(curl -s -D- -o /dev/null -X POST -H 'Sec-Fetch-Site: same-origin' --data-urlencode "t=$L" $E/api/_i/ | grep -i '^set-cookie' | sed -E 's/^[Ss]et-[Cc]ookie: ([^;]+);.*/\1/')
 # the friend signs in through the edge (counts as one of the device's 8 sign-ins a day)
 TOK=$(curl -s -b "$C" -H 'Content-Type: application/json' -d '{"username":"<friend>","password":"<password>"}' "$E/api/v2/auth/login?generate_token=true" | python3 -c 'import json,sys;print(json.load(sys.stdin)["accessToken"])')
-LIB=<a library id the friend can use>
+LIB='<a library id the friend can use>'      # replace the placeholder with a library id
 python3 $S/deploy/public-edge/make-test-epub.py /tmp/hostile.epub
-echo "upload:   $(curl -s -o /tmp/up.json -w %{http_code} -b "$C" -H "Authorization: Bearer $TOK" -F 'file=@/tmp/hostile.epub;filename=hostile.epub' "$E/api/v2/intake/upload?libraryId=$LIB")"   # 200 and {"items":[…]}
-echo "too big:  $(curl -s -o /dev/null -w %{http_code} -X POST -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: multipart/form-data; boundary=x' -H 'Content-Length: 400000000' --data-binary x "$E/api/v2/intake/upload?libraryId=$LIB")"   # 413: the edge answers before reading a byte
-echo "no pass:  $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=$LIB")"                                  # 404
-echo "approve:  $(curl -s -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d '{"query":"{ pendingIntakeCount }"}' $E/api/graphql | head -c 160)"   # an error, never a number
+echo "upload:     $(curl -s -o /tmp/up.json -w %{http_code} -b "$C" -H "Authorization: Bearer $TOK" -F 'file=@/tmp/hostile.epub;filename=hostile.epub' "$E/api/v2/intake/upload?libraryId=$LIB")"   # 200 and {"items":[…]}
+ID=$(python3 -c 'import json;print(json.load(open("/tmp/up.json"))["items"][0]["id"])'); echo "item:       $ID"
 ```
 
-Then, **at home as the owner**, open *Settings → Book approvals*: the test book waits there, with what the checker
-found (a script, a handler, a frame, a `javascript:` link, a form). Approve it, wait for *Filed*, and look at what
-reached the library:
+**b. What the edge refuses:**
 
 ```sh
-F=$(find /mnt/data2/Books/Library -iname '*hostile*' -name '*.epub' -newer /tmp/hostile.epub | head -1); echo "$F"
-unzip -p "$F" | grep -aciE '<script|onclick=|<iframe|javascript:|<form'      # 0: the filed copy was written anew, none of it is left
+echo "no pass:    $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=$LIB")"                                  # 404
+echo "bad origin: $(curl -s -o /dev/null -w %{http_code} -X POST -b "$C" -H "Authorization: Bearer $TOK" -H 'Origin: https://evil.example' -F 'file=@/tmp/hostile.epub;filename=hostile.epub' "$E/api/v2/intake/upload?libraryId=$LIB")"   # 403: the new location's own answer
+echo "too big:    $(curl -s -o /dev/null -w %{http_code} -X POST -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: multipart/form-data; boundary=x' -H 'Content-Length: 400000000' --data-binary x "$E/api/v2/intake/upload?libraryId=$LIB")"   # 413: before a byte is read (the old config says 413 too)
+```
+
+A `bad origin` that is not 403 means the old edge file is still the one running: go back to step 1 and look at its
+`new config` line.
+
+**c. The book reaches the approval queue.** A friend's book waits for approval only once it is **sent**: after the
+checker has read it, it is `READY` or `NEEDS_REVIEW` in the friend's own inbox and the owner sees nothing. The web's
+*Send for approval* button makes the call below:
+
+```sh
+Q='{"query":"{ intakeItems { id state } }"}'
+for i in $(seq 1 30); do
+  ST=$(curl -s -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d "$Q" $E/api/graphql \
+       | python3 -c 'import json,sys;print(next((x["state"] for x in json.load(sys.stdin)["data"]["intakeItems"] if x["id"]=="'$ID'"),"?"))')
+  case $ST in READY|NEEDS_REVIEW|FAILED) break;; esac; sleep 2
+done; echo "analysed:   $ST"          # READY or NEEDS_REVIEW (FAILED: the checker refused the book, its reason is in the inbox: stop here)
+curl -s -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \
+  -d '{"query":"mutation { intakeSubmit(ids:[\"'$ID'\"]) { id state } }"}' $E/api/graphql | head -c 200; echo     # "state":"PENDING_APPROVAL"
+```
+
+If `intakeSubmit` answers with a message instead of `PENDING_APPROVAL` (it names what the uploader still has to fill
+in, for example a title the checker could not read), open **Add books** as the test person, fix what the card asks and
+press *Send for approval*: it is the same call.
+
+**d. The friend cannot approve, whatever the permissions** (the item must still be `PENDING_APPROVAL` afterwards):
+
+```sh
+echo "count:      $(curl -s -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d '{"query":"{ pendingIntakeCount }"}' $E/api/graphql | head -c 160)"   # an error, never a number
+echo "approve:    $(curl -s -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d '{"query":"mutation { intakeApprove(ids:[\"'$ID'\"]) { id state } }"}' $E/api/graphql | head -c 160)"   # an error, never a state
+```
+
+**e. The owner approves, from home.** At home as the owner (the LAN or the tailnet, never through the edge), open
+*Settings → Book approvals*: the test book waits there, with what the checker found (a script, a handler, a frame, a
+`javascript:` link, a form). Approve it, wait for *Filed*, and look at what reached the library:
+
+```sh
+F=$(find /mnt/data2/Books -iname '*hostile*' -name '*.epub' -newer /tmp/hostile.epub | head -1); echo "$F"
+unzip -p "$F" | grep -aciE '<script|<[a-z0-9]+[^>]*[[:space:]]on[a-z]+[[:space:]]*=|<iframe|javascript:|<form'   # 0: the filed copy was written anew, none of it is left
 unzip -l "$F" | head                                                          # mimetype first, content.opf, nav.xhtml, toc.ncx, the page
 ```
 
-Delete the test book from the library afterwards (*Remove from library*), revoke the test device in **Settings →
-Public access**, and remove the test person if you made one.
+The test book carries `onload` and `onclick` handlers on purpose: a filed copy that still has one of them prints a
+number other than 0.
+
+**f. Clean up.** *Remove from library* (on the book's page) only hides the test book and keeps its file for 14 days:
+delete it for good in **Settings → Deleted books → Delete permanently**. Revoke the test device in **Settings → Public
+access**, remove the test person if you made one, and `rm -f /tmp/hostile.epub /tmp/up.json`.
 
 ### Back out
 
