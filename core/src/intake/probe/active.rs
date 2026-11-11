@@ -108,7 +108,8 @@ pub fn is_declared_html(media_type: Option<&str>) -> bool {
 	media_type
 		.and_then(readium_media_type)
 		.is_some_and(|(kind, subtype, _)| {
-			matches!(kind.as_str(), "text" | "*") && matches!(subtype.as_str(), "html" | "*")
+			matches!(kind.as_str(), "text" | "*")
+				&& matches!(subtype.as_str(), "html" | "*")
 		})
 }
 
@@ -283,7 +284,15 @@ fn carries_address(key: &str) -> bool {
 	URL_ATTRIBUTES.contains(&key)
 		|| matches!(
 			key,
-			"poster" | "background" | "from" | "to" | "values" | "by" | "cite" | "longdesc" | "ping"
+			"poster"
+				| "background"
+				| "from"
+				| "to"
+				| "values"
+				| "by"
+				| "cite"
+				| "longdesc"
+				| "ping"
 		)
 }
 
@@ -558,7 +567,8 @@ fn reference_at(bytes: &[u8], at: usize) -> Option<(char, usize)> {
 		if digits.is_empty() {
 			return None;
 		}
-		let value = u32::from_str_radix(std::str::from_utf8(&digits).ok()?, radix).ok()?;
+		let value =
+			u32::from_str_radix(std::str::from_utf8(&digits).ok()?, radix).ok()?;
 		let mut end = at + 1 + digits_at + digits.len();
 		if bytes.get(end) == Some(&b';') {
 			end += 1;
@@ -624,9 +634,9 @@ fn tags(bytes: &[u8]) -> Vec<&[u8]> {
 	let mut i = 0usize;
 	while i < bytes.len() {
 		let starts = bytes[i] == b'<'
-			&& bytes
-				.get(i + 1)
-				.is_some_and(|b| b.is_ascii_alphabetic() || matches!(b, b'/' | b'!' | b'?'));
+			&& bytes.get(i + 1).is_some_and(|b| {
+				b.is_ascii_alphabetic() || matches!(b, b'/' | b'!' | b'?')
+			});
 		if !starts {
 			i += 1;
 			continue;
@@ -677,8 +687,10 @@ fn tag_hides_something(tag: &[u8]) -> bool {
 				.count();
 			if name_len > 0
 				&& tag.get(i + 1 + name_len) == Some(&b';')
-				&& !matches!(&tag[i + 1..i + 1 + name_len], b"amp" | b"lt" | b"gt" | b"quot" | b"apos")
-			{
+				&& !matches!(
+					&tag[i + 1..i + 1 + name_len],
+					b"amp" | b"lt" | b"gt" | b"quot" | b"apos"
+				) {
 				return true;
 			}
 		}
@@ -990,7 +1002,8 @@ mod tests {
 	}
 
 	#[test]
-	fn html_that_is_not_xml_is_not_let_through_by_a_form_feed_a_reference_or_a_hidden_colon() {
+	fn html_that_is_not_xml_is_not_let_through_by_a_form_feed_a_reference_or_a_hidden_colon(
+	) {
 		for doc in [
 			// a form feed is a separator in HTML, before and after the name of a handler
 			&b"<html><body><img src=x\x0conerror=alert(1)></body>"[..],
@@ -1055,7 +1068,8 @@ mod tests {
 	}
 
 	#[test]
-	fn an_address_with_an_entity_xml_does_not_know_is_taken_out_and_other_values_are_kept() {
+	fn an_address_with_an_entity_xml_does_not_know_is_taken_out_and_other_values_are_kept(
+	) {
 		let doc = "<?xml version=\"1.0\"?><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\"><html xmlns=\"http://www.w3.org/1999/xhtml\"><body><a href=\"javascript&colon;alert(1)\">x</a><img alt=\"a&nbsp;b\" src=\"x.png\"/></body></html>";
 		match scan_document(doc.as_bytes(), false) {
 			Outcome::Found {
@@ -1072,26 +1086,32 @@ mod tests {
 	}
 
 	#[test]
-	fn svg_animations_go_by_the_name_they_set_whatever_its_prefix_and_lists_of_addresses_go() {
+	fn svg_animations_go_by_the_name_they_set_whatever_its_prefix_and_lists_of_addresses_go(
+	) {
 		let (result, _) = stripped(
 			"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:x=\"http://www.w3.org/1999/xlink\"><a x:href=\"a\"><animate attributeName=\"x:href\" values=\"a;b\"/><set attributeName=\"onmouseover\" to=\"alert(1)\"/><text>t</text></a></svg>",
 		);
 		assert!(!result.contains("animate") && !result.contains("<set"));
 		assert!(result.contains("<text>t</text>"));
 		// an address anywhere in a value, not only at its start
-		let (result, findings) = stripped("<p values=\"a;javascript:alert(1)\" id=\"k\">x</p>");
+		let (result, findings) =
+			stripped("<p values=\"a;javascript:alert(1)\" id=\"k\">x</p>");
 		assert!(result.contains("<p id=\"k\">x</p>"), "{result}");
 		assert_eq!(findings.get("script-address"), Some(&1));
 	}
 
 	#[test]
 	fn media_types_are_read_the_way_the_reader_reads_them() {
-		let parse = |raw| readium_media_type(raw).map(|(k, s, p)| (format!("{k}/{s}"), p));
+		let parse =
+			|raw| readium_media_type(raw).map(|(k, s, p)| (format!("{k}/{s}"), p));
 		assert_eq!(
 			parse("application/xhtml+xml;").map(|(t, _)| t).as_deref(),
 			Some("application/xhtml+xml")
 		);
-		assert_eq!(parse("text/html;x").map(|(t, _)| t).as_deref(), Some("text/html"));
+		assert_eq!(
+			parse("text/html;x").map(|(t, _)| t).as_deref(),
+			Some("text/html")
+		);
 		assert_eq!(
 			parse(" Text / HTML ; Charset = utf-8 ").map(|(t, p)| (t, p.len())),
 			Some(("text/html".to_string(), 1))
@@ -1101,10 +1121,22 @@ mod tests {
 		for invalid in ["texthtml", "a/b/c", "/html", "text/", ""] {
 			assert_eq!(parse(invalid), None, "{invalid}");
 		}
-		for html in ["text/html", "TEXT/HTML ;x", "text/html;charset=utf-8", "*/*", "text/*"] {
+		for html in [
+			"text/html",
+			"TEXT/HTML ;x",
+			"text/html;charset=utf-8",
+			"*/*",
+			"text/*",
+		] {
 			assert!(is_declared_html(Some(html)), "{html}");
 		}
-		for other in ["application/xhtml+xml", "image/png", "text/css", "application/xml", ""] {
+		for other in [
+			"application/xhtml+xml",
+			"image/png",
+			"text/css",
+			"application/xml",
+			"",
+		] {
 			assert!(!is_declared_html(Some(other)), "{other}");
 		}
 		assert!(!is_declared_html(None));
@@ -1119,7 +1151,10 @@ mod tests {
 		// listed twice, with an innocent type the second time
 		assert!(is_document(
 			"weird.dat",
-			&["image/png".to_string(), "application/xhtml+xml;".to_string()]
+			&[
+				"image/png".to_string(),
+				"application/xhtml+xml;".to_string()
+			]
 		));
 		assert!(!is_document("a.png", &xhtml("image/png")));
 		// HTML is held to its bytes by the type, or by a name that is HTML's when there is no type
@@ -1155,7 +1190,10 @@ mod tests {
 		let (result, _) = stripped(
 			"<p>a</p><object><b>inner</b><script>alert(1)</script><?xml-stylesheet href=\"x.xsl\"?><i>more</i></object><p>b</p>",
 		);
-		assert!(result.contains("<p>a</p>") && result.contains("<p>b</p>"), "{result}");
+		assert!(
+			result.contains("<p>a</p>") && result.contains("<p>b</p>"),
+			"{result}"
+		);
 		for gone in ["inner", "script", "more", "xml-stylesheet"] {
 			assert!(!result.contains(gone), "{gone}: {result}");
 		}
@@ -1188,7 +1226,10 @@ mod tests {
 	fn which_entries_are_documents() {
 		assert!(is_document("OEBPS/ch1.xhtml", &[]));
 		assert!(is_document("img/a.SVG", &[]));
-		assert!(is_document("weird.dat", &["application/xhtml+xml".to_string()]));
+		assert!(is_document(
+			"weird.dat",
+			&["application/xhtml+xml".to_string()]
+		));
 		assert!(!is_document("img/a.png", &["image/png".to_string()]));
 		assert!(!is_document("fonts/a.otf", &[]));
 	}

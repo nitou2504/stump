@@ -612,7 +612,8 @@ mod tests {
 			..BookMetadata::default()
 		};
 		metadata.cap();
-		let chars = |text: &Option<String>| text.as_deref().map_or(0, |t| t.chars().count());
+		let chars =
+			|text: &Option<String>| text.as_deref().map_or(0, |t| t.chars().count());
 		assert_eq!(chars(&metadata.format), 20);
 		assert_eq!(chars(&metadata.title), 300);
 		assert_eq!(chars(&metadata.series), 300);

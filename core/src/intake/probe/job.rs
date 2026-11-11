@@ -821,12 +821,16 @@ pub(crate) mod tests {
 	// ---- the hostile corpus of the D3 review: what the checker must not let through ----
 
 	fn container_for(opf_path: &str) -> String {
-		format!(r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="{opf_path}" media-type="application/oebps-package+xml"/></rootfiles></container>"#)
+		format!(
+			r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="{opf_path}" media-type="application/oebps-package+xml"/></rootfiles></container>"#
+		)
 	}
 
 	/// The package file of a book with these manifest items and spine, and this in its metadata
 	fn opf_of(in_metadata: &str, items: &str, spine: &str) -> String {
-		format!(r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:1</dc:identifier><dc:title>A Book</dc:title><dc:language>en</dc:language>{in_metadata}</metadata><manifest>{items}</manifest><spine>{spine}</spine></package>"#)
+		format!(
+			r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:1</dc:identifier><dc:title>A Book</dc:title><dc:language>en</dc:language>{in_metadata}</metadata><manifest>{items}</manifest><spine>{spine}</spine></package>"#
+		)
 	}
 
 	/// An EPUB whose package file is at `opf_path`, with these entries as well
@@ -1013,7 +1017,11 @@ pub(crate) mod tests {
 		bytes
 	}
 
-	fn epub_with_cover(cover_name: &str, cover: Vec<u8>, other: &[(&str, Vec<u8>)]) -> Vec<u8> {
+	fn epub_with_cover(
+		cover_name: &str,
+		cover: Vec<u8>,
+		other: &[(&str, Vec<u8>)],
+	) -> Vec<u8> {
 		let opf = opf_of(
 			r#"<meta name="cover" content="cover"/>"#,
 			&format!(
@@ -1021,9 +1029,7 @@ pub(crate) mod tests {
 			),
 			r#"<itemref idref="c1"/>"#,
 		);
-		let mut extra = vec![
-			("OEBPS/c1.xhtml", CLEAN.as_bytes().to_vec()),
-		];
+		let mut extra = vec![("OEBPS/c1.xhtml", CLEAN.as_bytes().to_vec())];
 		let path = format!("OEBPS/{cover_name}");
 		extra.push((path.as_str(), cover));
 		extra.extend(other.iter().map(|(n, b)| (*n, b.clone())));
@@ -1034,25 +1040,34 @@ pub(crate) mod tests {
 	fn the_cover_is_held_to_the_kinds_the_server_decodes_and_found_under_any_name() {
 		let world = world();
 		// a TIFF called a JPEG: the server's thumbnail would guess its format and reach the TIFF decoder
-		let request = world.stage("tiff.epub", &epub_with_cover("cover.dat", tiff(), &[]));
+		let request =
+			world.stage("tiff.epub", &epub_with_cover("cover.dat", tiff(), &[]));
 		let verdict = run(&request, &world.env);
 		assert_eq!(verdict.status, Status::Reject, "{:?}", verdict.warnings);
 		assert_eq!(verdict.reasons[0].code, code::UNSUPPORTED_IMAGE);
 		// a PNG that says it is 900 megapixels: refused from its header, never decoded
-		let request = world.stage("huge.epub", &epub_with_cover("cover.dat", huge_png_header(), &[]));
+		let request = world.stage(
+			"huge.epub",
+			&epub_with_cover("cover.dat", huge_png_header(), &[]),
+		);
 		let verdict = run(&request, &world.env);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::IMAGE_TOO_LARGE);
 		// the same, not as the cover and under a name that is no image's
 		let request = world.stage(
 			"huge2.epub",
-			&epub_with_cover("cover.png", png(8, 8), &[("OEBPS/blob.dat", huge_png_header())]),
+			&epub_with_cover(
+				"cover.png",
+				png(8, 8),
+				&[("OEBPS/blob.dat", huge_png_header())],
+			),
 		);
 		let verdict = run(&request, &world.env);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::IMAGE_TOO_LARGE);
 		// and a plain one passes
-		let request = world.stage("fine.epub", &epub_with_cover("cover.png", png(8, 8), &[]));
+		let request =
+			world.stage("fine.epub", &epub_with_cover("cover.png", png(8, 8), &[]));
 		let verdict = run(&request, &world.env);
 		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
 	}
@@ -1076,7 +1091,8 @@ pub(crate) mod tests {
 			out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
 		}
 		out.extend_from_slice(
-			format!("trailer\n<</Root 1 0 R/Size 4>>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+			format!("trailer\n<</Root 1 0 R/Size 4>>\nstartxref\n{xref}\n%%EOF\n")
+				.as_bytes(),
 		);
 		out
 	}
@@ -1092,7 +1108,10 @@ pub(crate) mod tests {
 		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
 		assert_eq!(verdict.book.unwrap().pages, 1);
 		// a page 20,000 points wide is not a page the reader can draw
-		let verdict = run(&world.stage("b.pdf", &tiny_pdf("0 0 20000 300")), &world.env);
+		let verdict = run(
+			&world.stage("b.pdf", &tiny_pdf("0 0 20000 300")),
+			&world.env,
+		);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::PAGE_SIZE);
 	}
@@ -1107,7 +1126,10 @@ pub(crate) mod tests {
 		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
 		assert_eq!(verdict.book.unwrap().pages, 2);
 		// a `.heif` is a page to Stump, and not one the server can decode: refused
-		let bytes = zip(&[("001.png", png(30, 40)), ("002.heif", b"\0\0\0\x18ftypheic\0\0\0\0heicmif1".to_vec())]);
+		let bytes = zip(&[
+			("001.png", png(30, 40)),
+			("002.heif", b"\0\0\0\x18ftypheic\0\0\0\0heicmif1".to_vec()),
+		]);
 		let verdict = run(&world.stage("d.cbz", &bytes), &world.env);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::UNSUPPORTED_IMAGE);

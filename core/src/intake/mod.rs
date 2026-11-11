@@ -1217,7 +1217,9 @@ fn copy_once(source: &Path, to: &Path, expected: Option<&str>) -> std::io::Resul
 		.custom_flags(libc::O_NOFOLLOW)
 		.open(source)?;
 	if !input.metadata()?.is_file() {
-		return Err(std::io::Error::other("the file to place is not a regular file"));
+		return Err(std::io::Error::other(
+			"the file to place is not a regular file",
+		));
 	}
 	let mut output = std::fs::OpenOptions::new()
 		.write(true)

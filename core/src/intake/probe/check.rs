@@ -402,12 +402,14 @@ fn read_head(
 			format!("{} can't be opened: {error}", printable(name)),
 		)
 	})?;
-	bounded::read_capped(entry.take(IMAGE_HEAD_BYTES), IMAGE_HEAD_BYTES).map_err(|error| {
-		Reason::new(
-			code::UNREADABLE,
-			format!("{} is damaged: {error}", printable(name)),
-		)
-	})
+	bounded::read_capped(entry.take(IMAGE_HEAD_BYTES), IMAGE_HEAD_BYTES).map_err(
+		|error| {
+			Reason::new(
+				code::UNREADABLE,
+				format!("{} is damaged: {error}", printable(name)),
+			)
+		},
+	)
 }
 
 /// Whether the name or the package calls an entry an image
@@ -577,8 +579,7 @@ pub fn check_epub(
 	// package or its name calls a document is read as one, and every file that is an image by its
 	// bytes is looked at as one
 	let mut summary = ActiveSummary::default();
-	let (mut malformed, mut unstrippable, mut odd_images) =
-		(0u64, None::<String>, 0u64);
+	let (mut malformed, mut unstrippable, mut odd_images) = (0u64, None::<String>, 0u64);
 	for (index, entry) in report.entries.iter().enumerate() {
 		if entry.is_dir {
 			continue;
@@ -662,7 +663,9 @@ pub fn check_epub(
 	if odd_images > 0 {
 		warnings.push(Reason::new(
 			code::UNSUPPORTED_IMAGE,
-			format!("{odd_images} images are of a kind Stump does not show (they are kept)"),
+			format!(
+				"{odd_images} images are of a kind Stump does not show (they are kept)"
+			),
 		));
 	}
 	summary.remote_refs = remote_refs;
@@ -979,16 +982,35 @@ mod tests {
 
 	#[test]
 	fn a_comic_page_is_what_stump_counts_as_one() {
-		for page in ["001.png", "a/b/c.JPG", "x/.dir/001.webp", "z.avif", "p.heif", "q.jxl"] {
+		for page in [
+			"001.png",
+			"a/b/c.JPG",
+			"x/.dir/001.webp",
+			"z.avif",
+			"p.heif",
+			"q.jxl",
+		] {
 			assert!(is_page(page), "{page}");
 		}
 		// hidden by Stump's rule: a file whose name starts with a dot, or anything in `__MACOSX`
-		for hidden in [".001.png", "a/.001.png", "__MACOSX/a/001.png", "__MACOSX/001.png"] {
+		for hidden in [
+			".001.png",
+			"a/.001.png",
+			"__MACOSX/a/001.png",
+			"__MACOSX/001.png",
+		] {
 			assert!(!is_page(hidden), "{hidden}");
 			assert!(is_hidden(hidden), "{hidden}");
 		}
 		// not images to Stump, whatever other programs think
-		for other in ["scan.bmp", "scan.tif", "scan.heic", "page.svg", "notes.txt", "001"] {
+		for other in [
+			"scan.bmp",
+			"scan.tif",
+			"scan.heic",
+			"page.svg",
+			"notes.txt",
+			"001",
+		] {
 			assert!(!is_page(other), "{other}");
 		}
 	}

@@ -229,7 +229,8 @@ fn limit(resource: libc::__rlimit_resource_t, value: u64) {
 /// at the hard one. With both equal it gets `SIGKILL` at once, which is what a host short of
 /// memory does too, so it was taken for that, and the check was tried again
 fn limit_soft_hard(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) {
-	let to_rlim = |value: u64| libc::rlim_t::try_from(value).unwrap_or(libc::RLIM_INFINITY);
+	let to_rlim =
+		|value: u64| libc::rlim_t::try_from(value).unwrap_or(libc::RLIM_INFINITY);
 	let rlimit = libc::rlimit {
 		rlim_cur: to_rlim(soft),
 		rlim_max: to_rlim(hard.max(soft)),
@@ -530,7 +531,8 @@ fn write_heartbeat(spool: &Spool, busy: bool) {
 /// Whose ticket a request is: the first part of its path in the inbox (`<user>/<item>/<file>`)
 fn user_of(ticket: &Path) -> String {
 	let mut bytes = vec![];
-	let read = File::open(ticket).and_then(|f| f.take(MAX_REQUEST_BYTES).read_to_end(&mut bytes));
+	let read = File::open(ticket)
+		.and_then(|f| f.take(MAX_REQUEST_BYTES).read_to_end(&mut bytes));
 	let input = read
 		.ok()
 		.and_then(|_| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -549,7 +551,9 @@ fn pick(
 	waiting
 		.iter()
 		.enumerate()
-		.min_by_key(|(_, (time, _, user))| (served.get(user).copied().unwrap_or(0), *time))
+		.min_by_key(|(_, (time, _, user))| {
+			(served.get(user).copied().unwrap_or(0), *time)
+		})
 		.map(|(index, _)| index)
 }
 
@@ -916,7 +920,9 @@ mod tests {
 		};
 		let mut beats = 0u32;
 		let verdict =
-			run_ticket_beating(&spawn, &spool, &request_file, &request, &mut || beats += 1);
+			run_ticket_beating(&spawn, &spool, &request_file, &request, &mut || {
+				beats += 1
+			});
 		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
 		// a check that takes longer than the server waits to hear of the checker is not offline
 		assert!(beats >= 2, "{beats} beats in 5 seconds");
@@ -995,7 +1001,8 @@ mod tests {
 	}
 
 	#[test]
-	fn one_persons_files_do_not_keep_everyone_elses_waiting_and_two_busy_people_do_not_starve_a_third() {
+	fn one_persons_files_do_not_keep_everyone_elses_waiting_and_two_busy_people_do_not_starve_a_third(
+	) {
 		let at = |secs: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
 		let mut waiting = vec![
 			(at(1), PathBuf::from("a1"), "ana".to_string()),

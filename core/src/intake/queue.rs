@@ -20,13 +20,14 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use super::probe::{
-	check, zipscan,
+	check,
 	contract::{
 		code, cut_chars, is_safe_relative, probe_revision, ActiveContent, Book, Kind,
 		Limits, Reason, Request, Status, Verdict, CONTRACT_VERSION, MAX_VERDICT_BYTES,
 	},
 	job,
 	runner::{self, Spawn, Spool, OFFLINE_AFTER_SECS},
+	zipscan,
 };
 use crate::{config::StumpConfig, intake::write::FileMetadata, CoreError, Ctx};
 
@@ -494,7 +495,8 @@ pub fn trimmed(verdict: &Verdict) -> Verdict {
 	for reason in kept.reasons.iter_mut().chain(kept.warnings.iter_mut()) {
 		cut(&mut reason.detail, 300);
 	}
-	let size = |verdict: &Verdict| serde_json::to_vec(verdict).map_or(usize::MAX, |v| v.len());
+	let size =
+		|verdict: &Verdict| serde_json::to_vec(verdict).map_or(usize::MAX, |v| v.len());
 	if let Some(book) = kept.book.as_mut() {
 		book.title_page_authors.truncate(10);
 		book.active_content.items.truncate(10);
@@ -530,7 +532,9 @@ pub fn trimmed(verdict: &Verdict) -> Verdict {
 				}
 			},
 			1 => {
-				if let Some(metadata) = kept.book.as_mut().and_then(|b| b.metadata.as_mut()) {
+				if let Some(metadata) =
+					kept.book.as_mut().and_then(|b| b.metadata.as_mut())
+				{
 					for list in [&mut metadata.genres, &mut metadata.tags] {
 						if let Some(items) = list {
 							items.truncate(10);
@@ -691,7 +695,8 @@ pub async fn own_book_warnings(path: &Path, config: &StumpConfig) -> Vec<String>
 		let Ok(report) = zipscan::scan(&path, &limits) else {
 			return vec![];
 		};
-		match check::check_epub(&path, &report, &limits, ActiveContent::Warn, true, None) {
+		match check::check_epub(&path, &report, &limits, ActiveContent::Warn, true, None)
+		{
 			Ok(facts) => facts
 				.warnings
 				.into_iter()
@@ -770,7 +775,9 @@ mod tests {
 		std::fs::write(&scripted, epub_with(SCRIPTED)).unwrap();
 		let lines = own_book_warnings(&scripted, &config).await;
 		assert!(
-			lines.iter().any(|l| l.contains("scripts or other active content")),
+			lines
+				.iter()
+				.any(|l| l.contains("scripts or other active content")),
 			"{lines:?}"
 		);
 		// nothing is taken out: it is only told
@@ -780,9 +787,12 @@ mod tests {
 		assert!(own_book_warnings(&clean, &config).await.is_empty());
 		// what isn't a zip, or isn't there, says nothing
 		let junk = dir.path().join("junk.epub");
-		std::fs::write(&junk, b"not a zip at all, but long enough to be looked at").unwrap();
+		std::fs::write(&junk, b"not a zip at all, but long enough to be looked at")
+			.unwrap();
 		assert!(own_book_warnings(&junk, &config).await.is_empty());
-		assert!(own_book_warnings(&dir.path().join("none.epub"), &config).await.is_empty());
+		assert!(own_book_warnings(&dir.path().join("none.epub"), &config)
+			.await
+			.is_empty());
 	}
 
 	#[test]

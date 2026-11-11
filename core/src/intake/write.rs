@@ -195,7 +195,9 @@ pub(crate) fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
 						let key = attribute.key.as_ref();
 						let local = key.rsplit(|b| *b == b':').next().unwrap_or(key);
 						(local == b"full-path")
-							.then(|| attribute.unescape_value().ok().map(|v| v.into_owned()))
+							.then(|| {
+								attribute.unescape_value().ok().map(|v| v.into_owned())
+							})
 							.flatten()
 					});
 					if let Some(path) = path.filter(|p| !p.is_empty()) {
