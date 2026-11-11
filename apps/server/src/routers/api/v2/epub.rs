@@ -60,12 +60,23 @@ async fn find_ebook_for_user(
 	user: &AuthUser,
 	id: &str,
 ) -> APIResult<media::MediaIdentSelect> {
-	media::Entity::find_for_user(user)
+	let book = media::Entity::find_for_user(user)
 		.filter(media::Column::Id.eq(id.to_string()))
 		.into_model::<media::MediaIdentSelect>()
 		.one(conn)
 		.await?
-		.ok_or_else(|| APIError::NotFound("Book not found".to_string()))
+		.ok_or_else(|| APIError::NotFound("Book not found".to_string()))?;
+	// Only an EPUB is read here, as the web reader chooses it (by the file's extension). These routes
+	// open any file with an EPUB reader, and a zip is a zip: a comic or a PDF with the files of an
+	// EPUB in it (a friend's upload keeps its own bytes in those formats) would be drawn by the
+	// reader, scripts and all, on the app's own origin. Anything else is a book that isn't here.
+	let is_epub = std::path::Path::new(&book.path)
+		.extension()
+		.is_some_and(|extension| extension.eq_ignore_ascii_case("epub"));
+	if !is_epub {
+		return Err(APIError::NotFound("Book not found".to_string()));
+	}
+	Ok(book)
 }
 
 /// Resolve the request-scoped base URL used in RWPM absolute resource links.

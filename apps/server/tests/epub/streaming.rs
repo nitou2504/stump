@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use models::entity::media;
-use sea_orm::{ActiveModelTrait, ActiveValue, IntoActiveModel};
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, IntoActiveModel};
 use serde_json::Value;
 use tests::fake_data;
 
@@ -79,6 +79,71 @@ async fn test_epub_manifest_not_found() {
 	let response = app.get("/api/v2/epub/does-not-exist/manifest.json").await;
 
 	response.assert_status_not_found();
+}
+
+/// The routes open an `.epub` and nothing else. A zip is a zip: a comic or a PDF that has an EPUB's
+/// files in it (a friend's upload keeps its own bytes in those formats) must not be drawn by the
+/// reader, scripts and all, on the app's own origin.
+#[tokio::test]
+async fn test_epub_routes_open_only_an_epub() {
+	let (app, book_id) = setup_epub_book().await;
+	let db = app.conn();
+	let routes = |id: &str| {
+		vec![
+			format!("/api/v2/epub/{id}/manifest.json"),
+			format!("/api/v2/epub/{id}/positions.json"),
+			format!("/api/v2/epub/{id}/search?q=Alice&limit=5"),
+			format!("/api/v2/epub/{id}/resource/META-INF/container.xml"),
+		]
+	};
+
+	// the control: as an EPUB, the book is read (the resource route answers, whatever it holds)
+	for url in &routes(&book_id)[..3] {
+		app.get(url).await.assert_status_ok();
+	}
+
+	let dir = tempfile::tempdir().expect("a temporary folder");
+	for name in [
+		"book.cbz",
+		"book.cbr",
+		"book.pdf",
+		"book.zip",
+		"book.epub.cbz",
+		"book.epub.pdf",
+		"book",
+	] {
+		let copy = dir.path().join(name);
+		std::fs::copy(test_epub_path(), &copy).expect("a copy of the fixture");
+		let book = media::Entity::find_by_id(book_id.clone())
+			.one(db)
+			.await
+			.expect("the book")
+			.expect("a book");
+		let mut active = book.into_active_model();
+		active.path = ActiveValue::Set(copy.to_string_lossy().to_string());
+		active.update(db).await.expect("update media path");
+		for url in routes(&book_id) {
+			let response = app.get(&url).await;
+			assert!(
+				response.status_code() == 404,
+				"{name}: {url} answered {}",
+				response.status_code()
+			);
+		}
+	}
+
+	// an upper-case extension is still an EPUB
+	let copy = dir.path().join("BOOK.EPUB");
+	std::fs::copy(test_epub_path(), &copy).expect("a copy of the fixture");
+	let book = media::Entity::find_by_id(book_id.clone())
+		.one(db)
+		.await
+		.expect("the book")
+		.expect("a book");
+	let mut active = book.into_active_model();
+	active.path = ActiveValue::Set(copy.to_string_lossy().to_string());
+	active.update(db).await.expect("update media path");
+	app.get(&routes(&book_id)[0]).await.assert_status_ok();
 }
 
 /// manifest should return RWPM with absolute resource hrefs
