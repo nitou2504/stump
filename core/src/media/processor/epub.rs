@@ -12,7 +12,7 @@ use zip::ZipArchive;
 const ACCEPTED_EPUB_COVER_MIMES: [&str; 2] = ["image/jpeg", "image/png"];
 const DEFAULT_EPUB_COVER_ID: &str = "cover";
 
-use epub::doc::{DocError, EpubDoc};
+use epub::doc::{DocError, EpubDoc, NavPoint};
 
 use crate::{
 	fs_utils::{
@@ -30,9 +30,17 @@ use crate::{
 /// A file processor for EPUB files
 pub struct EpubProcessor;
 
+/// A book's table of contents nests as far as its file says. Stump's readers turn it into trees
+/// of their own (the reader's links, the JSON of the GraphQL object), which are walked and
+/// written by recursion, and one nested thousands of levels deep overflows the stack of the
+/// worker that does it and ends the process. Nothing real nests near this: a book's contents
+/// are two to five levels deep. What lies deeper is left out of what the readers show.
+pub const MAX_READ_TOC_DEPTH: usize = 32;
+
 /// Opens an EPUB with the `.` and `..` of its manifest paths resolved. epub-rs joins each
 /// `href` to the package folder as written, so an item like `../toc.xhtml` becomes
-/// `OEBPS/../toc.xhtml`, which is no name in the zip, and the file looks missing
+/// `OEBPS/../toc.xhtml`, which is no name in the zip, and the file looks missing. The table of
+/// contents it returns is no deeper than [`MAX_READ_TOC_DEPTH`], for every reader of a book
 pub fn open_epub(path: impl AsRef<Path>) -> Result<EpubDoc<BufReader<File>>, DocError> {
 	let mut epub_file = EpubDoc::new(path)?;
 	for resource in epub_file.resources.values_mut() {
@@ -40,7 +48,28 @@ pub fn open_epub(path: impl AsRef<Path>) -> Result<EpubDoc<BufReader<File>>, Doc
 			resource.path = resolved;
 		}
 	}
+	limit_toc_depth(&mut epub_file.toc, MAX_READ_TOC_DEPTH);
 	Ok(epub_file)
+}
+
+/// Takes the levels of a table of contents deeper than `max_depth` off it (its top level is the
+/// first). Nothing here recurses, on the way down or in what is dropped: the tree may be as deep
+/// as a file can make it, and the levels taken off are taken apart one entry at a time.
+pub fn limit_toc_depth(toc: &mut [NavPoint], max_depth: usize) {
+	let mut cut: Vec<NavPoint> = Vec::new();
+	let mut pending: Vec<(&mut NavPoint, usize)> =
+		toc.iter_mut().map(|nav| (nav, 1)).collect();
+	while let Some((nav, depth)) = pending.pop() {
+		if depth >= max_depth {
+			cut.append(&mut nav.children);
+		} else {
+			pending.extend(nav.children.iter_mut().map(|child| (child, depth + 1)));
+		}
+	}
+	// each entry taken off gives up its own children before it is dropped, so no drop is deep
+	while let Some(mut nav) = cut.pop() {
+		cut.append(&mut nav.children);
+	}
 }
 
 /// Resolves the `.` and `..` of a path inside the archive. Returns `None` when there is
@@ -1878,5 +1907,152 @@ mod tests {
 		assert!(EpubProcessor
 			.process_metadata(&book, OrganizationMode::Metadata)
 			.is_err());
+	}
+
+	/// How deep a table of contents goes (its top level is the first), counted without recursion
+	fn toc_depth(toc: &[NavPoint]) -> usize {
+		let mut deepest = 0;
+		let mut pending: Vec<(&NavPoint, usize)> =
+			toc.iter().map(|nav| (nav, 1)).collect();
+		while let Some((nav, depth)) = pending.pop() {
+			deepest = deepest.max(depth);
+			pending.extend(nav.children.iter().map(|child| (child, depth + 1)));
+		}
+		deepest
+	}
+
+	fn nav(label: &str) -> NavPoint {
+		NavPoint {
+			label: label.to_string(),
+			content: PathBuf::from("c1.xhtml"),
+			children: vec![],
+			play_order: Some(1),
+		}
+	}
+
+	/// An EPUB 2 whose table of contents nests `depth` levels
+	fn epub_with_toc_nested(depth: usize) -> Vec<u8> {
+		use std::io::{Cursor, Write};
+		use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+		let container = r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
+		let opf = r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:1</dc:identifier><dc:title>Deep</dc:title><dc:language>en</dc:language></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine toc="ncx"><itemref idref="c1"/></spine></package>"#;
+		let chapter = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head><body><p>hello</p></body></html>"#;
+		let mut ncx = String::from(
+			r#"<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/><docTitle><text>Deep</text></docTitle><navMap>"#,
+		);
+		for i in 0..depth {
+			ncx.push_str(&format!(
+				r#"<navPoint id="n{i}" playOrder="{}"><navLabel><text>L{i}</text></navLabel><content src="c1.xhtml"/>"#,
+				i + 1
+			));
+		}
+		ncx.push_str(&"</navPoint>".repeat(depth));
+		ncx.push_str("</navMap></ncx>");
+
+		let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+		for (name, data, method) in [
+			(
+				"mimetype",
+				&b"application/epub+zip"[..],
+				CompressionMethod::Stored,
+			),
+			(
+				"META-INF/container.xml",
+				container.as_bytes(),
+				CompressionMethod::Deflated,
+			),
+			(
+				"OEBPS/content.opf",
+				opf.as_bytes(),
+				CompressionMethod::Deflated,
+			),
+			("OEBPS/toc.ncx", ncx.as_bytes(), CompressionMethod::Deflated),
+			(
+				"OEBPS/c1.xhtml",
+				chapter.as_bytes(),
+				CompressionMethod::Deflated,
+			),
+		] {
+			writer
+				.start_file(
+					name,
+					SimpleFileOptions::default().compression_method(method),
+				)
+				.expect("start a file");
+			writer.write_all(data).expect("write a file");
+		}
+		writer.finish().expect("finish").into_inner()
+	}
+
+	/// A table of contents nested far deeper than any book's is taken off at the depth the readers
+	/// walk it to, however it is opened: they turn it into trees of their own by recursion
+	#[test]
+	fn test_open_epub_cuts_a_table_of_contents_nested_very_deep() {
+		let dir = tempfile::tempdir().expect("Failed to create temp dir");
+		let path = dir.path().join("deep.epub");
+		std::fs::write(&path, epub_with_toc_nested(200)).expect("Failed to write EPUB");
+
+		// the control: as the crate reads the book, the contents are as deep as the file says
+		let raw = EpubDoc::new(&path).expect("the crate opens it");
+		assert!(
+			toc_depth(&raw.toc) > MAX_READ_TOC_DEPTH,
+			"the fixture's contents are {} deep",
+			toc_depth(&raw.toc)
+		);
+
+		let opened = open_epub(&path).expect("Stump opens it");
+		assert_eq!(toc_depth(&opened.toc), MAX_READ_TOC_DEPTH);
+		// what is left is what was at the top
+		assert_eq!(opened.toc.len(), 1);
+		assert_eq!(opened.toc[0].label, "L0");
+	}
+
+	/// The cut itself is not recursive: a tree as deep as a file can make it is cut, and taken
+	/// apart, on a stack far too small to walk it by recursion
+	#[test]
+	fn test_limit_toc_depth_does_not_recurse() {
+		let mut toc = vec![nav("leaf")];
+		for i in 0..300_000 {
+			let mut level = nav(&format!("L{i}"));
+			level.children = toc;
+			toc = vec![level];
+		}
+		std::thread::Builder::new()
+			.stack_size(128 * 1024)
+			.spawn(move || {
+				limit_toc_depth(&mut toc, 8);
+				assert_eq!(toc_depth(&toc), 8);
+				// and the levels that are left are whole
+				assert_eq!(toc[0].label, "L299999");
+			})
+			.expect("a thread")
+			.join()
+			.expect("the cut survived a tree 300,000 levels deep");
+	}
+
+	#[test]
+	fn test_limit_toc_depth_leaves_what_is_within_it() {
+		let mut toc = vec![
+			NavPoint {
+				children: vec![NavPoint {
+					children: vec![nav("c")],
+					..nav("b")
+				}],
+				..nav("a")
+			},
+			nav("d"),
+		];
+		limit_toc_depth(&mut toc, 3);
+		assert_eq!(toc_depth(&toc), 3);
+		assert_eq!(toc[0].children[0].children[0].label, "c");
+		limit_toc_depth(&mut toc, 2);
+		assert_eq!(toc_depth(&toc), 2);
+		assert!(toc[0].children[0].children.is_empty());
+		assert_eq!(toc[1].label, "d");
+		// a depth of one keeps only the top level
+		limit_toc_depth(&mut toc, 1);
+		assert_eq!(toc_depth(&toc), 1);
+		assert_eq!(toc.len(), 2);
 	}
 }

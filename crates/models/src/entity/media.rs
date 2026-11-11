@@ -348,6 +348,57 @@ impl MediaIdentSelect {
 	pub fn columns() -> Vec<Column> {
 		vec![Column::Id, Column::Path]
 	}
+
+	/// Whether the file is an EPUB, by its extension (any case), which is how the web reader
+	/// chooses the EPUB reader. Every route that opens a book with the EPUB reader asks this first:
+	/// a zip is a zip, so a comic or a PDF with an EPUB's files in it (or a stored zip appended to
+	/// it) would otherwise be opened, parsed and drawn as a book by a reader that was never meant
+	/// to see it.
+	pub fn is_epub(&self) -> bool {
+		std::path::Path::new(&self.path)
+			.extension()
+			.is_some_and(|extension| extension.eq_ignore_ascii_case("epub"))
+	}
+}
+
+#[cfg(test)]
+mod media_ident_tests {
+	use super::MediaIdentSelect;
+
+	fn ident(path: &str) -> MediaIdentSelect {
+		MediaIdentSelect {
+			id: "a".to_string(),
+			path: path.to_string(),
+		}
+	}
+
+	#[test]
+	fn only_a_file_called_epub_is_an_epub() {
+		for path in [
+			"/l/a.epub",
+			"/l/a.EPUB",
+			"/l/a.Epub",
+			"/l/a.b.epub",
+			"a.epub",
+		] {
+			assert!(ident(path).is_epub(), "{path}");
+		}
+		for path in [
+			"/l/a.cbz",
+			"/l/a.cbr",
+			"/l/a.pdf",
+			"/l/a.zip",
+			"/l/a",
+			"/l/a.epub.pdf",
+			"/l/a.epub.cbz",
+			"/l/epub",
+			"/l.epub/a",
+			"/l/a.kepub",
+			"",
+		] {
+			assert!(!ident(path).is_epub(), "{path}");
+		}
+	}
 }
 
 impl From<Model> for MediaIdentSelect {

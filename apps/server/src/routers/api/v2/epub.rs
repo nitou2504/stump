@@ -70,10 +70,7 @@ async fn find_ebook_for_user(
 	// open any file with an EPUB reader, and a zip is a zip: a comic or a PDF with the files of an
 	// EPUB in it (a friend's upload keeps its own bytes in those formats) would be drawn by the
 	// reader, scripts and all, on the app's own origin. Anything else is a book that isn't here.
-	let is_epub = std::path::Path::new(&book.path)
-		.extension()
-		.is_some_and(|extension| extension.eq_ignore_ascii_case("epub"));
-	if !is_epub {
+	if !book.is_epub() {
 		return Err(APIError::NotFound("Book not found".to_string()));
 	}
 	Ok(book)

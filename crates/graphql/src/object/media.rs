@@ -87,7 +87,7 @@ impl Media {
 			path: self.model.path.clone(),
 		};
 
-		Epub::try_from(model).map(Some)
+		Epub::try_from_async(model).await.map(Some)
 	}
 
 	/// Whether the media is marked as a favorite by the current user
