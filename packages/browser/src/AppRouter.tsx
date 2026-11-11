@@ -1,8 +1,8 @@
 import { lazy } from 'react'
 import { Route, Routes } from 'react-router'
 
-import { AppLayout } from './AppLayout.tsx'
 import { RouterProvider } from './context/RouterContext.tsx'
+import PasswordGate from './scenes/auth/PasswordGate.tsx'
 import { useAppStore } from './stores'
 
 // Every section is its own chunk, so a first visit downloads the app shell plus the page it
@@ -47,7 +47,7 @@ export function AppRouter({ basePath }: AppRouterProps = {}) {
 	return (
 		<RouterProvider basePath={basePath}>
 			<Routes>
-				<Route path="/" element={<AppLayout />}>
+				<Route path="/" element={<PasswordGate />}>
 					<Route path="" element={<HomeScene />} />
 					<Route path="libraries/*" element={<LibraryRouter />} />
 					<Route path="series/*" element={<SeriesRouter />} />
