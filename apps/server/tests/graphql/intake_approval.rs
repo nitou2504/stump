@@ -1770,6 +1770,52 @@ async fn test_uploads_that_wait_for_approval_are_closed_by_default() {
 	assert_eq!(response.status_code(), 200, "{}", response.text());
 }
 
+/// with checking off (the way back from the isolated checker) nothing reads a friend's book: an
+/// item that was left from before is neither analysed again nor filed, whoever asks
+#[tokio::test(flavor = "multi_thread")]
+async fn test_with_checking_off_a_friends_item_is_neither_analysed_nor_filed() {
+	let world = world_with(|c| c.intake_probe_mode = "off".to_string()).await;
+	let ana = world.ana_id();
+
+	// asked to analyse it again: refused, and it says why
+	let id = insert_item(
+		&world,
+		&ana,
+		IntakeState::NeedsReview,
+		IntakeProposal::default(),
+	)
+	.await;
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, REANALYSE, json!({ "id": id }))
+			.await,
+	);
+	let row = world.wait_for_analysis(&id).await;
+	assert_eq!(row.state, IntakeState::Failed);
+	let error = row.error.clone().unwrap_or_default();
+	assert!(error.contains("turned off"), "{error}");
+
+	// approved by the owner: not filed, back to waiting with the reason, nothing in the library
+	let waiting = insert_item(
+		&world,
+		&ana,
+		IntakeState::PendingApproval,
+		IntakeProposal::default(),
+	)
+	.await;
+	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [waiting] })).await);
+	world.wait_for(&waiting, IntakeState::PendingApproval).await;
+	for _ in 0..100 {
+		if world.row(&waiting).await.error.is_some() {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+	let error = world.row(&waiting).await.error.expect("a reason");
+	assert!(error.contains("turned off"), "{error}");
+	assert!(!world.library_dir.join("Umberto_Eco/crafted.epub").exists());
+}
+
 /// every way to change an item is its uploader's; an approver may change one only while it waits
 /// for them, and nobody finds out that an item they can't change exists
 #[tokio::test(flavor = "multi_thread")]

@@ -243,6 +243,64 @@ async fn test_epub_nested_resource_path() {
 	assert!(!response.as_bytes().is_empty());
 }
 
+/// a resource opened at its address (not through the reader) runs nothing: the page is sandboxed
+/// with no scripts, frames or forms, and the browser is told not to guess its type
+#[tokio::test]
+async fn test_epub_resources_are_served_sandboxed_and_not_sniffed() {
+	let (app, book_id) = setup_epub_book().await;
+
+	let manifest: Value = app
+		.get(format!("/api/v2/epub/{book_id}/manifest.json").as_str())
+		.await
+		.json();
+	let chapter_href = manifest["readingOrder"][0]["href"]
+		.as_str()
+		.expect("chapter href");
+	let chapter_path = resource_path_from_href(chapter_href).to_string();
+	// a document, a stylesheet and whatever the fixture holds under its nested path
+	for path in [
+		format!("/api/v2/{chapter_path}"),
+		format!("/api/v2/epub/{book_id}/resource/OEBPS/pgepub.css"),
+	] {
+		let response = app.get(&path).await;
+		response.assert_status_ok();
+		let policy = response
+			.headers()
+			.get("content-security-policy")
+			.and_then(|v| v.to_str().ok())
+			.unwrap_or_default()
+			.to_string();
+		assert!(
+			policy.starts_with("sandbox;") && policy.contains("default-src 'none'"),
+			"{path}: {policy:?}"
+		);
+		// nothing in it lets a page run a script, load a frame or send a form
+		assert!(
+			!policy.contains("script-src")
+				&& !policy.contains("frame-src")
+				&& !policy.contains("allow-scripts")
+				&& !policy.contains("allow-forms"),
+			"{path}: {policy:?}"
+		);
+		assert_eq!(
+			response
+				.headers()
+				.get("x-content-type-options")
+				.and_then(|v| v.to_str().ok()),
+			Some("nosniff"),
+			"{path}"
+		);
+	}
+	// the manifest itself is the reader's, and is not sandboxed
+	let manifest_response = app
+		.get(format!("/api/v2/epub/{book_id}/manifest.json").as_str())
+		.await;
+	assert!(manifest_response
+		.headers()
+		.get("content-security-policy")
+		.is_none());
+}
+
 /// manifest hrefs must use the request host
 #[tokio::test]
 async fn test_epub_manifest_uses_request_host() {
