@@ -1,24 +1,15 @@
 import { useGraphQL } from '@stump/client'
-import {
-	Alert,
-	AlertDescription,
-	AlertTitle,
-	Button,
-	cn,
-	Link,
-	NativeSelect,
-	ProgressBar,
-} from '@stump/components'
-import { IntakeKind } from '@stump/graphql'
+import { Alert, AlertDescription, AlertTitle, Button, cn, ProgressBar } from '@stump/components'
 import {
 	CheckCircle2,
 	CircleAlert,
 	ClipboardCheck,
 	Hourglass,
-	Inbox,
+	Library,
 	Loader2,
 	MessageSquareWarning,
 	Send,
+	Upload,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet'
@@ -26,14 +17,14 @@ import { useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
-import { usePaths } from '@/paths'
 
 import AcceptAllSheet from './AcceptAllSheet'
 import { useIntakeActions, useIntakeInbox, useIntakeLimits, useIntakeUploader } from './hooks'
+import { AnalysingRow, FiledRow } from './InboxRows'
 import IntakeDropZone from './IntakeDropZone'
-import IntakeItemCard, { FormatIcon, type IntakeCardMode } from './IntakeItemCard'
-import { type IntakeItemData, intakeLibrariesQuery, type IntakeLimitsData } from './queries'
-import { acceptableIds, destinationPaths, formatBytes, groupInbox } from './reviewState'
+import IntakeItemCard, { type IntakeCardMode } from './IntakeItemCard'
+import { intakeLibrariesQuery, type IntakeLimitsData } from './queries'
+import { acceptableIds, formatBytes, groupInbox } from './reviewState'
 import { useTagReviewStore } from './tagReviewStore'
 import WaitingRow from './WaitingRow'
 
@@ -43,6 +34,9 @@ const FILED_SHOWN = 10
  * "Add books": upload books into your own inbox, check what the server proposes (author
  * folder, metadata, tags) and add them to the library. Somebody who may not file books
  * themselves sends them for approval instead: the people who run the library look at them first.
+ *
+ * The page reads top to bottom as the books move: what is being read, what came back with a
+ * note, what needs a look, what is ready, then what is with the approver and what is in.
  */
 export default function IntakeScene() {
 	const [params, setParams] = useSearchParams()
@@ -113,6 +107,14 @@ export default function IntakeScene() {
 	const uploadsClosed = !!limits && !limits.uploadsOpen
 
 	const filed = showAllFiled ? groups.filed : groups.filed.slice(0, FILED_SHOWN)
+	// books that are still on their way: the drop zone steps aside for them
+	const inFlight =
+		groups.analysing.length +
+		groups.toReview.length +
+		groups.ready.length +
+		groups.sentBack.length +
+		groups.waiting.length +
+		groups.filing.length
 
 	return (
 		<>
@@ -127,7 +129,7 @@ export default function IntakeScene() {
 						key: 'review',
 						icon: ClipboardCheck,
 						value: groups.toReview.length,
-						suffix: ' to check',
+						suffix: ' need your details',
 					},
 					{ key: 'ready', icon: CheckCircle2, value: groups.ready.length, suffix: ' ready' },
 					...(friend && groups.waiting.length
@@ -147,8 +149,7 @@ export default function IntakeScene() {
 				<div className="gap-3 flex flex-col">
 					{friend && (
 						<p className="text-sm text-muted-foreground">
-							The people who run this library look at the books you add before they join it. Fix
-							what the page asks for, then send them.
+							Whoever runs this library looks over your books before they join it.
 						</p>
 					)}
 					{limits?.quotaApplies && <InboxUsage limits={limits} />}
@@ -161,31 +162,25 @@ export default function IntakeScene() {
 							</AlertDescription>
 						</Alert>
 					)}
-					{libraries.length > 1 && (
-						<label className="gap-2 text-sm flex items-center">
-							<span className="text-muted-foreground">Add to</span>
-							<NativeSelect
-								size="sm"
-								className="text-base md:text-sm w-auto"
-								value={libraryId}
-								options={libraries.map((library) => ({ label: library.name, value: library.id }))}
-								onChange={(e) =>
-									setParams(
-										(prev) => {
-											prev.set('library', e.target.value)
-											return prev
-										},
-										{ replace: true },
-									)
-								}
-							/>
-						</label>
-					)}
 					<IntakeDropZone
 						onFiles={uploader.add}
 						entries={uploader.entries}
 						onClearFinished={uploader.clearFinished}
 						disabled={!libraryId || uploadsClosed}
+						compact={inFlight > 0}
+						// a zip of several books is for who files them; until we know who is looking, none
+						acceptsZip={mode === 'file'}
+						libraries={libraries}
+						libraryId={libraryId}
+						onLibraryChange={(id) =>
+							setParams(
+								(prev) => {
+									prev.set('library', id)
+									return prev
+								},
+								{ replace: true },
+							)
+						}
 					/>
 					{!libraryId && !isLoading && (
 						<p className="text-sm text-muted-foreground">You can’t add books to any library yet.</p>
@@ -193,24 +188,32 @@ export default function IntakeScene() {
 				</div>
 
 				{groups.analysing.length > 0 && (
-					<Section title="Being analysed" icon={Hourglass} count={groups.analysing.length}>
-						<ul className="divide-y divide-border rounded-lg border border-border">
+					<Section title="Being read" icon={Loader2} count={groups.analysing.length}>
+						<RowList>
 							{groups.analysing.map((item) => (
-								<li key={item.id} className="gap-3 px-3 py-2 flex items-center">
-									<Loader2
-										className="h-4 w-4 animate-spin shrink-0 text-muted-foreground"
-										aria-hidden
-									/>
-									<span className="text-sm flex-1 truncate">{item.name}</span>
-									<span className="text-xs text-muted-foreground">reading…</span>
-								</li>
+								<AnalysingRow key={item.id} item={item} />
 							))}
-						</ul>
+						</RowList>
+					</Section>
+				)}
+
+				{mode && groups.sentBack.length > 0 && (
+					<Section
+						title="Sent back"
+						icon={MessageSquareWarning}
+						count={groups.sentBack.length}
+						description="Change what they ask for, then send them again"
+					>
+						<div className="gap-4 flex flex-col">
+							{groups.sentBack.map((item) => (
+								<IntakeItemCard key={item.id} item={item} {...cardProps} />
+							))}
+						</div>
 					</Section>
 				)}
 
 				{mode && groups.toReview.length > 0 && (
-					<Section title="To check" icon={ClipboardCheck} count={groups.toReview.length}>
+					<Section title="Needs your details" icon={ClipboardCheck} count={groups.toReview.length}>
 						<div className="gap-4 flex flex-col">
 							{groups.toReview.map((item) => (
 								<IntakeItemCard key={item.id} item={item} {...cardProps} />
@@ -240,21 +243,6 @@ export default function IntakeScene() {
 					</Section>
 				)}
 
-				{mode && groups.sentBack.length > 0 && (
-					<Section
-						title="Sent back"
-						icon={MessageSquareWarning}
-						count={groups.sentBack.length}
-						description="Change what they ask for, then send them again"
-					>
-						<div className="gap-4 flex flex-col">
-							{groups.sentBack.map((item) => (
-								<IntakeItemCard key={item.id} item={item} {...cardProps} />
-							))}
-						</div>
-					</Section>
-				)}
-
 				{groups.waiting.length > 0 && (
 					<Section
 						title="Waiting for approval"
@@ -262,7 +250,7 @@ export default function IntakeScene() {
 						count={groups.waiting.length}
 						description="You can take a book back to change it until it is approved"
 					>
-						<ul className="divide-y divide-border rounded-lg border border-border">
+						<RowList>
 							{groups.waiting.map((item) => (
 								<WaitingRow
 									key={item.id}
@@ -271,13 +259,13 @@ export default function IntakeScene() {
 									disabled={busy}
 								/>
 							))}
-						</ul>
+						</RowList>
 					</Section>
 				)}
 
 				{groups.filing.length > 0 && (
 					<Section title="Being added" icon={Loader2} count={groups.filing.length}>
-						<ul className="divide-y divide-border rounded-lg border border-border">
+						<RowList>
 							{groups.filing.map((item) => (
 								<WaitingRow
 									key={item.id}
@@ -286,30 +274,22 @@ export default function IntakeScene() {
 									disabled={busy}
 								/>
 							))}
-						</ul>
+						</RowList>
 					</Section>
 				)}
 
-				{!isLoading &&
-					!groups.analysing.length &&
-					!groups.toReview.length &&
-					!groups.ready.length &&
-					!groups.sentBack.length &&
-					!groups.waiting.length &&
-					!groups.filing.length && (
-						<div className="gap-2 py-10 flex flex-col items-center text-center text-muted-foreground">
-							<Inbox className="h-8 w-8" aria-hidden />
-							<p className="text-sm">Your inbox is empty.</p>
-						</div>
-					)}
+				{/* the last step differs for who sends books for approval: wait until we know who this is */}
+				{!isLoading && mode && inFlight === 0 && groups.filed.length === 0 && (
+					<EmptyInbox friend={friend} />
+				)}
 
 				{groups.filed.length > 0 && (
 					<Section title="Added" icon={CheckCircle2} count={groups.filed.length}>
-						<ul className="divide-y divide-border rounded-lg border border-border">
+						<RowList>
 							{filed.map((item) => (
 								<FiledRow key={item.id} item={item} now={now} />
 							))}
-						</ul>
+						</RowList>
 						{groups.filed.length > FILED_SHOWN && (
 							<Button variant="ghost" size="sm" onClick={() => setShowAllFiled((v) => !v)}>
 								{showAllFiled ? 'Show fewer' : `Show all ${groups.filed.length}`}
@@ -352,19 +332,28 @@ function Section({
 }) {
 	return (
 		<section className="gap-3 flex flex-col" aria-label={title}>
-			<div className="gap-3 flex flex-wrap items-end justify-between">
-				<div>
-					<h2 className="gap-2 font-semibold flex items-center">
-						<Icon className="h-4 w-4 text-muted-foreground" />
+			<div className="gap-3 flex flex-wrap items-center justify-between">
+				<div className="min-w-0">
+					<h2 className="gap-2 text-sm font-semibold flex items-center">
+						<Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
 						{title}
-						<span className="text-sm font-normal text-muted-foreground">{count}</span>
+						<span className="px-2 text-xs font-medium rounded-full bg-muted py-px text-muted-foreground tabular-nums">
+							{count}
+						</span>
 					</h2>
-					{description && <p className="text-sm text-muted-foreground">{description}</p>}
+					{description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
 				</div>
 				{action}
 			</div>
 			{children}
 		</section>
+	)
+}
+
+/** Books that are not cards: a row each, in one rounded list */
+function RowList({ children }: { children: React.ReactNode }) {
+	return (
+		<ul className="divide-y divide-border rounded-xl border border-border bg-card">{children}</ul>
 	)
 }
 
@@ -379,53 +368,32 @@ function useNow() {
 	return now
 }
 
-function FiledRow({ item, now }: { item: IntakeItemData; now: number }) {
-	const paths = usePaths()
-	const isSeries = item.kind === IntakeKind.Series
-	const meta = item.decision?.metadata
-	const title = (isSeries || item.decision?.seriesKind ? meta?.series : meta?.title) || item.name
-	// somebody who files nothing themselves has no destination: the paths are the filing's
-	const planned = destinationPaths(item)
-	const where = planned.length ? planned : (item.result?.paths ?? [])
-	const first = item.mediaIds[0]
-	const recentlyFiled =
-		!now || (!!item.filedAt && now - new Date(item.filedAt).getTime() < 5 * 60 * 1000)
-
+/** Nothing in the inbox: what happens to a book, in three steps */
+function EmptyInbox({ friend }: { friend: boolean }) {
+	const steps = [
+		{ icon: Upload, label: 'Drop your books' },
+		{ icon: ClipboardCheck, label: 'Check the details' },
+		friend
+			? { icon: Send, label: 'Send them for approval' }
+			: { icon: Library, label: 'Add them to the library' },
+	]
 	return (
-		<li className="gap-3 px-3 py-2.5 flex items-start">
-			<FormatIcon
-				format={item.files[0]?.format}
-				series={isSeries}
-				className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-			/>
-			<div className="min-w-0 flex flex-1 flex-col">
-				<span className="text-sm font-medium truncate">{title}</span>
-				<span
-					className={cn('font-mono text-xs break-all text-muted-foreground')}
-					title={where.join('\n')}
-				>
-					{where.length > 1
-						? item.destination
-							? `${item.destination.relativeDir}/ (${where.length} files)`
-							: `${where.length} files`
-						: where[0]}
-				</span>
-				{!!item.result?.notes.length && (
-					<span className="text-xs text-warning">{item.result.notes.join(' · ')}</span>
-				)}
-			</div>
-			{first ? (
-				<Link to={paths.bookOverview(first)} className="text-sm shrink-0">
-					Open
-				</Link>
-			) : recentlyFiled ? (
-				<span className="gap-1 text-xs flex shrink-0 items-center text-muted-foreground">
-					<Loader2 className="h-3 w-3 animate-spin" aria-hidden /> scanning
-				</span>
-			) : (
-				<span className="text-xs shrink-0 text-muted-foreground">not scanned yet</span>
-			)}
-		</li>
+		<div className="gap-4 py-6 flex flex-col items-center text-center">
+			<p className="text-sm text-muted-foreground">Your inbox is empty.</p>
+			<ol
+				className="gap-x-6 gap-y-3 text-sm sm:flex-row flex flex-col items-center text-muted-foreground"
+				aria-label="How adding books works"
+			>
+				{steps.map(({ icon: Icon, label }) => (
+					<li key={label} className="gap-2 flex items-center">
+						<span className="size-7 grid place-items-center rounded-full bg-muted">
+							<Icon className="h-3.5 w-3.5" aria-hidden />
+						</span>
+						{label}
+					</li>
+				))}
+			</ol>
+		</div>
 	)
 }
 

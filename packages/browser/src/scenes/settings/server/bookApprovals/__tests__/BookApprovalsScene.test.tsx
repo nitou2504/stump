@@ -176,6 +176,16 @@ describe('Book approvals', () => {
 		expect(screen.getByText('luis')).toBeInTheDocument()
 	})
 
+	it('names the library each book would join, with several libraries to approve into', () => {
+		// the switch for the library is behind “More details”: the card has to say it itself
+		queue.items = [withTitle('a', 'Dune'), withTitle('b', 'Emma')]
+		queue.totalCount = 2
+
+		renderPage()
+
+		expect(screen.getAllByText(/^Biblioteca · /)).toHaveLength(2)
+	})
+
 	it('approves one book from its card with the tags the card shows', () => {
 		queue.items = [withTitle('a', 'Dune'), withTitle('b', 'Emma')]
 		queue.totalCount = 2

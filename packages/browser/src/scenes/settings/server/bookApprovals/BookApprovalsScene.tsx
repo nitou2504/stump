@@ -73,7 +73,7 @@ export default function BookApprovalsScene() {
 			</Helmet>
 
 			<section aria-label="Books waiting for approval" className="gap-4 flex flex-col">
-				<div className="gap-3 flex flex-wrap items-end justify-between">
+				<div className="gap-3 flex flex-wrap items-center justify-between">
 					<p className="text-sm text-muted-foreground">
 						{totalCount > 0
 							? `${totalCount} ${totalCount === 1 ? 'book is' : 'books are'} waiting. They join the library when you approve them.`
@@ -124,9 +124,11 @@ export default function BookApprovalsScene() {
 					</div>
 				) : (
 					!isLoading && (
-						<div className="gap-2 py-10 flex flex-col items-center text-center text-muted-foreground">
-							<Inbox className="h-8 w-8" aria-hidden />
-							<p className="text-sm">Nothing is waiting for approval.</p>
+						<div className="gap-2 py-12 flex flex-col items-center text-center">
+							<span className="size-12 grid place-items-center rounded-full bg-muted text-muted-foreground">
+								<Inbox className="h-6 w-6" aria-hidden />
+							</span>
+							<p className="text-sm font-medium">Nothing is waiting for approval.</p>
 						</div>
 					)
 				)}
