@@ -2,11 +2,13 @@
 //! it refuses
 
 use axum::http::StatusCode;
+use chrono::Duration;
 use models::{
 	entity::{access_audit, access_device, session},
 	shared::enums::UserPermission,
 };
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+use stump_core::access::state;
 
 use super::*;
 use crate::common::account::CreateTestUser;
@@ -56,7 +58,13 @@ async fn every_field_refuses_a_user_who_is_not_the_owner() {
 			!errors_of(&as_admin).is_empty(),
 			"{query} was allowed to a user who is not the owner: {as_admin:#}"
 		);
-		assert!(as_admin["data"].is_null() || as_admin["data"].as_object().is_some_and(|data| data.values().all(Value::is_null)), "{query}: {as_admin:#}");
+		assert!(
+			as_admin["data"].is_null()
+				|| as_admin["data"]
+					.as_object()
+					.is_some_and(|data| data.values().all(Value::is_null)),
+			"{query}: {as_admin:#}"
+		);
 	}
 	// the owner is allowed the queries
 	for query in QUERIES {
@@ -99,7 +107,10 @@ async fn a_mutation_that_another_site_made_the_browser_send_is_refused() {
 		vec![("origin", "https://evil.test")],
 	] {
 		let response = send(headers.clone()).await;
-		assert!(!errors_of(&response).is_empty(), "{headers:?}: {response:#}");
+		assert!(
+			!errors_of(&response).is_empty(),
+			"{headers:?}: {response:#}"
+		);
 	}
 	// the web app's own request, a script with a token, and a browser at its own origin
 	for headers in [
@@ -108,7 +119,10 @@ async fn a_mutation_that_another_site_made_the_browser_send_is_refused() {
 		vec![("sec-fetch-site", "none")],
 	] {
 		let response = send(headers.clone()).await;
-		assert!(response.get("errors").is_none(), "{headers:?}: {response:#}");
+		assert!(
+			response.get("errors").is_none(),
+			"{headers:?}: {response:#}"
+		);
 	}
 }
 
@@ -120,9 +134,16 @@ async fn a_revoke_is_in_the_state_file_before_the_response_ends() {
 	let app = &env.app;
 	let path = env.state_dir.path().join("state.json");
 	let pass_value = pass_for("hermana-phone");
-	public_get(app, "/api/v2/ping", Some(&pass_value)).await.assert_status_ok();
+	public_get(app, "/api/v2/ping", Some(&pass_value))
+		.await
+		.assert_status_ok();
 
-	let revoked = owner_gql(app, r#"mutation { revokeAccessDevice(id: "hermana-phone") }"#, None).await;
+	let revoked = owner_gql(
+		app,
+		r#"mutation { revokeAccessDevice(id: "hermana-phone") }"#,
+		None,
+	)
+	.await;
 	assert_eq!(revoked["data"]["revokeAccessDevice"], true, "{revoked:#}");
 
 	let text = std::fs::read_to_string(&path).expect("the state file");
@@ -138,21 +159,41 @@ async fn a_revoke_is_in_the_state_file_before_the_response_ends() {
 	#[cfg(unix)]
 	{
 		use std::os::unix::fs::PermissionsExt;
-		assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o644);
+		assert_eq!(
+			std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+			0o644
+		);
 	}
 
 	// restoring takes it out; resetting the budget puts the device in `budget`; the version grows
-	owner_gql(app, r#"mutation { restoreAccessDevice(id: "hermana-phone") }"#, None).await;
-	owner_gql(app, r#"mutation { resetAccessDeviceBudget(id: "hermana-phone") }"#, None).await;
-	let state: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+	owner_gql(
+		app,
+		r#"mutation { restoreAccessDevice(id: "hermana-phone") }"#,
+		None,
+	)
+	.await;
+	owner_gql(
+		app,
+		r#"mutation { resetAccessDeviceBudget(id: "hermana-phone") }"#,
+		None,
+	)
+	.await;
+	let state: Value =
+		serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 	assert_eq!(state["revoked"], json!([]));
 	assert!(state["budget"]["hermana-phone"].as_i64().unwrap() > 0);
 	assert!(state["v"].as_i64().unwrap() > first_version);
 
 	// a second reset gives a strictly later epoch, even within the same second
 	let epoch = state["budget"]["hermana-phone"].as_i64().unwrap();
-	owner_gql(app, r#"mutation { resetAccessDeviceBudget(id: "hermana-phone") }"#, None).await;
-	let state: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+	owner_gql(
+		app,
+		r#"mutation { resetAccessDeviceBudget(id: "hermana-phone") }"#,
+		None,
+	)
+	.await;
+	let state: Value =
+		serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 	assert!(state["budget"]["hermana-phone"].as_i64().unwrap() > epoch);
 }
 
@@ -168,14 +209,30 @@ async fn a_state_file_that_cannot_be_written_is_reported() {
 	.await;
 	let app = &env.app;
 	let pass_value = pass_for("hermana-phone");
-	public_get(app, "/api/v2/ping", Some(&pass_value)).await.assert_status_ok();
+	public_get(app, "/api/v2/ping", Some(&pass_value))
+		.await
+		.assert_status_ok();
 
-	let response = owner_gql(app, r#"mutation { revokeAccessDevice(id: "hermana-phone") }"#, None).await;
-	assert!(errors_of(&response).contains("edge could not be told"), "{response:#}");
+	let response = owner_gql(
+		app,
+		r#"mutation { revokeAccessDevice(id: "hermana-phone") }"#,
+		None,
+	)
+	.await;
+	assert!(
+		errors_of(&response).contains("edge could not be told"),
+		"{response:#}"
+	);
 	// it is revoked in Stump all the same, and refused at once
-	assert!(device_row(app, "hermana-phone").await.unwrap().revoked_at.is_some());
+	assert!(device_row(app, "hermana-phone")
+		.await
+		.unwrap()
+		.revoked_at
+		.is_some());
 	assert_eq!(
-		public_get(app, "/api/v2/ping", Some(&pass_value)).await.status_code(),
+		public_get(app, "/api/v2/ping", Some(&pass_value))
+			.await
+			.status_code(),
 		StatusCode::FORBIDDEN
 	);
 }
@@ -207,7 +264,10 @@ async fn revoking_a_person_cuts_off_their_devices_invites_and_sessions() {
 		Some(json!({"id": ana.id})),
 	)
 	.await;
-	assert_eq!(response["data"]["revokeAccessDevicesOfPerson"], 1, "{response:#}");
+	assert_eq!(
+		response["data"]["revokeAccessDevicesOfPerson"], 1,
+		"{response:#}"
+	);
 
 	let devices = access_device::Entity::find()
 		.filter(access_device::Column::RevokedAt.is_not_null())
@@ -226,7 +286,10 @@ async fn revoking_a_person_cuts_off_their_devices_invites_and_sessions() {
 		0
 	);
 	// the link of the revoked invite no longer works
-	assert_eq!(redeem(app, &link, None).await.status_code(), StatusCode::NOT_FOUND);
+	assert_eq!(
+		redeem(app, &link, None).await.status_code(),
+		StatusCode::NOT_FOUND
+	);
 	let audit = access_audit::Entity::find()
 		.filter(access_audit::Column::Action.eq("person.revoke_all"))
 		.count(app.conn())
@@ -253,7 +316,10 @@ async fn an_invite_asks_for_what_it_needs() {
 		}
 	};
 	// a good one
-	assert!(ask(ana.id.clone(), "phone", 24, 1).await.get("errors").is_none());
+	assert!(ask(ana.id.clone(), "phone", 24, 1)
+		.await
+		.get("errors")
+		.is_none());
 	// the validity is one of the offered ones, the uses 1 to 10, the name not empty, the person real
 	for (person, label, hours, uses) in [
 		(ana.id.clone(), "phone", 5, 1),
@@ -263,7 +329,10 @@ async fn an_invite_asks_for_what_it_needs() {
 		("no-such-person".to_string(), "phone", 24, 1),
 	] {
 		let response = ask(person.clone(), label, hours, uses).await;
-		assert!(!errors_of(&response).is_empty(), "{person} {label:?} {hours} {uses}: {response:#}");
+		assert!(
+			!errors_of(&response).is_empty(),
+			"{person} {label:?} {hours} {uses}: {response:#}"
+		);
 	}
 	// a name with controls and direction marks is cleaned
 	let cleaned = owner_gql(
@@ -272,7 +341,10 @@ async fn an_invite_asks_for_what_it_needs() {
 		Some(json!({"input": {"personId": ana.id, "label": "\u{202e}Ana\u{0}'s phone", "validForHours": 24, "maxUses": 1}})),
 	)
 	.await;
-	assert_eq!(cleaned["data"]["createAccessInvite"]["invite"]["label"], "Ana's phone");
+	assert_eq!(
+		cleaned["data"]["createAccessInvite"]["invite"]["label"],
+		"Ana's phone"
+	);
 }
 
 /// The overview says what is set up; a page of sign-ins with every field and its person stays
@@ -304,9 +376,9 @@ async fn the_overview_and_the_biggest_page_are_within_the_limits() {
 	.await;
 	assert!(big.get("errors").is_none(), "{big:#}");
 	for query in [
-		"{ accessInvites(pagination: {pageSize: 200}) { nodes { id person { id username } } } }",
-		"{ accessDevices(pagination: {pageSize: 200}) { nodes { id person { id username } } } }",
-		"{ accessAudit(pagination: {pageSize: 200}) { nodes { id } } }",
+		"{ accessInvites(pagination: {page: 1, pageSize: 200}) { nodes { id person { id username } } } }",
+		"{ accessDevices(pagination: {page: 1, pageSize: 200}) { nodes { id person { id username } } } }",
+		"{ accessAudit(pagination: {page: 1, pageSize: 200}) { nodes { id } } }",
 	] {
 		let response = owner_gql(app, query, None).await;
 		assert!(response.get("errors").is_none(), "{query}: {response:#}");
@@ -320,7 +392,12 @@ async fn without_edge_settings_the_page_says_what_is_missing() {
 	let app = &env.app;
 	let ana = insert_user(app, "ana", "ana-secret", false).await;
 
-	let overview = owner_gql(app, "{ accessOverview { hasKey hasPublicUrl hasStateDir configured } }", None).await;
+	let overview = owner_gql(
+		app,
+		"{ accessOverview { hasKey hasPublicUrl hasStateDir configured } }",
+		None,
+	)
+	.await;
 	assert_eq!(overview["data"]["accessOverview"]["configured"], false);
 	assert_eq!(overview["data"]["accessOverview"]["hasKey"], false);
 
@@ -332,5 +409,77 @@ async fn without_edge_settings_the_page_says_what_is_missing() {
 	.await;
 	assert!(!errors_of(&response).is_empty(), "{response:#}");
 	// without a state folder a revoke still works (nothing to tell the edge)
-	let (_ok, _) = (access_device::Entity::find().count(app.conn()).await.unwrap(), ());
+	let (_ok, _) = (
+		access_device::Entity::find()
+			.count(app.conn())
+			.await
+			.unwrap(),
+		(),
+	);
+}
+
+/// The version of the state file always grows, even for two files written in the same moment or
+/// after the clock went back: the edge applies a file whenever its version *differs* from the one
+/// it holds, so one that repeated or fell back could be skipped or confuse it
+#[tokio::test]
+async fn the_version_of_the_state_file_always_grows() {
+	let env = edge_app(false).await;
+	let app = &env.app;
+	let dir = env.state_dir.path();
+	let now = Utc::now();
+
+	let mut versions = Vec::new();
+	// the same moment twice, then an earlier one (the clock went back)
+	for at in [now, now, now - Duration::seconds(30)] {
+		versions.push(state::publish(app.conn(), dir, at).await.unwrap());
+	}
+	assert!(
+		versions.windows(2).all(|pair| pair[0] < pair[1]),
+		"{versions:?}"
+	);
+
+	// the file holds the last one written
+	let file: Value =
+		serde_json::from_str(&std::fs::read_to_string(dir.join("state.json")).unwrap())
+			.unwrap();
+	assert_eq!(file["v"].as_i64().unwrap(), *versions.last().unwrap());
+}
+
+/// Changes made at the same time can't leave an older state in the file: writes take turns and
+/// each reads the database inside its turn, so whoever writes last has seen every change
+#[tokio::test]
+async fn concurrent_changes_never_leave_an_older_state_in_the_file() {
+	let env = edge_app(false).await;
+	let app = &env.app;
+	let dir = env.state_dir.path();
+
+	let ids: Vec<String> = (0..12).map(|n| format!("conc-phone-{n}")).collect();
+	for id in &ids {
+		// a pass the app has not seen is registered on its first request
+		public_get(app, "/api/v2/ping", Some(&pass_for(id)))
+			.await
+			.assert_status_ok();
+	}
+
+	futures_util::future::join_all(ids.iter().map(|id| async move {
+		models::services::access::revoke_device(app.conn(), Utc::now(), id, "owner")
+			.await
+			.unwrap();
+		state::publish(app.conn(), dir, Utc::now()).await.unwrap();
+	}))
+	.await;
+
+	let file: Value =
+		serde_json::from_str(&std::fs::read_to_string(dir.join("state.json")).unwrap())
+			.unwrap();
+	let mut revoked: Vec<String> = file["revoked"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|id| id.as_str().unwrap().to_string())
+		.collect();
+	revoked.sort();
+	let mut expected = ids.clone();
+	expected.sort();
+	assert_eq!(revoked, expected, "the file lost a revocation");
 }

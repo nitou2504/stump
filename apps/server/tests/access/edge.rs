@@ -71,12 +71,17 @@ async fn a_valid_pass_opens_the_public_side_and_a_forged_one_does_not() {
 	let no_pass = public_get(app, "/api/v2/ping", None).await;
 	assert_eq!(no_pass.status_code(), StatusCode::NOT_FOUND);
 
-	let forged = format!("ana-phone-aaaaa.{}.{}", Utc::now().timestamp(), "A".repeat(43));
+	let forged = format!(
+		"ana-phone-aaaaa.{}.{}",
+		Utc::now().timestamp(),
+		"A".repeat(43)
+	);
 	let forged = public_get(app, "/api/v2/ping", Some(&forged)).await;
 	assert_eq!(forged.status_code(), StatusCode::NOT_FOUND);
 
 	// a pass made with another key
-	let other_key = pass::mint_pass(&"x".repeat(64), "ana-phone-aaaaa", Utc::now().timestamp());
+	let other_key =
+		pass::mint_pass(&"x".repeat(64), "ana-phone-aaaaa", Utc::now().timestamp());
 	let other_key = public_get(app, "/api/v2/ping", Some(&other_key)).await;
 	assert_eq!(other_key.status_code(), StatusCode::NOT_FOUND);
 
@@ -109,7 +114,9 @@ async fn a_revoked_device_is_refused_at_once() {
 	let env = edge_app(false).await;
 	let app = &env.app;
 	let pass = pass_for("hermana-phone");
-	public_get(app, "/api/v2/ping", Some(&pass)).await.assert_status_ok();
+	public_get(app, "/api/v2/ping", Some(&pass))
+		.await
+		.assert_status_ok();
 
 	models::services::access::revoke_device(
 		app.conn(),
@@ -123,10 +130,17 @@ async fn a_revoked_device_is_refused_at_once() {
 	let refused = public_get(app, "/api/v2/ping", Some(&pass)).await;
 	assert_eq!(refused.status_code(), StatusCode::FORBIDDEN);
 	// and restoring it brings it back
-	models::services::access::restore_device(app.conn(), Utc::now(), "hermana-phone", "owner")
+	models::services::access::restore_device(
+		app.conn(),
+		Utc::now(),
+		"hermana-phone",
+		"owner",
+	)
+	.await
+	.unwrap();
+	public_get(app, "/api/v2/ping", Some(&pass))
 		.await
-		.unwrap();
-	public_get(app, "/api/v2/ping", Some(&pass)).await.assert_status_ok();
+		.assert_status_ok();
 }
 
 /// With `require_pass`, the invite pages are the one thing a browser without a pass reaches
@@ -237,6 +251,59 @@ async fn a_friend_with_a_token_is_not_refused_through_the_edge() {
 		.add_header("authorization", format!("Bearer {token}"))
 		.await;
 	viewer.assert_status_ok();
+}
+
+/// The lead's R3 and R7 for the websocket: GraphQL runs over `/api/graphql/ws` too (queries and
+/// mutations as well as subscriptions), so the owner is refused there through the edge like
+/// everywhere else, and the subscription handler gets the `EdgeRequest` its guards read.
+///
+/// The test server has no real websocket handshake, so what is shown is what happens before the
+/// upgrade: the authentication layers (which refuse the owner) and the handler's extractors (which
+/// would answer `500`, "missing extension", if the route had no `EdgeRequest`)
+#[tokio::test]
+async fn the_websocket_is_guarded_like_the_rest_of_graphql() {
+	let env = edge_app(false).await;
+	let app = &env.app;
+	let owner_token = app.access_token.read().await.clone().unwrap();
+	insert_user(app, "ana", "secret-pass", false).await;
+	let friend_token = app.login_as("ana", "secret-pass").await;
+
+	// the owner through the edge: refused, and nothing deletes the owner's cookie for the LAN
+	let owner = app
+		.server
+		.get("/api/graphql/ws")
+		.add_header("x-edge-public", "1")
+		.add_header("authorization", format!("Bearer {owner_token}"))
+		.await;
+	assert_eq!(owner.status_code(), StatusCode::UNAUTHORIZED);
+	assert!(owner.headers().get("set-cookie").is_none());
+
+	// the same request at home, and a friend through the edge, get as far as the handler, which
+	// wants an upgrade this plain request doesn't ask for: a client error of its own, not an
+	// authentication one, and not a server error (which is what a missing `EdgeRequest` would be)
+	for (who, token, marker) in [
+		("the owner at home", &owner_token, false),
+		("a friend through the edge", &friend_token, true),
+	] {
+		let mut request = app
+			.server
+			.get("/api/graphql/ws")
+			.add_header("authorization", format!("Bearer {token}"));
+		if marker {
+			request = request.add_header("x-edge-public", "1");
+		}
+		let status = request.await.status_code();
+		assert!(
+			status.is_client_error()
+				&& ![
+					StatusCode::UNAUTHORIZED,
+					StatusCode::FORBIDDEN,
+					StatusCode::NOT_FOUND
+				]
+				.contains(&status),
+			"{who}: {status}"
+		);
+	}
 }
 
 /// Accounts are made from home: not even the very first one through the internet
