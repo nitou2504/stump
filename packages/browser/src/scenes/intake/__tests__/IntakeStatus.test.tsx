@@ -64,4 +64,34 @@ describe('IntakeStatusChip', () => {
 		rerender(<IntakeStatusChip item={item({ state: IntakeState.Ready })} />)
 		expect(container.querySelector('svg')).not.toHaveClass('animate-spin')
 	})
+
+	it('keeps the word in the page’s own text colour, and gives the status colour to the icon', () => {
+		const { container } = render(
+			<IntakeStatusChip item={item({ state: IntakeState.NeedsReview })} />,
+		)
+
+		// a status colour on its own 15% tint is hard to read in the light theme
+		const chip = container.firstElementChild as HTMLElement
+		expect(chip).toHaveClass('text-foreground')
+		expect(chip).not.toHaveClass('text-warning')
+		expect(container.querySelector('svg')).toHaveClass('text-warning')
+	})
+
+	it.each([
+		[IntakeState.Failed, 'text-destructive'],
+		[IntakeState.Filed, 'text-success'],
+		[IntakeState.Ready, 'text-success'],
+		[IntakeState.PendingApproval, ''],
+	])('reads in the text colour whatever the status: %s', (state, tone) => {
+		const { container } = render(<IntakeStatusChip item={item({ state })} />)
+
+		expect(container.firstElementChild).toHaveClass('text-foreground')
+		if (tone) expect(container.querySelector('svg')).toHaveClass(tone)
+	})
+
+	it('stops spinning for somebody who asks for less motion', () => {
+		const { container } = render(<IntakeStatusChip item={item({ state: IntakeState.Analysing })} />)
+
+		expect(container.querySelector('svg')).toHaveClass('animate-spin', 'motion-reduce:animate-none')
+	})
 })

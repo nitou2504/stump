@@ -1,4 +1,4 @@
-import { Badge } from '@stump/components'
+import { Badge, cn } from '@stump/components'
 import { IntakeState } from '@stump/graphql'
 import {
 	CheckCircle2,
@@ -75,6 +75,19 @@ const ICONS: Record<IntakeStatusKind, React.ComponentType<{ className?: string }
 	waiting: Hourglass,
 }
 
+/**
+ * The colour of the icon for each variant. The word on the chip is always in the page's own
+ * text colour, which reads on any tint (the status colours on their own 15% tint are as low as
+ * 1.9:1 in the light theme); the colour is carried by the icon, which says the same in words
+ */
+const ICON_TONES: Record<Variant, string> = {
+	error: 'text-destructive',
+	primary: 'text-primary',
+	secondary: '',
+	success: 'text-success',
+	warning: 'text-warning',
+}
+
 type Props = Looking & {
 	item: Pick<IntakeItemData, 'state' | 'problems' | 'proposal' | 'reviewNote'>
 	className?: string
@@ -86,8 +99,15 @@ export default function IntakeStatusChip({ item, friend, reviewing, className }:
 	const Icon = ICONS[kind]
 	const spinning = kind === 'reading' || kind === 'adding'
 	return (
-		<Badge variant={variant} size="md" className={className}>
-			<Icon className={spinning ? 'h-3 w-3 animate-spin' : 'h-3 w-3'} aria-hidden />
+		<Badge variant={variant} size="md" className={cn('text-foreground', className)}>
+			<Icon
+				className={cn(
+					'h-3 w-3',
+					ICON_TONES[variant],
+					spinning && 'animate-spin motion-reduce:animate-none',
+				)}
+				aria-hidden
+			/>
 			{label}
 		</Badge>
 	)
