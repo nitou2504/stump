@@ -3076,7 +3076,8 @@ async fn test_a_friends_epub_is_filed_without_its_scripts() {
 	assert!(chapter.contains("<p>hello there</p>"), "{chapter}");
 	assert!(!chapter.contains("script") && !chapter.contains("onerror"), "{chapter}");
 	let mut opf = String::new();
-	std::io::Read::read_to_string(&mut zip.by_name("OEBPS/content.opf").unwrap(), &mut opf).unwrap();
+	// a friend's book is written anew: its package is the one that was generated, at the root
+	std::io::Read::read_to_string(&mut zip.by_name("content.opf").unwrap(), &mut opf).unwrap();
 	assert!(!opf.contains("onerror"), "the description is plain text now: {opf}");
 }
 
