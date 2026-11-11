@@ -3399,6 +3399,54 @@ mod tests {
 		assert!(descriptions_in(&removed).is_empty(), "{removed}");
 	}
 
+	/// A description with an `id` that other elements refine (Standard Ebooks keeps a long
+	/// description so), and a tag whose attribute holds a `>`: saving a summary takes the
+	/// description and what refines it, and nothing else
+	#[test]
+	fn a_summary_takes_what_refines_the_description_and_nothing_else() {
+		let changes = FileChanges {
+			summary: Some(Some("A new summary".into())),
+			..Default::default()
+		};
+		let opf = BOOK_OPF.replace(
+			"<dc:language>",
+			&format!(
+				concat!(
+					r##"<dc:description id="description">{}</dc:description>"##,
+					r##"<meta id="long" property="se:long-description" refines="#description">long words</meta>"##,
+					r##"<meta refines="#description" property="x"/>"##,
+					r##"<meta refines="#unrelated" property="kept">kept words</meta>"##,
+					r##"<meta name="calibre:description" content="a > b"/>"##,
+					r##"<meta name="calibre:rating" content="4"></meta><dc:language>"##,
+				),
+				some_words(40)
+			),
+		);
+		let new = apply_opf_changes(&opf, &changes).expect("the OPF is edited");
+		check_xml(&new).unwrap();
+		assert_eq!(
+			descriptions_in(&new),
+			vec!["A new summary".to_string()],
+			"{new}"
+		);
+		for gone in ["#description", "long words", "property=\"x\"", "a > b"] {
+			assert!(!new.contains(gone), "{gone} is still there: {new}");
+		}
+		assert!(
+			new.contains(
+				r##"<meta refines="#unrelated" property="kept">kept words</meta>"##
+			),
+			"{new}"
+		);
+		// the element after the `>` is not taken with the description
+		assert!(
+			new.contains(r##"<meta name="calibre:rating" content="4"></meta>"##),
+			"{new}"
+		);
+		// and the same edit again leaves the same OPF
+		assert_eq!(apply_opf_changes(&new, &changes).unwrap(), new);
+	}
+
 	/// The book the owner saw: its own description has no prefix, a summary was saved, and the
 	/// book showed the old description and the new one, one after the other
 	#[test]
