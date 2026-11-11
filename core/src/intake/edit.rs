@@ -3446,6 +3446,50 @@ mod tests {
 		assert_eq!(descriptions_in(&opf_of(&path)).len(), 1);
 	}
 
+	/// A book the writers left with two descriptions in its file (its own, and the one a save
+	/// appended), as the library holds some, is repaired through the editor. A save writes only what
+	/// differs from the database: a book whose summary is the two descriptions joined takes one save
+	/// of the one to keep; a book whose database already holds one of them (and whose file holds
+	/// both) is cleared and then set again, and the file ends with the one description
+	#[test]
+	fn a_book_with_two_descriptions_is_repaired_by_one_save_or_by_a_clear_and_a_set() {
+		let kept = some_words(30);
+		let doubled = opf_with_a_native_description(&some_words(40)).replace(
+			"<dc:language>",
+			&format!("<dc:description>{kept}</dc:description><dc:language>"),
+		);
+		let set = FileChanges {
+			summary: Some(Some(kept.clone())),
+			..Default::default()
+		};
+		let clear = FileChanges {
+			summary: Some(None),
+			..Default::default()
+		};
+		for clear_first in [false, true] {
+			let dir = tempfile::tempdir().unwrap();
+			let path = dir.path().join("book.epub");
+			epub_with_opf(&path, &doubled);
+			// what the reader makes of it: both descriptions, one after the other
+			assert_eq!(
+				read_summary(&path),
+				Some(format!("{}\n{kept}", some_words(40)))
+			);
+			assert_eq!(descriptions_in(&opf_of(&path)).len(), 2);
+			if clear_first {
+				write_epub_changes(&path, &clear).expect("the summary is cleared");
+				assert_eq!(read_summary(&path), None);
+				assert!(descriptions_in(&opf_of(&path)).is_empty());
+			}
+			write_epub_changes(&path, &set).expect("the summary is set");
+			assert_eq!(read_summary(&path).as_deref(), Some(kept.as_str()));
+			assert_eq!(descriptions_in(&opf_of(&path)), vec![kept.clone()]);
+			// and once more: nothing to change
+			write_epub_changes(&path, &set).expect("the summary is set again");
+			assert_eq!(descriptions_in(&opf_of(&path)).len(), 1);
+		}
+	}
+
 	#[test]
 	fn the_fields_a_tool_wrote_without_the_prefix_are_replaced_not_doubled() {
 		let dc = r#" xmlns="http://purl.org/dc/elements/1.1/""#;
