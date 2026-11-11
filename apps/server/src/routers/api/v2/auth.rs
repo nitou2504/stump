@@ -39,9 +39,7 @@ use crate::{
 	},
 	errors::{APIError, APIResult},
 	middleware::{
-		auth::auth_middleware,
-		edge::EDGE_PUBLIC_HEADER,
-		ClientIp, HostExtractor,
+		auth::auth_middleware, edge::EDGE_PUBLIC_HEADER, ClientIp, HostExtractor,
 	},
 	utils::{
 		default_true, fetch_session_user, hash_password, verify_dummy_password,
@@ -233,7 +231,8 @@ async fn record_attempt(
 ) {
 	match handle_login_attempt(conn, for_user, user_agent, client_ip, success).await {
 		Ok(activity) => {
-			if let Err(error) = access_service::mark_sign_in(conn, activity.id, mark).await
+			if let Err(error) =
+				access_service::mark_sign_in(conn, activity.id, mark).await
 			{
 				error!(?error, "Failed to mark the login attempt!");
 			}

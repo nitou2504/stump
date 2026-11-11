@@ -2,6 +2,7 @@ use crate::{
 	complexity::MAX_QUERY_COMPLEXITY,
 	data::CoreContext,
 	loader::{
+		access_person::AccessPersonLoader,
 		author::{AuthorMediaLoader, MetadataSeriesMediaLoader},
 		favorite::FavoritesLoader,
 		library::LibraryLoader,
@@ -10,7 +11,6 @@ use crate::{
 		media::MediaLoader,
 		media_analysis::MediaAnalysisLoader,
 		media_tags::MediaTagsLoader,
-		access_person::AccessPersonLoader,
 		reader_profile::ReaderProfileLoader,
 		reading_session::ReadingSessionLoader,
 		series::SeriesLoader,

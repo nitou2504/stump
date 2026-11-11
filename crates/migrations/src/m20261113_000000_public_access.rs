@@ -67,7 +67,10 @@ impl MigrationTrait for Migration {
 							.not_null()
 							.default(0),
 					)
-					.col(ColumnDef::new(AccessInvites::RevokedAt).timestamp_with_time_zone())
+					.col(
+						ColumnDef::new(AccessInvites::RevokedAt)
+							.timestamp_with_time_zone(),
+					)
 					.foreign_key(
 						ForeignKey::create()
 							.name("fk-access_invites-person")
@@ -99,8 +102,14 @@ impl MigrationTrait for Migration {
 							.timestamp_with_time_zone()
 							.not_null(),
 					)
-					.col(ColumnDef::new(AccessDevices::FirstSeenAt).timestamp_with_time_zone())
-					.col(ColumnDef::new(AccessDevices::LastSeenAt).timestamp_with_time_zone())
+					.col(
+						ColumnDef::new(AccessDevices::FirstSeenAt)
+							.timestamp_with_time_zone(),
+					)
+					.col(
+						ColumnDef::new(AccessDevices::LastSeenAt)
+							.timestamp_with_time_zone(),
+					)
 					.col(
 						ColumnDef::new(AccessDevices::LastIp)
 							.text()
@@ -113,7 +122,10 @@ impl MigrationTrait for Migration {
 							.not_null()
 							.default(""),
 					)
-					.col(ColumnDef::new(AccessDevices::RevokedAt).timestamp_with_time_zone())
+					.col(
+						ColumnDef::new(AccessDevices::RevokedAt)
+							.timestamp_with_time_zone(),
+					)
 					.col(ColumnDef::new(AccessDevices::RevokedBy).text())
 					.col(
 						ColumnDef::new(AccessDevices::BudgetResetAt)
@@ -238,11 +250,18 @@ impl MigrationTrait for Migration {
 							.timestamp_with_time_zone()
 							.not_null(),
 					)
-					.col(ColumnDef::new(AccessPasswordResets::SetBy).text().not_null())
+					.col(
+						ColumnDef::new(AccessPasswordResets::SetBy)
+							.text()
+							.not_null(),
+					)
 					.foreign_key(
 						ForeignKey::create()
 							.name("fk-access_password_resets-user")
-							.from(AccessPasswordResets::Table, AccessPasswordResets::UserId)
+							.from(
+								AccessPasswordResets::Table,
+								AccessPasswordResets::UserId,
+							)
 							.to(Users::Table, Users::Id)
 							.on_delete(ForeignKeyAction::Cascade)
 							.on_update(ForeignKeyAction::Cascade),
@@ -271,13 +290,28 @@ impl MigrationTrait for Migration {
 			)
 			.await?;
 		manager
-			.drop_table(Table::drop().table(AccessAudit::Table).if_exists().to_owned())
+			.drop_table(
+				Table::drop()
+					.table(AccessAudit::Table)
+					.if_exists()
+					.to_owned(),
+			)
 			.await?;
 		manager
-			.drop_table(Table::drop().table(AccessDevices::Table).if_exists().to_owned())
+			.drop_table(
+				Table::drop()
+					.table(AccessDevices::Table)
+					.if_exists()
+					.to_owned(),
+			)
 			.await?;
 		manager
-			.drop_table(Table::drop().table(AccessInvites::Table).if_exists().to_owned())
+			.drop_table(
+				Table::drop()
+					.table(AccessInvites::Table)
+					.if_exists()
+					.to_owned(),
+			)
 			.await
 	}
 }

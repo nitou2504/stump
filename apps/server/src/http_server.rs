@@ -97,7 +97,9 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 			binds_person = edge.binds_person,
 			"Public access is configured"
 		),
-		None => tracing::info!("Public access is not configured (no STUMP_EDGE_* settings)"),
+		None => {
+			tracing::info!("Public access is not configured (no STUMP_EDGE_* settings)")
+		},
 	}
 	match stump_core::access::state::publish_if_configured(
 		server_ctx.conn.as_ref(),
@@ -108,7 +110,10 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 		Ok(true) => tracing::info!("Public access: the edge's state file was written"),
 		Ok(false) => {},
 		Err(error) => {
-			tracing::error!(?error, "Public access: the edge's state file was not written");
+			tracing::error!(
+				?error,
+				"Public access: the edge's state file was not written"
+			);
 		},
 	}
 	stump_core::access::state::spawn_housekeeping(
@@ -151,17 +156,16 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 		.layer(get_session_layer(app_state.clone()))
 		.layer(cors_layer)
 		.layer(CompressionLayer::new().compress_when(compression_predicate))
-		.layer(
-			TraceLayer::new_for_http()
-				.make_span_with(|request: &axum::http::Request<_>| {
-					tracing::debug_span!(
-						"request",
-						method = %request.method(),
-						uri = %loggable_uri(request.uri()),
-						version = ?request.version(),
-					)
-				}),
-		)
+		.layer(TraceLayer::new_for_http().make_span_with(
+			|request: &axum::http::Request<_>| {
+				tracing::debug_span!(
+					"request",
+					method = %request.method(),
+					uri = %loggable_uri(request.uri()),
+					version = ?request.version(),
+				)
+			},
+		))
 		.layer(Extension(oidc_provider));
 
 	let shutdown_notify = Arc::new(Notify::new());

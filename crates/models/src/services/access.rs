@@ -429,7 +429,10 @@ where
 		.filter(access_invite::Column::Id.eq(invite.id.clone()))
 		.filter(access_invite::Column::RevokedAt.is_null())
 		.filter(access_invite::Column::ExpiresAt.gt(now))
-		.filter(Expr::col(access_invite::Column::Uses).lt(Expr::col(access_invite::Column::MaxUses)))
+		.filter(
+			Expr::col(access_invite::Column::Uses)
+				.lt(Expr::col(access_invite::Column::MaxUses)),
+		)
 		.exec(&txn)
 		.await?
 		.rows_affected;
@@ -612,7 +615,10 @@ where
 	};
 	let changed = access_device::Entity::update_many()
 		.col_expr(access_device::Column::RevokedAt, Expr::value(now))
-		.col_expr(access_device::Column::RevokedBy, Expr::value(clean_text(actor, 64)))
+		.col_expr(
+			access_device::Column::RevokedBy,
+			Expr::value(clean_text(actor, 64)),
+		)
 		.filter(access_device::Column::Id.eq(id))
 		.filter(access_device::Column::RevokedAt.is_null())
 		.exec(&txn)
@@ -688,7 +694,10 @@ where
 	let txn = conn.begin().await?;
 	let devices = access_device::Entity::update_many()
 		.col_expr(access_device::Column::RevokedAt, Expr::value(now))
-		.col_expr(access_device::Column::RevokedBy, Expr::value(clean_text(actor, 64)))
+		.col_expr(
+			access_device::Column::RevokedBy,
+			Expr::value(clean_text(actor, 64)),
+		)
 		.filter(access_device::Column::PersonId.eq(person_id))
 		.filter(access_device::Column::RevokedAt.is_null())
 		.exec(&txn)
@@ -1014,7 +1023,8 @@ where
 {
 	let mut select = user_login_activity::Entity::find();
 	if failures_only {
-		select = select.filter(user_login_activity::Column::AuthenticationSuccessful.eq(false));
+		select = select
+			.filter(user_login_activity::Column::AuthenticationSuccessful.eq(false));
 	}
 	let paginator = select
 		.order_by_desc(user_login_activity::Column::Timestamp)
@@ -1116,10 +1126,11 @@ where
 
 		let last_lock = access_audit::Entity::find()
 			.filter(access_audit::Column::Target.eq(user.id.clone()))
-			.filter(
-				access_audit::Column::Action
-					.is_in(["user.lock", "user.locked_by_failures", "user.unblock"]),
-			)
+			.filter(access_audit::Column::Action.is_in([
+				"user.lock",
+				"user.locked_by_failures",
+				"user.unblock",
+			]))
 			.order_by_desc(access_audit::Column::Id)
 			.one(conn)
 			.await?;
@@ -1214,11 +1225,13 @@ pub async fn clear_password_change<C>(conn: &C, user_id: &str) -> Result<bool, D
 where
 	C: ConnectionTrait,
 {
-	Ok(access_password_reset::Entity::delete_by_id(user_id.to_string())
-		.exec(conn)
-		.await?
-		.rows_affected
-		> 0)
+	Ok(
+		access_password_reset::Entity::delete_by_id(user_id.to_string())
+			.exec(conn)
+			.await?
+			.rows_affected
+			> 0,
+	)
 }
 
 /// Whether the user has to choose their own password before anything else
@@ -1255,7 +1268,10 @@ mod tests {
 		}
 		assert_eq!(device_slug("Ana's phone"), "ana-s-phone");
 		assert_eq!(device_slug("  "), "device");
-		assert_eq!(device_slug("A very long name of a device"), "a-very-long-name");
+		assert_eq!(
+			device_slug("A very long name of a device"),
+			"a-very-long-name"
+		);
 	}
 
 	#[test]
@@ -1307,11 +1323,26 @@ mod tests {
 	#[test]
 	fn an_invite_has_one_status() {
 		let now = Utc::now();
-		assert_eq!(invite_status(&invite(0, 3, 1, false), now), InviteStatus::Unused);
-		assert_eq!(invite_status(&invite(1, 3, 1, false), now), InviteStatus::Used);
-		assert_eq!(invite_status(&invite(3, 3, 1, false), now), InviteStatus::UsedUp);
-		assert_eq!(invite_status(&invite(0, 3, -1, false), now), InviteStatus::Expired);
+		assert_eq!(
+			invite_status(&invite(0, 3, 1, false), now),
+			InviteStatus::Unused
+		);
+		assert_eq!(
+			invite_status(&invite(1, 3, 1, false), now),
+			InviteStatus::Used
+		);
+		assert_eq!(
+			invite_status(&invite(3, 3, 1, false), now),
+			InviteStatus::UsedUp
+		);
+		assert_eq!(
+			invite_status(&invite(0, 3, -1, false), now),
+			InviteStatus::Expired
+		);
 		// revoked wins over everything
-		assert_eq!(invite_status(&invite(3, 3, -1, true), now), InviteStatus::Revoked);
+		assert_eq!(
+			invite_status(&invite(3, 3, -1, true), now),
+			InviteStatus::Revoked
+		);
 	}
 }

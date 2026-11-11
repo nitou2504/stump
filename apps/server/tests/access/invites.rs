@@ -28,7 +28,10 @@ async fn the_link_is_shown_once_and_only_its_hash_is_stored() {
 	let row = invite_row(app, &id).await;
 	assert_eq!(row.token_hash, pass::token_hash(token));
 	assert_ne!(row.token_hash, token);
-	assert!(!format!("{row:?}").contains(token), "the token is in the stored row");
+	assert!(
+		!format!("{row:?}").contains(token),
+		"the token is in the stored row"
+	);
 
 	// the list of invites has no link, and the audit log says who made it for whom, not the token
 	let list = owner_gql(
@@ -39,11 +42,19 @@ async fn the_link_is_shown_once_and_only_its_hash_is_stored() {
 	.await;
 	assert!(list.get("errors").is_none(), "{list:#}");
 	assert!(!list.to_string().contains(token));
-	assert_eq!(list["data"]["accessInvites"]["nodes"][0]["person"]["username"], "ana");
-	assert_eq!(list["data"]["accessInvites"]["nodes"][0]["status"], "UNUSED");
+	assert_eq!(
+		list["data"]["accessInvites"]["nodes"][0]["person"]["username"],
+		"ana"
+	);
+	assert_eq!(
+		list["data"]["accessInvites"]["nodes"][0]["status"],
+		"UNUSED"
+	);
 
 	let audit = access_audit::Entity::find().all(app.conn()).await.unwrap();
-	assert!(audit.iter().any(|row| row.action == "invite.create" && row.target == id));
+	assert!(audit
+		.iter()
+		.any(|row| row.action == "invite.create" && row.target == id));
 	assert!(!format!("{audit:?}").contains(token));
 }
 
@@ -111,8 +122,17 @@ async fn pressing_the_button_makes_a_device_with_a_pass_for_that_person() {
 		.find(|value| value.starts_with(COOKIE))
 		.expect("a pass cookie")
 		.to_string();
-	for attribute in ["Path=/", "Secure", "HttpOnly", "SameSite=Lax", "Max-Age=15552000"] {
-		assert!(cookie.contains(attribute), "{attribute} is missing from {cookie}");
+	for attribute in [
+		"Path=/",
+		"Secure",
+		"HttpOnly",
+		"SameSite=Lax",
+		"Max-Age=15552000",
+	] {
+		assert!(
+			cookie.contains(attribute),
+			"{attribute} is missing from {cookie}"
+		);
 	}
 	assert!(!cookie.contains("Domain"));
 
@@ -128,7 +148,9 @@ async fn pressing_the_button_makes_a_device_with_a_pass_for_that_person() {
 	assert_eq!(invite_row(app, &id).await.uses, 1);
 
 	// the pass opens the public side
-	public_get(app, "/api/v2/ping", Some(&pass_value)).await.assert_status_ok();
+	public_get(app, "/api/v2/ping", Some(&pass_value))
+		.await
+		.assert_status_ok();
 
 	// the redemption is in the audit log (the device and the invite, never the token)
 	let audit = access_audit::Entity::find()
@@ -155,8 +177,12 @@ async fn a_second_tap_with_the_same_pass_spends_nothing() {
 	assert_eq!(again.status_code(), StatusCode::SEE_OTHER);
 	let again_pass = pass_in(&again).expect("the pass is handed out again");
 	assert_eq!(
-		pass::verify_pass(KEY, &again_pass, Utc::now().timestamp()).unwrap().id,
-		pass::verify_pass(KEY, &pass_value, Utc::now().timestamp()).unwrap().id
+		pass::verify_pass(KEY, &again_pass, Utc::now().timestamp())
+			.unwrap()
+			.id,
+		pass::verify_pass(KEY, &pass_value, Utc::now().timestamp())
+			.unwrap()
+			.id
 	);
 	assert_eq!(invite_row(app, &id).await.uses, 1);
 }
@@ -185,10 +211,15 @@ async fn every_failure_looks_the_same() {
 	redeem(app, &used_up, None).await;
 	assert_eq!(invite_row(app, &used_up_id).await.uses, 1);
 	// revoked
-	service::revoke_invite(app.conn(), Utc::now(), &revoked_id, "owner").await.unwrap();
+	service::revoke_invite(app.conn(), Utc::now(), &revoked_id, "owner")
+		.await
+		.unwrap();
 	// its person is locked
 	user::Entity::update_many()
-		.col_expr(user::Column::IsLocked, sea_orm::sea_query::Expr::value(true))
+		.col_expr(
+			user::Column::IsLocked,
+			sea_orm::sea_query::Expr::value(true),
+		)
 		.filter(user::Column::Id.eq(locked.id.clone()))
 		.exec(app.conn())
 		.await
@@ -215,13 +246,20 @@ async fn every_failure_looks_the_same() {
 		assert!(pass_in(&response).is_none(), "{link:?}");
 		answers.insert(response.text());
 	}
-	assert_eq!(answers.len(), 1, "the failures must look the same: {answers:?}");
+	assert_eq!(
+		answers.len(),
+		1,
+		"the failures must look the same: {answers:?}"
+	);
 
 	// no use was spent on any of them, and no device was made
 	assert_eq!(invite_row(app, &expired_id).await.uses, 0);
 	assert_eq!(invite_row(app, &revoked_id).await.uses, 0);
 	assert_eq!(
-		models::entity::access_device::Entity::find().count(app.conn()).await.unwrap(),
+		models::entity::access_device::Entity::find()
+			.count(app.conn())
+			.await
+			.unwrap(),
 		1,
 		"only the one the used-up invite's first use made"
 	);
@@ -275,7 +313,10 @@ async fn the_invite_pages_are_not_there_at_home() {
 	let ana = insert_user(app, "ana", "secret-pass", false).await;
 	let (id, link) = make_invite(app, &ana.id, "Ana's phone", 3).await;
 
-	let page = app.server.get(&format!("/api/_i/{}", token_of(&link))).await;
+	let page = app
+		.server
+		.get(&format!("/api/_i/{}", token_of(&link)))
+		.await;
 	assert_eq!(page.status_code(), StatusCode::NOT_FOUND);
 	assert!(page.text().is_empty());
 	let post = app
@@ -293,7 +334,11 @@ async fn the_invite_pages_are_not_there_at_home() {
 async fn an_invite_for_the_owner_is_refused() {
 	let env = edge_app(false).await;
 	let app = &env.app;
-	let owner = user::Entity::find().all(app.conn()).await.unwrap().remove(0);
+	let owner = user::Entity::find()
+		.all(app.conn())
+		.await
+		.unwrap()
+		.remove(0);
 	assert!(owner.is_server_owner);
 
 	let response = owner_gql(
@@ -310,7 +355,10 @@ async fn an_invite_for_the_owner_is_refused() {
 	let ana = insert_user(app, "ana", "secret-pass", false).await;
 	let (_, link) = make_invite(app, &ana.id, "Ana's phone", 3).await;
 	user::Entity::update_many()
-		.col_expr(user::Column::IsServerOwner, sea_orm::sea_query::Expr::value(true))
+		.col_expr(
+			user::Column::IsServerOwner,
+			sea_orm::sea_query::Expr::value(true),
+		)
 		.filter(user::Column::Id.eq(ana.id.clone()))
 		.exec(app.conn())
 		.await
@@ -334,10 +382,17 @@ async fn an_invite_is_spent_use_by_use() {
 		let response = redeem(app, &link, None).await;
 		assert_eq!(response.status_code(), StatusCode::SEE_OTHER);
 		let value = pass_in(&response).unwrap();
-		ids.insert(pass::verify_pass(KEY, &value, Utc::now().timestamp()).unwrap().id);
+		ids.insert(
+			pass::verify_pass(KEY, &value, Utc::now().timestamp())
+				.unwrap()
+				.id,
+		);
 	}
 	assert_eq!(ids.len(), 3, "each use makes a device of its own");
-	assert_eq!(redeem(app, &link, None).await.status_code(), StatusCode::NOT_FOUND);
+	assert_eq!(
+		redeem(app, &link, None).await.status_code(),
+		StatusCode::NOT_FOUND
+	);
 	let row = invite_row(app, &id).await;
 	assert_eq!(row.uses, 3);
 	assert_eq!(
@@ -355,7 +410,8 @@ async fn parallel_redemptions_never_spend_more_than_the_uses_left() {
 	let ana = insert_user(app, "ana", "secret-pass", false).await;
 	let (id, link) = make_invite(app, &ana.id, "Ana's phone", 3).await;
 
-	let attempts = futures_util::future::join_all((0..10).map(|_| redeem(app, &link, None))).await;
+	let attempts =
+		futures_util::future::join_all((0..10).map(|_| redeem(app, &link, None))).await;
 	let redeemed = attempts
 		.iter()
 		.filter(|response| response.status_code() == StatusCode::SEE_OTHER)
@@ -366,7 +422,10 @@ async fn parallel_redemptions_never_spend_more_than_the_uses_left() {
 	let row = invite_row(app, &id).await;
 	assert_eq!(row.uses as usize, redeemed);
 	assert_eq!(
-		models::entity::access_device::Entity::find().count(app.conn()).await.unwrap() as usize,
+		models::entity::access_device::Entity::find()
+			.count(app.conn())
+			.await
+			.unwrap() as usize,
 		redeemed
 	);
 }
@@ -377,28 +436,41 @@ async fn parallel_redemptions_never_spend_more_than_the_uses_left() {
 async fn a_legacy_link_registers_a_device_and_never_revives_a_revoked_one() {
 	let env = edge_app(true).await;
 	let app = &env.app;
-	let link = pass::mint_legacy_invite(KEY, "hermana-phone", Utc::now().timestamp() + 3600);
+	let link =
+		pass::mint_legacy_invite(KEY, "hermana-phone", Utc::now().timestamp() + 3600);
 
 	let response = redeem(app, &format!("{PUBLIC_URL}/api/_i/{link}"), None).await;
 	assert_eq!(response.status_code(), StatusCode::SEE_OTHER);
 	let value = pass_in(&response).unwrap();
 	assert_eq!(
-		pass::verify_pass(KEY, &value, Utc::now().timestamp()).unwrap().id,
+		pass::verify_pass(KEY, &value, Utc::now().timestamp())
+			.unwrap()
+			.id,
 		"hermana-phone"
 	);
 	let device = device_row(app, "hermana-phone").await.unwrap();
 	assert_eq!(device.person_id, None);
 
 	// revoked: the old link no longer works
-	service::revoke_device(app.conn(), Utc::now(), "hermana-phone", "owner").await.unwrap();
+	service::revoke_device(app.conn(), Utc::now(), "hermana-phone", "owner")
+		.await
+		.unwrap();
 	let again = redeem(app, &link, None).await;
 	assert_eq!(again.status_code(), StatusCode::NOT_FOUND);
 	assert!(pass_in(&again).is_none());
-	assert!(device_row(app, "hermana-phone").await.unwrap().revoked_at.is_some());
+	assert!(device_row(app, "hermana-phone")
+		.await
+		.unwrap()
+		.revoked_at
+		.is_some());
 
 	// an expired legacy link is no link
-	let expired = pass::mint_legacy_invite(KEY, "other-phone", Utc::now().timestamp() - 5);
-	assert_eq!(redeem(app, &expired, None).await.status_code(), StatusCode::NOT_FOUND);
+	let expired =
+		pass::mint_legacy_invite(KEY, "other-phone", Utc::now().timestamp() - 5);
+	assert_eq!(
+		redeem(app, &expired, None).await.status_code(),
+		StatusCode::NOT_FOUND
+	);
 	assert!(device_row(app, "other-phone").await.is_none());
 }
 

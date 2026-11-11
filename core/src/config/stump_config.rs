@@ -643,7 +643,10 @@ allowed_origins = ["http://localhost:3000"]
 
 				let toml = toml::to_string(&config).expect("should serialise to toml");
 				assert!(!toml.contains(&key), "the key is in the TOML");
-				assert!(!toml.contains("edge"), "an [edge] table is in the TOML: {toml}");
+				assert!(
+					!toml.contains("edge"),
+					"an [edge] table is in the TOML: {toml}"
+				);
 
 				// and what write_config puts in Stump.toml loads in an image that has no `edge`
 				config.write_config().expect("should write the config");

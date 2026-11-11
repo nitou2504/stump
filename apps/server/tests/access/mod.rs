@@ -21,8 +21,7 @@ use tempfile::TempDir;
 use crate::common::TestApp;
 
 /// The key the edge and the app share in these tests (64 characters)
-pub const KEY: &str =
-	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+pub const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 pub const PUBLIC_URL: &str = "https://g3.test:8443";
 pub const COOKIE: &str = "__Host-g3-stump";
 

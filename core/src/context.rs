@@ -83,10 +83,7 @@ impl Ctx {
 
 	/// Creates a [Ctx] instance for testing **only**, with the given configuration (a test that
 	/// needs the edge settings, or a limit, set)
-	pub fn for_testing_with_config(
-		conn: DatabaseConnection,
-		config: StumpConfig,
-	) -> Ctx {
+	pub fn for_testing_with_config(conn: DatabaseConnection, config: StumpConfig) -> Ctx {
 		let config = Arc::new(config);
 		let conn = Arc::new(conn);
 		let event_channel = Arc::new(channel::<CoreEvent>(1024));

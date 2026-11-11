@@ -40,9 +40,7 @@ impl AccessQuery {
 			configured: has_key && has_public_url && state_dir.is_some(),
 			require_pass: edge.is_some_and(|edge| edge.require_pass),
 			public_url: edge.and_then(|edge| edge.public_base_url()),
-			state_written_at: state_dir
-				.as_deref()
-				.and_then(edge_state::state_written_at),
+			state_written_at: state_dir.as_deref().and_then(edge_state::state_written_at),
 			active_devices: service::count_active_devices(conn).await?,
 			open_invites: service::count_open_invites(conn, Utc::now()).await?,
 		})

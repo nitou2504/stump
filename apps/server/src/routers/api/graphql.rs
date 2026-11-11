@@ -67,9 +67,10 @@ fn asks_only_for_the_password_change(query: &str) -> bool {
 	};
 	let operations: Vec<&OperationDefinition> = match &document.operations {
 		DocumentOperations::Single(operation) => vec![&operation.node],
-		DocumentOperations::Multiple(operations) => {
-			operations.values().map(|operation| &operation.node).collect()
-		},
+		DocumentOperations::Multiple(operations) => operations
+			.values()
+			.map(|operation| &operation.node)
+			.collect(),
 	};
 	operations.iter().all(|operation| {
 		operation.ty != OperationType::Subscription
@@ -96,10 +97,12 @@ async fn graphql_handler(
 	// the owner set this user's password: until they choose their own, all they may do here is
 	// ask who they are and change it
 	if auth.user.must_change_password && !asks_only_for_the_password_change(&req.query) {
-		return async_graphql::Response::from_errors(vec![async_graphql::ServerError::new(
-			"You must choose a new password before you can use anything else",
-			None,
-		)])
+		return async_graphql::Response::from_errors(vec![
+			async_graphql::ServerError::new(
+				"You must choose a new password before you can use anything else",
+				None,
+			),
+		])
 		.into();
 	}
 

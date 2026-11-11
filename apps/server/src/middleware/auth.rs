@@ -205,9 +205,10 @@ const MUST_CHANGE_PASSWORD: &str =
 fn owner_through_the_edge() -> Response {
 	let body = serde_json::json!({ "status": 401, "message": "Unauthorized" });
 	let mut response = (StatusCode::UNAUTHORIZED, Json(body)).into_response();
-	response
-		.headers_mut()
-		.insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+	response.headers_mut().insert(
+		header::CACHE_CONTROL,
+		header::HeaderValue::from_static("no-store"),
+	);
 	response
 }
 
@@ -215,9 +216,7 @@ fn owner_through_the_edge() -> Response {
 /// are (`/api/v2/auth/…`) and the GraphQL endpoint (whose handler lets through only `me` and the
 /// password change). The websocket and everything else are refused
 fn allowed_while_password_must_change(path: &str) -> bool {
-	path.starts_with("/api/v2/auth/")
-		|| path == "/api/graphql"
-		|| path == "/api/graphql/"
+	path.starts_with("/api/v2/auth/") || path == "/api/graphql" || path == "/api/graphql/"
 }
 
 /// The last step of authenticating a request, for every way of signing in (a session, a token or

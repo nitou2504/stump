@@ -305,7 +305,10 @@ impl From<SignInRow> for AccessSignIn {
 		);
 		let cleared = !row.activity.authentication_successful
 			&& !never_counted
-			&& row.mark.as_ref().is_some_and(|mark| !mark.counts_toward_lock);
+			&& row
+				.mark
+				.as_ref()
+				.is_some_and(|mark| !mark.counts_toward_lock);
 		Self {
 			id: row.activity.id,
 			at: utc(row.activity.timestamp),
@@ -486,7 +489,8 @@ mod tests {
 		assert!(!wrong.cleared);
 		assert_eq!(wrong.reason, Some(AccessSignInReason::WrongPassword));
 
-		let forgiven = AccessSignIn::from(row(false, Some((Some("wrong_password"), false))));
+		let forgiven =
+			AccessSignIn::from(row(false, Some((Some("wrong_password"), false))));
 		assert!(forgiven.cleared);
 
 		let forgiven_without_reason = AccessSignIn::from(row(false, Some((None, false))));

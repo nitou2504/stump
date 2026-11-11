@@ -130,12 +130,16 @@ pub fn verify_legacy_invite(key: &str, value: &str, now: i64) -> Option<LegacyIn
 /// (the terminal script does); it is here for the tests
 pub fn mint_legacy_invite(key: &str, name: &str, expiry: i64) -> String {
 	let expiry = format!("{expiry:010}");
-	format!("{name}.{expiry}.{}", mac(key, &format!("inv|{name}|{expiry}")))
+	format!(
+		"{name}.{expiry}.{}",
+		mac(key, &format!("inv|{name}|{expiry}"))
+	)
 }
 
 /// The SHA-256 of an invite token, as lowercase hex: what is stored
 pub fn token_hash(token: &str) -> String {
-	data_encoding::HEXLOWER.encode(digest::digest(&digest::SHA256, token.as_bytes()).as_ref())
+	data_encoding::HEXLOWER
+		.encode(digest::digest(&digest::SHA256, token.as_bytes()).as_ref())
 }
 
 /// A new invite token and its hash. Fails only if the system has no random source
@@ -247,7 +251,11 @@ mod tests {
 		// none of the forgeries is a pass (the last one is a genuine legacy invite made to look
 		// like one: a different kind of MAC)
 		for forged in &v.forged {
-			assert_eq!(verify_pass(&v.key, forged, v.pass.issued + 10), None, "{forged}");
+			assert_eq!(
+				verify_pass(&v.key, forged, v.pass.issued + 10),
+				None,
+				"{forged}"
+			);
 		}
 	}
 
@@ -260,10 +268,10 @@ mod tests {
 		// another name, another time, another tag
 		let tampered = v.pass.value.replacen(&v.pass.id, "someone", 1);
 		assert_eq!(verify_pass(&v.key, &tampered, now), None);
-		let tampered = v
-			.pass
-			.value
-			.replacen(&format!("{}", v.pass.issued), "1700000000", 1);
+		let tampered =
+			v.pass
+				.value
+				.replacen(&format!("{}", v.pass.issued), "1700000000", 1);
 		assert_eq!(verify_pass(&v.key, &tampered, now), None);
 		let mut chars: Vec<char> = v.pass.value.chars().collect();
 		let last = chars.len() - 1;
@@ -316,7 +324,14 @@ mod tests {
 	#[test]
 	fn the_set_cookie_header_has_every_attribute_a_host_cookie_needs() {
 		let header = pass_cookie_header("__Host-g3-stump", "ana.1794400000.abc");
-		for part in ["__Host-g3-stump=ana.1794400000.abc", "Path=/", "Secure", "HttpOnly", "SameSite=Lax", "Max-Age=15552000"] {
+		for part in [
+			"__Host-g3-stump=ana.1794400000.abc",
+			"Path=/",
+			"Secure",
+			"HttpOnly",
+			"SameSite=Lax",
+			"Max-Age=15552000",
+		] {
 			assert!(header.contains(part), "{part} is missing from {header}");
 		}
 		assert!(!header.contains("Domain"));
@@ -349,13 +364,23 @@ mod tests {
 			format!("https://g3.tail3e401.ts.net:8443/api/_i/{token}?x=1#frag"),
 			format!("here you go: https://h/api/_i/{token} thanks"),
 		] {
-			assert_eq!(parse_invite_input(&text), Some(InviteInput::Token(token.clone())), "{text:?}");
+			assert_eq!(
+				parse_invite_input(&text),
+				Some(InviteInput::Token(token.clone())),
+				"{text:?}"
+			);
 		}
 		assert_eq!(
 			parse_invite_input(&format!("https://h/api/_i/{legacy}")),
 			Some(InviteInput::Legacy(legacy.to_string()))
 		);
-		for text in ["", "hello", "https://h/api/_i/", "https://h/api/_i/short", &"a".repeat(300)] {
+		for text in [
+			"",
+			"hello",
+			"https://h/api/_i/",
+			"https://h/api/_i/short",
+			&"a".repeat(300),
+		] {
 			assert_eq!(parse_invite_input(text), None, "{text:?}");
 		}
 	}

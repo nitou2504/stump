@@ -14,7 +14,9 @@ use stump_core::access::{pass, state as edge_state};
 use crate::{
 	data::{AuthContext, CoreContext},
 	guard::{NotViaPublicEdgeGuard, SameOriginGuard, ServerOwnerGuard},
-	object::access::{AccessInvite, CreatedAccessInvite, CreateAccessInviteInput, INVITE_HOURS},
+	object::access::{
+		AccessInvite, CreateAccessInviteInput, CreatedAccessInvite, INVITE_HOURS,
+	},
 };
 
 /// What the admin is told when a change is made but the edge could not be: the app refuses the
@@ -45,8 +47,11 @@ fn access_error(error: AccessError) -> async_graphql::Error {
 /// Writes the state file so the edge follows a change, and says so if it can't
 async fn tell_the_edge(ctx: &Context<'_>) -> Result<()> {
 	let core_ctx = ctx.data::<CoreContext>()?;
-	match edge_state::publish_if_configured(core_ctx.conn.as_ref(), core_ctx.config.as_ref())
-		.await
+	match edge_state::publish_if_configured(
+		core_ctx.conn.as_ref(),
+		core_ctx.config.as_ref(),
+	)
+	.await
 	{
 		Ok(_) => Ok(()),
 		Err(error) => {
@@ -139,7 +144,8 @@ impl AccessMutation {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
 		let changed =
-			service::restore_device(conn, Utc::now(), id.as_str(), &user.username).await?;
+			service::restore_device(conn, Utc::now(), id.as_str(), &user.username)
+				.await?;
 		tell_the_edge(ctx).await?;
 		Ok(changed)
 	}

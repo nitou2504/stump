@@ -11,7 +11,12 @@ use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use super::*;
 use crate::common::account::CreateTestUser;
 
-async fn set_password(app: &TestApp, id: &str, password: &str, require_change: bool) -> Value {
+async fn set_password(
+	app: &TestApp,
+	id: &str,
+	password: &str,
+	require_change: bool,
+) -> Value {
 	owner_gql(
 		app,
 		"mutation($id: ID!, $p: String!, $r: Boolean!) { setUserPassword(id: $id, password: $p, requireChange: $r) }",
@@ -20,7 +25,10 @@ async fn set_password(app: &TestApp, id: &str, password: &str, require_change: b
 	.await
 }
 
-async fn friend(app: &TestApp, permissions: Vec<UserPermission>) -> crate::common::account::TestUser {
+async fn friend(
+	app: &TestApp,
+	permissions: Vec<UserPermission>,
+) -> crate::common::account::TestUser {
 	CreateTestUser {
 		username: "ana".to_string(),
 		password: "old-password".to_string(),
@@ -94,10 +102,19 @@ async fn a_password_the_owner_sets_must_be_replaced_before_anything_else_works()
 		assert_eq!(refused.status_code(), StatusCode::FORBIDDEN, "{path}");
 	}
 	let other = app
-		.execute_gql_with_token("{ libraries(pagination: {none: {unpaginated: true}}) { nodes { id } } }", None, &token)
+		.execute_gql_with_token(
+			"{ libraries(pagination: {none: {unpaginated: true}}) { nodes { id } } }",
+			None,
+			&token,
+		)
 		.await;
-	assert!(errors_of(&other).contains("choose a new password"), "{other:#}");
-	let me = app.execute_gql_with_token("{ me { username } }", None, &token).await;
+	assert!(
+		errors_of(&other).contains("choose a new password"),
+		"{other:#}"
+	);
+	let me = app
+		.execute_gql_with_token("{ me { username } }", None, &token)
+		.await;
 	assert_eq!(me["data"]["me"]["username"], "ana");
 
 	// the temporary password can't be "changed" to itself
@@ -128,7 +145,11 @@ async fn a_password_the_owner_sets_must_be_replaced_before_anything_else_works()
 	let viewer = app.get_with_token("/api/v2/auth/viewer", &token).await;
 	assert_eq!(viewer.json::<Value>()["mustChangePassword"], false);
 	let libraries = app
-		.execute_gql_with_token("{ libraries(pagination: {none: {unpaginated: true}}) { nodes { id } } }", None, &token)
+		.execute_gql_with_token(
+			"{ libraries(pagination: {none: {unpaginated: true}}) { nodes { id } } }",
+			None,
+			&token,
+		)
 		.await;
 	assert!(libraries.get("errors").is_none(), "{libraries:#}");
 
@@ -179,7 +200,10 @@ async fn a_person_who_may_not_change_their_password_gets_no_requirement() {
 	let ana = friend(app, vec![]).await;
 
 	let refused = set_password(app, &ana.id, "temporary-pass", true).await;
-	assert!(errors_of(&refused).contains("may not change"), "{refused:#}");
+	assert!(
+		errors_of(&refused).contains("may not change"),
+		"{refused:#}"
+	);
 	// it works without the requirement
 	let allowed = set_password(app, &ana.id, "temporary-pass", false).await;
 	assert_eq!(allowed["data"]["setUserPassword"], true);
@@ -194,7 +218,11 @@ async fn a_person_who_may_not_change_their_password_gets_no_requirement() {
 async fn only_the_owner_can_set_a_password() {
 	let env = edge_app(false).await;
 	let app = &env.app;
-	let ana = friend(app, vec![UserPermission::ManageUsers, UserPermission::ManageServer]).await;
+	let ana = friend(
+		app,
+		vec![UserPermission::ManageUsers, UserPermission::ManageServer],
+	)
+	.await;
 	let ben = CreateTestUser {
 		username: "ben".to_string(),
 		..Default::default()

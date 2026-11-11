@@ -158,11 +158,8 @@ pub async fn edge_middleware(
 	if via_public {
 		// found here, before anything is awaited: a request's body is not `Sync`, so the request
 		// itself can't be held across an await
-		let ClientIp(ip) = ClientIp::find(
-			&headers,
-			req.extensions(),
-			state.config.trust_proxy_headers,
-		);
+		let ClientIp(ip) =
+			ClientIp::find(&headers, req.extensions(), state.config.trust_proxy_headers);
 		let settings = state.config.edge.as_ref();
 		let key = settings.and_then(|settings| settings.usable_key());
 		let pass_text = headers
@@ -193,7 +190,10 @@ pub async fn edge_middleware(
 					},
 					// the database failed: no device, which is the safe side
 					Err(error) => {
-						tracing::error!(?error, "Public access: could not look up the pass");
+						tracing::error!(
+							?error,
+							"Public access: could not look up the pass"
+						);
 					},
 				}
 			}
@@ -244,11 +244,19 @@ async fn note_device(
 		let conn = state.conn.clone();
 		let id = id.to_string();
 		tokio::spawn(async move {
-			if let Err(error) =
-				service::touch_device(conn.as_ref(), Utc::now(), &id, &ip.to_string(), &agent)
-					.await
+			if let Err(error) = service::touch_device(
+				conn.as_ref(),
+				Utc::now(),
+				&id,
+				&ip.to_string(),
+				&agent,
+			)
+			.await
 			{
-				tracing::warn!(?error, "Public access: could not note that a device was seen");
+				tracing::warn!(
+					?error,
+					"Public access: could not note that a device was seen"
+				);
 			}
 		});
 	}
@@ -301,8 +309,14 @@ mod tests {
 
 	#[test]
 	fn an_origin_is_cut_from_an_address() {
-		assert_eq!(origin_of("https://g3.ts.net:8443"), "https://g3.ts.net:8443");
-		assert_eq!(origin_of("https://g3.ts.net:8443/x/y"), "https://g3.ts.net:8443");
+		assert_eq!(
+			origin_of("https://g3.ts.net:8443"),
+			"https://g3.ts.net:8443"
+		);
+		assert_eq!(
+			origin_of("https://g3.ts.net:8443/x/y"),
+			"https://g3.ts.net:8443"
+		);
 		assert_eq!(origin_of(" http://a "), "http://a");
 	}
 
@@ -330,7 +344,10 @@ mod tests {
 			&[]
 		));
 		assert!(is_cross_site(
-			&headers(&[("sec-fetch-site", "cross-site"), ("origin", "https://home.test")]),
+			&headers(&[
+				("sec-fetch-site", "cross-site"),
+				("origin", "https://home.test")
+			]),
 			own,
 			&[]
 		));
@@ -342,12 +359,32 @@ mod tests {
 		let allowed = vec!["https://other.test".to_string()];
 		// no headers at all: a script with a token, not a browser steered by another site
 		assert!(!is_cross_site(&headers(&[]), own, &allowed));
-		assert!(!is_cross_site(&headers(&[("origin", "https://home.test")]), own, &allowed));
-		assert!(!is_cross_site(&headers(&[("origin", "https://other.test")]), own, &allowed));
-		assert!(is_cross_site(&headers(&[("origin", "https://evil.test")]), own, &allowed));
-		assert!(is_cross_site(&headers(&[("origin", "null")]), own, &allowed));
+		assert!(!is_cross_site(
+			&headers(&[("origin", "https://home.test")]),
+			own,
+			&allowed
+		));
+		assert!(!is_cross_site(
+			&headers(&[("origin", "https://other.test")]),
+			own,
+			&allowed
+		));
+		assert!(is_cross_site(
+			&headers(&[("origin", "https://evil.test")]),
+			own,
+			&allowed
+		));
+		assert!(is_cross_site(
+			&headers(&[("origin", "null")]),
+			own,
+			&allowed
+		));
 		// no way to tell what "own" is: an Origin can't be vouched for
-		assert!(is_cross_site(&headers(&[("origin", "https://home.test")]), None, &allowed));
+		assert!(is_cross_site(
+			&headers(&[("origin", "https://home.test")]),
+			None,
+			&allowed
+		));
 	}
 
 	#[test]

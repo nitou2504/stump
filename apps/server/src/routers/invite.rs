@@ -63,7 +63,8 @@ struct Words {
 const ENGLISH: Words = Words {
 	lang: "en",
 	title: "Open Stump on this device?",
-	ask: "This link lets this browser open Stump. It works for you and your devices only.",
+	ask:
+		"This link lets this browser open Stump. It works for you and your devices only.",
 	button: "Open Stump",
 	invalid_title: "This link doesn't work",
 	invalid: "It has expired, was used up, or isn't valid. Ask for a new invite link.",
@@ -116,22 +117,38 @@ fn escape_html(text: &str) -> String {
 
 const STYLE: &str = "body{font-family:system-ui,sans-serif;max-width:28rem;margin:12vh auto;padding:0 1rem;line-height:1.5}button,input{font:inherit;padding:.6rem 1rem}button{cursor:pointer}input{width:100%;box-sizing:border-box;margin:.5rem 0}";
 
-fn page(status: StatusCode, words: &Words, body: &str, extra_headers: &[(header::HeaderName, String)]) -> Response {
+fn page(
+	status: StatusCode,
+	words: &Words,
+	body: &str,
+	extra_headers: &[(header::HeaderName, String)],
+) -> Response {
 	let html = format!(
 		"<!doctype html><html lang=\"{}\"><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta name=robots content=noindex><title>Stump</title><style>{STYLE}</style><body>{body}</body></html>",
 		words.lang
 	);
 	let mut response = (status, html).into_response();
 	let headers = response.headers_mut();
-	headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+	headers.insert(
+		header::CONTENT_TYPE,
+		HeaderValue::from_static("text/html; charset=utf-8"),
+	);
 	headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-	headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+	headers.insert(
+		header::REFERRER_POLICY,
+		HeaderValue::from_static("no-referrer"),
+	);
 	headers.insert("x-robots-tag", HeaderValue::from_static("noindex"));
-	headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+	headers.insert(
+		header::X_CONTENT_TYPE_OPTIONS,
+		HeaderValue::from_static("nosniff"),
+	);
 	headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
 	headers.insert(
 		header::CONTENT_SECURITY_POLICY,
-		HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'"),
+		HeaderValue::from_static(
+			"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+		),
 	);
 	for (name, value) in extra_headers {
 		if let Ok(value) = HeaderValue::from_str(value) {
@@ -316,9 +333,19 @@ async fn redeem_legacy(
 		Ok(None) => {
 			let device = service::register_legacy_device(conn, now, &legacy.name)
 				.await
-				.map_err(|error| tracing::error!(?error, "Public access: legacy invite failed"))
+				.map_err(|error| {
+					tracing::error!(?error, "Public access: legacy invite failed")
+				})
 				.ok()?;
-			let _ = service::audit(conn, now, "public", "invite.redeemed", &device.id, "legacy link").await;
+			let _ = service::audit(
+				conn,
+				now,
+				"public",
+				"invite.redeemed",
+				&device.id,
+				"legacy link",
+			)
+			.await;
 			device
 		},
 		Err(error) => {
@@ -345,9 +372,15 @@ mod tests {
 	fn the_page_follows_the_browsers_language() {
 		let mut headers = HeaderMap::new();
 		assert_eq!(words(&headers).lang, "en");
-		headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("es-EC,es;q=0.9,en;q=0.8"));
+		headers.insert(
+			header::ACCEPT_LANGUAGE,
+			HeaderValue::from_static("es-EC,es;q=0.9,en;q=0.8"),
+		);
 		assert_eq!(words(&headers).lang, "es");
-		headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,es;q=0.9"));
+		headers.insert(
+			header::ACCEPT_LANGUAGE,
+			HeaderValue::from_static("en-US,es;q=0.9"),
+		);
 		assert_eq!(words(&headers).lang, "en");
 	}
 
@@ -365,9 +398,15 @@ mod tests {
 		assert!(!post_is_same_origin(&headers, public, own));
 		// an older browser: judged by Origin
 		let mut old = HeaderMap::new();
-		old.insert(header::ORIGIN, HeaderValue::from_static("https://g3.test:8443"));
+		old.insert(
+			header::ORIGIN,
+			HeaderValue::from_static("https://g3.test:8443"),
+		);
 		assert!(post_is_same_origin(&old, public, own));
-		old.insert(header::ORIGIN, HeaderValue::from_static("https://evil.test"));
+		old.insert(
+			header::ORIGIN,
+			HeaderValue::from_static("https://evil.test"),
+		);
 		assert!(!post_is_same_origin(&old, public, own));
 		old.insert(header::ORIGIN, HeaderValue::from_static("null"));
 		assert!(!post_is_same_origin(&old, public, own));

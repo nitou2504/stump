@@ -245,7 +245,8 @@ impl UserMutation {
 				.ok_or("User not found")?;
 			if bcrypt::verify(password, &current.hashed_password).unwrap_or(false) {
 				return Err(
-					"Choose a password that is different from the one you were given".into(),
+					"Choose a password that is different from the one you were given"
+						.into(),
 				);
 			}
 		}
