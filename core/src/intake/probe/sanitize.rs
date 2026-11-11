@@ -639,6 +639,14 @@ fn clean_value(value: &str) -> String {
 }
 
 fn put_attribute(cx: &mut Cx, key: &str, value: &str) {
+	// The check of the rebuilt book refuses a script address anywhere in an attribute, and a book
+	// about JavaScript has `javascript:` in its titles and alt texts (`alt="JavaScript: The Good
+	// Parts"`, a link to `.../JavaScript:_The_Good_Parts`): such a value is not written, with the
+	// same rule that check uses, so that one of them does not make the whole book unfileable.
+	if super::active::has_script_address(value) {
+		cx.found("script-address");
+		return;
+	}
 	cx.out.push(' ');
 	cx.out.push_str(key);
 	cx.out.push_str("=\"");
@@ -1410,7 +1418,7 @@ mod tests {
 			 em { color: blue }\n\
 			 @<!--import \"http://evil.example/x.css\";\n\
 			 u { color: green }\n\
-			 a { background: url-->(http://evil.example/q.png) }\n\
+			 a { background: url(\"x.png\")--> (http://evil.example/q.png) }\n\
 			 b { background: url <!-- (http://evil.example/r.png) }\n\
 			 i { color: red --> }",
 			"OEBPS",
@@ -1486,6 +1494,29 @@ mod tests {
 		assert!(output.contains("fill=\"url(#g)\""));
 		assert!(!output.contains("evil.example"));
 		assert_clean(&output);
+	}
+
+	#[test]
+	fn a_book_about_javascript_is_still_a_book_the_check_of_its_output_accepts() {
+		// `javascript:` in a title, an alt text or an address on the web is not a script, but the
+		// check of the rebuilt book refuses a script address anywhere in an attribute: the
+		// sanitizer drops such a value (and says so), so one of them does not make the book unfileable
+		let source = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>hello</p>\
+			<img src=\"../images/a.png\" alt=\"JavaScript: The Good Parts\"/>\
+			<a href=\"https://en.wikipedia.org/wiki/JavaScript:_The_Good_Parts\" title=\"fine\">link</a>\
+			<abbr title=\"java\tscript:\">x</abbr><p title=\"VBScript: a history\">y</p>\
+			<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"1\" height=\"1\" fill=\"javascript:alert(1)\"/></svg>\
+			<img src=\"../images/b.png\" alt=\"a picture\"/></body></html>";
+		let result = clean_page(source.as_bytes(), "OEBPS/text", set()).expect("a page");
+		let output = String::from_utf8(result.bytes.clone()).unwrap();
+		assert!(well_formed(&output), "{output}");
+		assert!(output.contains("hello") && output.contains("link") && output.contains("title=\"fine\""), "{output}");
+		assert!(output.contains("a picture"), "{output}");
+		assert!(!output.to_ascii_lowercase().contains("script:"), "{output}");
+		// the alt text, the address and the title of `p` are written by the sanitizer and so are counted
+		assert!(result.findings.get("script-address").is_some_and(|n| *n >= 3), "{:?}", result.findings);
+		// and what came out is clean for the check that the output goes through
+		assert!(matches!(super::super::active::scan_document(&result.bytes, false), super::super::active::Outcome::Clean { .. }));
 	}
 
 	#[test]

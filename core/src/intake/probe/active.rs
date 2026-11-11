@@ -176,6 +176,15 @@ fn normalised_url(value: &str) -> String {
 	url
 }
 
+/// Whether a value has a script address in it, read the way a browser reads an address: anywhere
+/// in it, because an animation's `values="a;javascript:..."` is a list of them. The one rule the
+/// first look and the sanitizer share, so that nothing the sanitizer writes is something the check
+/// of its output refuses.
+pub(super) fn has_script_address(value: &str) -> bool {
+	let url = normalised_url(value);
+	url.contains("javascript:") || url.contains("vbscript:")
+}
+
 fn lowercase_local(name: &[u8]) -> String {
 	let local = name.rsplit(|b| *b == b':').next().unwrap_or(name);
 	String::from_utf8_lossy(local).to_ascii_lowercase()
@@ -267,7 +276,7 @@ fn dropped(local: &str, attribute: &Attribute) -> Option<&'static str> {
 	}
 	let url = normalised_url(&attribute.text);
 	// anywhere in the value: an animation's `values="a;javascript:..."` is a list of addresses
-	if url.contains("javascript:") || url.contains("vbscript:") {
+	if has_script_address(&attribute.text) {
 		return Some("script-address");
 	}
 	// an address with an entity that can't be read from here: a browser may read it as one of HTML's
