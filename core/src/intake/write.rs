@@ -1205,9 +1205,11 @@ mod tests {
 			"{replaced}"
 		);
 
-		// a book of somebody who is trusted keeps what it has
+		// a book of somebody who is trusted keeps what it has: a file with a description of its
+		// own (15 words or more, in whatever form) is not touched, and nothing is added next to it
+		let long = opf.replace("EVIL-PAIR", &format!("EVIL-PAIR {}", some_words(20)));
 		let kept = edit_opf(
-			opf,
+			&long,
 			&FileMetadata {
 				description: Some("Plain.".into()),
 				..Default::default()
@@ -1218,6 +1220,22 @@ mod tests {
 			kept.contains("EVIL-META") && kept.contains("EVIL-OUTSIDE"),
 			"{kept}"
 		);
+		assert!(!kept.contains("Plain."), "{kept}");
+
+		// a trusted book whose descriptions add up to (almost) nothing, in all these forms, gets
+		// the reviewed one in their place: it ends with one description, not with the old forms
+		// left next to the new one (which the reader joins)
+		let short = edit_opf(
+			opf,
+			&FileMetadata {
+				description: Some("Plain.".into()),
+				..Default::default()
+			},
+		)
+		.unwrap();
+		check_xml(&short).unwrap();
+		assert_eq!(descriptions_in(&short), vec!["Plain.".to_string()], "{short}");
+		assert!(!short.contains("EVIL"), "{short}");
 	}
 
 	/// What the scan reads as the description of a file: what the library shows for the book
