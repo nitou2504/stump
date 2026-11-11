@@ -21,7 +21,7 @@ use super::{
 	},
 	zipscan::{name_problem, printable, ZipReport},
 };
-use crate::fs_utils::bounded;
+use crate::fs_utils::{bounded, PathUtils};
 
 const MIB: u64 = 1024 * 1024;
 /// The most bytes of an image that are looked at for its size (a JPEG's can be after a long profile)
@@ -46,10 +46,18 @@ pub fn is_image_name(name: &str) -> bool {
 	IMAGE_EXTENSIONS.contains(&extension_of(name).as_str())
 }
 
-/// Whether a name is one Stump skips (a hidden file, a macOS resource fork)
+/// Whether a name is one Stump skips (a file whose name starts with a dot, or anything in a
+/// `__MACOSX` folder): Stump's own rule, not another that looks like it
 pub fn is_hidden(name: &str) -> bool {
-	name.split(['/', '\\'])
-		.any(|part| part.starts_with('.') || part == "__MACOSX")
+	Path::new(name).is_hidden_file()
+}
+
+/// Whether Stump counts an entry of a comic as one of its pages: not hidden, and an image by what
+/// Stump's own readers take as one. The comics are counted by this, and by nothing that only looks
+/// like it, since the number of pages and which one is the first are what Stump decides
+pub fn is_page(name: &str) -> bool {
+	let path = Path::new(name);
+	!path.is_hidden_file() && path.is_image()
 }
 
 /// The kinds of image a book may carry that the server decodes
@@ -382,6 +390,54 @@ fn read_entry(
 	})
 }
 
+/// The first bytes of an entry (what an image's size, or whether a text starts with `<`, is told by)
+fn read_head(
+	archive: &mut ZipArchive<File>,
+	index: usize,
+	name: &str,
+) -> Result<Vec<u8>, Reason> {
+	let entry = archive.by_index(index).map_err(|error| {
+		Reason::new(
+			code::UNREADABLE,
+			format!("{} can't be opened: {error}", printable(name)),
+		)
+	})?;
+	bounded::read_capped(entry.take(IMAGE_HEAD_BYTES), IMAGE_HEAD_BYTES).map_err(|error| {
+		Reason::new(
+			code::UNREADABLE,
+			format!("{} is damaged: {error}", printable(name)),
+		)
+	})
+}
+
+/// Whether the name or the package calls an entry an image
+fn named_as_image(name: &str, types: &[String]) -> bool {
+	is_image_name(name)
+		|| types.iter().any(|t| {
+			active::readium_media_type(t).is_some_and(|(kind, _, _)| kind == "image")
+		})
+}
+
+/// The cover of an EPUB, as Stump's thumbnails take it (`get_cover`, the first page): the server
+/// decodes it in its own process, so it is looked at the way the server will: its kind from its
+/// bytes (JPEG, PNG, GIF or WebP, or AVIF by its header; not what a guess of the `image` crate
+/// would reach, TIFF, EXR or DDS), its sides and pixels from the header, then a decode of the whole
+/// of it under an allocation limit
+pub fn check_cover(bytes: &[u8], limits: &Limits) -> Result<(), Reason> {
+	if image_kind(bytes).is_some() {
+		return check_image("The cover", bytes, true, limits);
+	}
+	match image::guess_format(bytes) {
+		// not an image at all: nothing decodes it, and the thumbnail is just not made
+		Err(_) => Ok(()),
+		Ok(format) if !format.reading_enabled() => Ok(()),
+		Ok(format) => Err(Reason::new(
+			code::UNSUPPORTED_IMAGE,
+			format!("The cover is a {format:?} image: not a kind Stump takes (JPEG, PNG, GIF or WebP)"),
+		)),
+	}
+}
+
 const FONT_OBFUSCATION: &[&str] = &[
 	"http://www.idpf.org/2008/embedding",
 	"http://ns.adobe.com/pdf/enc#rc",
@@ -445,14 +501,17 @@ pub fn check_epub(
 	let package = parse_package(&opf, limits)?;
 	let opf_dir = opf_name.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
 
-	// the media type each entry is declared with
-	let mut media_types: HashMap<String, String> = HashMap::new();
+	// the types each entry is declared with: all of them, since a package can list one file twice
+	// with another type each, and the reader takes the one of the item the spine names. Keyed by
+	// the lower case name, so the case of an address doesn't decide what is looked at
+	let mut media_types: HashMap<String, Vec<String>> = HashMap::new();
 	let mut remote_refs = 0u64;
 	for item in &package.items {
 		match resolve(opf_dir, &item.href) {
-			Some(name) => {
-				media_types.insert(name, item.media_type.to_ascii_lowercase());
-			},
+			Some(name) => media_types
+				.entry(name.to_lowercase())
+				.or_default()
+				.push(item.media_type.clone()),
 			None => {
 				if item.href.contains("://") || item.href.starts_with("//") {
 					remote_refs += 1;
@@ -460,6 +519,12 @@ pub fn check_epub(
 			},
 		}
 	}
+	// a book that declares any page as HTML has them all held to what their bytes look like: how
+	// an address in the package is read is not something to rely on when one of them is
+	let any_html = package
+		.items
+		.iter()
+		.any(|item| active::is_declared_html(Some(item.media_type.as_str())));
 
 	// tables of contents are read by the `epub` crate into a tree: how deep
 	for item in &package.items {
@@ -506,21 +571,46 @@ pub fn check_epub(
 		}
 	}
 
-	// every entry a browser could draw, and every image
+	// every entry, by what it is and never by where it is or what it is called: the reader draws
+	// any file the reading order lists (a page in `META-INF/`, a package file listed as a page, a
+	// `.dat` declared `application/xhtml+xml;`), so every file that starts with `<` or that the
+	// package or its name calls a document is read as one, and every file that is an image by its
+	// bytes is looked at as one
 	let mut summary = ActiveSummary::default();
-	let (mut malformed, mut unstrippable) = (0u64, None::<String>);
+	let (mut malformed, mut unstrippable, mut odd_images) =
+		(0u64, None::<String>, 0u64);
 	for (index, entry) in report.entries.iter().enumerate() {
 		if entry.is_dir {
 			continue;
 		}
 		let name = entry.name.as_str();
-		if name == opf_name || name.starts_with("META-INF/") {
-			continue;
-		}
-		let media_type = media_types.get(name).map(String::as_str);
-		if active::is_document(name, media_type) {
-			let bytes = read_entry(&mut archive, index, name, limits.max_entry_bytes)?;
-			match active::scan_document(&bytes, active::is_declared_html(media_type)) {
+		let types: &[String] = media_types
+			.get(&name.to_lowercase())
+			.map(Vec::as_slice)
+			.unwrap_or(&[]);
+		let is_package = name == opf_name || name == "META-INF/container.xml";
+		let head = if entry.size == 0 {
+			vec![]
+		} else {
+			read_head(&mut archive, index, name)?
+		};
+		let kind = image_kind(&head);
+		let html = any_html || active::is_html_page(name, types);
+		let is_document = active::is_document(name, types);
+		let scan = html
+			|| is_document
+			|| match active::starts_with_markup(&head) {
+				Some(starts) => starts,
+				// nothing but white space so far: it may go on
+				None => entry.size > head.len() as u64,
+			};
+		if scan {
+			let bytes = if entry.size <= head.len() as u64 {
+				head.clone()
+			} else {
+				read_entry(&mut archive, index, name, limits.max_entry_bytes)?
+			};
+			match active::scan_document(&bytes, html) {
 				Outcome::Clean { remote_refs: n } => remote_refs += n,
 				Outcome::Found {
 					stripped,
@@ -528,7 +618,14 @@ pub fn check_epub(
 					remote_refs: n,
 				} => {
 					remote_refs += n;
-					if let Some(collected) = replacements.as_deref_mut() {
+					if is_package {
+						// the package file is rewritten by the file job, and is never taken
+						// apart here: a book that lists it as a page is not filed
+						unstrippable.get_or_insert(format!(
+							"{}: the package file carries active content",
+							printable(name)
+						));
+					} else if let Some(collected) = replacements.as_deref_mut() {
 						collected.push((entry.name.clone(), stripped));
 					}
 					for (kind, count) in findings {
@@ -545,29 +642,28 @@ pub fn check_epub(
 				Outcome::Unstrippable(why) => {
 					unstrippable.get_or_insert(format!("{}: {why}", printable(name)));
 				},
-				Outcome::Inert => malformed += 1,
-			}
-		} else if is_image_name(name) && entry.size > 0 {
-			let entry = archive.by_index(index).map_err(|e| {
-				Reason::new(
-					code::UNREADABLE,
-					format!("{} can't be opened: {e}", printable(name)),
-				)
-			})?;
-			let head =
-				bounded::read_capped(entry.take(IMAGE_HEAD_BYTES), IMAGE_HEAD_BYTES)
-					.map_err(|e| {
-						Reason::new(
-							code::UNREADABLE,
-							format!("{} is damaged: {e}", printable(name)),
-						)
-					})?;
-			// a name that says image and bytes that say another thing: the reader would not
-			// show it, and nothing else will read it: only the size is looked at when it is one
-			if image_kind(&head).is_some() {
-				check_image(name, &head, false, limits)?;
+				Outcome::Inert => {
+					if is_document && !name.starts_with("META-INF/") {
+						malformed += 1;
+					}
+				},
 			}
 		}
+		if kind.is_some() {
+			// what the bytes say it is: its size from the header, whatever the name
+			check_image(name, &head, false, limits)?;
+		} else if !scan && entry.size > 0 && named_as_image(name, types) {
+			// called an image, and not one Stump decodes: told, and the cover is held to more below
+			if image::guess_format(&head).is_ok_and(|f| f.reading_enabled()) {
+				odd_images += 1;
+			}
+		}
+	}
+	if odd_images > 0 {
+		warnings.push(Reason::new(
+			code::UNSUPPORTED_IMAGE,
+			format!("{odd_images} images are of a kind Stump does not show (they are kept)"),
+		));
 	}
 	summary.remote_refs = remote_refs;
 	if remote_refs > 0 {
@@ -655,7 +751,7 @@ pub fn check_cbz(
 			continue;
 		}
 		let name = entry.name.as_str();
-		if is_image_name(name) {
+		if is_page(name) {
 			pages += 1;
 			if pages > limits.max_pages {
 				return Err(Reason::new(
@@ -760,7 +856,7 @@ pub fn check_cbr(path: &Path, limits: &Limits) -> Result<(ComicFacts, u64, u64),
 		};
 		let entry = header.entry();
 		let name = entry.filename.to_string_lossy().replace('\\', "/");
-		if entry.is_directory() || is_hidden(&name) || !is_image_name(&name) {
+		if entry.is_directory() || !is_page(&name) {
 			archive = header.skip().map_err(unreadable)?;
 			continue;
 		}
@@ -795,6 +891,52 @@ pub fn check_cbr(path: &Path, limits: &Limits) -> Result<(ComicFacts, u64, u64),
 	))
 }
 
+/// The longest side a page of a PDF may have, in points (3 metres)
+const MAX_PAGE_POINTS: f32 = 14_400.0;
+
+/// Whether every page of a PDF has a size a reader can draw: a number, and between 1 and 14,400
+/// points a side
+pub fn pages_within_size(sizes: &[[f32; 2]]) -> Result<(), Reason> {
+	let fits = |side: f32| side.is_finite() && (1.0..=MAX_PAGE_POINTS).contains(&side);
+	for (index, [width, height]) in sizes.iter().enumerate() {
+		if !fits(*width) || !fits(*height) {
+			return Err(Reason::new(
+				code::PAGE_SIZE,
+				format!(
+					"Page {} is {width} by {height} points: not a size a page can be",
+					index + 1
+				),
+			));
+		}
+	}
+	Ok(())
+}
+
+/// What the reader does first with a PDF, done here under the checker's limits: the layout (every
+/// page's size, the outline, whether there is text), then the first page drawn at the smallest
+/// width and its text layer read. These are the reader's own code paths, so a PDF that gets through
+/// is one PDFium finished on. Drawing every page (the deep pass) is not done here
+pub fn check_pdf(path: &Path, config: &crate::config::StumpConfig) -> Result<(), Reason> {
+	let unreadable = |what: &str, error: &dyn std::fmt::Display| {
+		Reason::new(code::PDF_UNREADABLE, format!("{what}: {error}"))
+	};
+	let pdfium = crate::media::processor::pdf::renderer(&config.pdfium_path)
+		.map_err(|e| unreadable("PDFium can't be used", &e))?;
+	let document = pdfium
+		.load_pdf_from_file(path.to_str().unwrap_or_default(), None)
+		.map_err(|e| unreadable("The PDF can't be opened", &e))?;
+	let layout = crate::pdf_reader::read_layout(&document, "check", config.pdf_max_tier)
+		.map_err(|e| unreadable("The layout of the PDF can't be read", &e))?;
+	pages_within_size(&layout.pages)?;
+	if layout.page_count >= 1 {
+		crate::pdf_reader::render_tier(&document, 1, 720)
+			.map_err(|e| unreadable("The first page can't be drawn", &e))?;
+		crate::pdf_reader::extract_text(&document, 1)
+			.map_err(|e| unreadable("The text of the first page can't be read", &e))?;
+	}
+	Ok(())
+}
+
 /// How many pages one of the formats has, to tell if a book is too long
 pub fn within_pages(pages: i64, limits: &Limits) -> Result<(), Reason> {
 	if pages <= 0 {
@@ -817,6 +959,39 @@ mod tests {
 
 	use super::*;
 	use crate::intake::probe::{contract::Limits, zipscan};
+
+	#[test]
+	fn the_sizes_of_a_pdfs_pages_are_held_to_what_a_page_can_be() {
+		assert!(pages_within_size(&[[612.0, 792.0], [14_400.0, 1.0]]).is_ok());
+		for bad in [
+			[0.0, 792.0],
+			[612.0, 0.5],
+			[14_401.0, 792.0],
+			[f32::NAN, 100.0],
+			[f32::INFINITY, 100.0],
+			[-5.0, 100.0],
+		] {
+			let error = pages_within_size(&[[612.0, 792.0], bad]).unwrap_err();
+			assert_eq!(error.code, code::PAGE_SIZE);
+			assert!(error.detail.starts_with("Page 2 "), "{}", error.detail);
+		}
+	}
+
+	#[test]
+	fn a_comic_page_is_what_stump_counts_as_one() {
+		for page in ["001.png", "a/b/c.JPG", "x/.dir/001.webp", "z.avif", "p.heif", "q.jxl"] {
+			assert!(is_page(page), "{page}");
+		}
+		// hidden by Stump's rule: a file whose name starts with a dot, or anything in `__MACOSX`
+		for hidden in [".001.png", "a/.001.png", "__MACOSX/a/001.png", "__MACOSX/001.png"] {
+			assert!(!is_page(hidden), "{hidden}");
+			assert!(is_hidden(hidden), "{hidden}");
+		}
+		// not images to Stump, whatever other programs think
+		for other in ["scan.bmp", "scan.tif", "scan.heic", "page.svg", "notes.txt", "001"] {
+			assert!(!is_page(other), "{other}");
+		}
+	}
 
 	fn png(width: u32, height: u32) -> Vec<u8> {
 		let image = image::RgbImage::new(width, height);

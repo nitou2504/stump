@@ -30,6 +30,8 @@ const MAX_EOCD_BYTES: u64 = 22 + 65_535;
 const MAX_NAME_BYTES: usize = 1024;
 /// The room data descriptors can take between entries
 const DESCRIPTOR_ROOM: u64 = 24;
+/// The most a folder entry may take on disk: an empty deflate stream is 2 bytes
+const FOLDER_ENTRY_BYTES: u64 = 16;
 
 /// One entry of the central directory
 #[derive(Debug, Clone)]
@@ -357,7 +359,17 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 			));
 		}
 		let is_dir = name.ends_with('/');
-		if !is_dir {
+		if is_dir {
+			// a folder holds nothing, and says so: an entry called `x/` that holds data is read
+			// whole by anything that is pointed at it (a package's cover, a chapter), and it
+			// would be the one entry no size, ratio or total was ever held to
+			if size != 0 || compressed > FOLDER_ENTRY_BYTES {
+				return Err(reject(
+					code::SIZE_MISMATCH,
+					format!("{} is a folder, and it holds data", printable(&name)),
+				));
+			}
+		} else {
 			files += 1;
 			if size > limits.max_entry_bytes {
 				return Err(reject(
@@ -513,9 +525,6 @@ pub fn scan(path: &Path, limits: &Limits) -> Result<ZipReport, Reason> {
 	let (mut actual_total, mut max_entry) = (0u64, 0u64);
 	let mut buf = vec![0u8; 64 * 1024];
 	for (i, entry) in entries.iter().enumerate() {
-		if entry.is_dir {
-			continue;
-		}
 		let mut reader = archive.by_index(i).map_err(|e| {
 			reject(
 				code::UNREADABLE,
@@ -663,6 +672,35 @@ pub(crate) mod tests {
 		assert_eq!(report.files, 3);
 		assert_eq!(report.unpacked_bytes, 20 + 5000 + 3);
 		assert_eq!(report.max_entry_bytes, 5000);
+	}
+
+	#[test]
+	fn a_folder_that_holds_data_is_refused_and_a_real_one_is_not() {
+		// an entry called `x/` over deflated zeros: read whole by whatever a package points at
+		let bomb = zip_of(&[("x/", &vec![0u8; 3_000_000], CompressionMethod::Deflated)]);
+		assert_eq!(
+			code_of(scan_bytes(&bomb, &Limits::default())),
+			code::SIZE_MISMATCH
+		);
+		// a little data is data too
+		let small = zip_of(&[("x/", b"hello", CompressionMethod::Stored)]);
+		assert_eq!(
+			code_of(scan_bytes(&small, &Limits::default())),
+			code::SIZE_MISMATCH
+		);
+		// a folder as zip programs write them, among files
+		let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+		writer
+			.add_directory("d/", SimpleFileOptions::default())
+			.expect("folder");
+		writer
+			.start_file("d/a.txt", SimpleFileOptions::default())
+			.expect("file");
+		writer.write_all(b"hello").expect("write");
+		let bytes = writer.finish().expect("finish").into_inner();
+		let report = scan_bytes(&bytes, &Limits::default()).expect("passes");
+		assert_eq!(report.files, 1);
+		assert!(report.entries.iter().any(|e| e.is_dir));
 	}
 
 	#[test]

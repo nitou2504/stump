@@ -28,6 +28,8 @@ use tokio::sync::oneshot;
 
 pub use cache::PageCache;
 pub use engine::{allowed_tiers, snap_tier, OutlineEntry, PdfLayout, TIERS};
+// what the checker of uploaded books runs on a PDF: the reader's own layout, picture and text
+pub(crate) use engine::{extract_text, read_layout, render_tier};
 pub use queue::{ClientKey, Priority};
 pub use search::{fold_query, search_page, HitRect, SearchHit};
 pub use text::PageText;

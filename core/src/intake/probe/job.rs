@@ -16,7 +16,7 @@ use ring::digest;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
 use super::{
-	check::{self, check_cbr, check_cbz, check_epub, is_hidden, is_image_name},
+	check::{self, check_cbr, check_cbz, check_epub, is_hidden, is_page},
 	contract::{
 		code, probe_revision, ActiveContent, ActiveSummary, Book, BookMetadata, Kind,
 		Output, Reason, Request, Status, Usage, Verdict, CONTRACT_VERSION,
@@ -54,7 +54,7 @@ fn io_reason(error: std::io::Error) -> Reason {
 	fail(code::UNREADABLE, error.to_string())
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
 	bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -225,16 +225,26 @@ fn inspect(
 	if format == "pdf" {
 		check::within_pages(i64::from(processed.pages), &limits)?;
 		book.pages = processed.pages;
+		// the sizes of its pages as the reader reads them, and its first page drawn and read
+		check::check_pdf(&linked, &env.config)?;
 	} else if format == "epub" {
 		book.pages = processed.pages;
+		// The cover is what the server decodes in its own process (the first page, `get_page(1)`,
+		// for the thumbnail): the same one is taken, and decoded here first, under limits, as
+		// whatever format its bytes say it is (a name is not looked at). A book with no cover, or
+		// one that can't be read out, is only left without a thumbnail
+		if let Ok((_, cover)) = crate::media::processor::get_cover(&linked) {
+			check::check_cover(&cover, &limits)?;
+		}
 		book.original_title = lookup::original_title_of(&linked);
 		if let Some(page) = read_title_page(&linked) {
 			book.title_page_title = page.title;
 			book.title_page_authors = page.authors;
 		}
 	} else if book.pages != processed.pages {
-		// the check counted the pages one way and Stump's reader another: they must agree
-		warnings.push(fail(
+		// the check counted the pages one way and Stump's reader another: a page that Stump
+		// decodes and the check never looked at is how a file gets past it, so they must agree
+		return Err(fail(
 			code::PAGE_COUNT,
 			format!(
 				"The check counted {} pages and Stump's reader {}",
@@ -326,7 +336,7 @@ fn cbr_to_cbz(input: &Path, output: &Path, request: &Request) -> Result<(), Reas
 				"The archive unpacks to too much",
 			));
 		}
-		let method = if is_image_name(&name) {
+		let method = if is_page(&name) {
 			CompressionMethod::Stored
 		} else {
 			CompressionMethod::Deflated
@@ -806,6 +816,311 @@ pub(crate) mod tests {
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
 		assert!(!world.env.out_dir.join("000.epub").exists());
+	}
+
+	// ---- the hostile corpus of the D3 review: what the checker must not let through ----
+
+	fn container_for(opf_path: &str) -> String {
+		format!(r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="{opf_path}" media-type="application/oebps-package+xml"/></rootfiles></container>"#)
+	}
+
+	/// The package file of a book with these manifest items and spine, and this in its metadata
+	fn opf_of(in_metadata: &str, items: &str, spine: &str) -> String {
+		format!(r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:1</dc:identifier><dc:title>A Book</dc:title><dc:language>en</dc:language>{in_metadata}</metadata><manifest>{items}</manifest><spine>{spine}</spine></package>"#)
+	}
+
+	/// An EPUB whose package file is at `opf_path`, with these entries as well
+	fn epub_at(opf_path: &str, opf: &str, extra: &[(&str, Vec<u8>)]) -> Vec<u8> {
+		let mut entries: Vec<(&str, Vec<u8>)> = vec![
+			("mimetype", b"application/epub+zip".to_vec()),
+			(
+				"META-INF/container.xml",
+				container_for(opf_path).into_bytes(),
+			),
+			(opf_path, opf.as_bytes().to_vec()),
+		];
+		entries.extend(extra.iter().map(|(name, bytes)| (*name, bytes.clone())));
+		zip(&entries)
+	}
+
+	fn entry_text(path: &Path, name: &str) -> String {
+		let mut archive = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
+		bounded::read_to_string_capped(archive.by_name(name).unwrap(), MIB).unwrap()
+	}
+
+	fn assert_clean_of_scripts(page: &str) {
+		assert!(
+			!page.to_lowercase().contains("script")
+				&& !page.contains("onerror")
+				&& page.contains("<p>hello</p>"),
+			"{page}"
+		);
+	}
+
+	#[test]
+	fn a_page_in_meta_inf_that_the_spine_lists_is_cleaned_like_any_other() {
+		let world = world();
+		// the package file is at the root of the zip, and the page the reader will draw is under
+		// `META-INF/`, where nothing used to be looked at
+		let opf = opf_of(
+			"",
+			r#"<item id="p" href="META-INF/p.xhtml" media-type="application/xhtml+xml"/>"#,
+			r#"<itemref idref="p"/>"#,
+		);
+		let bytes = epub_at(
+			"content.opf",
+			&opf,
+			&[("META-INF/p.xhtml", SCRIPTED.as_bytes().to_vec())],
+		);
+		let request = file_request(&world, "book.epub", &bytes, FileMetadata::default());
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_eq!(verdict.book.as_ref().unwrap().active_content.found, 2);
+		assert_clean_of_scripts(&entry_text(
+			&out_file(&world, &verdict),
+			"META-INF/p.xhtml",
+		));
+	}
+
+	#[test]
+	fn a_package_file_with_a_script_in_it_is_refused_and_not_taken_apart() {
+		let world = world();
+		let opf = opf_of(
+			r#"<script xmlns="http://www.w3.org/1999/xhtml">alert(1)</script>"#,
+			r#"<item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>"#,
+			r#"<itemref idref="c1"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[("OEBPS/c1.xhtml", CLEAN.as_bytes().to_vec())],
+		);
+		let request = world.stage("book.epub", &bytes);
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
+		assert!(verdict.reasons[0].detail.contains("package file"));
+		// somebody who files their own books is told, and the book is not refused
+		let mut request = world.stage("mine.epub", &bytes);
+		request.approver = true;
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert!(verdict
+			.warnings
+			.iter()
+			.any(|w| w.code == code::ACTIVE_CONTENT_UNSTRIPPABLE));
+	}
+
+	#[test]
+	fn a_page_with_an_odd_name_and_a_type_that_ends_in_a_semicolon_is_cleaned() {
+		let world = world();
+		// the reader drops the `;` and parses `p.dat` as XHTML
+		let opf = opf_of(
+			"",
+			r#"<item id="p" href="p.dat" media-type="application/xhtml+xml;"/>"#,
+			r#"<itemref idref="p"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[("OEBPS/p.dat", SCRIPTED.as_bytes().to_vec())],
+		);
+		let request = file_request(&world, "book.epub", &bytes, FileMetadata::default());
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_eq!(verdict.book.as_ref().unwrap().active_content.found, 2);
+		assert_clean_of_scripts(&entry_text(&out_file(&world, &verdict), "OEBPS/p.dat"));
+	}
+
+	#[test]
+	fn a_page_the_package_calls_html_with_a_parameter_is_held_to_its_bytes() {
+		let world = world();
+		// `text/html;x` is `text/html` to the reader: the CDATA is text to XML and a comment
+		// that the first `>` ends to HTML, and the `<img>` after it is an element
+		let page = format!(
+			"{}",
+			r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><![CDATA[><img src=x onerror=alert(1)>]]></body></html>"#
+		);
+		let opf = opf_of(
+			"",
+			r#"<item id="p" href="c1.xhtml" media-type="text/html;x"/>"#,
+			r#"<itemref idref="p"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[("OEBPS/c1.xhtml", page.into_bytes())],
+		);
+		let request = world.stage("book.epub", &bytes);
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
+	}
+
+	#[test]
+	fn a_file_listed_twice_with_another_type_each_is_read_as_the_dangerous_one() {
+		let world = world();
+		let opf = opf_of(
+			"",
+			r#"<item id="a" href="p.dat" media-type="image/png"/><item id="p" href="p.dat" media-type="application/xhtml+xml;"/>"#,
+			r#"<itemref idref="p"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[("OEBPS/p.dat", SCRIPTED.as_bytes().to_vec())],
+		);
+		let request = file_request(&world, "book.epub", &bytes, FileMetadata::default());
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_clean_of_scripts(&entry_text(&out_file(&world, &verdict), "OEBPS/p.dat"));
+	}
+
+	#[test]
+	fn a_folder_entry_that_holds_data_is_refused_before_a_package_can_point_at_it() {
+		let world = world();
+		// the package names `x/` as its cover: epub-rs would read all of it, in the server
+		let opf = opf_of(
+			r#"<meta name="cover" content="cover"/>"#,
+			r#"<item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/><item id="cover" href="x/" media-type="image/jpeg"/>"#,
+			r#"<itemref idref="c1"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[
+				("OEBPS/c1.xhtml", CLEAN.as_bytes().to_vec()),
+				("OEBPS/x/", vec![0u8; 3 * 1024 * 1024]),
+			],
+		);
+		let request = world.stage("book.epub", &bytes);
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::SIZE_MISMATCH);
+	}
+
+	fn tiff() -> Vec<u8> {
+		let mut bytes = b"II*\0\x08\0\0\0".to_vec();
+		bytes.extend_from_slice(&[0u8; 64]);
+		bytes
+	}
+
+	/// A PNG whose header says it is 30,000 by 30,000
+	fn huge_png_header() -> Vec<u8> {
+		let mut bytes = png(1, 1);
+		bytes[16..20].copy_from_slice(&30_000u32.to_be_bytes());
+		bytes[20..24].copy_from_slice(&30_000u32.to_be_bytes());
+		bytes
+	}
+
+	fn epub_with_cover(cover_name: &str, cover: Vec<u8>, other: &[(&str, Vec<u8>)]) -> Vec<u8> {
+		let opf = opf_of(
+			r#"<meta name="cover" content="cover"/>"#,
+			&format!(
+				r#"<item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/><item id="cover" href="{cover_name}" media-type="image/jpeg" properties="cover-image"/>"#
+			),
+			r#"<itemref idref="c1"/>"#,
+		);
+		let mut extra = vec![
+			("OEBPS/c1.xhtml", CLEAN.as_bytes().to_vec()),
+		];
+		let path = format!("OEBPS/{cover_name}");
+		extra.push((path.as_str(), cover));
+		extra.extend(other.iter().map(|(n, b)| (*n, b.clone())));
+		epub_at("OEBPS/content.opf", &opf, &extra)
+	}
+
+	#[test]
+	fn the_cover_is_held_to_the_kinds_the_server_decodes_and_found_under_any_name() {
+		let world = world();
+		// a TIFF called a JPEG: the server's thumbnail would guess its format and reach the TIFF decoder
+		let request = world.stage("tiff.epub", &epub_with_cover("cover.dat", tiff(), &[]));
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Reject, "{:?}", verdict.warnings);
+		assert_eq!(verdict.reasons[0].code, code::UNSUPPORTED_IMAGE);
+		// a PNG that says it is 900 megapixels: refused from its header, never decoded
+		let request = world.stage("huge.epub", &epub_with_cover("cover.dat", huge_png_header(), &[]));
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::IMAGE_TOO_LARGE);
+		// the same, not as the cover and under a name that is no image's
+		let request = world.stage(
+			"huge2.epub",
+			&epub_with_cover("cover.png", png(8, 8), &[("OEBPS/blob.dat", huge_png_header())]),
+		);
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::IMAGE_TOO_LARGE);
+		// and a plain one passes
+		let request = world.stage("fine.epub", &epub_with_cover("cover.png", png(8, 8), &[]));
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+	}
+
+	/// A one-page PDF written by hand, with this `MediaBox`
+	fn tiny_pdf(media_box: &str) -> Vec<u8> {
+		let mut out = b"%PDF-1.4\n".to_vec();
+		let mut offsets = vec![];
+		for body in [
+			"<</Type/Catalog/Pages 2 0 R>>".to_string(),
+			"<</Type/Pages/Kids[3 0 R]/Count 1>>".to_string(),
+			format!("<</Type/Page/Parent 2 0 R/MediaBox[{media_box}]>>"),
+		] {
+			offsets.push(out.len());
+			let n = offsets.len();
+			out.extend_from_slice(format!("{n} 0 obj\n{body}\nendobj\n").as_bytes());
+		}
+		let xref = out.len();
+		out.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+		for offset in &offsets {
+			out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+		}
+		out.extend_from_slice(
+			format!("trailer\n<</Root 1 0 R/Size 4>>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+		);
+		out
+	}
+
+	#[test]
+	fn a_pdf_has_its_page_sizes_read_and_its_first_page_drawn() {
+		// needs the PDFium library, which a build container doesn't have: skipped there
+		if !std::env::var("PDFIUM_PATH").is_ok_and(|path| Path::new(&path).exists()) {
+			return;
+		}
+		let world = world();
+		let verdict = run(&world.stage("a.pdf", &tiny_pdf("0 0 200 300")), &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_eq!(verdict.book.unwrap().pages, 1);
+		// a page 20,000 points wide is not a page the reader can draw
+		let verdict = run(&world.stage("b.pdf", &tiny_pdf("0 0 20000 300")), &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::PAGE_SIZE);
+	}
+
+	#[test]
+	fn a_comic_is_counted_as_stump_counts_it() {
+		let world = world();
+		// a page in a folder whose name starts with a dot: Stump counts it (only the file's own
+		// name, or `__MACOSX`, hides one), so the check looks at it and counts it too
+		let bytes = zip(&[("a/.b/001.png", png(30, 40)), ("002.png", png(30, 40))]);
+		let verdict = run(&world.stage("c.cbz", &bytes), &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_eq!(verdict.book.unwrap().pages, 2);
+		// a `.heif` is a page to Stump, and not one the server can decode: refused
+		let bytes = zip(&[("001.png", png(30, 40)), ("002.heif", b"\0\0\0\x18ftypheic\0\0\0\0heicmif1".to_vec())]);
+		let verdict = run(&world.stage("d.cbz", &bytes), &world.env);
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::UNSUPPORTED_IMAGE);
+		// a hidden file, a `__MACOSX` entry and a `.bmp` (which Stump doesn't count) are no pages
+		let bytes = zip(&[
+			("001.png", png(30, 40)),
+			(".hidden.png", b"not an image".to_vec()),
+			("__MACOSX/._001.png", b"fork".to_vec()),
+			("scan.bmp", b"BM".to_vec()),
+		]);
+		let verdict = run(&world.stage("e.cbz", &bytes), &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_eq!(verdict.book.unwrap().pages, 1);
 	}
 
 	#[test]
