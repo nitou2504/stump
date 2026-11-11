@@ -1085,7 +1085,10 @@ pub fn check_epub(
 	}
 	if let Some(why) = unstrippable {
 		let reason = Reason::new(code::ACTIVE_CONTENT_UNSTRIPPABLE, why);
-		if approver {
+		// The book of somebody who needs approval, with `strip`, is written anew (`rebuild`): a page
+		// that nothing could clean is rebuilt or left out there, so this look only tells (nothing that
+		// is filed depends on it). `block` and `warn` still refuse what they can't tell is clean
+		if approver || policy == ActiveContent::Strip {
 			warnings.push(reason);
 		} else {
 			return Err(reason);
@@ -1686,13 +1689,19 @@ mod tests {
 		);
 		let told = check(&path, ActiveContent::Warn, true).expect("told only");
 		assert!(!told.active.stripped && told.active.found == 2);
-		// a page that can't be cleaned is refused for somebody who needs approval, told otherwise
+		// a page that can't be cleaned is refused with `block`; with `strip` it is told (the book of
+		// somebody who needs approval is written anew, and so is the page), and told to an approver
 		let sneaky = r#"<html><body><p>one<img src=x onerror=alert(1)></body>"#;
 		let (_dir, path) = epub(sneaky, &[], &opf("", ""));
 		assert_eq!(
-			check(&path, ActiveContent::Strip, false).unwrap_err().code,
+			check(&path, ActiveContent::Block, false).unwrap_err().code,
 			code::ACTIVE_CONTENT_UNSTRIPPABLE
 		);
+		let told = check(&path, ActiveContent::Strip, false).expect("told, not refused");
+		assert!(told
+			.warnings
+			.iter()
+			.any(|w| w.code == code::ACTIVE_CONTENT_UNSTRIPPABLE));
 		assert!(check(&path, ActiveContent::Strip, true).is_ok());
 	}
 
@@ -1866,8 +1875,11 @@ mod tests {
 	const SWALLOWED_PAGE: &str = "<?xml version=\"1.0\"?><!DOCTYPE html SYSTEM \"<\"><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title></head><body><script>alert(1)</script></body></html><!-- > -->";
 	const SWALLOWED_IN_BODY_PAGE: &str = "<?xml version=\"1.0\"?><!DOCTYPE html SYSTEM \"<\"><html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:x=\"http://www.w3.org/1999/xhtml\"><body><p title=\">\"></p><x:script>alert(1)</x:script></body></html>";
 
+	/// With `block` the look at the book still refuses what it can't tell is clean (with `strip` the
+	/// book of somebody who needs approval is written anew, and this look only tells: `job.rs` has
+	/// the tests of what comes out of that)
 	fn is_refused_for_active_content(path: &std::path::Path, what: &str) {
-		match check(path, ActiveContent::Strip, false) {
+		match check(path, ActiveContent::Block, false) {
 			Err(reason) => assert_eq!(
 				reason.code,
 				code::ACTIVE_CONTENT_UNSTRIPPABLE,

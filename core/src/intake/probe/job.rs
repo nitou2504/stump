@@ -836,7 +836,7 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn a_book_with_a_script_it_cannot_clean_is_not_made() {
+	fn a_page_the_old_stripper_could_not_clean_is_rebuilt_and_nothing_of_it_runs() {
 		let world = world();
 		let sneaky = r#"<html><body><p>one<img src=x onerror=alert(1)></body>"#;
 		let request = file_request(
@@ -846,9 +846,10 @@ pub(crate) mod tests {
 			FileMetadata::default(),
 		);
 		let verdict = run(&request, &world.env);
-		assert_eq!(verdict.status, Status::Reject);
-		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
-		assert!(!world.env.out_dir.join("000.epub").exists());
+		// the page was never cleaned: it is written anew from what a browser makes of it
+		assert!(assert_nothing_runs(&world, &verdict), "{:?}", verdict.reasons);
+		let page = entry_text(&out_file(&world, &verdict), "OEBPS/c1.xhtml");
+		assert!(page.contains("one"), "{page}");
 	}
 
 	// ---- the hostile corpus of the D3 review: what the checker must not let through ----
@@ -920,7 +921,7 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn a_package_file_with_a_script_in_it_is_refused_and_not_taken_apart() {
+	fn a_package_file_with_a_script_in_it_is_told_and_never_copied() {
 		let world = world();
 		let opf = opf_of(
 			r#"<script xmlns="http://www.w3.org/1999/xhtml">alert(1)</script>"#,
@@ -932,11 +933,18 @@ pub(crate) mod tests {
 			&opf,
 			&[("OEBPS/c1.xhtml", CLEAN.as_bytes().to_vec())],
 		);
+		// the look at the book tells the approver and does not refuse: the package of the book that
+		// is filed is written from what the reader reads of it, and a script is not in that
 		let request = world.stage("book.epub", &bytes);
 		let verdict = run(&request, &world.env);
-		assert_eq!(verdict.status, Status::Reject);
-		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
-		assert!(verdict.reasons[0].detail.contains("package file"));
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert!(verdict
+			.warnings
+			.iter()
+			.any(|w| w.code == code::ACTIVE_CONTENT_UNSTRIPPABLE));
+		let request = file_request(&world, "filed.epub", &bytes, FileMetadata::default());
+		let verdict = run(&request, &world.env);
+		assert!(assert_nothing_runs(&world, &verdict), "{:?}", verdict.reasons);
 		// somebody who files their own books is told, and the book is not refused
 		let mut request = world.stage("mine.epub", &bytes);
 		request.approver = true;
@@ -972,7 +980,7 @@ pub(crate) mod tests {
 	}
 
 	#[test]
-	fn a_page_the_package_calls_html_with_a_parameter_is_held_to_its_bytes() {
+	fn a_page_the_package_calls_html_with_a_parameter_is_written_as_what_it_is() {
 		let world = world();
 		// `text/html;x` is `text/html` to the reader: the CDATA is text to XML and a comment
 		// that the first `>` ends to HTML, and the `<img>` after it is an element
@@ -990,10 +998,16 @@ pub(crate) mod tests {
 			&opf,
 			&[("OEBPS/c1.xhtml", page.into_bytes())],
 		);
-		let request = world.stage("book.epub", &bytes);
+		// the page is written anew as XHTML, with that text escaped, and the new package says
+		// `application/xhtml+xml`: there is no `<img>` element in what is filed, in either reading
+		let request = file_request(&world, "book.epub", &bytes, FileMetadata::default());
 		let verdict = run(&request, &world.env);
-		assert_eq!(verdict.status, Status::Reject);
-		assert_eq!(verdict.reasons[0].code, code::ACTIVE_CONTENT_UNSTRIPPABLE);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		let out = out_file(&world, &verdict);
+		let page = entry_text(&out, "OEBPS/c1.xhtml");
+		assert!(!page.contains("<img") && !page.contains("<script"), "{page}");
+		let package = entry_text(&out, "content.opf");
+		assert!(!package.contains("text/html"), "{package}");
 	}
 
 	#[test]
@@ -1251,6 +1265,247 @@ pub(crate) mod tests {
 		let made = run(&file_request(&world, "odd2.epub", &bytes, meta), &world.env);
 		assert_eq!(made.status, Status::Ok, "{:?}", made.reasons);
 		assert!(started.elapsed().as_secs() < 60);
+	}
+
+	// --- the ways round a checker that the re-checks found: each book below must come out with
+	// nothing that runs in any of its files, however the reader and the program that looked would
+	// have read it differently. The book is written anew from what the reader reads, so none of
+	// them depends on the checker agreeing with a browser ---
+
+	/// What must not be found in any file that was made: a script, a handler, a script address or a
+	/// frame (the text of a script that was left out is not a marker: it is only text)
+	const HOSTILE_MARKERS: &[&str] = &["<script", "onerror", "javascript:", "srcdoc", "<iframe"];
+
+	/// Every entry of the book that was made, by name
+	fn everything_in(path: &Path) -> Vec<(String, Vec<u8>)> {
+		let mut archive = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
+		(0..archive.len())
+			.map(|i| {
+				let entry = archive.by_index(i).unwrap();
+				let name = entry.name().to_string();
+				(
+					name,
+					bounded::read_capped(entry, 8 * MIB).unwrap_or_default(),
+				)
+			})
+			.collect()
+	}
+
+	/// The book was not made, or it was and nothing that runs is in any file of it
+	fn assert_nothing_runs(world: &World, verdict: &Verdict) -> bool {
+		if verdict.status != Status::Ok {
+			assert_eq!(
+				verdict.status,
+				Status::Reject,
+				"{:?}",
+				verdict.reasons
+			);
+			assert!(!world.env.out_dir.join("000.epub").exists());
+			return false;
+		}
+		for (name, bytes) in everything_in(&out_file(world, verdict)) {
+			let text = String::from_utf8_lossy(&bytes).to_lowercase();
+			for marker in HOSTILE_MARKERS {
+				assert!(!text.contains(marker), "{marker} in {name}: {text}");
+			}
+			assert!(
+				!name.contains('?') && !name.contains('#') && !name.contains('%'),
+				"{name}"
+			);
+		}
+		true
+	}
+
+	fn friend_book(bytes: &[u8]) -> (World, Verdict) {
+		let world = world();
+		let request = file_request(&world, "book.epub", bytes, FileMetadata::default());
+		let verdict = run(&request, &world.env);
+		(world, verdict)
+	}
+
+	const GOOD_PAGE: &str = CLEAN;
+
+	#[test]
+	fn a_doctype_that_a_browser_ends_somewhere_else_hides_no_script() {
+		// quick-xml ends the DOCTYPE at the `>` after the `-->`; a browser ends it after the quoted
+		// `<`. A detector that read the page like quick-xml saw one DOCTYPE and nothing else
+		let page = concat!(
+			"<?xml version=\"1.0\"?><!DOCTYPE html SYSTEM \"<\">",
+			"<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title></head>",
+			"<body><p>hello</p><script>alert(1)</script></body></html><!-- > -->"
+		);
+		let opf = opf_of(
+			"",
+			r#"<item id="p" href="p.xhtml" media-type="application/xhtml+xml"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>"#,
+			r#"<itemref idref="p"/><itemref idref="c"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[
+				("OEBPS/p.xhtml", page.as_bytes().to_vec()),
+				("OEBPS/c.xhtml", GOOD_PAGE.as_bytes().to_vec()),
+			],
+		);
+		let (world, verdict) = friend_book(&bytes);
+		assert!(assert_nothing_runs(&world, &verdict), "{:?}", verdict.reasons);
+	}
+
+	#[test]
+	fn a_manifest_child_of_any_name_is_a_resource_for_the_reader_and_a_page_for_nobody() {
+		// epub-rs makes a resource of every child of `<manifest>`, whatever it is called, and a
+		// spine item of every child of `<spine>`; the reader then serves `p.dat` as `text/html`
+		let opf = opf_of(
+			"",
+			r#"<x id="p" href="p.dat" media-type="text/html"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>"#,
+			r#"<itemref idref="p"/><itemref idref="c"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[
+				("OEBPS/p.dat", b"x<img src=x onerror=alert(1)>".to_vec()),
+				("OEBPS/c.xhtml", GOOD_PAGE.as_bytes().to_vec()),
+			],
+		);
+		let (world, verdict) = friend_book(&bytes);
+		assert!(assert_nothing_runs(&world, &verdict), "{:?}", verdict.reasons);
+		// and with no other page there is no book
+		let only = epub_at(
+			"OEBPS/content.opf",
+			&opf_of(
+				"",
+				r#"<x id="p" href="p.dat" media-type="text/html"/>"#,
+				r#"<itemref idref="p"/>"#,
+			),
+			&[("OEBPS/p.dat", b"x<img src=x onerror=alert(1)>".to_vec())],
+		);
+		let (world, verdict) = friend_book(&only);
+		assert!(!assert_nothing_runs(&world, &verdict));
+		assert_eq!(verdict.reasons[0].code, code::NO_READABLE_PAGES);
+	}
+
+	#[test]
+	fn a_type_in_another_case_or_with_a_space_in_it_is_no_way_round() {
+		// attribute names are matched exactly by epub-rs: `Media-Type` is not `media-type`, so the
+		// type the reader reads is `text/html`; and `&nbsp;` is read as a space
+		for (items, readable) in [
+			(
+				r#"<item id="p" href="p.dat" Media-Type="image/png" media-type="text/html"/>"#,
+				true,
+			),
+			(
+				r#"<item id="p" href="p.dat" media-type="text/html&nbsp;"/>"#,
+				false,
+			),
+			(
+				r#"<item id="p" href="p.dat" media-type="TEXT/HTML"/>"#,
+				true,
+			),
+		] {
+			let opf = opf_of(
+				"",
+				&format!(
+					"{items}<item id=\"c\" href=\"c.xhtml\" media-type=\"application/xhtml+xml\"/>"
+				),
+				r#"<itemref idref="p"/><itemref idref="c"/>"#,
+			);
+			let bytes = epub_at(
+				"OEBPS/content.opf",
+				&opf,
+				&[
+					("OEBPS/p.dat", b"x<img src=x onerror=alert(1)>".to_vec()),
+					("OEBPS/c.xhtml", GOOD_PAGE.as_bytes().to_vec()),
+				],
+			);
+			let (world, verdict) = friend_book(&bytes);
+			// the book is made without the page, or refused (Stump's own metadata reader can't read
+			// a package with `&nbsp;` in it): in neither is there anything that runs
+			let made = assert_nothing_runs(&world, &verdict);
+			assert!(made || !readable, "{items}: {:?}", verdict.reasons);
+		}
+	}
+
+	#[test]
+	fn a_decoy_rootfile_before_the_real_one_decides_nothing() {
+		// the first `rootfile` that epub-rs matches exactly is the package; a look-alike in another
+		// case in front of it is nobody's
+		let container = r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><ROOTFILE full-path="decoy.opf" media-type="application/oebps-package+xml"/><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
+		let opf = opf_of(
+			"",
+			r#"<item id="p" href="p.xhtml" media-type="application/xhtml+xml"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>"#,
+			r#"<itemref idref="p"/><itemref idref="c"/>"#,
+		);
+		let bytes = zip(&[
+			("mimetype", b"application/epub+zip".to_vec()),
+			("META-INF/container.xml", container.as_bytes().to_vec()),
+			(
+				"decoy.opf",
+				opf_of("", "", "").as_bytes().to_vec(),
+			),
+			("OEBPS/content.opf", opf.as_bytes().to_vec()),
+			("OEBPS/p.xhtml", SCRIPTED.as_bytes().to_vec()),
+			("OEBPS/c.xhtml", GOOD_PAGE.as_bytes().to_vec()),
+		]);
+		let (world, verdict) = friend_book(&bytes);
+		assert!(assert_nothing_runs(&world, &verdict), "{:?}", verdict.reasons);
+	}
+
+	#[test]
+	fn a_name_with_a_question_mark_is_not_filed_with_its_scripts() {
+		// epub-rs keeps the `?` in the path; the reader's address for it encodes it, and the route
+		// decodes it again and serves `OEBPS/a?b.xhtml`
+		let opf = opf_of(
+			"",
+			r#"<item id="p" href="a?b.xhtml" media-type="application/xhtml+xml"/><item id="h" href="a%23b.xhtml" media-type="application/xhtml+xml"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>"#,
+			r#"<itemref idref="p"/><itemref idref="h"/><itemref idref="c"/>"#,
+		);
+		let bytes = epub_at(
+			"OEBPS/content.opf",
+			&opf,
+			&[
+				("OEBPS/a?b.xhtml", SCRIPTED.as_bytes().to_vec()),
+				("OEBPS/a#b.xhtml", SCRIPTED.as_bytes().to_vec()),
+				("OEBPS/c.xhtml", GOOD_PAGE.as_bytes().to_vec()),
+			],
+		);
+		let (world, verdict) = friend_book(&bytes);
+		assert!(assert_nothing_runs(&world, &verdict), "{:?}", verdict.reasons);
+	}
+
+	#[test]
+	fn a_page_by_a_prefix_or_a_case_the_xml_reader_does_not_know_is_rebuilt_all_the_same() {
+		// scripts by a prefix, in another case, in a namespace of their own, in a CDATA section, behind
+		// a comment that a browser ends sooner than an XML reader does
+		let pages = [
+			r#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:h="http://www.w3.org/1999/xhtml"><body><p>hello</p><h:script>alert(1)</h:script></body></html>"#,
+			r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>hello</p><SCRIPT>alert(1)</SCRIPT></body></html>"#,
+			r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>hello</p><svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg></body></html>"#,
+			r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>hello</p><![CDATA[<script>alert(1)</script>]]><a href="javascript:alert(1)">x</a></body></html>"#,
+			r#"<html><body><p>hello</p><!--><script>alert(1)</script>--></body></html>"#,
+			r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>hello</p><img src="a.png" ONERROR="alert(1)"/><iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe></body></html>"#,
+		];
+		for page in pages {
+			let opf = opf_of(
+				"",
+				r#"<item id="p" href="p.xhtml" media-type="application/xhtml+xml"/><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>"#,
+				r#"<itemref idref="p"/><itemref idref="c"/>"#,
+			);
+			let bytes = epub_at(
+				"OEBPS/content.opf",
+				&opf,
+				&[
+					("OEBPS/p.xhtml", page.as_bytes().to_vec()),
+					("OEBPS/c.xhtml", GOOD_PAGE.as_bytes().to_vec()),
+				],
+			);
+			let (world, verdict) = friend_book(&bytes);
+			assert!(
+				assert_nothing_runs(&world, &verdict),
+				"{page}: {:?}",
+				verdict.reasons
+			);
+		}
 	}
 
 	/// Not run by default: what the checks make of a real library (`STUMP_PROBE_CALIBRATE_DIR`, a

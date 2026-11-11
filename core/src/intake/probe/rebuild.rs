@@ -1191,6 +1191,50 @@ mod tests {
 		assert!(rebuilt.warnings.iter().any(|w| w.code == code::MALFORMED_XHTML));
 	}
 
+	#[test]
+	fn a_dictionary_sized_book_is_made_and_the_readers_routes_run_on_it_in_bounded_time() {
+		// 8,232 pages is the biggest real book of the owner's, a dictionary; the reader makes its
+		// manifest and its positions for every request that asks, so what they cost is checked on the
+		// book that was made, not guessed from what was sent
+		const PAGES: usize = 6_000;
+		let mut items = String::from(
+			r#"<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>"#,
+		);
+		let (mut spine, mut points) = (String::new(), String::new());
+		let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+		for n in 0..PAGES {
+			items.push_str(&format!(
+				"<item id=\"c{n}\" href=\"c{n}.xhtml\" media-type=\"application/xhtml+xml\"/>"
+			));
+			spine.push_str(&format!("<itemref idref=\"c{n}\"/>"));
+			points.push_str(&format!(
+				"<navPoint id=\"p{n}\" playOrder=\"{}\"><navLabel><text>Entry {n}</text></navLabel><content src=\"c{n}.xhtml\"/></navPoint>",
+				n + 1
+			));
+			files.push((
+				format!("OEBPS/c{n}.xhtml"),
+				format!(
+					"<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title></head><body><p>Entry {n}</p></body></html>"
+				)
+				.into_bytes(),
+			));
+		}
+		let mut all = vec![
+			("OEBPS/content.opf".to_string(), opf(&items, &spine).into_bytes()),
+			("OEBPS/toc.ncx".to_string(), ncx(&points).into_bytes()),
+		];
+		all.extend(files);
+		let refs: Vec<(&str, Vec<u8>)> = all.iter().map(|(n, b)| (n.as_str(), b.clone())).collect();
+		let made = build(CONTAINER, &refs, &Limits::default());
+		let rebuilt = made.result.as_ref().expect("a dictionary is made");
+		assert_eq!(rebuilt.pages as usize, PAGES);
+		let started = std::time::Instant::now();
+		super::super::check::check_reader_routes(&made.out).expect("the routes run on it");
+		// a debug build, and a table of contents found for every page by its path at once (a search
+		// of the whole table for every page is quadratic, and this is the size where that shows)
+		assert!(started.elapsed().as_secs() < 30, "{:?}", started.elapsed());
+	}
+
 	/// The rebuild on a real library (`STUMP_PROBE_CALIBRATE_DIR`, at most
 	/// `STUMP_PROBE_CALIBRATE_MAX` EPUBs, spread over it): every book of the owner's that a rebuild
 	/// refuses, or loses pages of, for no good reason is a rebuild that is too strict
