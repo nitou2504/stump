@@ -1,7 +1,7 @@
 import { Alert, AlertDescription, AlertTitle, Button, Link } from '@stump/components'
 import { IntakeState } from '@stump/graphql'
 import { formatDistanceToNow } from 'date-fns'
-import { AlertTriangle, CircleAlert, Copy, MessageSquareWarning, RotateCw } from 'lucide-react'
+import { AlertTriangle, CircleAlert, Copy, MessageSquareWarning } from 'lucide-react'
 
 import { usePaths } from '@/paths'
 
@@ -23,13 +23,13 @@ type Props = Looking & {
 	uploaderAge?: AgeLimit | null
 	isBusy?: boolean
 	onChangeLibrary: (id: string, libraryId: string) => void
-	onReanalyse: (id: string, online?: boolean) => void
 }
 
 /**
  * What a card has to say before anything else: an approver's note, a failure, a rating that
  * would hide the book from whoever sent it, a possible duplicate, the server's warnings and a
  * library of its own for the book. Each is shown only when it is true, so most cards say nothing.
+ * (A failure's way out, *Try again*, is the card's main button, not a button in here.)
  */
 export function CardNotices({
 	item,
@@ -39,7 +39,6 @@ export function CardNotices({
 	uploaderAge,
 	isBusy,
 	onChangeLibrary,
-	onReanalyse,
 }: Props) {
 	const paths = usePaths()
 	const { proposal, decision } = item
@@ -71,18 +70,7 @@ export function CardNotices({
 				<Alert variant="destructive">
 					<CircleAlert />
 					<AlertTitle>What went wrong</AlertTitle>
-					<AlertDescription>
-						<p>{item.error || 'Unknown error'}</p>
-						<Button
-							className="mt-2"
-							size="xs"
-							variant="outline"
-							disabled={isBusy}
-							onClick={() => onReanalyse(item.id)}
-						>
-							<RotateCw /> Try again
-						</Button>
-					</AlertDescription>
+					<AlertDescription>{item.error || 'Unknown error'}</AlertDescription>
 				</Alert>
 			)}
 
@@ -150,7 +138,7 @@ export function CardNotices({
 					>
 						Move to {suggested.name}
 					</Button>
-					<span className="text-muted-foreground">It is analysed again there</span>
+					<span className="text-muted-foreground">It is read again there</span>
 				</div>
 			)}
 		</>

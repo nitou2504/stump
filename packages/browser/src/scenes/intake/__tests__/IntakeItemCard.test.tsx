@@ -2,7 +2,7 @@ import { IntakeKind, IntakeSeriesKind, IntakeState, LibraryType } from '@stump/g
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 
-import IntakeItemCard from '../IntakeItemCard'
+import IntakeItemCard, { primaryLabel } from '../IntakeItemCard'
 import type { IntakeItemData } from '../queries'
 import { item } from './fixtures'
 
@@ -65,7 +65,32 @@ describe('IntakeItemCard library', () => {
 		renderCard({}, { libraries: [biblioteca] })
 
 		expect(screen.queryByLabelText('Library')).not.toBeInTheDocument()
-		expect(screen.getByText(/rosa\.epub · Biblioteca/)).toBeInTheDocument()
+		expect(screen.getByText(/Biblioteca · rosa\.epub/)).toBeInTheDocument()
+	})
+
+	it('names the library on every card, also when there are several to choose from', () => {
+		// the switch is behind “More details”: the card itself has to say where the book goes
+		renderCard()
+
+		expect(screen.getByLabelText('Library')).toBeInTheDocument()
+		expect(screen.getByText(/Biblioteca · rosa\.epub/)).toBeInTheDocument()
+	})
+
+	it('names the library the book is in, whichever it is', () => {
+		renderCard({ libraryId: 'manga', libraryName: 'Manga' })
+
+		expect(screen.getByText(/Manga · rosa\.epub/)).toBeInTheDocument()
+	})
+
+	it('puts the library before the file name, so a long name is what gets cut short', () => {
+		const name =
+			'Does God exist_ _ an answer for today -- Kung, Hans -- 2013;2012 -- Knopf Doubleday Publishing Group -- isbn13 9780307826527 -- Anna’s Archive.epub'
+		renderCard({ name })
+
+		const line = screen.getByText(/^Biblioteca · Does God exist/)
+		expect(line.textContent?.startsWith('Biblioteca · ')).toBe(true)
+		// everything is on hover, in the same order
+		expect(line).toHaveAttribute('title', `Biblioteca · ${name}`)
 	})
 
 	it('offers the library of its own the server suggests, and moves the item to it', () => {
@@ -466,6 +491,23 @@ describe('IntakeItemCard layout', () => {
 		}
 	})
 
+	it('stays closed for a book that nothing blocks', () => {
+		renderCard({ problems: [] })
+
+		const details = screen.getByText('More details').closest('details') as HTMLDetailsElement
+		expect(details.open).toBe(false)
+	})
+
+	it('opens by itself when something that blocks the book is fixed in there', () => {
+		// the folder is chosen behind “More details”: a closed fold would hide the way out of the alert
+		renderCard({ problems: ['Choose a folder'] })
+
+		const details = screen.getByText('More details').closest('details') as HTMLDetailsElement
+		expect(details.open).toBe(true)
+		expect(within(details).getByText('Folder picker')).toBeInTheDocument()
+		expect(screen.getByText('Choose a folder', { selector: 'li' })).toBeInTheDocument()
+	})
+
 	it('says what is inside “More details” in a few words, so nobody opens it to find out', () => {
 		renderCard()
 		expect(screen.getByText(/folder, language, year, age rating/)).toBeInTheDocument()
@@ -499,6 +541,21 @@ describe('IntakeItemCard layout', () => {
 		expect(screen.getByText('No author yet')).toBeInTheDocument()
 	})
 
+	it('does not ask for an author of a volume filed under a manga series', () => {
+		const base = item()
+		renderCard({
+			decision: base.decision
+				? {
+						...base.decision,
+						metadata: { ...base.decision.metadata, authors: [], series: 'Berserk' },
+						seriesKind: IntakeSeriesKind.Manga,
+					}
+				: null,
+		})
+
+		expect(screen.queryByText('No author yet')).not.toBeInTheDocument()
+	})
+
 	it('counts the volumes of a series where an author would be', () => {
 		renderCard({
 			files: [
@@ -527,16 +584,73 @@ describe('IntakeItemCard layout', () => {
 		expect(screen.getByText('To approve')).toBeInTheDocument()
 	})
 
-	it('offers to try a book that could not be read again, and cannot add it meanwhile', () => {
-		const onReanalyse = vi.fn()
-		renderCard({ decision: null, error: 'Not a book', state: IntakeState.Failed }, { onReanalyse })
+	describe('a book that could not be read', () => {
+		const failed = { decision: null, error: 'Not a book', state: IntakeState.Failed }
 
-		expect(screen.getByText('What went wrong')).toBeInTheDocument()
-		expect(screen.getByText('Not a book')).toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
+		it('says what went wrong, and has nothing to add', () => {
+			renderCard(failed)
 
-		expect(onReanalyse).toHaveBeenCalledWith('a')
-		expect(screen.getByRole('button', { name: /Add/ })).toBeDisabled()
+			expect(screen.getByText('What went wrong')).toBeInTheDocument()
+			expect(screen.getByText('Not a book')).toBeInTheDocument()
+			expect(screen.queryByRole('button', { name: /Add/ })).not.toBeInTheDocument()
+			expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument()
+		})
+
+		it('has “Try again” as its one main button, which reads the book again', () => {
+			const onReanalyse = vi.fn()
+			renderCard(failed, { onReanalyse })
+
+			// one button of that name: the main one, in the footer next to “Discard”
+			const tryAgain = screen.getByRole('button', { name: /Try again/ })
+			const footer = screen.getByRole('button', { name: 'Discard' }).parentElement as HTMLElement
+			expect(footer).toContainElement(tryAgain)
+			expect(tryAgain).toBeEnabled()
+			fireEvent.click(tryAgain)
+
+			expect(onReanalyse).toHaveBeenCalledWith('a')
+		})
+
+		it('keeps the way out out of the alert, which only says what went wrong', () => {
+			renderCard(failed)
+
+			const alert = screen.getByText('What went wrong').closest('[role="alert"]') as HTMLElement
+			expect(within(alert).queryByRole('button')).toBeNull()
+		})
+
+		it('cannot be tried again while something is being saved', () => {
+			renderCard(failed, { isBusy: true })
+
+			expect(screen.getByRole('button', { name: /Try again/ })).toBeDisabled()
+		})
+
+		it('says “Try again” to somebody who needs approval, too', () => {
+			const onReanalyse = vi.fn()
+			renderCard(failed, { mode: 'submit', onReanalyse, onSubmit: vi.fn() })
+
+			fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
+
+			expect(onReanalyse).toHaveBeenCalledWith('a')
+			expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument()
+		})
+
+		it('is not the approver’s to read again: the main button stays “Approve”, and waits', () => {
+			renderCard(failed, { mode: 'review', onApprove: vi.fn(), onSendBack: vi.fn() })
+
+			expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+			expect(screen.queryByRole('button', { name: /Try again/ })).not.toBeInTheDocument()
+		})
+	})
+
+	it('names what the main button does for every state it can be in', () => {
+		const base = { attention: false, friend: false, ready: true, reviewing: false, sentBack: false }
+
+		expect(primaryLabel({ ...base, state: IntakeState.Failed })).toBe('Try again')
+		expect(primaryLabel({ ...base, friend: true, state: IntakeState.Failed })).toBe('Try again')
+		expect(primaryLabel({ ...base, reviewing: true, state: IntakeState.Failed })).toBe('Approve')
+		expect(primaryLabel({ ...base, state: IntakeState.Ready })).toBe('Add to library')
+		expect(primaryLabel({ ...base, friend: true, state: IntakeState.Ready })).toBe(
+			'Send for approval',
+		)
 	})
 
 	it('keeps one main button, and the way to discard beside it', () => {

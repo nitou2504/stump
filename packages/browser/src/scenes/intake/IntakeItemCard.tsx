@@ -105,6 +105,8 @@ export default function IntakeItemCard({
 	const filedAsSeries = isSeriesItem || !!seriesKind
 	const attention = needsAttention(item)
 	const ready = isReady(item)
+	// a book that couldn't be read has nothing to add yet: its one button reads it again
+	const failed = item.state === IntakeState.Failed && !reviewing
 	const review = (input: IntakeReviewInput) => onReview(item.id, input)
 
 	const tagsReviewed = useTagReviewStore((store) => !!store.reviewed[item.id])
@@ -156,7 +158,7 @@ export default function IntakeItemCard({
 								{
 									items: [
 										{
-											label: 'Analyse again',
+											label: 'Read again',
 											leftIcon: <RotateCw className="mr-2 h-4 w-4" />,
 											onClick: () => onReanalyse(item.id),
 										},
@@ -183,7 +185,7 @@ export default function IntakeItemCard({
 						<p className="text-sm truncate text-muted-foreground">{byline}</p>
 					) : (
 						decision &&
-						!isSeriesItem && <p className="text-sm text-muted-foreground/70">No author yet</p>
+						!filedAsSeries && <p className="text-sm text-muted-foreground">No author yet</p>
 					)}
 					{reviewing && <UploaderRow uploader={item.uploader} submittedAt={item.submittedAt} />}
 					<div className="gap-x-2 gap-y-1 text-xs flex flex-wrap items-center text-muted-foreground">
@@ -193,9 +195,9 @@ export default function IntakeItemCard({
 								{formatLabel(firstFormat)}
 							</Badge>
 						)}
-						<span className="min-w-0 truncate" title={item.name}>
-							{item.name}
-							{libraries.length < 2 && ` · ${item.libraryName}`}
+						{/* the library first, so a long file name can't push out where the book goes */}
+						<span className="min-w-0 truncate" title={`${item.libraryName} · ${item.name}`}>
+							{item.libraryName} · {item.name}
 						</span>
 					</div>
 				</div>
@@ -209,7 +211,6 @@ export default function IntakeItemCard({
 				uploaderAge={uploaderAge}
 				isBusy={isBusy}
 				onChangeLibrary={onChangeLibrary}
-				onReanalyse={onReanalyse}
 			/>
 
 			{decision && (
@@ -294,7 +295,7 @@ export default function IntakeItemCard({
 						<section className="gap-2 flex flex-col" aria-label="Tags">
 							<div className="gap-2 flex items-center">
 								<span className="text-xs text-muted-foreground">Genres</span>
-								<span className="text-xs text-muted-foreground/70">
+								<span className="text-xs text-muted-foreground">
 									{chosenGenres.length ? `${chosenGenres.length} chosen` : 'none chosen'}
 								</span>
 							</div>
@@ -352,7 +353,9 @@ export default function IntakeItemCard({
 						</div>
 					)}
 
+					{/* opens by itself when what blocks the book is fixed in here (the folder, the volumes) */}
 					<MoreDetails
+						open={item.problems.length > 0}
 						hint={friend ? 'language, year, publisher' : 'folder, language, year, age rating'}
 					>
 						{!friend && (
@@ -463,15 +466,19 @@ export default function IntakeItemCard({
 				<Button
 					className="sm:min-w-40"
 					onClick={() => {
-						if (reviewing) onApprove?.(item, chosenGenres)
+						if (failed) onReanalyse(item.id)
+						else if (reviewing) onApprove?.(item, chosenGenres)
 						else if (friend) onSubmit?.(item, chosenGenres)
 						else onAccept?.(item, chosenGenres)
 					}}
 					disabled={
-						isBusy || !decision || item.problems.length > 0 || item.state === IntakeState.Failed
+						failed
+							? isBusy
+							: isBusy || !decision || item.problems.length > 0 || item.state === IntakeState.Failed
 					}
-					title={item.problems[0]}
+					title={failed ? undefined : item.problems[0]}
 				>
+					{failed && <RotateCw />}
 					{primaryLabel({ attention, friend, ready, reviewing, sentBack, state: item.state })}
 				</Button>
 			</footer>
@@ -507,6 +514,7 @@ export function primaryLabel({
 	attention: boolean
 }) {
 	if (reviewing) return 'Approve'
+	if (state === IntakeState.Failed) return 'Try again'
 	if (friend) {
 		if (sentBack) return 'Send again'
 		if (state === IntakeState.NeedsReview) return 'Looks right, send it'
