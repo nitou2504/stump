@@ -110,7 +110,7 @@ async fn set_account_lock_status(
 		// again on its next typo
 		models::services::access::unblock_user(
 			&conn,
-			chrono::Utc::now(),
+			sea_orm::sqlx::types::chrono::Utc::now(),
 			&user.id,
 			"cli",
 		)
