@@ -2,6 +2,7 @@ import '@/__mocks__/resizeObserver'
 
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { Route, Routes } from 'react-router'
 
 import { FINISHED_PAGE_SIZE } from '../graphql'
@@ -12,7 +13,13 @@ vi.mock('@/hooks/useTranslate', () => import('./translations'))
 vi.mock('../availability', () => ({ MY_READING_AVAILABLE: true }))
 // the header, the covers and the search are tested where they are; here what the page puts in them
 vi.mock('@/components/sharedLayout', () => ({
-	CollectionSceneHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
+	// a real <header> (the banner landmark): where the page puts its chip can then be asserted, not guessed
+	CollectionSceneHeader: ({ title, endActions }: { title: string; endActions?: ReactNode }) => (
+		<header>
+			<h1>{title}</h1>
+			{endActions}
+		</header>
+	),
 }))
 vi.mock('@/components/thumbnail', () => ({
 	ThumbnailImage: ({ src, alt }: { src: string; alt?: string }) => <img src={src} alt={alt} />,
@@ -339,26 +346,74 @@ describe('ReadingHistoryPage', () => {
 		})
 	})
 
-	describe('the privacy switch on a own page', () => {
+	describe('who sees the page, on a own page', () => {
+		const chipOf = (name: string) => screen.findByRole('button', { name })
 		const switchOf = () => screen.findByRole('switch', { name: 'readingHistory.privacy.switch' })
 
-		it('says that only the person sees the page until they turn it on', async () => {
+		it('is a small chip that says the page is private until the person turns sharing on', async () => {
 			renderPage(history())
 
-			expect(await screen.findByText('readingHistory.privacy.privateTitle')).toBeInTheDocument()
-			expect(await switchOf()).toHaveAttribute('aria-checked', 'false')
+			expect(await chipOf('readingHistory.privacy.privateLabel')).toHaveTextContent(
+				'readingHistory.privacy.private',
+			)
+			// what it shares is there when asked for, not a block of the page
+			expect(screen.queryByText('readingHistory.privacy.description')).not.toBeInTheDocument()
+			expect(screen.queryByRole('switch')).not.toBeInTheDocument()
 		})
 
-		it('lets everyone see it when turned on, and says so', async () => {
+		it('puts the reading first: the chip is with the title, and the page starts with Reading now', async () => {
+			renderPage(
+				history({
+					reading: [readingNow(ulysses, 12, '2026-03-02')],
+					years: [{ year: 2026, count: 1 }],
+					finished: [finishedRead(dune, '2026-03-04')],
+				}),
+			)
+
+			const reading = await screen.findByText('Ulysses')
+			await screen.findByText('Dune')
+			const chip = await chipOf('readingHistory.privacy.privateLabel')
+
+			// nothing but the reading is in the page: its first region is Reading now
+			expect(screen.getAllByRole('region')[0]).toHaveAccessibleName('readingHistory.now.heading')
+			expect(screen.queryByRole('region', { name: 'readingHistory.privacy.label' })).toBeNull()
+
+			// the chip is in the header, with the title (a chip back in the page body would fail here:
+			// the title bar is the only banner on the page)
+			const banner = screen.getByRole('banner')
+			expect(
+				within(banner).getByRole('button', { name: 'readingHistory.privacy.privateLabel' }),
+			).toBe(chip)
+			expect(within(banner).getByRole('heading', { level: 1 })).toBeInTheDocument()
+			// and the header comes before the reading
+			expect(
+				banner.compareDocumentPosition(reading) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy()
+		})
+
+		it('opens to the switch, with what it shares told in the words', async () => {
+			const user = userEvent.setup()
+			renderPage(history())
+
+			await user.click(await chipOf('readingHistory.privacy.privateLabel'))
+
+			expect(await switchOf()).toHaveAttribute('aria-checked', 'false')
+			expect(screen.getByText('readingHistory.privacy.description')).toBeInTheDocument()
+		})
+
+		it('lets everyone see it when turned on, and the chip says so', async () => {
 			const user = userEvent.setup()
 			const { execute } = renderPage(history())
 
+			await user.click(await chipOf('readingHistory.privacy.privateLabel'))
 			await user.click(await switchOf())
 
 			await waitFor(() =>
 				expect(sent(execute, 'UpdateMyReadingPrivacy')).toEqual([{ share: true }]),
 			)
-			expect(await screen.findByText('readingHistory.privacy.sharedTitle')).toBeInTheDocument()
+			expect(await chipOf('readingHistory.privacy.sharedLabel')).toHaveTextContent(
+				'readingHistory.privacy.shared',
+			)
 			expect(await switchOf()).toHaveAttribute('aria-checked', 'true')
 			// the page loads again with what everyone may see now
 			await waitFor(() => expect(sent(execute, 'ReadingHistoryPeople').length).toBeGreaterThan(1))
@@ -368,13 +423,13 @@ describe('ReadingHistoryPage', () => {
 			const user = userEvent.setup()
 			const { execute } = renderPage(history({ sharing: true }))
 
-			expect(await screen.findByText('readingHistory.privacy.sharedTitle')).toBeInTheDocument()
+			await user.click(await chipOf('readingHistory.privacy.sharedLabel'))
 			await user.click(await switchOf())
 
 			await waitFor(() =>
 				expect(sent(execute, 'UpdateMyReadingPrivacy')).toEqual([{ share: false }]),
 			)
-			expect(await screen.findByText('readingHistory.privacy.privateTitle')).toBeInTheDocument()
+			expect(await chipOf('readingHistory.privacy.privateLabel')).toBeInTheDocument()
 		})
 	})
 
@@ -407,13 +462,17 @@ describe('ReadingHistoryPage', () => {
 			expect(links[1]).toHaveAttribute('aria-current', 'page')
 		})
 
-		it('is read-only: no switch to change who sees it, and nothing to remove', async () => {
+		it('is read-only: no chip or switch to change who sees it, and the title says whose page it is', async () => {
 			renderPage(friendsReading(), '/reading/ana')
 
 			await screen.findByText('Dune')
+			expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+				'readingHistory.titleOf name=ana',
+			)
 			expect(screen.queryByRole('switch')).not.toBeInTheDocument()
-			expect(screen.queryByText('readingHistory.privacy.privateTitle')).not.toBeInTheDocument()
-			expect(screen.queryByText('readingHistory.privacy.sharedTitle')).not.toBeInTheDocument()
+			expect(
+				screen.queryByRole('button', { name: /readingHistory\.privacy\./ }),
+			).not.toBeInTheDocument()
 			expect(screen.queryByRole('button', { name: /remove|delete/i })).not.toBeInTheDocument()
 		})
 
