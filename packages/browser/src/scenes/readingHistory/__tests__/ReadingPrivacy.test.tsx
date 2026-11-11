@@ -99,9 +99,13 @@ describe('ReadingPrivacyControl', () => {
 		chip.focus()
 		await user.keyboard('{Enter}')
 
-		expect(await switchOf()).toBeInTheDocument()
+		const control = await switchOf()
+		expect(control).toBeInTheDocument()
 		// the panel has a name of its own for a screen reader
 		expect(screen.getByRole('dialog', { name: 'readingHistory.privacy.label' })).toBeInTheDocument()
+		// focus lands on the switch, and it reads what is shared before it is turned on
+		await waitFor(() => expect(control).toHaveFocus())
+		expect(control).toHaveAccessibleDescription('readingHistory.privacy.description')
 
 		await user.keyboard('{Escape}')
 

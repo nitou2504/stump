@@ -45,6 +45,8 @@ export function ReadingPrivacyControl() {
 	const { t } = useTranslate()
 	const { isReady, isSharing, setSharing, isDisabled } = useReadingPrivacy()
 	const switchId = useId()
+	// the switch is where focus lands when the panel opens: it reads what is shared before it is turned on
+	const descriptionId = useId()
 
 	if (!isReady) return null
 
@@ -89,12 +91,13 @@ export function ReadingPrivacyControl() {
 						</label>
 						<RawSwitch
 							id={switchId}
+							aria-describedby={descriptionId}
 							checked={isSharing}
 							disabled={isDisabled}
 							onCheckedChange={setSharing}
 						/>
 					</div>
-					<Text variant="muted" size="sm">
+					<Text id={descriptionId} variant="muted" size="sm">
 						{t('readingHistory.privacy.description')}
 					</Text>
 				</div>

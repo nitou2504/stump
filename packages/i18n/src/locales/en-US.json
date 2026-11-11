@@ -1804,7 +1804,7 @@
         "shared": "Shared",
         "privateLabel": "My reading is private",
         "sharedLabel": "My reading is shared with everyone on this server",
-        "description": "They see what you’re reading now and what you’ve finished, only books they may read themselves. Never your reading time, bookmarks or notes. Turn it off at any time.",
+        "description": "They see what you’re reading now and what you’ve finished, but only books they can read themselves. Never your reading time, bookmarks or notes. You can turn it off at any time.",
         "cardDescription": "Who can see what you’re reading and have finished",
         "saveFailed": "Couldn’t change who sees your reading"
       },

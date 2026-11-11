@@ -13,11 +13,12 @@ vi.mock('@/hooks/useTranslate', () => import('./translations'))
 vi.mock('../availability', () => ({ MY_READING_AVAILABLE: true }))
 // the header, the covers and the search are tested where they are; here what the page puts in them
 vi.mock('@/components/sharedLayout', () => ({
+	// a real <header> (the banner landmark): where the page puts its chip can then be asserted, not guessed
 	CollectionSceneHeader: ({ title, endActions }: { title: string; endActions?: ReactNode }) => (
-		<>
+		<header>
 			<h1>{title}</h1>
 			{endActions}
-		</>
+		</header>
 	),
 }))
 vi.mock('@/components/thumbnail', () => ({
@@ -377,10 +378,17 @@ describe('ReadingHistoryPage', () => {
 			expect(screen.getAllByRole('region')[0]).toHaveAccessibleName('readingHistory.now.heading')
 			expect(screen.queryByRole('region', { name: 'readingHistory.privacy.label' })).toBeNull()
 
-			// and the chip comes after the title and before the reading
-			const title = screen.getByRole('heading', { level: 1 })
-			expect(title.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-			expect(chip.compareDocumentPosition(reading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+			// the chip is in the header, with the title (a chip back in the page body would fail here:
+			// the title bar is the only banner on the page)
+			const banner = screen.getByRole('banner')
+			expect(
+				within(banner).getByRole('button', { name: 'readingHistory.privacy.privateLabel' }),
+			).toBe(chip)
+			expect(within(banner).getByRole('heading', { level: 1 })).toBeInTheDocument()
+			// and the header comes before the reading
+			expect(
+				banner.compareDocumentPosition(reading) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy()
 		})
 
 		it('opens to the switch, with what it shares told in the words', async () => {
