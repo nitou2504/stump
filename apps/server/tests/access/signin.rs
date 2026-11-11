@@ -47,7 +47,9 @@ async fn device_of(app: &TestApp, person: &user::Model, label: &str) -> (String,
 	let (_, link) = make_invite(app, &person.id, label, 3).await;
 	let response = redeem(app, &link, None).await;
 	let value = pass_in(&response).expect("a pass");
-	let id = pass::verify_pass(KEY, &value, Utc::now().timestamp()).unwrap().id;
+	let id = pass::verify_pass(KEY, &value, Utc::now().timestamp())
+		.unwrap()
+		.id;
 	(id, value)
 }
 
@@ -67,14 +69,23 @@ async fn a_device_signs_in_only_as_its_person_and_cannot_lock_anybody_else() {
 	ok.assert_status_ok();
 	let ana_marks = marks_of(app, &ana.id).await;
 	assert!(ana_marks.iter().any(|(successful, mark)| *successful
-		&& mark.as_ref().and_then(|m| m.device_id.as_deref()) == Some(device_id.as_str())));
+		&& mark.as_ref().and_then(|m| m.device_id.as_deref())
+			== Some(device_id.as_str())));
 
 	// through ana's device, ben's name is refused whatever the password, 20 times, and ben is
 	// not locked, even though 20 is more than the lock takes
 	for attempt in 0..(FAILED_ATTEMPTS_TO_LOCK * 2) {
-		let password = if attempt % 2 == 0 { "ben-secret" } else { "wrong" };
+		let password = if attempt % 2 == 0 {
+			"ben-secret"
+		} else {
+			"wrong"
+		};
 		let response = public_login(app, "ben", password, Some(&pass_value)).await;
-		assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED, "{attempt}");
+		assert_eq!(
+			response.status_code(),
+			StatusCode::UNAUTHORIZED,
+			"{attempt}"
+		);
 	}
 	assert!(!is_locked(app, &ben.id).await);
 	let ben_marks = marks_of(app, &ben.id).await;
@@ -82,7 +93,10 @@ async fn a_device_signs_in_only_as_its_person_and_cannot_lock_anybody_else() {
 	for (successful, mark) in &ben_marks {
 		let mark = mark.as_ref().expect("every one is marked");
 		assert!(!successful);
-		assert_eq!(mark.failure_reason.as_deref(), Some(service::reason::WRONG_PERSON));
+		assert_eq!(
+			mark.failure_reason.as_deref(),
+			Some(service::reason::WRONG_PERSON)
+		);
 		assert_eq!(mark.device_id.as_deref(), Some(device_id.as_str()));
 		assert!(!mark.counts_toward_lock);
 	}
@@ -124,7 +138,9 @@ async fn a_legacy_pass_is_not_bound_to_a_person() {
 	let app = &env.app;
 	insert_user(app, "ben", "ben-secret", false).await;
 	let pass_value = pass_for("hermana-phone");
-	public_get(app, "/api/v2/ping", Some(&pass_value)).await.assert_status_ok();
+	public_get(app, "/api/v2/ping", Some(&pass_value))
+		.await
+		.assert_status_ok();
 
 	public_login(app, "ben", "ben-secret", Some(&pass_value))
 		.await
@@ -150,12 +166,17 @@ async fn failures_through_the_edge_are_recorded_with_their_pass_and_reason() {
 	let ana_marks = marks_of(app, &ana.id).await;
 	let (_, mark) = ana_marks.last().unwrap();
 	let mark = mark.as_ref().unwrap();
-	assert_eq!(mark.failure_reason.as_deref(), Some(service::reason::WRONG_PASSWORD));
+	assert_eq!(
+		mark.failure_reason.as_deref(),
+		Some(service::reason::WRONG_PASSWORD)
+	);
 	assert_eq!(mark.device_id.as_deref(), Some(device_id.as_str()));
 	assert!(mark.counts_toward_lock);
 
 	for _ in 0..(FAILED_ATTEMPTS_TO_LOCK + 2) {
-		let refused = public_login(app, "initial-server-admin", "password", Some(&pass_value)).await;
+		let refused =
+			public_login(app, "initial-server-admin", "password", Some(&pass_value))
+				.await;
 		assert_eq!(refused.status_code(), StatusCode::UNAUTHORIZED);
 	}
 	let owner_marks = marks_of(app, &owner.id).await;
@@ -166,7 +187,10 @@ async fn failures_through_the_edge_are_recorded_with_their_pass_and_reason() {
 	assert_eq!(refused.len(), FAILED_ATTEMPTS_TO_LOCK + 2);
 	for (_, mark) in refused {
 		let mark = mark.as_ref().unwrap();
-		assert_eq!(mark.failure_reason.as_deref(), Some(service::reason::OWNER_VIA_EDGE));
+		assert_eq!(
+			mark.failure_reason.as_deref(),
+			Some(service::reason::OWNER_VIA_EDGE)
+		);
 		assert!(!mark.counts_toward_lock);
 	}
 	assert!(!is_locked(app, &owner.id).await);
@@ -194,23 +218,39 @@ async fn an_unblock_forgives_the_failures_so_the_next_typo_does_not_lock_again()
 
 	// the old way (only the flag): one more failure locks it at once. This is the bug
 	user::Entity::update_many()
-		.col_expr(user::Column::IsLocked, sea_orm::sea_query::Expr::value(false))
+		.col_expr(
+			user::Column::IsLocked,
+			sea_orm::sea_query::Expr::value(false),
+		)
 		.filter(user::Column::Id.eq(ana.id.clone()))
 		.exec(app.conn())
 		.await
 		.unwrap();
 	fail().await;
-	assert!(is_locked(app, &ana.id).await, "the failures were still counted");
+	assert!(
+		is_locked(app, &ana.id).await,
+		"the failures were still counted"
+	);
 
 	// the unblock: unlocked and forgiven
-	assert!(service::unblock_user(app.conn(), Utc::now(), &ana.id, "owner").await.unwrap());
+	assert!(
+		service::unblock_user(app.conn(), Utc::now(), &ana.id, "owner")
+			.await
+			.unwrap()
+	);
 	assert!(!is_locked(app, &ana.id).await);
 	for _ in 0..(FAILED_ATTEMPTS_TO_LOCK - 1) {
 		fail().await;
-		assert!(!is_locked(app, &ana.id).await, "locked too early after an unblock");
+		assert!(
+			!is_locked(app, &ana.id).await,
+			"locked too early after an unblock"
+		);
 	}
 	fail().await;
-	assert!(is_locked(app, &ana.id).await, "the 10th failure after an unblock locks");
+	assert!(
+		is_locked(app, &ana.id).await,
+		"the 10th failure after an unblock locks"
+	);
 
 	// the forgiven failures are still in the log, marked as not counting
 	let forgiven = access_signin_mark::Entity::find()
@@ -266,12 +306,18 @@ async fn the_users_page_and_the_access_page_unblock_the_same_way() {
 	.await;
 	let blocked = owner_gql(
 		app,
-		"{ accessBlockedUsers { person { username } lockedBy failuresLast24h } }",
+		"{ accessBlockedUsers { person { username } lockedBy failuresLast24H } }",
 		None,
 	)
 	.await;
-	assert_eq!(blocked["data"]["accessBlockedUsers"][0]["person"]["username"], "ana");
-	assert_eq!(blocked["data"]["accessBlockedUsers"][0]["lockedBy"], "OWNER");
+	assert_eq!(
+		blocked["data"]["accessBlockedUsers"][0]["person"]["username"],
+		"ana"
+	);
+	assert_eq!(
+		blocked["data"]["accessBlockedUsers"][0]["lockedBy"],
+		"OWNER"
+	);
 
 	let unblock = owner_gql(
 		app,
@@ -297,13 +343,93 @@ async fn an_account_locked_by_failures_says_so() {
 	}
 	let blocked = owner_gql(
 		app,
-		"{ accessBlockedUsers { person { username locked } lockedBy failuresLast24h } }",
+		"{ accessBlockedUsers { person { username locked } lockedBy failuresLast24H } }",
 		None,
 	)
 	.await;
-	assert_eq!(blocked["data"]["accessBlockedUsers"][0]["lockedBy"], "FAILURES");
 	assert_eq!(
-		blocked["data"]["accessBlockedUsers"][0]["failuresLast24h"],
+		blocked["data"]["accessBlockedUsers"][0]["lockedBy"],
+		"FAILURES"
+	);
+	assert_eq!(
+		blocked["data"]["accessBlockedUsers"][0]["failuresLast24H"],
 		FAILED_ATTEMPTS_TO_LOCK
 	);
+}
+
+/// The sign-in list shows every attempt, or only the failures (the owner looks for the ones that
+/// went wrong, and a page of successes would push them out). Each failure says why, and a password
+/// is never part of what the owner is shown
+#[tokio::test]
+async fn the_sign_in_list_can_show_only_the_failures() {
+	let env = edge_app(false).await;
+	let app = &env.app;
+	insert_user(app, "ana", "ana-secret", false).await;
+
+	// two wrong passwords, then the right one
+	for password in ["wrong-one", "wrong-two", "ana-secret"] {
+		app.server
+			.post("/api/v2/auth/login")
+			.json(&json!({"username": "ana", "password": password}))
+			.await;
+	}
+
+	let ask = |failures_only: bool| {
+		let query = format!(
+			"{{ accessSignIns(failuresOnly: {failures_only}, pagination: {{page: 1, pageSize: 50}}) \
+			 {{ nodes {{ successful reason person {{ username }} }} }} }}"
+		);
+		async move { owner_gql(app, &query, None).await }
+	};
+	let nodes = |response: &Value| -> Vec<Value> {
+		response["data"]["accessSignIns"]["nodes"]
+			.as_array()
+			.unwrap_or_else(|| panic!("no list in {response:#}"))
+			.clone()
+	};
+
+	let everything = ask(false).await;
+	let failures = ask(true).await;
+	let all = nodes(&everything);
+	let only_failures = nodes(&failures);
+
+	// without the filter: ana's success is there, and so are her two failures
+	assert!(
+		all.iter()
+			.any(|node| node["successful"] == true && node["person"]["username"] == "ana"),
+		"{everything:#}"
+	);
+	assert_eq!(
+		all.iter()
+			.filter(|node| node["successful"] == false)
+			.count(),
+		2,
+		"{everything:#}"
+	);
+
+	// with it: exactly those failures, each with its reason, and no success at all
+	assert_eq!(only_failures.len(), 2, "{failures:#}");
+	for node in &only_failures {
+		assert_eq!(node["successful"], false, "{failures:#}");
+		assert_eq!(node["reason"], "WRONG_PASSWORD", "{failures:#}");
+		assert_eq!(node["person"]["username"], "ana", "{failures:#}");
+	}
+
+	// no password, right or wrong, is in what the owner is shown
+	for shown in [everything.to_string(), failures.to_string()] {
+		for password in ["wrong-one", "wrong-two", "ana-secret"] {
+			assert!(!shown.contains(password), "{password} is in {shown}");
+		}
+	}
+
+	// the filter is the owner's alone, like the rest of the page
+	let friend_token = app.login_as("ana", "ana-secret").await;
+	let refused = app
+		.execute_gql_with_token(
+			"{ accessSignIns(failuresOnly: true) { nodes { successful } } }",
+			None,
+			&friend_token,
+		)
+		.await;
+	assert!(!errors_of(&refused).is_empty(), "{refused:#}");
 }

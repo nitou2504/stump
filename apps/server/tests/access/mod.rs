@@ -5,6 +5,7 @@ mod edge;
 mod graphql;
 mod invites;
 mod password;
+mod retention;
 mod signin;
 
 use axum_test::TestResponse;
