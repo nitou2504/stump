@@ -222,6 +222,19 @@ fn clean(verdict: &mut Verdict) {
 			cut(&mut item.entry, 200);
 		}
 		cut(&mut book.format, 10);
+		// the texts of a verdict that name no file: a hash is 64 characters, whatever a
+		// compromised checker made of it
+		cut(&mut book.sha256, 64);
+		if let Some(hash) = book.stump_hash.as_mut() {
+			cut(hash, 64);
+		}
+		if let Some(output) = book.output.as_mut() {
+			cut(&mut output.format, 10);
+			cut(&mut output.sha256, 64);
+			if let Some(from) = output.converted_from.as_mut() {
+				cut(from, 10);
+			}
+		}
 	}
 }
 

@@ -402,6 +402,8 @@ struct Stripper<'a> {
 	findings: Findings,
 	remote_refs: u64,
 	changed: bool,
+	/// How many elements were read, inside what is being removed or not
+	elements: u64,
 }
 
 impl Stripper<'_> {
@@ -468,6 +470,7 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 		findings: Findings::new(),
 		remote_refs: 0,
 		changed: false,
+		elements: 0,
 	};
 	loop {
 		let start = reader.buffer_position() as usize;
@@ -478,8 +481,11 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 			Ok(Event::Eof) => break,
 			// inside an element that goes: its start tags only deepen it, and what ends it
 			// ends it
-			Ok(Event::Start(_)) if stripper.skipping > 0 => stripper.skipping += 1,
-			Ok(Event::Empty(_)) if stripper.skipping > 0 => {},
+			Ok(Event::Start(_)) if stripper.skipping > 0 => {
+				stripper.elements += 1;
+				stripper.skipping += 1;
+			},
+			Ok(Event::Empty(_)) if stripper.skipping > 0 => stripper.elements += 1,
 			Ok(Event::End(_)) if stripper.skipping > 0 => {
 				stripper.skipping -= 1;
 				if stripper.skipping == 0 {
@@ -487,6 +493,12 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 				}
 			},
 			Ok(Event::DocType(text)) => {
+				// where a DOCTYPE ends is read differently by this parser and by a browser when it
+				// has markup characters in it: what this takes for a DOCTYPE that runs to the
+				// end of the file is, to the reader, a page
+				if let Some(problem) = doctype_problem(&text) {
+					return Outcome::Unstrippable(format!("the document {problem}"));
+				}
 				// a subset can declare an entity (a small text that becomes a huge one) or give
 				// every element of a kind an attribute (`<!ATTLIST img onerror CDATA "...">`)
 				if has_dtd_subset(&text) || contains_ignore_case(&text, b"<!entity") {
@@ -505,11 +517,13 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 				}
 			},
 			Ok(Event::Start(tag)) => {
+				stripper.elements += 1;
 				if stripper.tag(&tag, false, start, end).is_none() {
 					return Outcome::Inert;
 				}
 			},
 			Ok(Event::Empty(tag)) => {
+				stripper.elements += 1;
 				if stripper.tag(&tag, true, start, end).is_none() {
 					return Outcome::Inert;
 				}
@@ -520,6 +534,14 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 	if stripper.skipping > 0 {
 		// a removed element that never ends: not well formed
 		return Outcome::Inert;
+	}
+	if stripper.elements == 0 && has_content(bytes) {
+		// something is there and none of it was read as an element: a parser that was fooled
+		// about where the document starts reads a page this way, and what a browser makes of
+		// it can't be told
+		return Outcome::Unstrippable(
+			"the document has nothing in it that is an element".to_string(),
+		);
 	}
 	if !stripper.changed {
 		return Outcome::Clean {
@@ -541,6 +563,12 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 	}
 }
 
+/// Whether a document has anything in it besides a byte order mark and white space
+fn has_content(bytes: &[u8]) -> bool {
+	let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+	bytes.iter().any(|b| !is_space(*b))
+}
+
 /// Whether a DOCTYPE declares anything in an internal subset (`[ ... ]`). An empty one declares
 /// nothing, and some publishers' tools write one into every page (`<!DOCTYPE html []>`: 2 of 400
 /// books of a real library): it is kept. Anything between the brackets, and a subset that is never
@@ -553,6 +581,75 @@ fn has_dtd_subset(text: &[u8]) -> bool {
 		Some(close) => text[open + 1..close].iter().any(|b| !b.is_ascii_whitespace()),
 		None => true,
 	}
+}
+
+/// What is wrong with the text of a DOCTYPE (what is between `<!DOCTYPE` and its `>`), if
+/// anything: it has a `<` or a `>` in it.
+///
+/// `quick-xml` ends a DOCTYPE at the `>` that balances the `<` of `<!DOCTYPE`, counting every `<`
+/// and `>` it meets with no regard for quotes. A browser, and the XML reader the server uses, end it
+/// where the grammar does: after the quoted literal. With a `<` in a literal (`SYSTEM "<"`) the
+/// two disagree about where the document starts, and what `quick-xml` takes for a DOCTYPE that
+/// runs to the end of the file is, to the reader, a page with a script in it. A real DOCTYPE names
+/// its identifiers and nothing else; one with markup in it is a subset, or a trick, and either is
+/// refused.
+pub fn doctype_problem(text: &[u8]) -> Option<&'static str> {
+	text.iter()
+		.any(|byte| matches!(byte, b'<' | b'>'))
+		.then_some(
+			"has a DOCTYPE with a `<` or a `>` in it, which a browser and Stump read differently",
+		)
+}
+
+/// How deep a text nests, counted in a way that never reads it as shorter than it is: a start tag
+/// is one level and its end tag takes it back, a tag that closes itself, a comment, a CDATA
+/// section, a processing instruction and a declaration are none. A text that is not well formed
+/// (an end tag with no start, a start that is never ended) only counts higher, so whatever else
+/// reads it, the reader that is lenient about it reads it no deeper than this says.
+pub fn rough_depth(bytes: &[u8]) -> u32 {
+	let (mut depth, mut deepest) = (0u32, 0u32);
+	let mut i = 0usize;
+	while i < bytes.len() {
+		if bytes[i] != b'<' {
+			i += 1;
+			continue;
+		}
+		let rest = &bytes[i..];
+		if rest.starts_with(b"<!--") {
+			i += find(rest, b"-->").map_or(rest.len(), |at| at + 3);
+		} else if rest.starts_with(b"<![CDATA[") {
+			i += find(rest, b"]]>").map_or(rest.len(), |at| at + 3);
+		} else if rest.starts_with(b"<?") {
+			i += find(rest, b"?>").map_or(rest.len(), |at| at + 2);
+		} else if rest.starts_with(b"<!") {
+			i += find(rest, b">").map_or(rest.len(), |at| at + 1);
+		} else {
+			// a tag: to the `>` that closes it, with a quoted value read whole
+			let (mut j, mut quote) = (1usize, 0u8);
+			while j < rest.len() {
+				let b = rest[j];
+				if quote != 0 {
+					if b == quote {
+						quote = 0;
+					}
+				} else if b == b'"' || b == b'\'' {
+					quote = b;
+				} else if b == b'>' {
+					break;
+				}
+				j += 1;
+			}
+			let tag = &rest[..j.min(rest.len())];
+			if tag.starts_with(b"</") {
+				depth = depth.saturating_sub(1);
+			} else if !tag.ends_with(b"/") {
+				depth = depth.saturating_add(1);
+				deepest = deepest.max(depth);
+			}
+			i += j + 1;
+		}
+	}
+	deepest
 }
 
 fn contains_ignore_case(haystack: &[u8], needle: &[u8]) -> bool {
@@ -738,6 +835,11 @@ pub fn looks_active(bytes: &[u8]) -> bool {
 			return true;
 		}
 	}
+	// the same elements with a prefix (`<x:script>`, `</h:iframe>`): a browser reads the name
+	// that comes after the colon, whatever namespace the prefix was bound to
+	if has_removed_element_name(&lower) {
+		return true;
+	}
 	// addresses that run, however the characters of their names were hidden
 	let flat = flattened(&lower);
 	for needle in [
@@ -792,6 +894,41 @@ pub fn looks_active(bytes: &[u8]) -> bool {
 		} else {
 			i += 1;
 		}
+	}
+	false
+}
+
+/// Whether there is, anywhere in a text, a tag (a start or an end) whose name, once any prefix
+/// before a colon is taken off, is one of the elements that are removed. `lower` is lower case
+fn has_removed_element_name(lower: &[u8]) -> bool {
+	let mut i = 0usize;
+	while i < lower.len() {
+		if lower[i] != b'<' {
+			i += 1;
+			continue;
+		}
+		let mut j = i + 1;
+		if lower.get(j) == Some(&b'/') {
+			j += 1;
+		}
+		let start = j;
+		while j < lower.len()
+			&& (lower[j].is_ascii_alphanumeric()
+				|| matches!(lower[j], b':' | b'_' | b'-' | b'.'))
+		{
+			j += 1;
+		}
+		if j > start {
+			let name = &lower[start..j];
+			let local = name.rsplit(|b| *b == b':').next().unwrap_or(name);
+			if REMOVED_ELEMENTS
+				.iter()
+				.any(|element| element.as_bytes() == local)
+			{
+				return true;
+			}
+		}
+		i = j.max(i + 1);
 	}
 	false
 }
@@ -1255,6 +1392,105 @@ mod tests {
 			scan_document(result.as_bytes(), false),
 			Outcome::Clean { .. }
 		));
+	}
+
+	/// A DOCTYPE that a browser reads one way and a reader of ours another: `quick-xml` ends it at
+	/// the `>` that balances the `<` of `<!DOCTYPE`, with no regard for quotes, so a `<` inside a
+	/// quoted literal makes the whole page one DOCTYPE, which was then taken for a page with
+	/// nothing in it. A browser ends it after the literal and runs the script.
+	const SWALLOWED: &str = "<?xml version=\"1.0\"?><!DOCTYPE html SYSTEM \"<\"><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title></head><body><script>alert(1)</script></body></html><!-- > -->";
+	/// The same, with the DOCTYPE ending inside the body (a `>` in an attribute), so the rest is not
+	/// well formed to `quick-xml`, and the script has a prefix
+	const SWALLOWED_IN_BODY: &str = "<?xml version=\"1.0\"?><!DOCTYPE html SYSTEM \"<\"><html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:x=\"http://www.w3.org/1999/xhtml\"><body><p title=\">\"></p><x:script>alert(1)</x:script></body></html>";
+
+	#[test]
+	fn a_doctype_with_markup_in_it_is_refused_whatever_it_hides() {
+		for text in [SWALLOWED, SWALLOWED_IN_BODY] {
+			assert!(
+				matches!(
+					scan_document(text.as_bytes(), false),
+					Outcome::Unstrippable(_)
+				),
+				"{text}"
+			);
+		}
+		// a DOCTYPE that names its identifiers and nothing else is what real books carry
+		let fine = "<?xml version=\"1.0\"?><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\"><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title></head><body><p>x</p></body></html>";
+		assert!(matches!(
+			scan_document(fine.as_bytes(), false),
+			Outcome::Clean { .. }
+		));
+		let empty_subset = "<?xml version=\"1.0\"?><!DOCTYPE html []><html xmlns=\"http://www.w3.org/1999/xhtml\"><body/></html>";
+		assert!(matches!(
+			scan_document(empty_subset.as_bytes(), false),
+			Outcome::Clean { .. }
+		));
+	}
+
+	#[test]
+	fn a_document_with_no_element_is_refused_and_an_empty_one_is_not() {
+		// nothing was read as an element, yet there is something in it: what a browser reads of it
+		// can't be told (a parser that is fooled about where a DOCTYPE ends reads this way)
+		for text in [
+			"<?xml version=\"1.0\"?><!-- nothing here -->",
+			"<!-- one --><?pi two?>",
+			"just text",
+		] {
+			assert!(
+				matches!(
+					scan_document(text.as_bytes(), false),
+					Outcome::Unstrippable(_)
+				),
+				"{text}"
+			);
+		}
+		// nothing at all is no document, and nothing to refuse
+		for empty in [&b""[..], b"  \n\t ", b"\xef\xbb\xbf"] {
+			assert!(
+				matches!(scan_document(empty, false), Outcome::Clean { .. }),
+				"{empty:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn a_prefixed_element_that_runs_is_seen_in_a_page_that_is_not_well_formed() {
+		// the paragraph is never closed, so the page is not well formed: what is left to go by is
+		// how it looks, and a script is a script whatever the prefix its namespace was given
+		for text in [
+			"<html xmlns:x=\"http://www.w3.org/1999/xhtml\"><body><p>one<x:script>alert(1)</x:script></body>",
+			"<html xmlns:h=\"http://www.w3.org/1999/xhtml\"><body><p>one<h:iframe src=\"x\"></h:iframe></body>",
+			"<html xmlns:h=\"http://www.w3.org/1999/xhtml\"><body><p>one<H:OBJECT data=\"x\"/></body>",
+			"<html xmlns:h=\"http://www.w3.org/1999/xhtml\"><body><p>one</h:script>",
+		] {
+			assert!(looks_active(text.as_bytes()), "{text}");
+			assert!(
+				matches!(
+					scan_document(text.as_bytes(), false),
+					Outcome::Unstrippable(_)
+				),
+				"{text}"
+			);
+		}
+		// a prefix that is no scripting element is not one
+		assert!(!looks_active(
+			b"<html><body><p>one<o:p>two</o:p><w:sdt>x</w:sdt></body>"
+		));
+	}
+
+	#[test]
+	fn the_rough_depth_never_reads_a_text_as_shorter_than_it_is() {
+		assert_eq!(rough_depth(b"<a><b/><c></c></a>"), 2);
+		// comments, CDATA sections and instructions hold no tags
+		assert_eq!(
+			rough_depth(b"<a><!-- <b><b><b> --><![CDATA[<c><c>]]><?x <d> ?></a>"),
+			1
+		);
+		// a `>` in a quoted value doesn't end the tag
+		assert_eq!(rough_depth(b"<a href=\"x>y\"><b></b></a>"), 2);
+		// a text that is not well formed only counts up
+		assert_eq!(rough_depth(b"<a><a><a>"), 3);
+		assert!(rough_depth(b"</x></x><a><a>") >= 2);
 	}
 
 	#[test]

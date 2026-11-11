@@ -94,6 +94,8 @@ pub struct Limits {
 	pub max_xml_depth: u32,
 	/// Items in the spine of an EPUB
 	pub max_spine_items: u64,
+	/// Entries (all the levels together) of the table of contents of an EPUB
+	pub max_toc_entries: u64,
 	/// Bytes of the file itself
 	pub max_file_bytes: u64,
 	/// Seconds a check may take, and seconds more for each MB of the file
@@ -114,9 +116,14 @@ impl Default for Limits {
 			max_ratio: 200,
 			max_pages: 10_000,
 			max_image_pixels: 50_000_000,
-			max_xml_bytes: 16 * MIB,
+			// the biggest package or table of contents of 8,068 real books is 1 MB: the server's
+			// reader builds a tree of it for every request, so what it may be is a few times that
+			max_xml_bytes: 4 * MIB,
 			max_xml_depth: 256,
-			max_spine_items: 20_000,
+			// 8,232 pages in the biggest real book (a dictionary), 3,798 in the next
+			max_spine_items: 10_000,
+			// 5,300 entries in the biggest real table of contents
+			max_toc_entries: 10_000,
 			max_file_bytes: 2048 * MIB,
 			timeout_secs: 120,
 			timeout_secs_per_mb: 1,
@@ -138,6 +145,7 @@ impl Limits {
 			max_xml_bytes: 64 * MIB,
 			max_xml_depth: 1_024,
 			max_spine_items: 50_000,
+			max_toc_entries: 50_000,
 			max_file_bytes: 4096 * MIB,
 			timeout_secs: 1_800,
 			timeout_secs_per_mb: 10,
@@ -189,6 +197,11 @@ impl Limits {
 				self.max_spine_items,
 				hard.max_spine_items,
 				default.max_spine_items,
+			),
+			max_toc_entries: pick(
+				self.max_toc_entries,
+				hard.max_toc_entries,
+				default.max_toc_entries,
 			),
 			max_file_bytes: pick(
 				self.max_file_bytes,

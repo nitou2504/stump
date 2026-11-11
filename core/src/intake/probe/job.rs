@@ -236,6 +236,9 @@ fn inspect(
 		if let Ok((_, cover)) = crate::media::processor::get_cover(&linked) {
 			check::check_cover(&cover, &limits)?;
 		}
+		// the routes the reader draws the book by are made here once, as the server makes them
+		// for every request: a book they can't be made of, or that takes long, is not filed
+		check::check_reader_routes(&linked)?;
 		book.original_title = lookup::original_title_of(&linked);
 		if let Some(page) = read_title_page(&linked) {
 			book.title_page_title = page.title;

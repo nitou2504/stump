@@ -114,7 +114,11 @@ async fn get_epub_manifest(
 
 	let base_url = epub_service_base_url(&host_details, &id);
 	let generator = ReadiumManifestGenerator::new(&ebook.path, base_url);
-	let manifest = generator.generate_manifest()?;
+	// opening the book and reading its package is blocking work: off the async workers, which
+	// the rest of the server's requests share
+	let manifest = spawn_blocking(move || generator.generate_manifest())
+		.await
+		.map_err(|e| APIError::InternalServerError(e.to_string()))??;
 
 	Ok(WebPubManifestResponse(manifest))
 }
@@ -242,20 +246,19 @@ async fn get_epub_resource_bytes(
 	let path = path.split_once('#').map(|(p, _)| p).unwrap_or(path);
 	let path_buf = PathBuf::from(path);
 
-	if let Some(parent) = path_buf.parent() {
-		if let Some(file_name) = path_buf.file_name() {
-			let root = parent.to_string_lossy().to_string();
-			let resource = PathBuf::from(file_name);
-			let root_str = if root.is_empty() { "" } else { root.as_str() };
+	let (root, resource) = match (path_buf.parent(), path_buf.file_name()) {
+		(Some(parent), Some(file_name)) => (
+			parent.to_string_lossy().to_string(),
+			PathBuf::from(file_name),
+		),
+		_ => (String::new(), path_buf.clone()),
+	};
+	// every resource opens the book again and reads its package: blocking work, off the async
+	// workers that the rest of the server's requests share
+	let book = PathBuf::from(&ebook.path);
+	let resource = spawn_blocking(move || get_resource_by_path(&book, &root, resource))
+		.await
+		.map_err(|e| APIError::InternalServerError(e.to_string()))??;
 
-			return Ok(get_resource_by_path(
-				std::path::Path::new(&ebook.path),
-				root_str,
-				resource,
-			)?
-			.into());
-		}
-	}
-
-	Ok(get_resource_by_path(std::path::Path::new(&ebook.path), "", path_buf)?.into())
+	Ok(resource.into())
 }

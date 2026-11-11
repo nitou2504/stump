@@ -182,15 +182,20 @@ pub(crate) fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
 		archive.by_name("META-INF/container.xml")?,
 		bounded::MAX_TINY_BYTES,
 	)?;
-	// read as XML, the way the checker and Stump's readers read it: the first `rootfile`'s path, and
-	// not a `full-path=` that is written in a comment or in another element, which would have the
-	// metadata written into a file that isn't the package
+	// read as XML, the way epub-rs reads it (it is what Stump's readers and the checker open a book
+	// by): the first element below the root called exactly `rootfile`, and its `full-path`. The
+	// first one only, and the case matters: a `ROOTFILE` ahead of it is no package, and a
+	// `full-path=` in a comment or in another element is no path, or the metadata would be
+	// written into a file that isn't the package the readers open
 	let mut reader = quick_xml::Reader::from_reader(container.as_slice());
+	let mut seen_root = false;
 	loop {
 		match reader.read_event() {
 			Ok(quick_xml::events::Event::Start(tag))
 			| Ok(quick_xml::events::Event::Empty(tag)) => {
-				if tag.local_name().as_ref().eq_ignore_ascii_case(b"rootfile") {
+				if !seen_root {
+					seen_root = true;
+				} else if tag.local_name().as_ref() == b"rootfile" {
 					let path = tag.attributes().flatten().find_map(|attribute| {
 						let key = attribute.key.as_ref();
 						let local = key.rsplit(|b| *b == b':').next().unwrap_or(key);
@@ -203,6 +208,7 @@ pub(crate) fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
 					if let Some(path) = path.filter(|p| !p.is_empty()) {
 						return Ok(path);
 					}
+					break;
 				}
 			},
 			Ok(quick_xml::events::Event::Eof) | Err(_) => break,
@@ -929,6 +935,39 @@ mod tests {
 			.unwrap();
 		zip.finish().unwrap();
 		let mut archive = ZipArchive::new(File::open(&empty).unwrap()).unwrap();
+		assert!(opf_path(&mut archive).is_err());
+	}
+
+	#[test]
+	fn the_package_is_the_rootfile_epub_rs_takes_and_not_one_in_another_case_before_it() {
+		use std::io::Write as _;
+		let dir = tempfile::tempdir().unwrap();
+		let container = |inner: &str| {
+			format!("<?xml version=\"1.0\"?><container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>{inner}</rootfiles></container>")
+		};
+		let open = |name: &str, text: String| {
+			let path = dir.path().join(name);
+			let mut zip = ZipWriter::new(File::create(&path).unwrap());
+			zip.start_file("META-INF/container.xml", SimpleFileOptions::default())
+				.unwrap();
+			zip.write_all(text.as_bytes()).unwrap();
+			zip.finish().unwrap();
+			ZipArchive::new(File::open(&path).unwrap()).unwrap()
+		};
+		// a `ROOTFILE` is not a `rootfile` to epub-rs, so the metadata is not written into its file
+		let mut archive = open(
+			"decoy.epub",
+			container(
+				"<ROOTFILE full-path=\"decoy.opf\"/><rootfile full-path=\"OEBPS/real.opf\"/>",
+			),
+		);
+		assert_eq!(opf_path(&mut archive).unwrap(), "OEBPS/real.opf");
+		// the first `rootfile` is the package: with no `full-path` the book has none, and a later
+		// one is not looked for
+		let mut archive = open(
+			"bare.epub",
+			container("<rootfile/><rootfile full-path=\"OEBPS/real.opf\"/>"),
+		);
 		assert!(opf_path(&mut archive).is_err());
 	}
 

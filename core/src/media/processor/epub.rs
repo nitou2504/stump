@@ -45,7 +45,7 @@ pub fn open_epub(path: impl AsRef<Path>) -> Result<EpubDoc<BufReader<File>>, Doc
 
 /// Resolves the `.` and `..` of a path inside the archive. Returns `None` when there is
 /// nothing to resolve, or when the path climbs above the archive root
-fn resolve_dot_segments(path: &Path) -> Option<PathBuf> {
+pub(crate) fn resolve_dot_segments(path: &Path) -> Option<PathBuf> {
 	use std::path::Component;
 
 	let mut parts = Vec::new();
