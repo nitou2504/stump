@@ -489,7 +489,7 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 			Ok(Event::DocType(text)) => {
 				// a subset can declare an entity (a small text that becomes a huge one) or give
 				// every element of a kind an attribute (`<!ATTLIST img onerror CDATA "...">`)
-				if text.contains(&b'[') || contains_ignore_case(&text, b"<!entity") {
+				if has_dtd_subset(&text) || contains_ignore_case(&text, b"<!entity") {
 					return Outcome::Unstrippable(
 						"the document has a DTD subset (it can declare entities or give elements attributes)"
 							.to_string(),
@@ -538,6 +538,20 @@ fn scan_once(bytes: &[u8]) -> Outcome {
 		stripped: out,
 		findings,
 		remote_refs,
+	}
+}
+
+/// Whether a DOCTYPE declares anything in an internal subset (`[ ... ]`). An empty one declares
+/// nothing, and some publishers' tools write one into every page (`<!DOCTYPE html []>`: 2 of 400
+/// books of a real library): it is kept. Anything between the brackets, and a subset that is never
+/// closed, is not
+fn has_dtd_subset(text: &[u8]) -> bool {
+	let Some(open) = text.iter().position(|b| *b == b'[') else {
+		return false;
+	};
+	match text.iter().rposition(|b| *b == b']').filter(|close| *close > open) {
+		Some(close) => text[open + 1..close].iter().any(|b| !b.is_ascii_whitespace()),
+		None => true,
 	}
 }
 
@@ -1053,17 +1067,38 @@ mod tests {
 	}
 
 	#[test]
-	fn a_dtd_subset_is_refused_whatever_it_declares() {
-		let attlist = "<?xml version=\"1.0\"?><!DOCTYPE html [ <!ATTLIST img onerror CDATA \"alert(1)\"> ]><html xmlns=\"http://www.w3.org/1999/xhtml\"><body><img src=\"a.png\"/></body></html>";
-		assert!(matches!(
-			scan_document(attlist.as_bytes(), false),
-			Outcome::Unstrippable(_)
-		));
-		let empty = "<?xml version=\"1.0\"?><!DOCTYPE html [ ]><html xmlns=\"http://www.w3.org/1999/xhtml\"><body/></html>";
-		assert!(matches!(
-			scan_document(empty.as_bytes(), false),
-			Outcome::Unstrippable(_)
-		));
+	fn a_dtd_subset_is_refused_when_it_declares_anything_and_an_empty_one_is_kept() {
+		let doc = |doctype: &str| {
+			format!(
+				"<?xml version=\"1.0\"?>{doctype}<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><img src=\"a.png\"/></body></html>"
+			)
+		};
+		// anything between the brackets: an attribute given to every `<img>`, an entity, a comment,
+		// a parameter entity, and a subset that is never closed
+		for subset in [
+			"<!DOCTYPE html [ <!ATTLIST img onerror CDATA \"alert(1)\"> ]>",
+			"<!DOCTYPE html [ <!ENTITY a \"aaaa\"> ]>",
+			"<!DOCTYPE html [<!-- note -->]>",
+			"<!DOCTYPE html [ %x; ]>",
+		] {
+			assert!(
+				matches!(
+					scan_document(doc(subset).as_bytes(), false),
+					Outcome::Unstrippable(_)
+				),
+				"{subset}"
+			);
+		}
+		// an empty subset declares nothing: Oxford's EPUBs have one in every page (`[]`)
+		for empty in ["<!DOCTYPE html []>", "<!DOCTYPE html [ ]>", "<!DOCTYPE html [\n]>"] {
+			assert!(
+				matches!(
+					scan_document(doc(empty).as_bytes(), false),
+					Outcome::Clean { .. }
+				),
+				"{empty}"
+			);
+		}
 		assert!(looks_active(b"<!ATTLIST img onerror CDATA \"x\">"));
 	}
 

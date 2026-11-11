@@ -1003,6 +1003,17 @@ pub(crate) mod tests {
 		assert_eq!(verdict.reasons[0].code, code::SIZE_MISMATCH);
 	}
 
+	#[test]
+	fn a_page_with_an_empty_dtd_subset_passes() {
+		// Oxford's EPUBs have `<!DOCTYPE html []>` in every page: 2 of the 400 books that the
+		// calibration on a real library checked were refused for it
+		let world = world();
+		let page = r#"<?xml version="1.0"?><!DOCTYPE html []><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head><body><p>hello</p></body></html>"#;
+		let verdict = run(&world.stage("oup.epub", &epub_with(page)), &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		assert_eq!(verdict.book.unwrap().active_content.found, 0);
+	}
+
 	fn tiff() -> Vec<u8> {
 		let mut bytes = b"II*\0\x08\0\0\0".to_vec();
 		bytes.extend_from_slice(&[0u8; 64]);
