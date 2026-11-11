@@ -19,6 +19,8 @@ type Route = {
 	localeKey: string
 	permissions?: UserPermission[]
 	customPermission?: () => boolean
+	/** Only the server owner is offered it (not whoever holds a permission) */
+	ownerOnly?: boolean
 	to: string
 	subItems?: SubItem[]
 	disabled?: boolean
@@ -41,17 +43,19 @@ type UseRouteGroupsParams = {
  * be removed from the list.
  */
 export function useRouteGroups({ routeGroups }: UseRouteGroupsParams) {
-	const { checkPermission } = useAppContext()
+	const { checkPermission, isServerOwner } = useAppContext()
 
 	const adjustedGroups = useMemo(
 		() =>
 			routeGroups
 				.map((group) => {
 					// Filter out items that the user doesn't have access to. If an item has no
-					// permissions requirement, then it will be included.
+					// permissions requirement, then it will be included. An owner-only item is
+					// for the server owner, whatever permissions anyone else holds.
 					const filteredItems = group.items.filter(
-						({ permissions }) =>
-							!permissions || permissions.every((permission) => checkPermission(permission)),
+						({ permissions, ownerOnly }) =>
+							(!ownerOnly || isServerOwner) &&
+							(!permissions || permissions.every((permission) => checkPermission(permission))),
 					)
 
 					if (filteredItems.length === 0) {
@@ -64,7 +68,7 @@ export function useRouteGroups({ routeGroups }: UseRouteGroupsParams) {
 					}
 				})
 				.filter(Boolean) as typeof routeGroups,
-		[checkPermission, routeGroups],
+		[checkPermission, isServerOwner, routeGroups],
 	)
 
 	return { groups: adjustedGroups }

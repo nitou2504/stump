@@ -13,6 +13,7 @@ import {
 	PcCase,
 	ScrollText,
 	Server,
+	ShieldCheck,
 	Tag,
 	Trash2,
 	UserCircle,
@@ -127,6 +128,14 @@ export const createRouteGroups = (client: QueryClient, api: Api): RouteGroup[] =
 						//
 					}
 				},
+			},
+			{
+				// how people come in from the internet: invite links, devices, locked accounts
+				icon: ShieldCheck,
+				label: 'Public access',
+				localeKey: 'server/access',
+				ownerOnly: true,
+				to: '/settings/access',
 			},
 			{
 				icon: Mail,
