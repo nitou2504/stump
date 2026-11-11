@@ -686,6 +686,7 @@ pub fn warning_lines(verdict: &Verdict) -> Vec<String> {
 					| code::ACTIVE_CONTENT_UNSTRIPPABLE
 					| code::REMOTE_RESOURCES
 					| code::MALFORMED_XHTML
+					| code::DROPPED_FILES
 			)
 		})
 		.map(|w| w.detail.clone())

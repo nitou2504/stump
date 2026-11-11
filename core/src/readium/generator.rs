@@ -12,6 +12,44 @@ use quick_xml::Reader;
 use super::error::ReadiumError;
 use crate::media::processor::epub::open_epub;
 
+/// More entries than this in the table of contents, and a spine item whose entry isn't found by its
+/// path has no title: the server makes the manifest for every request that asks, and looking at
+/// every entry for every spine item is as much work as both are long
+const TOC_SCAN_LIMIT: usize = 2_000;
+
+/// The titles of the table of contents by the file they point to (without the fragment): the first
+/// entry of a file is the one that names it
+fn toc_index(toc: &[NavPoint]) -> HashMap<String, String> {
+	let mut index = HashMap::new();
+	for nav in toc {
+		let content = nav.content.to_string_lossy();
+		let path = content.split('#').next().unwrap_or("").to_string();
+		index.entry(path).or_insert_with(|| nav.label.clone());
+	}
+	index
+}
+
+/// The title of a spine item: the entry of the table of contents that points at its file (found at
+/// once), or else the first that holds its path, or its id, in its address
+fn toc_title(
+	toc: &[NavPoint],
+	index: &HashMap<String, String>,
+	needles: &[&str],
+) -> Option<String> {
+	if let Some(label) = needles.iter().find_map(|n| index.get(*n)) {
+		return Some(label.clone());
+	}
+	if toc.len() > TOC_SCAN_LIMIT {
+		return None;
+	}
+	toc.iter()
+		.find(|nav| {
+			let content = nav.content.to_string_lossy();
+			needles.iter().any(|n| content.contains(*n))
+		})
+		.map(|nav| nav.label.clone())
+}
+
 /// A utility struct for generating Readium Web Publication Manifests
 pub struct ReadiumManifestGenerator {
 	epub_path: String,
@@ -76,6 +114,7 @@ impl ReadiumManifestGenerator {
 		// A fixed-layout page is one position (Readium's fixed-layout reader pages by
 		// reading-order item, not by size)
 		let fixed = self.package_rendition(epub).fixed;
+		let toc_index = toc_index(&epub.toc);
 		let resource_metas = epub
 			.spine
 			.clone()
@@ -89,15 +128,11 @@ impl ReadiumManifestGenerator {
 				let package_path = resource.path.to_string_lossy().to_string();
 				let media_type = resource.mime.clone();
 
-				let title = epub
-					.toc
-					.iter()
-					.find(|nav| {
-						let content = nav.content.to_string_lossy();
-						content.contains(package_path.as_str())
-							|| content.contains(&item.idref)
-					})
-					.map(|nav| nav.label.clone());
+				let title = toc_title(
+					&epub.toc,
+					&toc_index,
+					&[package_path.as_str(), item.idref.as_str()],
+				);
 
 				let position_count =
 					(compressed_size as f64 / PAGE_LENGTH as f64).ceil() as usize;
@@ -313,6 +348,7 @@ impl ReadiumManifestGenerator {
 	) -> Result<Vec<RWPMLink>, ReadiumError> {
 		let mut reading_order = Vec::new();
 		let rendition = self.package_rendition(epub);
+		let toc_index = toc_index(&epub.toc);
 
 		for (i, spine_item) in epub.spine.clone().iter().enumerate() {
 			let file_present = epub
@@ -335,11 +371,7 @@ impl ReadiumManifestGenerator {
 				let href = resource.path.to_string_lossy().to_string();
 				let media_type = Some(resource.mime.clone());
 
-				let title = epub
-					.toc
-					.iter()
-					.find(|nav| nav.content.to_string_lossy().contains(&href))
-					.map(|nav| nav.label.clone());
+				let title = toc_title(&epub.toc, &toc_index, &[href.as_str()]);
 
 				let mut builder = RWPMLinkBuilder::default();
 				builder.href(self.resource_url(&href));

@@ -67,6 +67,11 @@ tempfile.workspace = true
 unidecode = "0.3.0"
 zip.workspace = true
 quick-xml = { version = "0.38.3", features = ["serialize"] }
+# the pages of a book from somebody who needs approval are rebuilt, not cleaned (intake/probe/sanitize.rs):
+# html5ever reads a page as a browser does, cssparser reads a style sheet the way Servo does
+html5ever = "0.38"
+markup5ever_rcdom = "0.38"
+cssparser = "0.36"
 merge = "0.1.0"
 kmeans_colors = "0.7.1"
 palette = "0.7.6"

@@ -5428,6 +5428,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "markup5ever_rcdom"
+version = "0.38.0+unofficial"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "333171ccdf66e915257740d44e38ea5b1b19ce7b45d33cc35cb6f118fbd981ff"
+dependencies = [
+ "html5ever",
+ "markup5ever",
+ "tendril",
+ "xml5ever",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9553,6 +9565,7 @@ dependencies = [
  "chrono",
  "criterion",
  "croner",
+ "cssparser",
  "dashmap 6.1.0",
  "data-encoding",
  "derivative",
@@ -9562,12 +9575,14 @@ dependencies = [
  "epub",
  "futures",
  "globset",
+ "html5ever",
  "image",
  "imagesize",
  "infer",
  "itertools 0.14.0",
  "kmeans_colors",
  "libc",
+ "markup5ever_rcdom",
  "md5",
  "merge",
  "metadata_integrations",
@@ -12574,6 +12589,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3a56132a0d6ecbe77352edc10232f788fc4ceefefff4cab784a98e0e16b6b51"
 dependencies = [
  "xml",
+]
+
+[[package]]
+name = "xml5ever"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3dc9559429edf0cd3f327cc0afd9d6b36fa8cec6d93107b7fbe64f806b5f2d9"
+dependencies = [
+ "log",
+ "markup5ever",
 ]
 
 [[package]]

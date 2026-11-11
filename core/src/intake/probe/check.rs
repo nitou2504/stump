@@ -592,7 +592,7 @@ fn lexical(path: &str) -> Option<String> {
 /// the reader asks for the path cut at `#` and percent-encoded, the route decodes it, makes it
 /// lexical, and epub-rs takes the entry called exactly that, or called what that decodes to. All
 /// the ways are taken, so that a resource is never missed by how one of them reads its address
-fn served_entries(path: &str, index_of: &HashMap<&str, usize>) -> Vec<usize> {
+pub(super) fn served_entries(path: &str, index_of: &HashMap<&str, usize>) -> Vec<usize> {
 	let path = path.split('#').next().unwrap_or(path);
 	let mut names: Vec<String> = vec![path.to_string()];
 	if let Some(lexical) = lexical(path) {
@@ -647,7 +647,7 @@ pub struct EpubFacts {
 	pub warnings: Vec<Reason>,
 }
 
-fn read_entry(
+pub(super) fn read_entry(
 	archive: &mut ZipArchive<File>,
 	index: usize,
 	name: &str,
@@ -679,7 +679,7 @@ fn read_entry(
 }
 
 /// The first bytes of an entry (what an image's size, or whether a text starts with `<`, is told by)
-fn read_head(
+pub(super) fn read_head(
 	archive: &mut ZipArchive<File>,
 	index: usize,
 	name: &str,

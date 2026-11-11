@@ -21,7 +21,7 @@ use super::{
 		code, probe_revision, ActiveContent, ActiveSummary, Book, BookMetadata, Kind,
 		Output, Reason, Request, Status, Usage, Verdict, CONTRACT_VERSION,
 	},
-	zipscan,
+	rebuild, zipscan,
 };
 use crate::{
 	config::StumpConfig,
@@ -379,6 +379,9 @@ fn file_job(
 	let out_path = env.out_dir.join(format!("000.{out_format}"));
 	let _ = std::fs::remove_file(&out_path);
 	let meta: &FileMetadata = &job.metadata;
+	let limits = request.limits.clamped();
+	// what a rebuild of a friend's book made of it, told to the approver
+	let mut rebuilt: Option<rebuild::Rebuilt> = None;
 	let wrote = |error: crate::intake::write::WriteError| {
 		fail(
 			code::OUTPUT_CHECK_FAILED,
@@ -386,6 +389,26 @@ fn file_job(
 		)
 	};
 	match format.as_str() {
+		"epub" if request.active_content != ActiveContent::Warn && !request.approver => {
+			// The book of somebody who needs approval is not copied and cleaned: it is written
+			// anew, out of what Stump's reader makes of it, by lists of what may be in a book
+			// (see `rebuild`). Nothing of its pages, package or archive is kept as it was sent
+			let report = zipscan::scan(input, &limits)?;
+			let made = rebuild::rebuild(input, &out_path, &report, &limits).inspect_err(|_| {
+				let _ = std::fs::remove_file(&out_path);
+			})?;
+			if request.active_content == ActiveContent::Block && made.active.found > 0 {
+				return Err(fail(
+					code::ACTIVE_CONTENT,
+					format!(
+						"The book carries {} scripts or other active content",
+						made.active.found
+					),
+				));
+			}
+			rebuilt = Some(made);
+			write_epub(&out_path, meta).map_err(wrote)?;
+		},
 		"epub" => {
 			std::fs::copy(input, &out_path).map_err(io_reason)?;
 			write_epub(&out_path, meta).map_err(wrote)?;
@@ -458,13 +481,20 @@ fn file_job(
 		converted_from: convert.then(|| "cbr".to_string()),
 		pages: checked.book.pages,
 	});
-	// what was found in the input is what the approver is told
-	checked.book.active_content = ActiveSummary {
-		stripped: request.active_content == ActiveContent::Strip
-			&& first.book.active_content.found > 0,
-		..first.book.active_content.clone()
+	// what was found in the input is what the approver is told (for a book that was rebuilt, what
+	// the rebuild took out: it is the one that read every page)
+	checked.book.active_content = match &rebuilt {
+		Some(made) => made.active.clone(),
+		None => ActiveSummary {
+			stripped: request.active_content == ActiveContent::Strip
+				&& first.book.active_content.found > 0,
+			..first.book.active_content.clone()
+		},
 	};
 	checked.warnings = first.warnings;
+	if let Some(made) = rebuilt {
+		checked.warnings.extend(made.warnings);
+	}
 	if convert {
 		checked.warnings.push(fail(
 			code::CONVERTED_CBR,
@@ -780,7 +810,7 @@ pub(crate) mod tests {
 		let (title, text) = {
 			let mut archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
 			let opf = bounded::read_to_string_capped(
-				archive.by_name("OEBPS/content.opf").unwrap(),
+				archive.by_name("content.opf").unwrap(),
 				MIB,
 			)
 			.unwrap();
@@ -934,9 +964,11 @@ pub(crate) mod tests {
 		);
 		let request = file_request(&world, "book.epub", &bytes, FileMetadata::default());
 		let verdict = run(&request, &world.env);
-		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
-		assert_eq!(verdict.book.as_ref().unwrap().active_content.found, 2);
-		assert_clean_of_scripts(&entry_text(&out_file(&world, &verdict), "OEBPS/p.dat"));
+		// a page with a name that isn't a page's is not filed at all, and a book with no other
+		// page is not made
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::NO_READABLE_PAGES);
+		assert!(!world.env.out_dir.join("000.epub").exists());
 	}
 
 	#[test]
@@ -979,8 +1011,9 @@ pub(crate) mod tests {
 		);
 		let request = file_request(&world, "book.epub", &bytes, FileMetadata::default());
 		let verdict = run(&request, &world.env);
-		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
-		assert_clean_of_scripts(&entry_text(&out_file(&world, &verdict), "OEBPS/p.dat"));
+		assert_eq!(verdict.status, Status::Reject);
+		assert_eq!(verdict.reasons[0].code, code::NO_READABLE_PAGES);
+		assert!(!world.env.out_dir.join("000.epub").exists());
 	}
 
 	#[test]

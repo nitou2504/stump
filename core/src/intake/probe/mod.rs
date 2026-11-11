@@ -11,5 +11,7 @@ pub mod active;
 pub mod check;
 pub mod contract;
 pub mod job;
+pub mod rebuild;
 pub mod runner;
+pub mod sanitize;
 pub mod zipscan;

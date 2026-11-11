@@ -1,5 +1,12 @@
 //! Active content in the documents of an EPUB: scripts, frames, event handlers and the like.
 //!
+//! This is the first look at a book's pages (what the approver is told, what is refused up front,
+//! and the warnings about the books of people who file their own). It is **not** what keeps a
+//! script out of the library: the book of somebody who needs approval is rebuilt from lists of what
+//! may be in a book ([`super::rebuild`], [`super::sanitize`]), and none of the pages that were sent
+//! is filed. A way round this reader (a parser that reads a page another way) can't put anything in
+//! a filed book.
+//!
 //! The reader draws every page of an EPUB as a document of the app's own origin that is allowed to
 //! run scripts (it needs the book's own, inline or not, for the few books that carry one). A script
 //! in a book somebody sent therefore runs as whoever reads it, the owner included, and can call the

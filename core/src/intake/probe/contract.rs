@@ -39,6 +39,7 @@ pub mod code {
 	pub const SIZE_MISMATCH: &str = "SIZE_MISMATCH";
 	pub const NESTED_ARCHIVE: &str = "NESTED_ARCHIVE";
 	pub const NO_PACKAGE: &str = "NO_PACKAGE";
+	pub const NO_READABLE_PAGES: &str = "NO_READABLE_PAGES";
 	pub const XML_ENTITY: &str = "XML_ENTITY";
 	pub const XML_TOO_DEEP: &str = "XML_TOO_DEEP";
 	pub const TOO_MANY_SPINE_ITEMS: &str = "TOO_MANY_SPINE_ITEMS";
@@ -66,6 +67,7 @@ pub mod code {
 	pub const CASE_DUPLICATE: &str = "CASE_DUPLICATE";
 	pub const REMOTE_RESOURCES: &str = "REMOTE_RESOURCES";
 	pub const MALFORMED_XHTML: &str = "MALFORMED_XHTML";
+	pub const DROPPED_FILES: &str = "DROPPED_FILES";
 	pub const CONVERTED_CBR: &str = "CONVERTED_CBR";
 	pub const NO_COVER: &str = "NO_COVER";
 	pub const PAGE_COUNT: &str = "PAGE_COUNT";
@@ -236,7 +238,8 @@ impl Limits {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ActiveContent {
-	/// Take it out, leave everything else as it was
+	/// Take it out: the book is written anew, without a page of the one that was sent
+	/// (`probe::rebuild`)
 	#[default]
 	Strip,
 	/// Refuse the book
