@@ -275,8 +275,10 @@ point: it has been through an Opus review and a real-nginx test run.
    the normal check that a request through `:10802` still returns 200: it would be 404 if tailscaled set the header on
    `serve` traffic too.)
 9. `revoked.map` and its `map` stay as the terminal break-glass.
-10. The state directory is mounted read-only at `/etc/nginx/state`; the `../edge-common:/etc/nginx/njs` mount is dropped
-    (`invite.sh` is a host script and does not need it).
+10. The state directory is mounted read-only at `/etc/nginx/state`. The `../edge-common:/etc/nginx/njs` mount **stays**
+    through the switch (the lead's review, item 3: the old live `nginx.conf` imports `gate.js` from it until the new
+    edge is installed, so dropping it at the compose step would make any recreate in between fail); nothing loads it
+    afterwards, and `invite.sh` is a host script that does not need it.
 
 **Compose** (applied at deploy; `apply-compose.py` is an idempotent patcher with `--dry-run` and a backup, like iaboy's):
 

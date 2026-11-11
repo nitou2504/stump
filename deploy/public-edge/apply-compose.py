@@ -3,7 +3,8 @@
 
 usage: apply-compose.py <docker-compose.yml> [--dry-run] [--require-pass]
   default        stump-fork gains STUMP_EDGE_KEY / _PUBLIC_URL / _STATE_DIR / _REQUIRE_PASS=false and the
-                 /edge-state volume; stump-edge swaps the ../edge-common mount for the read-only state mount
+                 /edge-state volume; stump-edge gains the read-only state mount (its ../edge-common mount stays, so the
+                 old edge can still restart until DEPLOY.md step 7 switches it)
   --require-pass flips STUMP_EDGE_REQUIRE_PASS from false to true (DEPLOY.md, step 8)
 Prints a summary only (the file has no secrets; .env is never read).
 """
@@ -56,8 +57,12 @@ else:
 
     edge_old = """      - ../edge-common:/etc/nginx/njs:ro
 """
-    edge_new = """      # the app's state file (revoked devices, budget resets): read-only here; stump-gate.js (in the
-      # edge folder) follows it once a second
+    edge_new = """      - ../edge-common:/etc/nginx/njs:ro
+      # the app's state file (revoked devices, budget resets): read-only here; stump-gate.js (in the
+      # edge folder) follows it once a second. The ../edge-common mount above STAYS on purpose: the
+      # live nginx.conf imports gate.js from it until DEPLOY.md step 7 switches the edge, so a recreate
+      # of stump-edge before then (an unscoped `up -d`, a --force-recreate) still starts. Nothing
+      # loads it after the switch; it is harmless and can go the next time the edge is recreated
       - ./edge-state:/etc/nginx/state:ro
 """
     if text.count(edge_old) != 1:

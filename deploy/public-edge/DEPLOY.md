@@ -11,7 +11,7 @@ ordered deploy of the files in `deploy/public-edge/`. Nothing here touches the l
 | app (`stump-fork` image) | the admin page and its GraphQL API, the invite pages `/api/_i/…`, the edge middleware (who reached the app, with which pass), the owner/registration refusals through the edge, "must choose your own password", **one migration** (`m20261113_000000_public_access`: 5 new tables) |
 | `stump-fork` compose | `STUMP_EDGE_KEY` (new to the app; from `./.env`), `STUMP_EDGE_PUBLIC_URL`, `STUMP_EDGE_STATE_DIR=/edge-state`, `STUMP_EDGE_REQUIRE_PASS`, and the `./edge-state` volume |
 | public edge | `edge/{nginx.conf,stump-gate.js}`: follows the app's state file once a second; sends `X-Edge-Public` on every public request and `X-Edge-Pass` for a valid, unrevoked pass; invite location with its own headers; no tokens in logs |
-| what stays | passes already handed out keep working (same format); `edge-common/invite.sh stump …` and `edge/revoked.map` stay as terminal break-glass; the old `edge-common/gate.js` stays on disk, unused |
+| what stays | passes already handed out keep working (same format); `edge-common/invite.sh stump …` and `edge/revoked.map` stay as terminal break-glass; the old `edge-common/gate.js` stays on disk, unused, and `stump-edge` keeps its `../edge-common` mount until you choose to drop it (the old edge needs it until step 7) |
 
 **Order matters.** The new edge refuses every pass until the app has written the state file, and the app must not
 demand a pass until the new edge sends it. So: app first (`STUMP_EDGE_REQUIRE_PASS=false`), then the edge, then the
@@ -69,6 +69,11 @@ docker compose config -q && echo compose-ok            # prints nothing else (no
 
 This sets `STUMP_EDGE_REQUIRE_PASS=false` on purpose (step 8 turns it on).
 
+It **adds** the read-only state mount to `stump-edge` and **keeps** the `../edge-common` mount: the old edge's
+`nginx.conf` imports `gate.js` from it until step 7, so an unscoped `docker compose up -d` or a
+`--force-recreate` before then still starts the old edge instead of failing on the missing file. Nothing loads that
+mount after step 7; it is harmless, and can be deleted from the compose file the next time the edge is recreated.
+
 ## 5. Start the app (the old edge keeps serving)
 
 ```sh
@@ -89,7 +94,8 @@ the status strip says it is ready (key, address, state folder set), and the old 
 ## 6. Stage and validate the new edge files
 
 Stage them in their own folder, **not** over the live ones: if the edge container restarted between this step and the
-next it would otherwise load the new `nginx.conf` without the state mount and refuse every pass.
+next it would otherwise load a new `nginx.conf` that nobody has validated yet (the live edge keeps serving the files in
+`edge/` until step 7).
 
 ```sh
 N=$PWD/edge-new; mkdir -p $N && chmod 755 $N
@@ -104,7 +110,7 @@ bash /mnt/data2/Code/stump/deploy/public-edge/verify-edge.sh
 ## 7. Switch the edge
 
 ```sh
-# copy and recreate back to back (one command line): the new nginx.conf needs the state mount of the recreated edge
+# copy and recreate back to back (one command line): the recreate is what loads the new nginx.conf and stump-gate.js
 D=$PWD/edge; N=$PWD/edge-new
 install -m 644 $N/nginx.conf $N/stump-gate.js $D/ && docker compose up -d --force-recreate stump-edge     # a changed volume needs a recreate, not a reload
 sleep 5; docker logs --since 20s stump-edge 2>&1 | grep -iE 'emerg|error|state file' || echo "edge log clean"

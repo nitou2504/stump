@@ -15,7 +15,10 @@ services:
       - ./edge-state:/edge-state
   stump-edge:
     volumes:
+      # the old mount STAYS: the live nginx.conf imports gate.js from it until DEPLOY.md step 7 switches the
+      # edge, so a recreate of stump-edge before then still starts. Nothing loads it after the switch (the
+      # new nginx.conf uses edge/stump-gate.js); edge-common/invite.sh is a host script and needs no mount
+      - ../edge-common:/etc/nginx/njs:ro
       # the app's state file (revoked devices, budget resets): read-only here; stump-gate.js (in the
-      # edge folder) follows it once a second. Replaces the ../edge-common mount (nothing imports
-      # edge-common/gate.js any more; edge-common/invite.sh is a host script and needs no mount)
+      # edge folder) follows it once a second
       - ./edge-state:/etc/nginx/state:ro
