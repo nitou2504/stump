@@ -21,6 +21,16 @@ Run everything as `sthefano` from `/mnt/data2/containers/stump-fork` unless a pa
 (`AGENTS.md`); one build at a time. Stump's Funnel is **off** today: this deploy has no public traffic to protect, but
 it follows the order that keeps it safe with Funnel on.
 
+**`S` is the checkout of the revision you are deploying**: the folder that holds `deploy/`, `crates/` and `docker/`.
+Every command below that copies a file out of the repository starts from `$S`. It is **not**
+`/mnt/data2/Code/stump`: that checkout sits on another branch and has no `deploy/` folder, so a copy from there
+fails, and an old file stays live. Set it once per shell, and check it before you start:
+
+```sh
+S=/mnt/data2/Code/worktrees/stump/golive      # or wherever the revision of the image you deploy is checked out
+test -f $S/deploy/public-edge/nginx.conf && git -C $S log --oneline -1     # its HEAD is the revision of the image
+```
+
 ## 0. Pre-flight
 
 ```sh
@@ -40,7 +50,7 @@ TS=$(date -u +%Y%m%dT%H%M%SZ); B=config.backup-$TS-db; mkdir -p $B
 sqlite3 config/stump.db ".backup $B/stump.db"; sqlite3 -readonly $B/stump.db 'pragma quick_check'     # ok
 cp -a config/Stump.toml $B/Stump.toml                 # the image rewrites it at every start: restore it on a rollback
 # the two migrations of this build, each with its own down (run in the reverse order: intake first, then access)
-M=/mnt/data2/Code/stump/crates/migrations/manual-down
+M=$S/crates/migrations/manual-down
 cp $M/m20261114_000000_intake_approval.sql $B/manual-down-1-intake.sql
 cp $M/m20261113_000000_public_access.sql   $B/manual-down-2-access.sql
 cp -a docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-public-access
@@ -65,8 +75,8 @@ mkdir -p ./edge-state && chmod 755 ./edge-state && ls -ld ./edge-state     # drw
 ## 4. Compose
 
 ```sh
-python3 /mnt/data2/Code/stump/deploy/public-edge/apply-compose.py docker-compose.yml --dry-run | diff docker-compose.yml - | head -40
-python3 /mnt/data2/Code/stump/deploy/public-edge/apply-compose.py docker-compose.yml      # backup: docker-compose.yml.bak-<ts>
+python3 $S/deploy/public-edge/apply-compose.py docker-compose.yml --dry-run | diff docker-compose.yml - | head -40
+python3 $S/deploy/public-edge/apply-compose.py docker-compose.yml      # backup: docker-compose.yml.bak-<ts>
 docker compose config -q && echo compose-ok            # prints nothing else (no secrets)
 ```
 
@@ -102,12 +112,12 @@ next it would otherwise load a new `nginx.conf` that nobody has validated yet (t
 
 ```sh
 N=$PWD/edge-new; mkdir -p $N && chmod 755 $N
-install -m 644 /mnt/data2/Code/stump/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
+install -m 644 $S/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
 cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map          # keep the break-glass revocations
 docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
   -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
 # and the real config against a stub (85 checks, ~1 min, nothing live is touched):
-bash /mnt/data2/Code/stump/deploy/public-edge/verify-edge.sh
+bash $S/deploy/public-edge/verify-edge.sh
 ```
 
 ## 7. Switch the edge
@@ -146,7 +156,7 @@ echo "${C%%=*}"; curl -s -o /dev/null -w "with pass: %{http_code}\n" -b "$C" $E/
 Only now (the edge sends `X-Edge-Pass`, and step 7 passed):
 
 ```sh
-python3 /mnt/data2/Code/stump/deploy/public-edge/apply-compose.py docker-compose.yml --require-pass
+python3 $S/deploy/public-edge/apply-compose.py docker-compose.yml --require-pass
 docker compose up -d --no-build stump-fork                 # when no job is running
 # a public request with no pass is refused by the app itself too (the edge is not the only gate)
 docker exec stump-edge wget -qO- --header 'X-Edge-Public: 1' http://stump-fork:10801/api/v2/ping; echo   # empty / 404
@@ -184,16 +194,37 @@ tailscale funnel status          # must show ONLY :8443 -> 127.0.0.1:10803 for S
 
 ## Enable friend uploads
 
-The build already carries friend uploads, **switched off**: nobody can upload from the internet until all four things
-below are true. Do them in this order, the permission last: the edge limits, the checker, the setting, the permission.
+### Before you start
+
+1. **`stump-fork` must run this branch's build.** The Stump that is live today (friends-7, `stump:fork-cab3a8d87`)
+   already carries the upload pipeline, switched off, but **not** what this section promises: approvals that are only
+   the owner's, the refusals through the edge, `uploadBooks` needing *Manage library*, and the edge route with its
+   limits. Deploy this branch first with the routine of `AGENTS.md` (it has **no migration**), then check:
+
+   ```sh
+   cd /mnt/data2/containers/stump-fork
+   docker ps --filter name=stump-fork --format '{{.Image}}'          # stump:fork-<the revision below>
+   git -C $S rev-parse --short=9 HEAD                                # the same revision
+   ```
+2. **The app must ask for a pass** (`STUMP_EDGE_REQUIRE_PASS=true`, step 8 above). Without it the edge is the only
+   gate. Check: `docker logs --since 30m stump-fork 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -o 'require_pass: [a-z]*' | tail -1`
+   prints `require_pass: true` (restart `stump-fork` first if the log has rotated).
+3. **Nothing is running**: `sqlite3 -readonly config/stump.db "select count(*) from jobs where status in ('RUNNING','QUEUED','PAUSED')"` prints 0.
+
+### What you are switching on
+
+A build of this branch carries friend uploads, **switched off**: nobody can upload from the internet until all four
+things below are true. Do them in this order, the permission last: the edge limits, the checker, the setting, the
+permission.
 
 What Stump itself guarantees (tests: `apps/server/tests/access/uploads.rs`, `graphql/intake_approval.rs`,
 `graphql/upload.rs`):
 
 * the one way a book comes in from the internet is **Add books**, `POST /api/v2/intake/upload`, within the person's
   limits; it waits for the owner's approval, and the book that is filed is one the isolated checker wrote anew;
-* **approving, sending back, the approval queue and its count are the server owner's, from home**: the edge refuses
-  them and so does the app, whatever permissions a friend holds (*Manage library* and *Delete library* included);
+* **approving, sending back, the approval queue and its count are the server owner's, from home**: the app refuses
+  them for every request that came through the edge (nginx only forwards the GraphQL call), whatever permissions a
+  friend holds (*Manage library* and *Delete library* included);
 * filing straight into a library (`intakeAccept`, `intakeUpload`, `uploadBooks`, `uploadSeries`) never works through
   the edge; `uploadBooks` and `uploadSeries` need *Manage library*, so *Upload files* alone no longer skips the inbox;
 * somebody who files books themselves (*Manage library*) uploads from home only; the owner's credentials are refused
@@ -204,21 +235,38 @@ What Stump itself guarantees (tests: `apps/server/tests/access/uploads.rs`, `gra
 `nginx.conf` now has a location for `/api/v2/intake/upload`: a body up to `intake_max_request_mb` + 1 MB (**301 MB**;
 raise both together), 12 requests a minute per client (burst 6), 2 at a time per client and 8 in all, nothing spooled
 (`proxy_request_buffering off`), Stump's own origin only, and the pass every request needs. The public GraphQL body cap
-is **256 KB** now (a 20,000-character description in 4-byte characters fits); everything else stays at 25 MB / 64 KB.
+is **256 KB** now (a 20,000-character description in 4-byte characters fits); everything else stays as it was: 25 MB by
+default, 4–8 KB on the sign-in, refresh and invite routes. `stump-gate.js` does not change (it is identical to the live one).
+
+Run it as **one chain**: each command runs only if the one before it worked, so a failed copy can never be followed by
+a reload that re-applies the old file and still prints the expected answers.
 
 ```sh
-cd /mnt/data2/containers/stump-fork
-N=$PWD/edge-new; rm -rf $N; mkdir -p $N && chmod 755 $N
-install -m 644 /mnt/data2/Code/stump/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
-cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map
-docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
-  -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-bash /mnt/data2/Code/stump/deploy/public-edge/verify-edge.sh        # 85 checks, 0 failed (needs docker; ~1 minute)
-cp -a edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-uploads
-install -m 644 $N/nginx.conf edge/nginx.conf
-docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+cd /mnt/data2/containers/stump-fork && : "${S:?set S first, see the top of this file}" \
+&& N=$PWD/edge-new && rm -rf $N && mkdir -p $N && chmod 755 $N \
+&& install -m 644 $S/deploy/public-edge/{nginx.conf,stump-gate.js} $N/ \
+&& cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map \
+&& docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
+     -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf \
+&& bash $S/deploy/public-edge/verify-edge.sh \
+&& cp -a edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-uploads \
+&& install -m 644 $N/nginx.conf edge/nginx.conf \
+&& docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf \
+&& docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf \
+&& echo "edge switched"
+```
+
+`verify-edge.sh` ends with `85 checks, 0 failed` (needs docker; about a minute). If the chain stops, read its last
+line: before `install -m 644 $N/nginx.conf edge/nginx.conf` nothing live has changed; after it, put the old file back
+(`cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf`, see *Back out*).
+
+Then the two checks that tell the new edge from the old one (the old one answers the first line exactly the same way,
+so only the second proves the new file is the one in the container):
+
+```sh
 E=http://127.0.0.1:10803
-echo "no pass: $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=x")"   # 404
+echo "no pass:    $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=x")"                  # 404
+echo "new config: $(docker exec stump-edge grep -c 'location = /api/v2/intake/upload' /etc/nginx/edge/nginx.conf)"   # 1 (0 = the old config is still there)
 ```
 
 ### 2. The checker, and the setting
@@ -285,7 +333,7 @@ C=$(curl -s -D- -o /dev/null -X POST -H 'Sec-Fetch-Site: same-origin' --data-url
 # the friend signs in through the edge (counts as one of the device's 8 sign-ins a day)
 TOK=$(curl -s -b "$C" -H 'Content-Type: application/json' -d '{"username":"<friend>","password":"<password>"}' "$E/api/v2/auth/login?generate_token=true" | python3 -c 'import json,sys;print(json.load(sys.stdin)["accessToken"])')
 LIB=<a library id the friend can use>
-python3 /mnt/data2/Code/stump/deploy/public-edge/make-test-epub.py /tmp/hostile.epub
+python3 $S/deploy/public-edge/make-test-epub.py /tmp/hostile.epub
 echo "upload:   $(curl -s -o /tmp/up.json -w %{http_code} -b "$C" -H "Authorization: Bearer $TOK" -F 'file=@/tmp/hostile.epub;filename=hostile.epub' "$E/api/v2/intake/upload?libraryId=$LIB")"   # 200 and {"items":[…]}
 echo "too big:  $(curl -s -o /dev/null -w %{http_code} -X POST -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: multipart/form-data; boundary=x' -H 'Content-Length: 400000000' --data-binary x "$E/api/v2/intake/upload?libraryId=$LIB")"   # 413: the edge answers before reading a byte
 echo "no pass:  $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=$LIB")"                                  # 404
