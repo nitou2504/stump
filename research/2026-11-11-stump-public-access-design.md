@@ -687,3 +687,35 @@ a React page in two locales, and the extra login-path tests; the reviewed edge c
 **Findings for the parent, outside this package:** (1) F1 above is a live bug today (an unlocked account re-locks on its next
 typo). (2) The session cookie is shared across ports (F3); a general fix is D-D. (3) iaboy's as-built `REVOKED_KEEP_DAYS = 200` is
 right; only its design text said 90 days. (4) Native Stump apps cannot use the public edge (F9).
+
+## 13. As built: the lead's review applied (checked against the code, 2026-11-11)
+
+This section supersedes the parts of the design it contradicts. In particular §4's three `ALTER TABLE user_login_activity`
+lines are **not** in the migration (R6): the sign-in marks are the new table `access_signin_marks`.
+
+| Lead's item | As built | Where it is pinned |
+|---|---|---|
+| R1 `Stump.toml` must not get an `[edge]` table | `edge` and `key` are `skip_serializing`; the settings come from the environment only; `DEPLOY.md` backs `config/Stump.toml` up with the snapshot and restores it on a rollback | `test_the_edge_key_and_section_are_never_written` (core), `DEPLOY.md` §1 and Rollback |
+| R2 "public" never depends on the config | `via_public` is the marker header, always; only a device check and minting a pass need a usable key; `require_pass` without a key closes the public side | `middleware/edge.rs`, `tests/access/edge.rs` |
+| R3 the internet is never the owner | one `authorize()` for the session, token, Basic and API-key paths refuses the owner on a public request with a `401` that does not delete the owner's cookie; `register` refuses public requests; `NotViaPublicEdgeGuard` is the second check | `tests/access/edge.rs` (REST, GraphQL, websocket) |
+| R4 CSRF | `POST /api/_i/` refuses `Sec-Fetch-Site` other than `same-origin`/`none`, or a foreign `Origin`; every access mutation also needs `SameOriginGuard` | `tests/access/invites.rs`, `tests/access/graphql.rs` |
+| R5 set a password and require a change | `setUserPassword(id, password, requireChange = true)` (owner only, not via the edge, same origin), table `access_password_resets`, REST and websocket refused and GraphQL limited to `me`/`updateViewer` while it is set, `updateViewer` clears it, the web app shows only the new-password screen (`PasswordGate`) | `tests/access/password.rs`, `PasswordGate.test.tsx`, `AppRouter.test.tsx` |
+| R6 tables only | `access_signin_marks(login_activity_id PK, device_id, failure_reason, counts_toward_lock)`; the lock rule ignores marks with `counts_toward_lock = 0`; the unblock forgives the person's failures in one transaction; `UserLoginActivityModel` is unchanged | `tests/access/signin.rs`, `crates/migrations` (manual down) |
+| R7 guards refuse when they cannot tell | every guard refuses when there is no `EdgeRequest`; the subscription handler passes it | `guard.rs` tests, `the_websocket_is_guarded_like_the_rest_of_graphql` |
+| R8 state file | a failed write is reported to the owner; the temporary file is made `0644` before the rename; the version only grows, under one lock | `a_state_file_that_cannot_be_written_is_reported`, `the_version_of_the_state_file_always_grows`, `concurrent_changes_never_leave_an_older_state_in_the_file` |
+| N1 headers once | the public forwarding headers are set at server level, no location sets its own; one map for `Upgrade`/`Connection` | `verify-edge.sh` (63 checks) |
+| N2 `/api/_i/` | its own header set (`Referrer-Policy: no-referrer`), and no pass renewal | `verify-edge.sh` |
+| N3 redemption | the person is checked before a use is spent; the spend and the device are one transaction; a revoked device counts as no device on the invite pages | `tests/access/invites.rs` |
+| N4 timestamps | one second either side of an invite's expiry | `an_invite_works_until_its_expiry_and_not_after` |
+| N5 audit | password sets by any actor, self-service password changes, locks and unlocks, and `deleteLoginActivity` | `a_password_set_by_a_user_manager_and_a_cleared_sign_in_log_are_audited` (a *Manage users* actor's password set, and `login_activity.cleared`), `a_password_the_owner_sets_must_be_replaced_before_anything_else_works` (`user.password_set`, `user.password_changed`), `a_lock_by_hand_says_so_and_the_lock_and_the_unblock_are_audited` (`user.lock`, `user.unblock`) |
+| N6 two kinds of lock | `lockedBy` is `FAILURES`, `OWNER` or `UNKNOWN` | `an_account_locked_by_failures_says_so`, `a_lock_by_hand_says_so_and_the_lock_and_the_unblock_are_audited` |
+| N7 no secrets in spans | no `instrument` span captures a password or token; the invite path is `/api/_i/-hidden-` in the trace; the key is `[REDACTED]` in `Debug`; a start-up line says whether public access is configured | `stump_config.rs` tests, `verify-edge.sh` |
+
+Retention (§4): `prune` forgets audit rows after 400 days, revoked devices after 200, and invites 30 days after they expired or
+were revoked unless a device that is still alive came from them; it never touches the sign-in log. The housekeeping runs
+every 6 hours (the first pass after the first interval; the state file is written at start-up). Pinned by
+`tests/access/retention.rs`, which checks each boundary a day (or a minute) either side.
+
+Not done, on purpose: the extra database query that `authorize()` makes per request to ask whether a password must be
+chosen (the lead suggested a `LEFT JOIN` in `LoginUser`). It is one primary-key lookup on a table that is empty for everybody but
+the people the owner gave a password to; the join can replace it if a profile ever shows it.
