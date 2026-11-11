@@ -178,14 +178,36 @@ fn replace_with(tmp: &Path, path: &Path) -> WriteResult<()> {
 // ------------------------------------------------------------------ EPUB
 
 pub(crate) fn opf_path(archive: &mut ZipArchive<File>) -> WriteResult<String> {
-	let container = bounded::read_to_string_capped(
+	let container = bounded::read_capped(
 		archive.by_name("META-INF/container.xml")?,
 		bounded::MAX_TINY_BYTES,
 	)?;
-	let re = Regex::new(r#"full-path=["']([^"']+)["']"#).expect("valid regex");
-	re.captures(&container)
-		.map(|c| c[1].to_string())
-		.ok_or_else(|| WriteError::Invalid("EPUB container has no OPF path".into()))
+	// read as XML, the way the checker and Stump's readers read it: the first `rootfile`'s path, and
+	// not a `full-path=` that is written in a comment or in another element, which would have the
+	// metadata written into a file that isn't the package
+	let mut reader = quick_xml::Reader::from_reader(container.as_slice());
+	loop {
+		match reader.read_event() {
+			Ok(quick_xml::events::Event::Start(tag))
+			| Ok(quick_xml::events::Event::Empty(tag)) => {
+				if tag.local_name().as_ref().eq_ignore_ascii_case(b"rootfile") {
+					let path = tag.attributes().flatten().find_map(|attribute| {
+						let key = attribute.key.as_ref();
+						let local = key.rsplit(|b| *b == b':').next().unwrap_or(key);
+						(local == b"full-path")
+							.then(|| attribute.unescape_value().ok().map(|v| v.into_owned()))
+							.flatten()
+					});
+					if let Some(path) = path.filter(|p| !p.is_empty()) {
+						return Ok(path);
+					}
+				}
+			},
+			Ok(quick_xml::events::Event::Eof) | Err(_) => break,
+			Ok(_) => {},
+		}
+	}
+	Err(WriteError::Invalid("EPUB container has no OPF path".into()))
 }
 
 /// Writes the metadata into an EPUB file (in place)
@@ -882,6 +904,31 @@ pub fn append_pdf_info(path: &Path, info: &[(String, String)]) -> WriteResult<()
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn the_package_is_the_first_rootfile_and_not_a_path_written_in_a_comment() {
+		use std::io::Write as _;
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("book.epub");
+		let container = r#"<?xml version="1.0"?><!-- full-path="decoy.opf" --><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path='OEBPS/real.opf' media-type="application/oebps-package+xml"/><rootfile full-path="other.opf"/></rootfiles></container>"#;
+		let mut zip = ZipWriter::new(File::create(&path).unwrap());
+		zip.start_file("META-INF/container.xml", SimpleFileOptions::default())
+			.unwrap();
+		zip.write_all(container.as_bytes()).unwrap();
+		zip.finish().unwrap();
+		let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+		assert_eq!(opf_path(&mut archive).unwrap(), "OEBPS/real.opf");
+		// a container with no rootfile has no package
+		let empty = dir.path().join("empty.epub");
+		let mut zip = ZipWriter::new(File::create(&empty).unwrap());
+		zip.start_file("META-INF/container.xml", SimpleFileOptions::default())
+			.unwrap();
+		zip.write_all(br#"<container><!-- full-path="decoy.opf" --></container>"#)
+			.unwrap();
+		zip.finish().unwrap();
+		let mut archive = ZipArchive::new(File::open(&empty).unwrap()).unwrap();
+		assert!(opf_path(&mut archive).is_err());
+	}
 
 	/// An OPF whose creator, and the `refines` element after it, carry `id`
 	fn opf_with_a_creator_id(id: &str) -> String {
