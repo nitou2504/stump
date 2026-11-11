@@ -239,3 +239,56 @@ async fn only_the_owner_can_set_a_password() {
 		.await;
 	assert!(!errors_of(&response).is_empty(), "{response:#}");
 }
+
+/// The lead's N5: a password set by anybody who manages users (not only by the owner on this page),
+/// and the owner clearing the whole sign-in log, are in the audit log with who did it. The password
+/// itself is never in it
+#[tokio::test]
+async fn a_password_set_by_a_user_manager_and_a_cleared_sign_in_log_are_audited() {
+	let env = edge_app(false).await;
+	let app = &env.app;
+	let manager = CreateTestUser {
+		username: "manager".to_string(),
+		permissions: vec![UserPermission::ManageUsers, UserPermission::ReadUsers],
+		..Default::default()
+	}
+	.insert(app)
+	.await;
+	let ben = CreateTestUser {
+		username: "ben".to_string(),
+		..Default::default()
+	}
+	.insert(app)
+	.await;
+
+	// the manager sets ben's password through the ordinary user update
+	let changed = app
+		.execute_gql_with_token(
+			"mutation($id: ID!) { updateUser(id: $id, input: {username: \"ben\", password: \"chosen-by-the-manager\", permissions: []}) { id } }",
+			Some(json!({"id": ben.id})),
+			&manager.token,
+		)
+		.await;
+	assert!(changed.get("errors").is_none(), "{changed:#}");
+
+	// and the owner clears the sign-in log
+	let cleared = owner_gql(app, "mutation { deleteLoginActivity }", None).await;
+	assert!(cleared.get("errors").is_none(), "{cleared:#}");
+
+	let audit = access_audit::Entity::find().all(app.conn()).await.unwrap();
+	let by_the_manager: Vec<_> = audit
+		.iter()
+		.filter(|row| row.action == "user.password_set" && row.actor == "manager")
+		.collect();
+	assert_eq!(by_the_manager.len(), 1, "{audit:?}");
+	assert_eq!(by_the_manager[0].target, ben.id);
+
+	let clearing: Vec<_> = audit
+		.iter()
+		.filter(|row| row.action == "login_activity.cleared")
+		.collect();
+	assert_eq!(clearing.len(), 1, "{audit:?}");
+	assert_eq!(clearing[0].actor, "initial-server-admin");
+
+	assert!(!format!("{audit:?}").contains("chosen-by-the-manager"));
+}

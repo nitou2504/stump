@@ -2,7 +2,7 @@
 
 use axum::http::StatusCode;
 use models::{
-	entity::{access_signin_mark, user_login_activity},
+	entity::{access_audit, access_signin_mark, user_login_activity},
 	services::access as service,
 };
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
@@ -432,4 +432,77 @@ async fn the_sign_in_list_can_show_only_the_failures() {
 		)
 		.await;
 	assert!(!errors_of(&refused).is_empty(), "{refused:#}");
+}
+
+/// The lead's N5 and N6: an account the owner locks by hand says so (it is not "too many
+/// failures"), the lock and the unblock are in the audit log with who did them, and the unblock
+/// empties the list of blocked accounts
+#[tokio::test]
+async fn a_lock_by_hand_says_so_and_the_lock_and_the_unblock_are_audited() {
+	let env = edge_app(false).await;
+	let app = &env.app;
+	let ana = insert_user(app, "ana", "ana-secret", false).await;
+
+	let locked = owner_gql(
+		app,
+		"mutation($id: ID!) { updateUserLockStatus(id: $id, lock: true) { id } }",
+		Some(json!({"id": ana.id})),
+	)
+	.await;
+	assert!(locked.get("errors").is_none(), "{locked:#}");
+	assert!(is_locked(app, &ana.id).await);
+
+	// the page says the owner did it, which is not what a lock by failures says
+	let blocked = owner_gql(
+		app,
+		"{ accessBlockedUsers { person { username } lockedBy } }",
+		None,
+	)
+	.await;
+	assert_eq!(
+		blocked["data"]["accessBlockedUsers"][0]["person"]["username"], "ana",
+		"{blocked:#}"
+	);
+	assert_eq!(
+		blocked["data"]["accessBlockedUsers"][0]["lockedBy"], "OWNER",
+		"{blocked:#}"
+	);
+
+	let unblocked = owner_gql(
+		app,
+		"mutation($id: ID!) { unblockUser(id: $id) }",
+		Some(json!({"id": ana.id})),
+	)
+	.await;
+	assert!(unblocked.get("errors").is_none(), "{unblocked:#}");
+	assert!(!is_locked(app, &ana.id).await);
+
+	let blocked =
+		owner_gql(app, "{ accessBlockedUsers { person { username } } }", None).await;
+	assert_eq!(
+		blocked["data"]["accessBlockedUsers"]
+			.as_array()
+			.map(Vec::len),
+		Some(0),
+		"{blocked:#}"
+	);
+
+	// both are in the audit log, with who did them and for whom
+	let audit: Vec<(String, String, String)> = access_audit::Entity::find()
+		.all(app.conn())
+		.await
+		.unwrap()
+		.into_iter()
+		.map(|row| (row.action, row.actor, row.target))
+		.collect();
+	for action in ["user.lock", "user.unblock"] {
+		assert!(
+			audit.contains(&(
+				action.to_string(),
+				"initial-server-admin".to_string(),
+				ana.id.clone()
+			)),
+			"{action} is not in {audit:?}"
+		);
+	}
 }
