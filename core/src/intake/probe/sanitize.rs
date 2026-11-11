@@ -763,7 +763,16 @@ fn css_token<'i, 't>(
 ) {
 	match token {
 		Token::WhiteSpace(_) | Token::Comment(_) => rule.buf.push(' '),
-		Token::CDO | Token::CDC => {},
+		Token::CDO | Token::CDC => {
+			// at the top of a style sheet these two are dropped, which is all that writing nothing for
+			// them is right for. Anywhere else they are tokens of their own (a browser makes the rule
+			// invalid), and writing nothing glued the pieces on either side together: `url<!--(...)`
+			// came out as `url(...)` and `@<!--import "..."` as `@import "..."`. A rule that holds one
+			// is left out, as the browser would drop it.
+			if !rule.buf.trim().is_empty() {
+				rule.bad = true;
+			}
+		},
 		Token::BadUrl(_) | Token::BadString(_) => rule.bad = true,
 		Token::CloseParenthesis | Token::CloseSquareBracket | Token::CloseCurlyBracket => {
 			rule.bad = true;
@@ -1390,6 +1399,46 @@ mod tests {
 		for gone in ["api/v2", "evil.example", "logout", "..\\"] {
 			assert!(!output.contains(gone), "{gone} is in {output}");
 		}
+	}
+
+	#[test]
+	fn the_html_comment_tokens_of_css_do_not_glue_what_is_around_them_into_a_url_or_an_import() {
+		// `<!--` and `-->` are tokens of their own to a CSS parser; writing nothing for them joined
+		// `url` to the `(` after it (a url() that leaves the book) and `@` to `import`
+		let (css, remote) = clean_stylesheet(
+			"p { background: url<!--(http://evil.example/p.png) }\n\
+			 em { color: blue }\n\
+			 @<!--import \"http://evil.example/x.css\";\n\
+			 u { color: green }\n\
+			 a { background: url-->(http://evil.example/q.png) }\n\
+			 b { background: url <!-- (http://evil.example/r.png) }\n\
+			 i { color: red --> }",
+			"OEBPS",
+		);
+		assert!(!css.contains("evil.example"), "{css}");
+		assert!(!css.to_ascii_lowercase().contains("@import"), "{css}");
+		assert!(!css.contains("url(") && !css.contains("url ("), "{css}");
+		// the rules without one are kept as they are
+		assert!(css.contains("color:blue") || css.contains("color: blue"), "{css}");
+		assert!(css.contains("color:green") || css.contains("color: green"), "{css}");
+		assert_eq!(remote, 0);
+		// the same in a style attribute and in a <style> element of a page
+		let output = page(
+			"<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><style>p { background: url<!--(http://evil.example/s.png) }</style></head>\
+			 <body><p style=\"background:url<!--(http://evil.example/t.png)\">hello</p></body></html>",
+		);
+		assert!(output.contains("hello"));
+		assert!(!output.contains("evil.example") && !output.contains("url("), "{output}");
+	}
+
+	#[test]
+	fn a_style_sheet_wrapped_in_the_old_html_comment_still_reads() {
+		// the old way of hiding a style sheet from browsers that don't know <style>: the two
+		// tokens sit at the top of the sheet, where a CSS parser drops them
+		let (css, _) = clean_stylesheet("<!--\np { color: red }\n-->\n<!-- q { color: blue } -->", "OEBPS");
+		assert!(css.contains("color:red") || css.contains("color: red"), "{css}");
+		assert!(css.contains("color:blue") || css.contains("color: blue"), "{css}");
+		assert!(!css.contains("<!--") && !css.contains("-->"), "{css}");
 	}
 
 	#[test]
