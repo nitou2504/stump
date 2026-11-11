@@ -18,6 +18,11 @@ type Props = {
 	libraries?: Array<{ id: string; name: string }>
 	libraryId?: string
 	onLibraryChange?: (libraryId: string) => void
+	/**
+	 * Whether a `.zip` of several books is taken. It is for who files books themselves: somebody
+	 * who needs approval uploads the books (or a folder of them), so the zone doesn't offer zips
+	 */
+	acceptsZip?: boolean
 }
 
 /** react-dropzone (file-selector) gives dropped folder files a `path` like `./Yotsuba/v1.cbz` */
@@ -42,6 +47,7 @@ export default function IntakeDropZone({
 	libraries = [],
 	libraryId,
 	onLibraryChange,
+	acceptsZip = true,
 }: Props) {
 	const [folderMode, setFolderMode] = useState<IntakeUploadMode>(IntakeUploadMode.Auto)
 	const folderInput = useRef<HTMLInputElement>(null)
@@ -59,6 +65,9 @@ export default function IntakeDropZone({
 		disabled,
 		multiple: true,
 		noClick: true,
+		// the two buttons are the way in from the keyboard: without this the zone is a tab stop of
+		// its own that does nothing and shows no focus
+		noKeyboard: true,
 		onDrop: handle,
 	})
 
@@ -107,34 +116,45 @@ export default function IntakeDropZone({
 			>
 				<input {...getInputProps()} />
 
-				{slim ? (
-					<div className="gap-3 flex flex-wrap items-center justify-between">
-						<div className="gap-3 flex items-center">
-							<span className="size-9 grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-								<Upload className="h-4 w-4" aria-hidden />
-							</span>
+				{/* one structure for both sizes: when the zone shrinks the buttons are the same elements,
+				    so the keyboard focus on them stays where it was */}
+				<div
+					className={cn(
+						'flex',
+						slim
+							? 'gap-3 flex-wrap items-center justify-between'
+							: 'gap-4 flex-col items-center text-center',
+					)}
+				>
+					<div className={cn('flex', slim ? 'gap-3 items-center' : 'gap-4 flex-col items-center')}>
+						<span
+							className={cn(
+								'grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary',
+								slim ? 'size-9' : 'size-14',
+							)}
+						>
+							<Upload className={slim ? 'h-4 w-4' : 'h-6 w-6'} aria-hidden />
+						</span>
+						{slim ? (
 							<p className="text-sm font-medium">
 								{isDragActive ? 'Drop to add' : 'Drop more books here'}
 							</p>
-						</div>
-						{buttons}
+						) : (
+							<div className="gap-1 flex flex-col">
+								<p className="text-lg font-semibold">
+									{isDragActive ? 'Drop to add' : 'Drop books here'}
+								</p>
+								<p className="text-sm text-muted-foreground">
+									or choose them from your device.{' '}
+									{acceptsZip
+										? 'EPUB, PDF, CBZ, CBR or a zip; folders work too.'
+										: 'EPUB, PDF, CBZ or CBR; folders work too.'}
+								</p>
+							</div>
+						)}
 					</div>
-				) : (
-					<div className="gap-4 flex flex-col items-center text-center">
-						<span className="size-14 grid place-items-center rounded-full bg-primary/10 text-primary">
-							<Upload className="h-6 w-6" aria-hidden />
-						</span>
-						<div className="gap-1 flex flex-col">
-							<p className="text-lg font-semibold">
-								{isDragActive ? 'Drop to add' : 'Drop books here'}
-							</p>
-							<p className="text-sm text-muted-foreground">
-								or choose them from your device. EPUB, PDF, CBZ, CBR or a zip; folders work too.
-							</p>
-						</div>
-						{buttons}
-					</div>
-				)}
+					{buttons}
+				</div>
 
 				<div
 					className={cn(
@@ -157,14 +177,17 @@ export default function IntakeDropZone({
 					)}
 					<label className="gap-2 flex items-center">
 						<span>Each folder is</span>
-						<select
+						<NativeSelect
+							size="sm"
+							className="text-base md:text-sm w-auto"
 							value={folderMode}
+							disabled={disabled}
+							options={[
+								{ label: 'one series', value: IntakeUploadMode.Auto },
+								{ label: 'separate books', value: IntakeUploadMode.Books },
+							]}
 							onChange={(e) => setFolderMode(e.target.value as IntakeUploadMode)}
-							className="h-8 px-2 text-base md:text-xs rounded-md border border-border bg-background text-foreground"
-						>
-							<option value={IntakeUploadMode.Auto}>one series</option>
-							<option value={IntakeUploadMode.Books}>separate books</option>
-						</select>
+						/>
 					</label>
 				</div>
 			</div>
@@ -192,7 +215,7 @@ export default function IntakeDropZone({
 									<Clock className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Waiting" />
 								) : (
 									<Loader2
-										className="h-4 w-4 animate-spin shrink-0 text-primary"
+										className="h-4 w-4 animate-spin shrink-0 text-primary motion-reduce:animate-none"
 										aria-label="Uploading"
 									/>
 								)}

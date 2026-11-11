@@ -129,7 +129,7 @@ export default function IntakeScene() {
 						key: 'review',
 						icon: ClipboardCheck,
 						value: groups.toReview.length,
-						suffix: ' to check',
+						suffix: ' need your details',
 					},
 					{ key: 'ready', icon: CheckCircle2, value: groups.ready.length, suffix: ' ready' },
 					...(friend && groups.waiting.length
@@ -168,6 +168,8 @@ export default function IntakeScene() {
 						onClearFinished={uploader.clearFinished}
 						disabled={!libraryId || uploadsClosed}
 						compact={inFlight > 0}
+						// a zip of several books is for who files them; until we know who is looking, none
+						acceptsZip={mode === 'file'}
 						libraries={libraries}
 						libraryId={libraryId}
 						onLibraryChange={(id) =>
@@ -276,7 +278,8 @@ export default function IntakeScene() {
 					</Section>
 				)}
 
-				{!isLoading && inFlight === 0 && groups.filed.length === 0 && (
+				{/* the last step differs for who sends books for approval: wait until we know who this is */}
+				{!isLoading && mode && inFlight === 0 && groups.filed.length === 0 && (
 					<EmptyInbox friend={friend} />
 				)}
 

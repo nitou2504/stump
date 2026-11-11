@@ -49,11 +49,20 @@ vi.mock('@/components/sharedLayout', () => ({
 vi.mock('../FolderPicker', () => ({ default: () => <div>Folder picker</div> }))
 vi.mock('../TagPicker', () => ({ TagChip: () => null, default: () => <div>Tag picker</div> }))
 vi.mock('../IntakeDropZone', () => ({
-	default: ({ disabled, compact }: { disabled?: boolean; compact?: boolean }) => (
+	default: ({
+		disabled,
+		compact,
+		acceptsZip,
+	}: {
+		disabled?: boolean
+		compact?: boolean
+		acceptsZip?: boolean
+	}) => (
 		<div
 			data-testid="drop-zone"
 			data-disabled={String(!!disabled)}
 			data-compact={String(!!compact)}
+			data-accepts-zip={String(!!acceptsZip)}
 		/>
 	),
 }))
@@ -212,6 +221,31 @@ describe('IntakeScene for somebody who needs approval', () => {
 
 		expect(screen.getByText('Your inbox is empty.')).toBeInTheDocument()
 	})
+
+	it('says nothing of an empty inbox until it is known who is looking', () => {
+		// the last step is “Add them to the library” for who files and “Send them” for who doesn’t:
+		// saying the wrong one for a moment would be wrong for somebody
+		state.limits = undefined
+
+		renderScene()
+
+		expect(screen.queryByText('Your inbox is empty.')).not.toBeInTheDocument()
+		expect(screen.queryByRole('list', { name: 'How adding books works' })).not.toBeInTheDocument()
+	})
+
+	it('does not offer zips of several books: they are for who files books themselves', () => {
+		renderScene()
+
+		expect(screen.getByTestId('drop-zone')).toHaveAttribute('data-accepts-zip', 'false')
+	})
+
+	it('offers no zips either until it is known who is looking', () => {
+		state.limits = undefined
+
+		renderScene()
+
+		expect(screen.getByTestId('drop-zone')).toHaveAttribute('data-accepts-zip', 'false')
+	})
 })
 
 describe('IntakeScene for somebody who files books themselves', () => {
@@ -219,6 +253,12 @@ describe('IntakeScene for somebody who files books themselves', () => {
 		vi.clearAllMocks()
 		state.limits = limits({ canFileDirectly: true, quotaApplies: false })
 		state.items = []
+	})
+
+	it('offers zips of several books: they are theirs to open and file', () => {
+		renderScene()
+
+		expect(screen.getByTestId('drop-zone')).toHaveAttribute('data-accepts-zip', 'true')
 	})
 
 	it('adds what is ready to the library, and has no sections of an approval', () => {

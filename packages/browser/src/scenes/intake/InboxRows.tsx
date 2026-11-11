@@ -78,7 +78,8 @@ export function FiledRow({ item, now }: { item: IntakeItemData; now: number }) {
 				</Link>
 			) : recentlyFiled ? (
 				<span className="gap-1 text-xs flex shrink-0 items-center text-muted-foreground">
-					<Loader2 className="h-3 w-3 animate-spin" aria-hidden /> scanning
+					<Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden />{' '}
+					scanning
 				</span>
 			) : (
 				<span className="text-xs shrink-0 text-muted-foreground">not scanned yet</span>

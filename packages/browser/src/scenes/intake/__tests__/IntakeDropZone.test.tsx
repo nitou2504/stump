@@ -60,6 +60,39 @@ describe('IntakeDropZone', () => {
 		expect(screen.getByRole('button', { name: /Choose a folder/ })).toBeInTheDocument()
 	})
 
+	it('keeps the keyboard focus on “Choose files” when the zone shrinks to a bar', () => {
+		const { onClearFinished, onFiles, rerender } = renderZone()
+		const choose = screen.getByRole('button', { name: /Choose files/ })
+		choose.focus()
+		expect(choose).toHaveFocus()
+
+		rerender(
+			<IntakeDropZone onFiles={onFiles} entries={[]} onClearFinished={onClearFinished} compact />,
+		)
+
+		// the same button, not a copy of it: a copy would drop the focus to the page
+		expect(screen.getByRole('button', { name: /Choose files/ })).toBe(choose)
+		expect(choose).toHaveFocus()
+	})
+
+	it('is not a tab stop of its own, big or small: the two buttons are the way in', () => {
+		const { container, onClearFinished, onFiles, rerender } = renderZone()
+		expect(container.querySelector('[tabindex="0"]')).toBeNull()
+
+		rerender(
+			<IntakeDropZone onFiles={onFiles} entries={[]} onClearFinished={onClearFinished} compact />,
+		)
+
+		expect(container.querySelector('[tabindex="0"]')).toBeNull()
+	})
+
+	it('does not offer zips to somebody whose books are sent for approval', () => {
+		renderZone({ acceptsZip: false })
+
+		expect(screen.getByText(/EPUB, PDF, CBZ or CBR; folders work too/)).toBeInTheDocument()
+		expect(screen.queryByText(/zip/i)).not.toBeInTheDocument()
+	})
+
 	it('shrinks while uploads are on their way, even in an empty inbox', () => {
 		renderZone({ entries: [entry('a')] })
 
@@ -108,6 +141,7 @@ describe('IntakeDropZone', () => {
 		expect(screen.getByRole('button', { name: /Choose files/ })).toBeDisabled()
 		expect(screen.getByRole('button', { name: /Choose a folder/ })).toBeDisabled()
 		expect(screen.getByLabelText('Add to')).toBeDisabled()
+		expect(screen.getByLabelText('Each folder is')).toBeDisabled()
 	})
 })
 
