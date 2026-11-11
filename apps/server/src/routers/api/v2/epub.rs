@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use axum::{
 	extract::{Path, Query, State},
-	http::header,
+	http::{header, HeaderValue},
 	middleware,
 	response::{IntoResponse, Response},
 	routing::get,
@@ -60,12 +60,20 @@ async fn find_ebook_for_user(
 	user: &AuthUser,
 	id: &str,
 ) -> APIResult<media::MediaIdentSelect> {
-	media::Entity::find_for_user(user)
+	let book = media::Entity::find_for_user(user)
 		.filter(media::Column::Id.eq(id.to_string()))
 		.into_model::<media::MediaIdentSelect>()
 		.one(conn)
 		.await?
-		.ok_or_else(|| APIError::NotFound("Book not found".to_string()))
+		.ok_or_else(|| APIError::NotFound("Book not found".to_string()))?;
+	// Only an EPUB is read here, as the web reader chooses it (by the file's extension). These routes
+	// open any file with an EPUB reader, and a zip is a zip: a comic or a PDF with the files of an
+	// EPUB in it (a friend's upload keeps its own bytes in those formats) would be drawn by the
+	// reader, scripts and all, on the app's own origin. Anything else is a book that isn't here.
+	if !book.is_epub() {
+		return Err(APIError::NotFound("Book not found".to_string()));
+	}
+	Ok(book)
 }
 
 /// Resolve the request-scoped base URL used in RWPM absolute resource links.
@@ -114,7 +122,11 @@ async fn get_epub_manifest(
 
 	let base_url = epub_service_base_url(&host_details, &id);
 	let generator = ReadiumManifestGenerator::new(&ebook.path, base_url);
-	let manifest = generator.generate_manifest()?;
+	// opening the book and reading its package is blocking work: off the async workers, which
+	// the rest of the server's requests share
+	let manifest = spawn_blocking(move || generator.generate_manifest())
+		.await
+		.map_err(|e| APIError::InternalServerError(e.to_string()))??;
 
 	Ok(WebPubManifestResponse(manifest))
 }
@@ -202,6 +214,37 @@ async fn get_epub_resource(
 	Path((id, path)): Path<(String, String)>,
 	State(ctx): State<AppState>,
 	Extension(req): Extension<AuthContext>,
+) -> APIResult<Response> {
+	let resource = get_epub_resource_bytes(Path((id, path)), State(ctx), Extension(req))
+		.await?
+		.into_response();
+	Ok(without_scripts(resource))
+}
+
+/// What opening a resource of a book at its address (not through the reader, which fetches the
+/// text and draws it in a frame of its own) may do: nothing that runs. The page is shown in a
+/// sandbox with no scripts, no frames and no forms, and only the book's own images, fonts and
+/// styles load. The reader is not affected: a browser applies the policy of a document to the
+/// document only, and the reader's pages are made from the text this returns.
+const RESOURCE_POLICY: &str = "sandbox; default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self'";
+
+fn without_scripts(mut response: Response) -> Response {
+	let headers = response.headers_mut();
+	headers.insert(
+		header::CONTENT_SECURITY_POLICY,
+		HeaderValue::from_static(RESOURCE_POLICY),
+	);
+	headers.insert(
+		header::X_CONTENT_TYPE_OPTIONS,
+		HeaderValue::from_static("nosniff"),
+	);
+	response
+}
+
+async fn get_epub_resource_bytes(
+	Path((id, path)): Path<(String, String)>,
+	State(ctx): State<AppState>,
+	Extension(req): Extension<AuthContext>,
 ) -> APIResult<BufferResponse> {
 	let AuthContext { user, .. } = req;
 	let ebook = find_ebook_for_user(ctx.conn.as_ref(), &user, &id).await?;
@@ -211,20 +254,19 @@ async fn get_epub_resource(
 	let path = path.split_once('#').map(|(p, _)| p).unwrap_or(path);
 	let path_buf = PathBuf::from(path);
 
-	if let Some(parent) = path_buf.parent() {
-		if let Some(file_name) = path_buf.file_name() {
-			let root = parent.to_string_lossy().to_string();
-			let resource = PathBuf::from(file_name);
-			let root_str = if root.is_empty() { "" } else { root.as_str() };
+	let (root, resource) = match (path_buf.parent(), path_buf.file_name()) {
+		(Some(parent), Some(file_name)) => (
+			parent.to_string_lossy().to_string(),
+			PathBuf::from(file_name),
+		),
+		_ => (String::new(), path_buf.clone()),
+	};
+	// every resource opens the book again and reads its package: blocking work, off the async
+	// workers that the rest of the server's requests share
+	let book = PathBuf::from(&ebook.path);
+	let resource = spawn_blocking(move || get_resource_by_path(&book, &root, resource))
+		.await
+		.map_err(|e| APIError::InternalServerError(e.to_string()))??;
 
-			return Ok(get_resource_by_path(
-				std::path::Path::new(&ebook.path),
-				root_str,
-				resource,
-			)?
-			.into());
-		}
-	}
-
-	Ok(get_resource_by_path(std::path::Path::new(&ebook.path), "", path_buf)?.into())
+	Ok(resource.into())
 }

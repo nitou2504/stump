@@ -3,6 +3,7 @@ mod auth;
 mod common;
 mod epub;
 mod graphql;
+mod intake_rest;
 mod kobo;
 mod koreader;
 mod opds;

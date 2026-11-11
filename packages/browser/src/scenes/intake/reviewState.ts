@@ -64,6 +64,23 @@ export function isReady(item: Pick<IntakeItemData, 'state' | 'problems'>) {
 	return item.state === IntakeState.Ready && item.problems.length === 0
 }
 
+/**
+ * Whether "Approve all" takes a book that waits for approval: it has a decision, nothing blocks
+ * it, nothing says it may already be in the library and it did not fail before. The others are
+ * for the approver to look at on their own card: a copy of a book somebody may not read can be
+ * among them, and nobody should file it in one click.
+ */
+export function approvableInBulk(
+	item: Pick<IntakeItemData, 'decision' | 'problems' | 'proposal' | 'error'>,
+) {
+	return (
+		!!item.decision &&
+		item.problems.length === 0 &&
+		(item.proposal?.duplicates.length ?? 0) === 0 &&
+		!item.error
+	)
+}
+
 /** Items that want the uploader's attention before filing */
 export function needsAttention(
 	item: Pick<IntakeItemData, 'state' | 'problems' | 'proposal'>,
@@ -77,41 +94,96 @@ export type InboxGroups = {
 	analysing: IntakeItemData[]
 	toReview: IntakeItemData[]
 	ready: IntakeItemData[]
+	/** Approved and being written into the library */
+	filing: IntakeItemData[]
+	/** Sent for approval, waiting for an approver */
+	waiting: IntakeItemData[]
+	/** An approver sent them back with a note: the uploader changes them and sends them again */
+	sentBack: IntakeItemData[]
 	filed: IntakeItemData[]
 }
 
 /**
- * Splits the inbox into what the page shows: items being analysed, items to review
- * (needs review, failed, or with problems/duplicates), items ready to file, and items
- * already filed. The server returns them newest first; the order is kept.
+ * An item an approver sent back: in the state they left it in, or changed since (a change makes
+ * it ready or in need of a look again, and the note stays until it is sent anew)
+ */
+export function isSentBack(item: Pick<IntakeItemData, 'state' | 'reviewNote'>): boolean {
+	if (item.state === IntakeState.Rejected) return true
+	return (
+		!!item.reviewNote &&
+		(item.state === IntakeState.Ready || item.state === IntakeState.NeedsReview)
+	)
+}
+
+/**
+ * Splits the inbox into what the page shows: items being analysed, items to review (needs
+ * review, failed, or with problems/duplicates), items ready to file or send, items an approver
+ * sent back, items waiting for approval or being filed after it, and items already filed. The
+ * server returns them newest first; the order is kept.
  */
 export function groupInbox(items: IntakeItemData[]): InboxGroups {
-	const groups: InboxGroups = { analysing: [], filed: [], ready: [], toReview: [] }
+	const groups: InboxGroups = {
+		analysing: [],
+		filed: [],
+		filing: [],
+		ready: [],
+		sentBack: [],
+		toReview: [],
+		waiting: [],
+	}
 	for (const item of items) {
 		if (item.state === IntakeState.Discarded) continue
 		if (item.state === IntakeState.Analysing) groups.analysing.push(item)
 		else if (item.state === IntakeState.Filed) groups.filed.push(item)
+		else if (item.state === IntakeState.Filing) groups.filing.push(item)
+		else if (item.state === IntakeState.PendingApproval) groups.waiting.push(item)
+		else if (isSentBack(item)) groups.sentBack.push(item)
 		else if (needsAttention(item)) groups.toReview.push(item)
 		else groups.ready.push(item)
 	}
 	return groups
 }
 
-/** The ids "Accept all ready" files: ready, nothing blocking, no duplicate warning */
+/**
+ * The ids "Add all ready" (or "Send all ready") takes: ready, nothing blocking, no duplicate
+ * warning, and not a book an approver sent back (that one goes again by itself, once what the
+ * note asks for is done)
+ */
 export function acceptableIds(items: IntakeItemData[]) {
-	return items.filter((item) => isReady(item) && !needsAttention(item)).map(({ id }) => id)
+	return items
+		.filter((item) => isReady(item) && !needsAttention(item) && !isSentBack(item))
+		.map(({ id }) => id)
 }
 
-/** Whether the inbox should be polled (something is still being analysed or scanned) */
+/** How often the inbox is read while something in it is moving (ms) */
+export const POLL_FAST_MS = 1500
+/** How often it is read while books wait for an approver, who may take hours */
+export const POLL_SLOW_MS = 30_000
+
+/**
+ * Whether the inbox should be polled fast: something is being analysed, being filed after an
+ * approval, or was filed and not scanned yet
+ */
 export function shouldPoll(items: IntakeItemData[]) {
 	return items.some(
 		(item) =>
 			item.state === IntakeState.Analysing ||
+			item.state === IntakeState.Filing ||
 			(item.state === IntakeState.Filed &&
 				item.mediaIds.length === 0 &&
 				!!item.filedAt &&
 				Date.now() - new Date(item.filedAt).getTime() < 5 * 60 * 1000),
 	)
+}
+
+/**
+ * How long to wait before reading the inbox again, or `false` for never: fast while something
+ * moves, slowly while books wait for approval (so an answer shows without a reload)
+ */
+export function pollInterval(items: IntakeItemData[]): number | false {
+	if (shouldPoll(items)) return POLL_FAST_MS
+	if (items.some((item) => item.state === IntakeState.PendingApproval)) return POLL_SLOW_MS
+	return false
 }
 
 /** Adds or removes a tag, keeping the order and without duplicates */
@@ -243,6 +315,23 @@ export function genresDiffer(item: ChipSource, genres: string[]) {
 	return current.length !== genres.length || current.some((g) => !genres.includes(g))
 }
 
+/**
+ * Whether a review has to go to the server before the book is sent, added or approved, even
+ * with a review's worth of nothing: the written tags differ from the server's; the book was
+ * flagged for a look (a review of one with nothing blocking makes it ready); or an approver sent
+ * it back, where a review is the only way to open it for sending again, changed or not.
+ */
+export function needsReviewFirst(
+	item: ChipSource & Pick<IntakeItemData, 'state'>,
+	genres: string[],
+) {
+	return (
+		item.state === IntakeState.NeedsReview ||
+		item.state === IntakeState.Rejected ||
+		genresDiffer(item, genres)
+	)
+}
+
 /** The tags shown as chips: the suggestions first, then any extra chosen tag */
 export function genreChips(
 	item: ChipSource,
@@ -321,6 +410,37 @@ export function extensionOf(name: string) {
 	return dot === -1 ? '' : name.slice(dot + 1).toLowerCase()
 }
 
+/**
+ * Archives of books that Stump has no reader for. They are not uploaded (the server would refuse
+ * them with the same words), and the person is told, instead of the file just not being there
+ */
+export const UNREADABLE_EXTENSIONS = ['cb7', 'cbt', '7z'] as const
+
+/** The unreadable kinds among picked files (`cb7`, `7z`), each once, in the order they are met */
+export function unreadableExtensions(entries: PendingFile[]): string[] {
+	const found: string[] = []
+	for (const { file, relativePath } of entries) {
+		const name = relativePath || file.name
+		const base = name.split('/').pop() ?? name
+		if (!base || base.startsWith('.')) continue
+		const extension = extensionOf(base)
+		if (
+			(UNREADABLE_EXTENSIONS as readonly string[]).includes(extension) &&
+			!found.includes(extension)
+		) {
+			found.push(extension)
+		}
+	}
+	return found
+}
+
+/** `Stump can't read .cb7 files`, `Stump can't read .cb7 and .7z files` */
+export function unreadableTitle(extensions: string[]): string {
+	const names = extensions.map((extension) => `.${extension}`)
+	const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+	return `Stump can’t read ${list} files`
+}
+
 /** Whether a picked file is a book the intake takes (hidden files and extras are skipped) */
 export function isIntakeFile(name: string) {
 	const base = name.split('/').pop() ?? name
@@ -381,4 +501,79 @@ export function planUploads(entries: PendingFile[]): UploadBatch[] {
 export function uploadPercent(loaded: number, total?: number) {
 	if (!total || total <= 0) return 0
 	return Math.min(100, Math.round((loaded * 100) / total))
+}
+
+/** `1.5 GB`, `12.3 MB`, `800 KB` */
+export function formatBytes(bytes: number) {
+	return bytes >= 1024 * 1024 * 1024
+		? `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+		: bytes >= 1024 * 1024
+			? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+			: `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+/** The limits of the server that an upload can be held against before it is sent */
+export type UploadLimits = {
+	maxRequestBytes: number
+	maxFileBytes: number
+	maxFilesPerRequest: number
+	quotaBytes: number
+	usedBytes: number
+	maxItems: number
+	openItems: number
+	quotaApplies: boolean
+	uploadsOpen: boolean
+	closedReason?: string | null
+}
+
+/**
+ * Why an upload is sure to be refused, or `undefined` when it may go. The server decides in the
+ * end, from the same numbers: this only says so before the bytes are sent, and in plain words.
+ * Of the quota only what the server has counted so far is known.
+ */
+export function uploadProblem(
+	batch: Pick<UploadBatch, 'files' | 'totalBytes' | 'label' | 'isFolder'>,
+	limits: UploadLimits,
+): string | undefined {
+	if (!limits.uploadsOpen) return limits.closedReason || 'Uploads are closed right now'
+	if (batch.files.length > limits.maxFilesPerRequest) {
+		return `${batch.isFolder ? 'A folder' : 'An upload'} can hold at most ${limits.maxFilesPerRequest} files`
+	}
+	let biggest: File | undefined
+	for (const file of batch.files) {
+		if (!biggest || file.size > biggest.size) biggest = file
+	}
+	if (biggest && biggest.size > limits.maxFileBytes) {
+		return `${biggest.name} is ${formatBytes(biggest.size)}: the biggest file you can add is ${formatBytes(limits.maxFileBytes)}`
+	}
+	if (batch.totalBytes > limits.maxRequestBytes) {
+		return `${formatBytes(batch.totalBytes)} is more than one upload can hold (${formatBytes(limits.maxRequestBytes)}): add it in smaller parts`
+	}
+	if (limits.quotaApplies) {
+		const room = Math.max(0, limits.quotaBytes - limits.usedBytes)
+		if (batch.totalBytes > room) {
+			return `There is not enough room in your inbox: ${formatBytes(room)} free, and this is ${formatBytes(batch.totalBytes)}. Send or discard some books first`
+		}
+		if (limits.openItems >= limits.maxItems) {
+			return `Your inbox is full (${limits.maxItems} books): send or discard some first`
+		}
+	}
+	return undefined
+}
+
+/** The age limit of a person, as the server keeps it */
+export type AgeLimit = { age: number; restrictOnUnset: boolean }
+
+/**
+ * Whether an age rating would keep a book from somebody with an age limit: a rating above their
+ * limit hides it, and so does no rating at all when they can only read rated books (the book's
+ * series may still carry one, so that last case is a "may")
+ */
+export function ageRatingHides(
+	ageRating: number | null | undefined,
+	limit: AgeLimit | null | undefined,
+): 'hidden' | 'unrated' | null {
+	if (!limit) return null
+	if (ageRating === null || ageRating === undefined) return limit.restrictOnUnset ? 'unrated' : null
+	return ageRating > limit.age ? 'hidden' : null
 }

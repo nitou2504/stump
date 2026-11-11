@@ -314,6 +314,13 @@ impl StumpCore {
 		self.ctx.library_watcher.init().await
 	}
 
+	/// Puts back what a restart interrupted in the "Add books" inboxes (books that were being
+	/// filed wait for approval again, analyses that never answered failed) and removes the
+	/// uploads that were still arriving
+	pub async fn init_intake(&self) -> CoreResult<()> {
+		intake::approval::recover_interrupted(&self.ctx).await
+	}
+
 	/// Start applying the PDF worker's results (a directory listing a minute). Keep the
 	/// handle alive for as long as the server runs
 	pub fn init_post_processing(&self) -> tokio::task::JoinHandle<()> {

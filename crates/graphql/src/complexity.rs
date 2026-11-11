@@ -417,4 +417,34 @@ mod tests {
 			 fragments lighter"
 		);
 	}
+
+	/// The inbox page of "Add books" asks for every field of every item. It must stay under the
+	/// limit of what a query may cost, for the page of the people it is for and for the approvers'
+	/// queue, which shows the same card. The fields are a fragment of the web sources (read from
+	/// there, so that this test can't drift from what the page asks for), spread by both queries
+	#[tokio::test]
+	async fn allows_the_inbox_the_web_app_asks_for() {
+		const INBOX: &str = "scenes/intake/queries.ts";
+		let fields = web_document(INBOX, "fragment IntakeItemFields");
+		let document = [web_document(INBOX, "query IntakeItems"), fields.clone()].join("\n");
+		assert_eq!(
+			validation_errors(&document, Value::Null).await,
+			Vec::<String>::new(),
+			"the Add books inbox page is refused: ask for fewer items or lighter ones"
+		);
+
+		let queue = format!(
+			"query Pending {{ pendingIntakeItems(pageSize: 50) {{ totalCount nodes {{ ...IntakeItemFields }} }} }}\n{fields}"
+		);
+		assert_eq!(
+			validation_errors(&queue, Value::Null).await,
+			Vec::<String>::new(),
+			"a page of 50 items of the approval queue is refused"
+		);
+		// a bigger page is cut to what a list can hold, and priced at that
+		let greedy = format!(
+			"query Pending {{ pendingIntakeItems(pageSize: 100000) {{ totalCount nodes {{ ...IntakeItemFields }} }} }}\n{fields}"
+		);
+		assert!(rejected_as_too_complex(&greedy).await);
+	}
 }

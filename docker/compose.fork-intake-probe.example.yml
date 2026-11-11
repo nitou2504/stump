@@ -1,0 +1,59 @@
+# The isolated checker for the books that people who need approval upload ("Add books" with no
+# permission to file them), as a second container of the same image. See FORK.md (*Add books is
+# checked in isolation*) and research/2026-11-10-upload-format-hardening.md.
+#
+# The server (stump-fork) never reads a byte of those books. It streams the upload to
+# ./config/intake/<user>/<item>/ and asks this container, through a spool folder, what the book is:
+# the checker reads it with Stump's own readers (EPUB, CBZ, CBR, PDF) under limits, in a process of
+# its own for every file, and answers with a verdict. Filing is its job too: what goes into the
+# library is the file it made from the reviewed metadata (scripts taken out of an EPUB, a RAR comic
+# written as a ZIP one, the archive rewritten the way Stump writes it).
+#
+# This container has no network, a read-only root, no capabilities, and sees the inbox read-only: the
+# only folder it writes is the spool (./config/workers/intake: queue/ running/ done/ out/ worker.json).
+#
+# Apply (do not do it before reading AGENTS.md's deploy steps; both services run the same build):
+#   1. mkdir -p ./config/workers/intake ./config/intake        # owned by Stump's user, not root
+#   2. merge the two blocks below into the stack's docker-compose.yml: the image anchor, and the
+#      stump-intake-probe service; set `image: *stump_image` on stump-fork too
+#   3. in ./config/Stump.toml (or the environment): intake_probe_mode = "queue"
+#   4. docker compose up -d --no-build stump-fork stump-intake-probe
+#   5. docker logs stump-intake-probe      -> "selftest ok", "stump-intake-probe <rev> ready"
+#      (a WARN on "no network" or "inbox read-only" means the container is not isolated: fix it)
+# Checking is offline (and friends can't upload) while ./config/workers/intake/worker.json is older
+# than 25 seconds, or names another build than the server: recreate both services together.
+#
+# Rollback: intake_probe_mode = "off" (friends can't upload; what is in their inboxes stays), then
+# `docker compose stop stump-intake-probe`.
+
+x-stump-image: &stump_image ${STUMP_FORK_IMAGE:-stump:fork}   # one line pins both services
+
+services:
+  stump-intake-probe:
+    image: *stump_image
+    container_name: stump-intake-probe
+    # the image's entrypoint is a shell script that su's to the user: the checker needs none of it
+    entrypoint: ["/app/stump"]
+    command: ["intake-probe", "serve", "--spool", "/spool", "--intake", "/intake"]
+    user: "1000:1000"
+    init: true
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    cpus: 1
+    mem_limit: 1g
+    memswap_limit: 1g            # never swap: a book that needs more is refused (TOO_DEMANDING)
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid
+    environment:
+      - PDFIUM_PATH=/opt/pdfium/lib/libpdfium.so
+      - PROBE_MIN_FREE_MB=512    # waits (does not check) while the host has less memory available
+    volumes:
+      - ./config/intake:/intake:ro       # the inbox and the staged books: read-only
+      - ./config/workers/intake:/spool   # queue/ running/ done/ out/ worker.json
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
+    restart: unless-stopped

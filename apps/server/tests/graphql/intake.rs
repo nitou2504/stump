@@ -194,7 +194,11 @@ async fn test_upload_review_and_file_a_book() {
 	let app = &fixture.app;
 	let uploader = CreateTestUser {
 		username: "uploader".to_string(),
-		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		permissions: vec![
+			UserPermission::AddBooks,
+			UserPermission::UploadFile,
+			UserPermission::ManageLibrary,
+		],
 		..Default::default()
 	}
 	.insert(app)
@@ -327,14 +331,14 @@ async fn test_intake_requires_the_permission_and_is_private() {
 
 	let alice = CreateTestUser {
 		username: "alice".to_string(),
-		permissions: vec![UserPermission::AddBooks],
+		permissions: vec![UserPermission::AddBooks, UserPermission::ManageLibrary],
 		..Default::default()
 	}
 	.insert(app)
 	.await;
 	let bob = CreateTestUser {
 		username: "bob".to_string(),
-		permissions: vec![UserPermission::AddBooks],
+		permissions: vec![UserPermission::AddBooks, UserPermission::ManageLibrary],
 		..Default::default()
 	}
 	.insert(app)
@@ -379,7 +383,11 @@ async fn test_upload_a_zip_pack_of_books() {
 	let app = &fixture.app;
 	let uploader = CreateTestUser {
 		username: "uploader".to_string(),
-		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		permissions: vec![
+			UserPermission::AddBooks,
+			UserPermission::UploadFile,
+			UserPermission::ManageLibrary,
+		],
 		..Default::default()
 	}
 	.insert(app)
@@ -419,7 +427,11 @@ async fn test_a_zip_bomb_pack_is_refused() {
 	let app = &fixture.app;
 	let uploader = CreateTestUser {
 		username: "uploader".to_string(),
-		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		permissions: vec![
+			UserPermission::AddBooks,
+			UserPermission::UploadFile,
+			UserPermission::ManageLibrary,
+		],
 		..Default::default()
 	}
 	.insert(app)
@@ -575,7 +587,11 @@ fn manga_pack() -> Vec<u8> {
 async fn make_uploader(app: &TestApp) -> crate::common::account::TestUser {
 	CreateTestUser {
 		username: "uploader".to_string(),
-		permissions: vec![UserPermission::AddBooks, UserPermission::UploadFile],
+		permissions: vec![
+			UserPermission::AddBooks,
+			UserPermission::UploadFile,
+			UserPermission::ManageLibrary,
+		],
 		..Default::default()
 	}
 	.insert(app)
@@ -765,7 +781,7 @@ async fn test_a_library_hidden_from_the_uploader_is_never_offered() {
 	// and nobody else's item can be moved
 	let other = CreateTestUser {
 		username: "other".to_string(),
-		permissions: vec![UserPermission::AddBooks],
+		permissions: vec![UserPermission::AddBooks, UserPermission::ManageLibrary],
 		..Default::default()
 	}
 	.insert(app)

@@ -126,6 +126,17 @@ impl Epub {
 		})?;
 		Self::try_from_with_epub(ident, epub_file)
 	}
+
+	/// Opens the book and reads its package off the async workers. It is blocking work, as long as
+	/// the book is big, and the workers are shared by every request.
+	pub async fn try_from_async(ident: media::MediaIdentSelect) -> Result<Self> {
+		tokio::task::spawn_blocking(move || Self::try_from(ident))
+			.await
+			.map_err(|error| {
+				tracing::error!(?error, "The task that reads an epub failed");
+				async_graphql::Error::new("Error parsing epub file")
+			})?
+	}
 }
 
 #[ComplexObject]
@@ -185,6 +196,89 @@ mod tests {
 	use super::*;
 	use epub::doc::ResourceItem;
 	use models::entity::media::MediaIdentSelect;
+	use stump_core::media::processor::epub::MAX_READ_TOC_DEPTH;
+
+	/// An EPUB 2 whose table of contents nests `depth` levels
+	fn epub_with_toc_nested(depth: usize) -> Vec<u8> {
+		use std::io::{Cursor, Write};
+		use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+		let container = r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
+		let opf = r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:1</dc:identifier><dc:title>Deep</dc:title><dc:language>en</dc:language></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine toc="ncx"><itemref idref="c1"/></spine></package>"#;
+		let chapter = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head><body><p>hello</p></body></html>"#;
+		let mut ncx = String::from(
+			r#"<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/><docTitle><text>Deep</text></docTitle><navMap>"#,
+		);
+		for i in 0..depth {
+			ncx.push_str(&format!(
+				r#"<navPoint id="n{i}" playOrder="{}"><navLabel><text>L{i}</text></navLabel><content src="c1.xhtml"/>"#,
+				i + 1
+			));
+		}
+		ncx.push_str(&"</navPoint>".repeat(depth));
+		ncx.push_str("</navMap></ncx>");
+
+		let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+		for (name, data, method) in [
+			(
+				"mimetype",
+				&b"application/epub+zip"[..],
+				CompressionMethod::Stored,
+			),
+			(
+				"META-INF/container.xml",
+				container.as_bytes(),
+				CompressionMethod::Deflated,
+			),
+			(
+				"OEBPS/content.opf",
+				opf.as_bytes(),
+				CompressionMethod::Deflated,
+			),
+			("OEBPS/toc.ncx", ncx.as_bytes(), CompressionMethod::Deflated),
+			(
+				"OEBPS/c1.xhtml",
+				chapter.as_bytes(),
+				CompressionMethod::Deflated,
+			),
+		] {
+			writer
+				.start_file(
+					name,
+					SimpleFileOptions::default().compression_method(method),
+				)
+				.expect("start a file");
+			writer.write_all(data).expect("write a file");
+		}
+		writer.finish().expect("finish").into_inner()
+	}
+
+	/// The contents of a book are written to the reader as JSON, by recursion: what a file nests
+	/// deeper than the readers walk is not in them, so no book can overflow the stack that does it
+	#[tokio::test]
+	async fn test_epub_toc_is_no_deeper_than_the_readers_walk() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("deep.epub");
+		std::fs::write(&path, epub_with_toc_nested(200)).unwrap();
+		let ident = || MediaIdentSelect {
+			id: "deep".to_string(),
+			path: path.to_string_lossy().into_owned(),
+		};
+
+		let epub = Epub::try_from_async(ident()).await.unwrap();
+		assert_eq!(epub.toc.len(), 1);
+		// one `\"children\":[{` for each level that has a level under it
+		assert_eq!(
+			epub.toc[0].matches("\"children\":[{").count(),
+			MAX_READ_TOC_DEPTH - 1
+		);
+		// the sync way in is the same one
+		let epub = Epub::try_from(ident()).unwrap();
+		assert_eq!(
+			epub.toc[0].matches("\"children\":[{").count(),
+			MAX_READ_TOC_DEPTH - 1
+		);
+	}
 
 	#[tokio::test]
 	async fn test_epub_try_from() {

@@ -10,6 +10,7 @@ import {
 	NativeSelect,
 } from '@stump/components'
 import { IntakeKind, IntakeReviewInput, IntakeSeriesKind, IntakeState } from '@stump/graphql'
+import { formatDistanceToNow } from 'date-fns'
 import {
 	AlertTriangle,
 	BookOpen,
@@ -21,30 +22,49 @@ import {
 	Globe,
 	Images,
 	Layers,
+	MessageSquareWarning,
 	RotateCw,
 	Trash2,
 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { usePaths } from '@/paths'
 
+import AgeRatingField from './AgeRatingField'
 import FolderPicker from './FolderPicker'
 import type { IntakeItemData } from './queries'
-import { ReviewField } from './ReviewField'
+import { ReviewField, ReviewTextArea } from './ReviewField'
 import {
+	type AgeLimit,
+	ageRatingHides,
 	effectiveGenres,
 	fieldSource,
 	formatAuthors,
 	genreChips,
 	isReady,
+	isSentBack,
 	needsAttention,
 	parseAuthors,
 	parseNumber,
 	SERIES_KIND_LABELS,
 	typedSeriesKind,
 } from './reviewState'
+import SendBackDialog from './SendBackDialog'
 import TagPicker from './TagPicker'
 import { useTagReviewStore } from './tagReviewStore'
+import UploaderRow from './UploaderRow'
+
+/** The longest description the server takes from somebody who needs approval */
+const DESCRIPTION_MAX = 20_000
+
+/**
+ * Who is looking, which decides what the card shows and what its buttons do:
+ * - `file`: somebody who files books themselves, with their own book (add it to the library)
+ * - `submit`: somebody who may not: no folders, kinds or destinations (they are the approver's),
+ *   and the book is sent for approval
+ * - `review`: an approver with a book somebody sent: the whole card, to approve or send back
+ */
+export type IntakeCardMode = 'file' | 'submit' | 'review'
 
 type Props = {
 	item: IntakeItemData
@@ -52,11 +72,24 @@ type Props = {
 	libraries: Array<{ id: string; name: string }>
 	onChangeLibrary: (id: string, libraryId: string) => void
 	onReview: (id: string, input: IntakeReviewInput) => void
-	/** Files the item with these tags (sent first when they differ from the server's) */
-	onAccept: (item: IntakeItemData, genres: string[]) => void
-	onDiscard: (ids: string[]) => void
+	/** `file`: files the item with these tags (sent first when they differ from the server's) */
+	onAccept?: (item: IntakeItemData, genres: string[]) => void
+	/** `submit`: sends the item for approval with these tags (sent first when they differ) */
+	onSubmit?: (item: IntakeItemData, genres: string[]) => void
+	/** `review`: approves the item with these tags (sent first when they differ from the server's) */
+	onApprove?: (item: IntakeItemData, genres: string[]) => void
+	/** `review`: sends the item back to its uploader with a note; `done` closes the note's dialog */
+	onSendBack?: (id: string, note: string, done: () => void) => void
+	/** `review`: the age limit of the uploader, for the warning that a rating hides the book */
+	uploaderAge?: AgeLimit | null
+	/** Not for `review`: an approver can't throw away what somebody else sent */
+	onDiscard?: (ids: string[]) => void
 	onReanalyse: (id: string, online?: boolean) => void
 	isBusy?: boolean
+	/** Who is looking (see {@link IntakeCardMode}) */
+	mode?: IntakeCardMode
+	/** `review`: a send-back is being saved */
+	isSendingBack?: boolean
 }
 
 export function FormatIcon({
@@ -96,12 +129,22 @@ export default function IntakeItemCard({
 	onChangeLibrary,
 	onReview,
 	onAccept,
+	onSubmit,
+	onApprove,
+	onSendBack,
+	uploaderAge,
 	onDiscard,
 	onReanalyse,
 	isBusy,
+	mode = 'file',
+	isSendingBack,
 }: Props) {
 	const paths = usePaths()
 	const { proposal, decision, destination } = item
+	const friend = mode === 'submit'
+	const reviewing = mode === 'review'
+	const [sendingBack, setSendingBack] = useState(false)
+	const sentBack = isSentBack(item)
 	const meta = decision?.metadata
 	const isSeriesItem = item.kind === IntakeKind.Series
 	const seriesKind = decision?.seriesKind ?? null
@@ -122,6 +165,8 @@ export default function IntakeItemCard({
 		markReviewed(item.id)
 		review({ genres })
 	}
+	const ageHides = reviewing ? ageRatingHides(decision?.metadata.ageRating, uploaderAge) : null
+	const uploaderName = item.uploader?.username ?? 'The person who sent it'
 	const firstFormat = item.files[0]?.format
 	const badge = STATE_BADGE[item.state]
 	const title = (filedAsSeries ? meta?.series : meta?.title) || item.name
@@ -149,10 +194,16 @@ export default function IntakeItemCard({
 				<div className="min-w-0 flex flex-1 flex-col">
 					<div className="gap-2 flex flex-wrap items-center">
 						<h3 className="font-semibold leading-tight line-clamp-2 break-words">{title}</h3>
-						{badge && (
-							<Badge variant={badge.variant} size="xs">
-								{badge.label}
+						{sentBack && !reviewing ? (
+							<Badge variant="warning" size="xs">
+								Sent back
 							</Badge>
+						) : (
+							badge && (
+								<Badge variant={badge.variant} size="xs">
+									{badge.label}
+								</Badge>
+							)
 						)}
 						{isSeriesItem && (
 							<Badge variant="secondary" size="xs">
@@ -164,6 +215,11 @@ export default function IntakeItemCard({
 						{item.name}
 						{libraries.length < 2 && ` · ${item.libraryName}`}
 					</span>
+					{reviewing && (
+						<div className="mt-1">
+							<UploaderRow uploader={item.uploader} submittedAt={item.submittedAt} />
+						</div>
+					)}
 					{libraries.length > 1 && (
 						<LibrarySwitch
 							value={item.libraryId}
@@ -193,16 +249,34 @@ export default function IntakeItemCard({
 									leftIcon: <Globe className="mr-2 h-4 w-4" />,
 									onClick: () => onReanalyse(item.id, true),
 								},
-								{
-									label: 'Discard',
-									leftIcon: <Trash2 className="mr-2 h-4 w-4" />,
-									onClick: () => onDiscard([item.id]),
-								},
+								...(reviewing || !onDiscard
+									? []
+									: [
+											{
+												label: 'Discard',
+												leftIcon: <Trash2 className="mr-2 h-4 w-4" />,
+												onClick: () => onDiscard([item.id]),
+											},
+										]),
 							],
 						},
 					]}
 				/>
 			</div>
+
+			{sentBack && !reviewing && (
+				<Alert variant="warning">
+					<MessageSquareWarning />
+					<AlertTitle>
+						Sent back
+						{item.reviewedAt &&
+							` ${formatDistanceToNow(new Date(item.reviewedAt), { addSuffix: true })}`}
+					</AlertTitle>
+					<AlertDescription>
+						{item.reviewNote || 'Change what is needed and send it again.'}
+					</AlertDescription>
+				</Alert>
+			)}
 
 			{item.state === IntakeState.Failed && (
 				<Alert variant="destructive">
@@ -214,58 +288,64 @@ export default function IntakeItemCard({
 
 			{decision && (
 				<>
-					{/* where it goes */}
-					<div className="gap-2 p-3 flex flex-col rounded-lg bg-muted/50">
-						<div className="gap-2 flex items-start">
-							<FolderOpen className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-							<div className="min-w-0 flex-1">
-								<p className="font-mono text-sm break-all">
-									<span className="text-muted-foreground">{destination?.relativeDir || '…'}/</span>
-									{singleFile && (
-										<span className="font-medium">{singleFile.relativePath.split('/').pop()}</span>
-									)}
-								</p>
-								<div className="mt-1 gap-2 flex flex-wrap items-center">
-									{destination && !destination.dirExists && (
-										<Badge variant="warning" size="xs">
-											new folder
-										</Badge>
-									)}
-									{destination?.dirExists && (
-										<Badge variant="success" size="xs">
-											existing folder
-										</Badge>
-									)}
-									{filedAsSeries && seriesKind && (
-										<span className="text-xs text-muted-foreground">
-											{SERIES_KIND_LABELS[seriesKind]} series
+					{/* where it goes: the approver's to choose */}
+					{!friend && (
+						<div className="gap-2 p-3 flex flex-col rounded-lg bg-muted/50">
+							<div className="gap-2 flex items-start">
+								<FolderOpen className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+								<div className="min-w-0 flex-1">
+									<p className="font-mono text-sm break-all">
+										<span className="text-muted-foreground">
+											{destination?.relativeDir || '…'}/
 										</span>
-									)}
+										{singleFile && (
+											<span className="font-medium">
+												{singleFile.relativePath.split('/').pop()}
+											</span>
+										)}
+									</p>
+									<div className="mt-1 gap-2 flex flex-wrap items-center">
+										{destination && !destination.dirExists && (
+											<Badge variant="warning" size="xs">
+												new folder
+											</Badge>
+										)}
+										{destination?.dirExists && (
+											<Badge variant="success" size="xs">
+												existing folder
+											</Badge>
+										)}
+										{filedAsSeries && seriesKind && (
+											<span className="text-xs text-muted-foreground">
+												{SERIES_KIND_LABELS[seriesKind]} series
+											</span>
+										)}
+									</div>
 								</div>
 							</div>
-						</div>
 
-						<div className="gap-2 flex flex-wrap items-center">
-							<FolderPicker
-								libraryId={item.libraryId}
-								seriesKind={seriesKind}
-								candidates={folderCandidates}
-								value={decision.folder}
-								onSelect={(folder) => review({ folder })}
-								disabled={isBusy}
-							/>
-							{!libraryHoldsOneKind && (
-								<SeriesKindSwitch
-									isSeriesItem={isSeriesItem}
-									value={seriesKind}
+							<div className="gap-2 flex flex-wrap items-center">
+								<FolderPicker
+									libraryId={item.libraryId}
+									seriesKind={seriesKind}
+									candidates={folderCandidates}
+									value={decision.folder}
+									onSelect={(folder) => review({ folder })}
 									disabled={isBusy}
-									onChange={(kind) =>
-										review(kind ? { seriesKind: kind } : { clearSeriesKind: true })
-									}
 								/>
-							)}
+								{!libraryHoldsOneKind && (
+									<SeriesKindSwitch
+										isSeriesItem={isSeriesItem}
+										value={seriesKind}
+										disabled={isBusy}
+										onChange={(kind) =>
+											review(kind ? { seriesKind: kind } : { clearSeriesKind: true })
+										}
+									/>
+								)}
+							</div>
 						</div>
-					</div>
+					)}
 
 					{/* what it is */}
 					<div className="gap-3 sm:grid-cols-6 grid grid-cols-2">
@@ -368,8 +448,56 @@ export default function IntakeItemCard({
 						)}
 					</div>
 
+					{/* publisher, age rating (the approver's) and the description */}
+					<div className="gap-3 sm:grid-cols-6 grid grid-cols-2">
+						<ReviewField
+							className="sm:col-span-4 col-span-2"
+							label="Publisher"
+							value={meta?.publisher ?? ''}
+							source={fieldSource(meta, 'publisher')}
+							onCommit={(publisher) => review({ publisher })}
+							disabled={isBusy}
+						/>
+						{!friend && (
+							<AgeRatingField
+								className="sm:col-span-2 gap-1 col-span-2 flex flex-col"
+								value={meta?.ageRating}
+								disabled={isBusy}
+								onChange={(ageRating) => review({ ageRating })}
+							/>
+						)}
+						<ReviewTextArea
+							className="sm:col-span-6 col-span-2"
+							label="Description"
+							value={meta?.description ?? ''}
+							source={fieldSource(meta, 'description')}
+							placeholder="What the book is about"
+							hint={friend ? 'Plain text' : undefined}
+							maxLength={friend ? DESCRIPTION_MAX : undefined}
+							onCommit={(description) => review({ description })}
+							disabled={isBusy}
+						/>
+					</div>
+
+					{/* a rating that would keep the book from the person who sent it */}
+					{reviewing && ageHides && (
+						<Alert variant="warning">
+							<AlertTriangle />
+							<AlertTitle>
+								{ageHides === 'hidden'
+									? `${uploaderName} couldn’t read this book`
+									: `${uploaderName} may not be able to read this book`}
+							</AlertTitle>
+							<AlertDescription>
+								{ageHides === 'hidden'
+									? `Their age limit is ${uploaderAge?.age}, and the book is rated ${meta?.ageRating}+. They would not see it in the library.`
+									: 'They can only read books with an age rating, and this one has none.'}
+							</AlertDescription>
+						</Alert>
+					)}
+
 					{/* volumes of a series */}
-					{(isSeriesItem || item.files.length > 1) && destination && (
+					{(isSeriesItem || item.files.length > 1) && (
 						<VolumeList item={item} disabled={isBusy} onChange={(volumes) => review({ volumes })} />
 					)}
 
@@ -435,8 +563,15 @@ export default function IntakeItemCard({
 							<AlertDescription>
 								<ul className="gap-1 flex flex-col">
 									{proposal.duplicates.map((dup) => (
-										<li key={`${dup.mediaId}:${dup.fileName}`} title={dup.path || undefined}>
-											<Link to={paths.bookOverview(dup.mediaId)}>{dup.title}</Link>{' '}
+										<li
+											key={`${dup.mediaId}:${dup.fileName}`}
+											title={friend ? undefined : dup.path || undefined}
+										>
+											{friend ? (
+												<span className="font-medium">{dup.title}</span>
+											) : (
+												<Link to={paths.bookOverview(dup.mediaId)}>{dup.title}</Link>
+											)}{' '}
 											<span className="text-muted-foreground">
 												({dup.reason === 'SAME_FILE' ? 'same file' : 'same author and title'})
 											</span>
@@ -475,7 +610,13 @@ export default function IntakeItemCard({
 					{item.problems.length > 0 && (
 						<Alert variant="destructive">
 							<CircleAlert />
-							<AlertTitle>Before it can be added</AlertTitle>
+							<AlertTitle>
+								{friend
+									? 'Before it can be sent'
+									: reviewing
+										? 'Before it can be approved'
+										: 'Before it can be added'}
+							</AlertTitle>
 							<AlertDescription>
 								<ul className="pl-4 list-disc">
 									{item.problems.map((problem) => (
@@ -498,26 +639,81 @@ export default function IntakeItemCard({
 
 			{/* actions */}
 			<div className="gap-2 flex flex-wrap items-center justify-end">
-				<Button variant="ghost" size="sm" onClick={() => onDiscard([item.id])} disabled={isBusy}>
-					Discard
-				</Button>
+				{reviewing ? (
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => setSendingBack(true)}
+						disabled={isBusy || !onSendBack}
+					>
+						Send back…
+					</Button>
+				) : (
+					onDiscard && (
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => onDiscard([item.id])}
+							disabled={isBusy}
+						>
+							Discard
+						</Button>
+					)
+				)}
 				<Button
 					size="sm"
-					onClick={() => onAccept(item, chosenGenres)}
+					onClick={() => {
+						if (reviewing) onApprove?.(item, chosenGenres)
+						else if (friend) onSubmit?.(item, chosenGenres)
+						else onAccept?.(item, chosenGenres)
+					}}
 					disabled={
 						isBusy || !decision || item.problems.length > 0 || item.state === IntakeState.Failed
 					}
 					title={item.problems[0]}
 				>
-					{item.state === IntakeState.NeedsReview
-						? 'Looks right, add it'
-						: ready && !attention
-							? 'Add to library'
-							: 'Add anyway'}
+					{primaryLabel({ attention, friend, ready, reviewing, sentBack, state: item.state })}
 				</Button>
 			</div>
+
+			{reviewing && onSendBack && (
+				<SendBackDialog
+					open={sendingBack}
+					title={title}
+					to={item.uploader?.username}
+					isPending={isSendingBack}
+					onClose={() => setSendingBack(false)}
+					onConfirm={(note) => onSendBack(item.id, note, () => setSendingBack(false))}
+				/>
+			)}
 		</article>
 	)
+}
+
+/** What the main button says: what it will do with the book, for whoever is looking */
+export function primaryLabel({
+	friend,
+	reviewing,
+	sentBack,
+	state,
+	ready,
+	attention,
+}: {
+	friend: boolean
+	reviewing: boolean
+	sentBack: boolean
+	state: IntakeState
+	ready: boolean
+	attention: boolean
+}) {
+	if (reviewing) return 'Approve'
+	if (friend) {
+		if (sentBack) return 'Send again'
+		if (state === IntakeState.NeedsReview) return 'Looks right, send it'
+		return ready && !attention ? 'Send for approval' : 'Send anyway'
+	}
+	if (state === IntakeState.NeedsReview) return 'Looks right, add it'
+	return ready && !attention ? 'Add to library' : 'Add anyway'
 }
 
 /** Moves the item to another library: the server analyses it again for that library */

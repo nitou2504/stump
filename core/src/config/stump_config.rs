@@ -204,6 +204,112 @@ pub struct StumpConfig {
 	#[graphql(skip)]
 	pub archive_max_pack_books: u64,
 
+	/// The most megabytes in one "Add books" upload request (a request holds many files). The
+	/// server answers a bigger one before it reads the body. A reverse proxy in front of Stump
+	/// needs a limit of at least this
+	#[setting(default = 300)]
+	#[graphql(skip)]
+	pub intake_max_request_mb: u64,
+
+	/// The biggest single file, in MB, someone who needs approval may upload (an approver's own
+	/// uploads follow `max_file_upload_size`). A user can have a limit of their own
+	#[setting(default = 300)]
+	#[graphql(skip)]
+	pub intake_max_file_mb: u64,
+
+	/// The most files in one "Add books" upload request of someone who needs approval. Those who
+	/// file books themselves (the server owner, anyone who manages libraries) may send as many as
+	/// any request can hold (500) unless an admin gave them a number of their own
+	#[setting(default = 50)]
+	#[graphql(skip)]
+	pub intake_max_files_per_request: u64,
+
+	/// The most MB of a user's uploads that wait in their inbox at once (staged, not yet filed
+	/// or discarded). A user can have a limit of their own
+	#[setting(default = 2048)]
+	#[graphql(skip)]
+	pub intake_user_quota_mb: u64,
+
+	/// The most inbox items a user can have open at once (not filed, discarded or sent back)
+	#[setting(default = 100)]
+	#[graphql(skip)]
+	pub intake_user_max_items: u64,
+
+	/// Uploads are refused when the disk holding the config folder has less than this many GB
+	/// free, so a full inbox can't fill the disk the database lives on
+	#[setting(default = 20)]
+	#[graphql(skip)]
+	pub intake_min_free_gb: u64,
+
+	/// The most GB of uploads that wait in all the inboxes together
+	#[setting(default = 50)]
+	#[graphql(skip)]
+	pub intake_total_max_gb: u64,
+
+	/// An upload that sends nothing for this many seconds is given up (and what it staged is
+	/// removed), so a stalled connection can't hold a slot of the quota
+	#[setting(default = 60)]
+	#[graphql(skip)]
+	pub intake_upload_idle_secs: u64,
+
+	/// How the files of people who need approval are checked. `off`: they may not upload at all.
+	/// `queue`: an isolated checker (the `stump-intake-probe` container, the same image running
+	/// `stump intake-probe serve`) reads them, the server reads none of their bytes: the checker
+	/// answers with a verdict and makes the file that goes into the library. `subprocess`: the
+	/// same checker, as a child process of the server (a process of its own with a memory ceiling
+	/// and a deadline, but the same user, folders and network): for a server without the second
+	/// container. `inprocess`: they are read inside the server like any other book, which is only
+	/// for a server whose uploaders are trusted
+	#[setting(default = "off")]
+	#[graphql(skip)]
+	pub intake_probe_mode: String,
+
+	/// How long the checker may take over a file, in seconds, and seconds more for each MB of the
+	/// file
+	#[setting(default = 120)]
+	#[graphql(skip)]
+	pub intake_probe_timeout_secs: u64,
+
+	/// MB of memory the checker's process for one file may use
+	#[setting(default = 768)]
+	#[graphql(skip)]
+	pub intake_probe_mem_mb: u64,
+
+	/// The most entries an uploaded archive may hold, MB an entry may be and MB the entries may
+	/// unpack to together, pages a book may have and pixels (in millions) an image may have
+	#[setting(default = 20000)]
+	#[graphql(skip)]
+	pub intake_probe_max_entries: u64,
+	#[setting(default = 64)]
+	#[graphql(skip)]
+	pub intake_probe_max_entry_mb: u64,
+	#[setting(default = 2048)]
+	#[graphql(skip)]
+	pub intake_probe_max_unpacked_mb: u64,
+	#[setting(default = 10000)]
+	#[graphql(skip)]
+	pub intake_probe_max_pages: u64,
+	#[setting(default = 50)]
+	#[graphql(skip)]
+	pub intake_probe_max_image_mp: u64,
+
+	/// What is done with scripts and the like in the EPUBs of people who need approval: `strip`
+	/// (taken out when the book is filed, everything else stays as it was) or `block` (the book
+	/// is refused). Books of those who file their own are filed as they are, and told
+	#[setting(default = "strip")]
+	#[graphql(skip)]
+	pub intake_active_content: String,
+
+	/// Convert the RAR comics of people who need approval to ZIP when they are filed, so the
+	/// RAR reader never reads them in the server
+	#[setting(default = true)]
+	#[graphql(skip)]
+	pub intake_cbr_to_cbz: bool,
+
+	/// The binary the `subprocess` checker runs (the server's own by default)
+	#[graphql(skip)]
+	pub intake_probe_exe: Option<String>,
+
 	/// OIDC authentication configuration
 	#[setting(nested)]
 	#[graphql(skip)]
@@ -258,6 +364,9 @@ impl StumpConfig {
 			enable_koreader_sync: true,
 			enable_kobo_sync: true,
 			enable_upload: true,
+			// a development machine has no isolated checker and no disk floor to keep
+			intake_probe_mode: "inprocess".to_string(),
+			intake_min_free_gb: 0,
 			..Default::default()
 		}
 	}
@@ -458,6 +567,37 @@ mod tests {
 				assert_eq!(config.archive_max_entry_mb, 64);
 				assert_eq!(config.archive_max_xml_mb, 16);
 				assert_eq!(config.archive_max_pack_books, 20);
+			},
+		);
+	}
+
+	#[test]
+	fn test_intake_limits_defaults_and_env_override() {
+		let dir = tempfile::tempdir().expect("should create temp dir");
+		let config =
+			StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+		assert_eq!(config.intake_max_request_mb, 300);
+		assert_eq!(config.intake_max_file_mb, 300);
+		assert_eq!(config.intake_max_files_per_request, 50);
+		assert_eq!(config.intake_user_quota_mb, 2048);
+		assert_eq!(config.intake_user_max_items, 100);
+		assert_eq!(config.intake_min_free_gb, 20);
+		assert_eq!(config.intake_total_max_gb, 50);
+		assert_eq!(config.intake_upload_idle_secs, 60);
+		assert_eq!(config.intake_probe_mode, "off");
+
+		temp_env::with_vars(
+			[
+				("STUMP_INTAKE_USER_QUOTA_MB", Some("512")),
+				("STUMP_INTAKE_PROBE_MODE", Some("inprocess")),
+			],
+			|| {
+				let dir = tempfile::tempdir().expect("should create temp dir");
+				let config = StumpConfig::load(dir.path().to_path_buf())
+					.expect("should load config");
+				assert_eq!(config.intake_user_quota_mb, 512);
+				assert_eq!(config.intake_probe_mode, "inprocess");
+				assert_eq!(config.intake_user_max_items, 100);
 			},
 		);
 	}

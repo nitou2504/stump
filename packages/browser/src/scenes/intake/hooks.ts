@@ -2,50 +2,162 @@ import { useGraphQL, useGraphQLMutation, useSDK } from '@stump/client'
 import {
 	extractErrorMessage,
 	IntakeReviewInput,
-	IntakeState,
 	IntakeUploadMode,
+	useFragment,
 } from '@stump/graphql'
-import { useQueryClient } from '@tanstack/react-query'
+import { intakeUploadErrorOf } from '@stump/sdk'
+import { keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
 	intakeAcceptMutation,
+	intakeApproveMutation,
 	intakeChangeLibraryMutation,
 	intakeDiscardMutation,
 	type IntakeItemData,
+	intakeItemFragment,
 	intakeItemsQuery,
+	type IntakeLimitsData,
 	intakeReanalyseMutation,
+	intakeRejectMutation,
 	intakeReviewMutation,
-	intakeUploadMutation,
+	intakeSubmitMutation,
+	intakeUploaderAgeQuery,
+	intakeUploadLimitsQuery,
+	intakeWithdrawMutation,
+	pendingIntakeCountQuery,
+	pendingIntakeItemsQuery,
 } from './queries'
 import {
-	genresDiffer,
+	type AgeLimit,
+	needsReviewFirst,
 	type PendingFile,
 	planUploads,
-	shouldPoll,
+	pollInterval,
+	unreadableExtensions,
+	unreadableTitle,
 	type UploadBatch,
 	uploadPercent,
+	uploadProblem,
 } from './reviewState'
 
 export const INTAKE_ITEMS_KEY = ['intakeItems'] as const
+export const INTAKE_LIMITS_KEY = ['intakeUploadLimits'] as const
+export const PENDING_INTAKE_KEY = ['pendingIntakeItems'] as const
+export const PENDING_INTAKE_COUNT_KEY = ['pendingIntakeCount'] as const
 
-/** The user's inbox, polled while something is being analysed or scanned */
+/** Every query that shows something of the intake: a change in one can change the others */
+const INTAKE_KEYS = [
+	INTAKE_ITEMS_KEY,
+	INTAKE_LIMITS_KEY,
+	PENDING_INTAKE_KEY,
+	PENDING_INTAKE_COUNT_KEY,
+] as const
+
+// a stable value for "nothing yet", so what is derived from it doesn't change on every render
+const NONE: never[] = []
+
+/**
+ * The user's inbox, read again while something in it moves (being analysed, being filed after an
+ * approval) and now and then while books wait for an approver
+ */
 export function useIntakeInbox() {
-	const result = useGraphQL(intakeItemsQuery, INTAKE_ITEMS_KEY, undefined, {
-		refetchInterval: (query) => (shouldPoll(query.state.data?.intakeItems ?? []) ? 1500 : false),
+	const result = useGraphQL(intakeItemsQuery, INTAKE_ITEMS_KEY)
+	const items = useFragment(intakeItemFragment, result.data?.intakeItems ?? NONE)
+
+	const { refetch } = result
+	const interval = pollInterval(items)
+	useEffect(() => {
+		if (!interval) return
+		const timer = setInterval(() => {
+			// as the query's own interval does: not in a tab nobody looks at, and a read that is
+			// still on its way is not cancelled for a new one (a slow server would never answer)
+			if (document.hidden) return
+			void refetch({ cancelRefetch: false })
+		}, interval)
+		return () => clearInterval(timer)
+	}, [interval, refetch])
+
+	return { ...result, items }
+}
+
+/** What the viewer may upload, how much of it they have used, and whether uploads are open */
+export function useIntakeLimits() {
+	const result = useGraphQL(intakeUploadLimitsQuery, INTAKE_LIMITS_KEY)
+	return { ...result, limits: result.data?.intakeUploadLimits }
+}
+
+/**
+ * The books waiting for approval, a page at a time, oldest first. Read again every half minute
+ * so a book sent while the page is open shows up
+ */
+export function usePendingIntake({
+	libraryId,
+	page,
+	pageSize,
+}: {
+	libraryId?: string
+	page: number
+	pageSize: number
+}) {
+	const result = useGraphQL(
+		pendingIntakeItemsQuery,
+		[...PENDING_INTAKE_KEY, libraryId ?? 'all', page, pageSize],
+		{ libraryId, page, pageSize },
+		{ placeholderData: keepPreviousData, refetchInterval: 30_000 },
+	)
+	const items = useFragment(intakeItemFragment, result.data?.pendingIntakeItems.nodes ?? NONE)
+	return { ...result, items, totalCount: result.data?.pendingIntakeItems.totalCount ?? 0 }
+}
+
+/** How many books wait for approval (for the badge of those who approve them) */
+export function usePendingIntakeCount(enabled: boolean) {
+	const result = useGraphQL(pendingIntakeCountQuery, PENDING_INTAKE_COUNT_KEY, undefined, {
+		enabled,
+		refetchInterval: 60_000,
 	})
-	return { ...result, items: result.data?.intakeItems ?? [] }
+	return enabled ? (result.data?.pendingIntakeCount ?? 0) : 0
 }
 
-function useRefreshInbox() {
+/**
+ * The age limit of the person who uploaded a book, when the viewer may read it (the server owner
+ * and those who manage users do; for anybody else there is nobody to ask, and no warning)
+ */
+export function useUploaderAgeLimit(userId?: string): AgeLimit | null {
+	const { data } = useGraphQL(
+		intakeUploaderAgeQuery,
+		['intakeUploaderAge', userId],
+		{ userId: userId ?? '' },
+		{ enabled: !!userId, retry: false, staleTime: 5 * 60_000 },
+	)
+	return data?.userById.ageRestriction ?? null
+}
+
+function useRefreshIntake() {
 	const client = useQueryClient()
-	return useCallback(() => client.invalidateQueries({ queryKey: INTAKE_ITEMS_KEY }), [client])
+	return useCallback(
+		() => Promise.all(INTAKE_KEYS.map((queryKey) => client.invalidateQueries({ queryKey }))),
+		[client],
+	)
 }
 
-/** Review / re-analyse / change library / accept / discard, each refreshing the inbox afterwards */
+type TagEntry = {
+	item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>
+	genres: string[]
+}
+
+const plural = (count: number, one: string, many: string) =>
+	count === 1 ? one : `${count} ${many}`
+
+/**
+ * Review / re-analyse / change library, then what is done with a book depending on who you are:
+ * add it to the library (those who file books themselves), send it for approval or take it back
+ * (those who may not), approve it or send it back with a note (those who approve). Each one
+ * refreshes everything the intake shows afterwards.
+ */
 export function useIntakeActions() {
-	const refresh = useRefreshInbox()
+	const refresh = useRefreshIntake()
 	const onError = (fallback: string) => (error: unknown) =>
 		toast.error(fallback, { description: extractErrorMessage(error) })
 
@@ -78,6 +190,46 @@ export function useIntakeActions() {
 			}
 		},
 	})
+	const submit = useGraphQLMutation(intakeSubmitMutation, {
+		onError: onError('Could not send the books for approval'),
+		onSettled: refresh,
+		onSuccess: ({ intakeSubmit }) =>
+			toast.success(`Sent ${plural(intakeSubmit.length, '1 book', 'books')} for approval`, {
+				description: 'You’ll see them here when they are added or sent back',
+			}),
+	})
+	const withdraw = useGraphQLMutation(intakeWithdrawMutation, {
+		onError: onError('Could not take the books back'),
+		onSettled: refresh,
+		onSuccess: ({ intakeWithdraw }) =>
+			toast.success(`Took back ${plural(intakeWithdraw.length, '1 book', 'books')}`),
+	})
+	const approve = useGraphQLMutation(intakeApproveMutation, {
+		onError: onError('Could not approve the books'),
+		onSettled: refresh,
+		onSuccess: ({ intakeApprove }) => {
+			const failed = intakeApprove.filter((item) => item.error)
+			const approved = intakeApprove.length - failed.length
+			if (approved) {
+				toast.success(`Approved ${plural(approved, '1 book', 'books')}`, {
+					description: 'They are being added to the library',
+				})
+			}
+			if (failed.length) {
+				toast.error(
+					failed.length === 1
+						? 'One book could not be approved'
+						: `${failed.length} could not be approved`,
+					{ description: failed[0]?.error ?? undefined },
+				)
+			}
+		},
+	})
+	const reject = useGraphQLMutation(intakeRejectMutation, {
+		onError: onError('Could not send the book back'),
+		onSettled: refresh,
+		onSuccess: () => toast.success('Sent back with your note'),
+	})
 	const discard = useGraphQLMutation(intakeDiscardMutation, {
 		onError: onError('Could not discard'),
 		onSettled: refresh,
@@ -90,19 +242,19 @@ export function useIntakeActions() {
 
 	const { mutateAsync: reviewAsync } = review
 	const { mutate: acceptMutate } = accept
+	const { mutate: approveMutate } = approve
+	const { mutate: submitMutate } = submit
+
 	/**
-	 * Files items with the tags the uploader confirmed. The server writes the tags of its
-	 * decision and only files items that are ready, so items whose tags differ (weak guesses
-	 * left unticked) or that were flagged for checking get their tags sent first (a review of
-	 * an item with nothing blocking makes it ready).
+	 * Sends the tags the person confirmed, then what is to be done with the books. The server
+	 * writes the tags of its decision and only takes books that are ready, so books whose tags
+	 * differ (weak guesses left unticked), that were flagged for checking or that an approver sent
+	 * back get their tags sent first (a review of a book with nothing blocking makes it ready,
+	 * and it is the only way to open a sent-back book for sending again).
 	 */
-	const acceptWithGenres = useCallback(
-		async (
-			entries: Array<{ item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>; genres: string[] }>,
-		) => {
-			const needReview = entries.filter(
-				({ item, genres }) => item.state === IntakeState.NeedsReview || genresDiffer(item, genres),
-			)
+	const withConfirmedTags = useCallback(
+		async (entries: TagEntry[], then: (ids: string[]) => void) => {
+			const needReview = entries.filter(({ item, genres }) => needsReviewFirst(item, genres))
 			try {
 				for (const { item, genres } of needReview) {
 					await reviewAsync({ id: item.id, input: { genres } })
@@ -110,27 +262,60 @@ export function useIntakeActions() {
 			} catch {
 				return
 			}
-			if (entries.length) acceptMutate({ ids: entries.map(({ item }) => item.id) })
+			if (entries.length) then(entries.map(({ item }) => item.id))
 		},
-		[reviewAsync, acceptMutate],
+		[reviewAsync],
+	)
+
+	const acceptWithGenres = useCallback(
+		(entries: TagEntry[]) => withConfirmedTags(entries, (ids) => acceptMutate({ ids })),
+		[withConfirmedTags, acceptMutate],
+	)
+	const submitWithGenres = useCallback(
+		(entries: TagEntry[]) => withConfirmedTags(entries, (ids) => submitMutate({ ids })),
+		[withConfirmedTags, submitMutate],
+	)
+
+	// an approver files what the card shows: the tags it shows are sent first, as for the others
+	const approveWithGenres = useCallback(
+		(entries: TagEntry[]) => withConfirmedTags(entries, (ids) => approveMutate({ ids })),
+		[withConfirmedTags, approveMutate],
 	)
 
 	const acceptItem = useCallback(
-		(item: Pick<IntakeItemData, 'id' | 'state' | 'decision'>, genres: string[]) =>
-			acceptWithGenres([{ genres, item }]),
+		(item: TagEntry['item'], genres: string[]) => acceptWithGenres([{ genres, item }]),
 		[acceptWithGenres],
+	)
+	const approveItem = useCallback(
+		(item: TagEntry['item'], genres: string[]) => approveWithGenres([{ genres, item }]),
+		[approveWithGenres],
+	)
+	const submitItem = useCallback(
+		(item: TagEntry['item'], genres: string[]) => submitWithGenres([{ genres, item }]),
+		[submitWithGenres],
 	)
 
 	return {
 		acceptItem,
 		acceptWithGenres,
+		approveItem,
+		approveWithGenres,
 		changeLibrary: (id: string, libraryId: string) => changeLibrary.mutate({ id, libraryId }),
 		discard: (ids: string[]) => discard.mutate({ ids }),
 		isAccepting: accept.isPending,
+		isApproving: approve.isPending,
 		isChangingLibrary: changeLibrary.isPending,
+		isRejecting: reject.isPending,
 		isReviewing: review.isPending,
+		isSubmitting: submit.isPending,
+		isWithdrawing: withdraw.isPending,
 		reanalyse: (id: string, online?: boolean) => reanalyse.mutate({ id, online }),
+		reject: (id: string, note: string, onDone?: () => void) =>
+			reject.mutate({ id, note }, { onSuccess: onDone }),
 		reviewItem,
+		submitItem,
+		submitWithGenres,
+		withdraw: (ids: string[]) => withdraw.mutate({ ids }),
 	}
 }
 
@@ -140,61 +325,131 @@ export type UploadEntry = UploadBatch & {
 	status: UploadStatus
 	progress: number
 	error?: string
+	/** Why a queued upload is waiting, when it is not just its turn (the server asked to slow down) */
+	note?: string
 }
 
-const MAX_PARALLEL_UPLOADS = 2
+/** Those who file books themselves have the room for two uploads at a time; everybody else's is one */
+const PARALLEL_UPLOADS_FOR_APPROVERS = 2
 
 /**
- * Uploads picked files into the inbox of a library: each loose book is its own request and
- * each folder one request, two at a time, with progress per request.
+ * A proxy in front of Stump limits how fast requests may come (each loose book is one), and
+ * answers a 429 without Stump's own message when it does. That lifts after a moment, so the
+ * upload goes back in the queue and the queue waits, at least this long (or as long as the
+ * answer says, up to the longest), and tries the same book a few times before it gives up.
  */
-export function useIntakeUploader(libraryId?: string) {
+export const PROXY_RETRY_MIN_SECS = 6
+export const PROXY_RETRY_MAX_SECS = 60
+export const PROXY_RETRIES = 5
+
+const modeParam = (mode: IntakeUploadMode) => mode.toLowerCase() as 'auto' | 'books' | 'series'
+
+/**
+ * Uploads picked files into the inbox of a library over `POST /api/v2/intake/upload`: each loose
+ * book is its own request and each folder one request, one at a time (two for those who file
+ * books themselves), with progress per request. Before a request is sent the session is checked
+ * and the upload is held against the server's limits, so a refusal that is certain comes at once
+ * and in words, not after the bytes have gone.
+ */
+export function useIntakeUploader(libraryId?: string, limits?: IntakeLimitsData) {
 	const { sdk } = useSDK()
-	const refresh = useRefreshInbox()
+	const refresh = useRefreshIntake()
 	const [entries, setEntries] = useState<UploadEntry[]>([])
 	const active = useRef(0)
 	const queue = useRef<UploadEntry[]>([])
+	// while a proxy asks to slow down, nothing new is started; how often each upload was held back
+	const pausedUntil = useRef(0)
+	const retries = useRef(new Map<string, number>())
+	const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
+	useEffect(() => {
+		const pending = timers.current
+		return () => pending.forEach(clearTimeout)
+	}, [])
 	// bumped when an upload finishes or files are added, to start the next uploads
 	const [tick, setTick] = useState(0)
+	// the latest limits, for uploads that start later than the render that queued them
+	const limitsRef = useRef(limits)
+	useEffect(() => {
+		limitsRef.current = limits
+	}, [limits])
 
 	const update = useCallback((key: string, patch: Partial<UploadEntry>) => {
 		setEntries((prev) => prev.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)))
 	}, [])
 
+	const send = useCallback(
+		async (entry: UploadEntry, into: string) => {
+			try {
+				// a session that has ended refuses the upload after the whole body is sent
+				await sdk.auth.me()
+			} catch (error) {
+				throw intakeUploadErrorOf(error)
+			}
+			await sdk.intake.upload({
+				files: entry.files,
+				libraryId: into,
+				mode: modeParam(entry.mode),
+				onUploadProgress: ({ loaded, total }) =>
+					update(entry.key, { progress: uploadPercent(loaded, total) }),
+				relativePaths: entry.relativePaths,
+			})
+		},
+		[sdk, update],
+	)
+
 	const pump = useCallback(() => {
-		while (active.current < MAX_PARALLEL_UPLOADS && queue.current.length) {
+		if (Date.now() < pausedUntil.current) return
+		const parallel = limitsRef.current?.canFileDirectly ? PARALLEL_UPLOADS_FOR_APPROVERS : 1
+		while (active.current < parallel && queue.current.length) {
 			const next = queue.current.shift()
 			if (!next || !libraryId) break
+			const known = limitsRef.current
+			const problem = known ? uploadProblem(next, known) : undefined
+			if (problem) {
+				update(next.key, { error: problem, status: 'error' })
+				continue
+			}
 			active.current += 1
-			update(next.key, { status: 'uploading' })
-			sdk
-				.executeUpload(
-					intakeUploadMutation,
-					{
-						files: next.files,
-						libraryId,
-						mode: next.mode,
-						relativePaths: next.relativePaths,
-					},
-					{
-						onUploadProgress: ({ loaded, total }) =>
-							update(next.key, { progress: uploadPercent(loaded, total) }),
-					},
-				)
+			update(next.key, { note: undefined, status: 'uploading' })
+			send(next, libraryId)
 				.then(() => update(next.key, { progress: 100, status: 'done' }))
-				.catch((error: unknown) =>
+				.catch((error: unknown) => {
+					const failure = intakeUploadErrorOf(error)
+					const tries = retries.current.get(next.key) ?? 0
+					if (!failure.throttledByProxy || tries >= PROXY_RETRIES) {
+						update(next.key, { error: failure.message, status: 'error' })
+						return
+					}
+					// the book is not at fault: it goes first in the queue again, and the queue waits
+					retries.current.set(next.key, tries + 1)
+					const wait = Math.min(
+						PROXY_RETRY_MAX_SECS,
+						Math.max(PROXY_RETRY_MIN_SECS, Math.ceil(failure.retryAfterSecs ?? 0)),
+					)
+					pausedUntil.current = Date.now() + wait * 1000
+					queue.current.unshift(next)
 					update(next.key, {
-						error: extractErrorMessage(error, 'Upload failed'),
-						status: 'error',
-					}),
-				)
+						note: `The server is busy: trying again in ${wait} seconds`,
+						progress: 0,
+						status: 'queued',
+					})
+					// a hair longer than the pause, so the wake-up is never before it ends
+					const timer = setTimeout(
+						() => {
+							timers.current.delete(timer)
+							setTick((t) => t + 1)
+						},
+						wait * 1000 + 20,
+					)
+					timers.current.add(timer)
+				})
 				.finally(() => {
 					active.current -= 1
-					refresh()
+					void refresh()
 					setTick((t) => t + 1)
 				})
 		}
-	}, [libraryId, sdk, update, refresh])
+	}, [libraryId, send, update, refresh])
 
 	const add = useCallback(
 		(files: PendingFile[], folderMode: IntakeUploadMode = IntakeUploadMode.Auto) => {
@@ -206,10 +461,21 @@ export function useIntakeUploader(libraryId?: string) {
 				progress: 0,
 				status: 'queued',
 			}))
-			if (!batches.length) {
-				toast.error('No books found', {
-					description: 'Pick EPUB, PDF, CBZ or CBR files, folders of them, or a .zip',
+			// archives with no reader are not sent: the person hears why, whatever else was picked
+			const unreadable = unreadableExtensions(files)
+			if (unreadable.length) {
+				toast.error(unreadableTitle(unreadable), {
+					description: batches.length
+						? 'The other books are added'
+						: 'It reads EPUB, PDF, CBZ and CBR files, folders of them, or a .zip of those',
 				})
+			}
+			if (!batches.length) {
+				if (!unreadable.length) {
+					toast.error('No books found', {
+						description: 'Pick EPUB, PDF, CBZ or CBR files, folders of them, or a .zip',
+					})
+				}
 				return
 			}
 			setEntries((prev) => [...batches, ...prev])

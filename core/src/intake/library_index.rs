@@ -13,9 +13,13 @@ use std::{
 };
 
 use models::{
-	entity::library_intake_settings::typed_series_kind, shared::intake::IntakeSeriesKind,
+	entity::{library_intake_settings::typed_series_kind, media, user::AuthUser},
+	shared::intake::IntakeSeriesKind,
 };
-use sea_orm::{DatabaseConnection, FromQueryResult, Statement};
+use sea_orm::{
+	ColumnTrait, DatabaseConnection, FromQueryResult, QueryFilter, QuerySelect,
+	Statement,
+};
 
 use super::{
 	library_type_of,
@@ -133,17 +137,27 @@ struct SummaryRow {
 static CACHE: LazyLock<Mutex<HashMap<String, Arc<LibraryIndex>>>> =
 	LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// The indexes of what one person can read of a library, by (person, library)
+static VIEWER_CACHE: LazyLock<Mutex<HashMap<(String, String), Arc<LibraryIndex>>>> =
+	LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Drops every index older than [`INDEX_TTL`]
 pub fn drop_stale_indexes() {
 	if let Ok(mut cache) = CACHE.lock() {
 		cache.retain(|_, index| index.built_at.elapsed() < INDEX_TTL);
 	}
+	if let Ok(mut cache) = VIEWER_CACHE.lock() {
+		cache.retain(|_, index| index.built_at.elapsed() < INDEX_TTL);
+	}
 }
 
-/// Forgets the index of a library (after books were filed into it)
+/// Forgets the indexes of a library (after books were filed into it)
 pub fn invalidate_index(library_id: &str) {
 	if let Ok(mut cache) = CACHE.lock() {
 		cache.remove(library_id);
+	}
+	if let Ok(mut cache) = VIEWER_CACHE.lock() {
+		cache.retain(|(_, library), _| library != library_id);
 	}
 }
 
@@ -159,8 +173,9 @@ pub async fn library_index(
 	if let Some(index) = CACHE.lock().ok().and_then(|c| c.get(library_id).cloned()) {
 		return Ok(index);
 	}
-	let index =
-		Arc::new(build_index(conn, library_id, root, manga_dir, light_novel_dir).await?);
+	let index = Arc::new(
+		build_index(conn, library_id, root, manga_dir, light_novel_dir, None).await?,
+	);
 	if let Ok(mut cache) = CACHE.lock() {
 		cache.insert(library_id.to_string(), index.clone());
 	}
@@ -169,6 +184,54 @@ pub async fn library_index(
 		tokio::time::sleep(INDEX_TTL + Duration::from_secs(5)).await;
 		drop_stale_indexes();
 	});
+	Ok(index)
+}
+
+/// The index of a library as one person can see it: only the books they can read (the library
+/// isn't hidden from them, the book is within their age restriction and wasn't removed), and only
+/// the folders that hold at least one of them. What it says about authors, series, tags and
+/// descriptions comes from those books alone, so nothing made from it can tell what the rest of
+/// the library holds. `viewer` is `None` for somebody who no longer exists: they see nothing.
+pub async fn viewer_index(
+	conn: &DatabaseConnection,
+	viewer: Option<&AuthUser>,
+	user_id: &str,
+	library_id: &str,
+	root: &Path,
+	manga_dir: &str,
+	light_novel_dir: &str,
+) -> CoreResult<Arc<LibraryIndex>> {
+	drop_stale_indexes();
+	let key = (user_id.to_string(), library_id.to_string());
+	if let Some(index) = VIEWER_CACHE.lock().ok().and_then(|c| c.get(&key).cloned()) {
+		return Ok(index);
+	}
+	let visible: HashSet<String> = match viewer {
+		Some(viewer) => media::Entity::find_for_user(viewer)
+			.filter(media::Column::LibraryId.eq(library_id))
+			.select_only()
+			.column(media::Column::Id)
+			.into_tuple::<String>()
+			.all(conn)
+			.await?
+			.into_iter()
+			.collect(),
+		None => HashSet::new(),
+	};
+	let index = Arc::new(
+		build_index(
+			conn,
+			library_id,
+			root,
+			manga_dir,
+			light_novel_dir,
+			Some(&visible),
+		)
+		.await?,
+	);
+	if let Ok(mut cache) = VIEWER_CACHE.lock() {
+		cache.insert(key, index.clone());
+	}
 	Ok(index)
 }
 
@@ -207,16 +270,20 @@ fn split_list(value: &Option<String>) -> Vec<String> {
 		.collect()
 }
 
+/// `visible`: the books to index (`None`: all of them). The folders are listed from the disk, so
+/// when it is given the ones that hold none of those books are left out too: a folder is a fact
+/// about the books in it.
 async fn build_index(
 	conn: &DatabaseConnection,
 	library_id: &str,
 	root: &Path,
 	manga_dir: &str,
 	light_novel_dir: &str,
+	visible: Option<&HashSet<String>>,
 ) -> CoreResult<LibraryIndex> {
 	let started = Instant::now();
 	let backend = conn.get_database_backend();
-	let rows = BookRow::find_by_statement(Statement::from_sql_and_values(
+	let mut rows = BookRow::find_by_statement(Statement::from_sql_and_values(
 		backend,
 		r"SELECT m.id AS id, m.path AS path, mm.title AS title, mm.writers AS writers,
 			mm.genres AS genres, mm.series AS series
@@ -226,6 +293,9 @@ async fn build_index(
 	))
 	.all(conn)
 	.await?;
+	if let Some(visible) = visible {
+		rows.retain(|row| visible.contains(&row.id));
+	}
 
 	let root_owned = root.to_path_buf();
 	// a kind whose folder setting is empty keeps its series folders directly in the library
@@ -336,6 +406,9 @@ async fn build_index(
 
 	let author_folders: Vec<FolderInfo> = folder_names
 		.into_iter()
+		.filter(|name| {
+			visible.is_none() || folder_book_counts.get(name).copied().unwrap_or(0) > 0
+		})
 		.map(|name| FolderInfo {
 			keys: folder_keys(&name),
 			books: folder_book_counts.get(&name).copied().unwrap_or(0),
@@ -406,6 +479,13 @@ async fn build_index(
 	let series_folders = |names: Vec<String>, dir: &str| -> Vec<FolderInfo> {
 		names
 			.into_iter()
+			.filter(|name| {
+				visible.is_none()
+					|| series_book_counts
+						.get(&series_key(dir, name))
+						.copied()
+						.unwrap_or(0) > 0
+			})
 			.map(|name| FolderInfo {
 				keys: folder_keys(&name),
 				books: series_book_counts
@@ -466,6 +546,43 @@ pub struct FolderMatch {
 }
 
 impl LibraryIndex {
+	/// An index that knows these tags and nothing else, for tests
+	#[cfg(test)]
+	pub(crate) fn with_vocabulary(values: &[&str]) -> Self {
+		let vocabulary: Vec<VocabEntry> = values
+			.iter()
+			.map(|value| VocabEntry {
+				value: value.to_string(),
+				norm: norm(value),
+				count: 1,
+				facet: false,
+			})
+			.collect();
+		let vocab_by_norm = vocabulary
+			.iter()
+			.enumerate()
+			.map(|(i, entry)| (entry.norm.clone(), i as u32))
+			.collect();
+		Self {
+			library_id: String::new(),
+			root: PathBuf::new(),
+			built_at: Instant::now(),
+			author_folders: vec![],
+			folder_by_key: HashMap::new(),
+			alias_by_key: HashMap::new(),
+			manga_folders: vec![],
+			light_novel_folders: vec![],
+			vocabulary,
+			vocab_by_norm,
+			small_by_norm: HashMap::new(),
+			books: vec![],
+			books_by_writer: HashMap::new(),
+			books_by_folder: HashMap::new(),
+			books_by_series: HashMap::new(),
+			descriptions: OnceLock::new(),
+		}
+	}
+
 	/// Existing author folders for an author name, best first
 	pub fn match_author_folder(&self, author: &str) -> Vec<FolderMatch> {
 		let keys = name_keys(author);
@@ -872,7 +989,7 @@ mod tests {
 			.await
 			.unwrap();
 		}
-		let index = build_index(&conn, &library.id, &root, "_Manga", "_Novela ligera")
+		let index = build_index(&conn, &library.id, &root, "_Manga", "_Novela ligera", None)
 			.await
 			.unwrap();
 		assert!(!root.parent().unwrap().join("catalogo.csv").exists());
@@ -937,7 +1054,7 @@ mod tests {
 			.unwrap();
 		}
 
-		let index = build_index(&conn, &library.id, &root, "", "")
+		let index = build_index(&conn, &library.id, &root, "", "", None)
 			.await
 			.unwrap();
 		let manga: Vec<(&str, i32)> = index

@@ -20,7 +20,14 @@ pub struct TestApp {
 
 impl TestApp {
 	pub async fn new() -> Self {
-		Self::with_config(StumpConfig::debug()).await
+		Self::new_with_config(|_| {}).await
+	}
+
+	/// like [`TestApp::new`], with the server's configuration changed first
+	pub async fn new_with_config(change: impl FnOnce(&mut StumpConfig)) -> Self {
+		let mut config = StumpConfig::debug();
+		change(&mut config);
+		Self::with_config(config).await
 	}
 
 	/// like [`TestApp::new`], with the given configuration
@@ -59,7 +66,14 @@ impl TestApp {
 	/// creates a new instance of [TestApp] and also creates the initial admin user, setting the access token for the app
 	/// to be used in consecutive requests
 	pub async fn new_with_default_user() -> Self {
-		let app = Self::new().await;
+		Self::new_with_default_user_and_config(|_| {}).await
+	}
+
+	/// like [`TestApp::new_with_default_user`], with the server's configuration changed first
+	pub async fn new_with_default_user_and_config(
+		change: impl FnOnce(&mut StumpConfig),
+	) -> Self {
+		let app = Self::new_with_config(change).await;
 		let token = app.create_initial_account().await;
 		*app.access_token.write().await = Some(token);
 		app

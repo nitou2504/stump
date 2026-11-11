@@ -1,7 +1,25 @@
 import { useGraphQL } from '@stump/client'
-import { Button, cn, Link, NativeSelect } from '@stump/components'
+import {
+	Alert,
+	AlertDescription,
+	AlertTitle,
+	Button,
+	cn,
+	Link,
+	NativeSelect,
+	ProgressBar,
+} from '@stump/components'
 import { IntakeKind } from '@stump/graphql'
-import { CheckCircle2, ClipboardCheck, Hourglass, Inbox, Loader2 } from 'lucide-react'
+import {
+	CheckCircle2,
+	CircleAlert,
+	ClipboardCheck,
+	Hourglass,
+	Inbox,
+	Loader2,
+	MessageSquareWarning,
+	Send,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet'
 import { useSearchParams } from 'react-router'
@@ -11,18 +29,20 @@ import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { usePaths } from '@/paths'
 
 import AcceptAllSheet from './AcceptAllSheet'
-import { useIntakeActions, useIntakeInbox, useIntakeUploader } from './hooks'
+import { useIntakeActions, useIntakeInbox, useIntakeLimits, useIntakeUploader } from './hooks'
 import IntakeDropZone from './IntakeDropZone'
-import IntakeItemCard, { FormatIcon } from './IntakeItemCard'
-import { type IntakeItemData, intakeLibrariesQuery } from './queries'
-import { acceptableIds, destinationPaths, groupInbox } from './reviewState'
+import IntakeItemCard, { FormatIcon, type IntakeCardMode } from './IntakeItemCard'
+import { type IntakeItemData, intakeLibrariesQuery, type IntakeLimitsData } from './queries'
+import { acceptableIds, destinationPaths, formatBytes, groupInbox } from './reviewState'
 import { useTagReviewStore } from './tagReviewStore'
+import WaitingRow from './WaitingRow'
 
 const FILED_SHOWN = 10
 
 /**
  * "Add books": upload books into your own inbox, check what the server proposes (author
- * folder, metadata, tags) and add them to the library.
+ * folder, metadata, tags) and add them to the library. Somebody who may not file books
+ * themselves sends them for approval instead: the people who run the library look at them first.
  */
 export default function IntakeScene() {
 	const [params, setParams] = useSearchParams()
@@ -34,13 +54,22 @@ export default function IntakeScene() {
 		libraries.find((library) => library.id === requested)?.id ?? libraries[0]?.id ?? undefined
 
 	const { items, isLoading, data: inboxData } = useIntakeInbox()
+	const { limits } = useIntakeLimits()
+	// what the cards show and do depends on who is looking, which the limits say; until they
+	// arrive nothing is shown that could be wrong for the viewer
+	const mode: IntakeCardMode | undefined = limits
+		? limits.canFileDirectly
+			? 'file'
+			: 'submit'
+		: undefined
+	const friend = mode === 'submit'
 	// forget the tag choices of items that left the inbox
 	const keepOnlyReviewed = useTagReviewStore((store) => store.keepOnly)
 	useEffect(() => {
-		if (inboxData) keepOnlyReviewed(inboxData.intakeItems.map((item) => item.id))
-	}, [inboxData, keepOnlyReviewed])
+		if (inboxData) keepOnlyReviewed(items.map((item) => item.id))
+	}, [inboxData, items, keepOnlyReviewed])
 	const actions = useIntakeActions()
-	const uploader = useIntakeUploader(libraryId)
+	const uploader = useIntakeUploader(libraryId, limits)
 	const groups = useMemo(() => groupInbox(items), [items])
 	const readyIds = useMemo(() => acceptableIds(items), [items])
 	const readyItems = useMemo(
@@ -64,16 +93,24 @@ export default function IntakeScene() {
 		}
 	}, [libraryId, requested, setParams])
 
-	const busy = actions.isReviewing || actions.isAccepting || actions.isChangingLibrary
+	const busy =
+		actions.isReviewing ||
+		actions.isAccepting ||
+		actions.isChangingLibrary ||
+		actions.isSubmitting ||
+		actions.isWithdrawing
 	const cardProps = {
 		isBusy: busy,
 		libraries,
+		mode,
 		onAccept: actions.acceptItem,
 		onChangeLibrary: actions.changeLibrary,
 		onDiscard: actions.discard,
 		onReanalyse: actions.reanalyse,
 		onReview: actions.reviewItem,
+		onSubmit: actions.submitItem,
 	}
+	const uploadsClosed = !!limits && !limits.uploadsOpen
 
 	const filed = showAllFiled ? groups.filed : groups.filed.slice(0, FILED_SHOWN)
 
@@ -93,11 +130,37 @@ export default function IntakeScene() {
 						suffix: ' to check',
 					},
 					{ key: 'ready', icon: CheckCircle2, value: groups.ready.length, suffix: ' ready' },
+					...(friend && groups.waiting.length
+						? [
+								{
+									key: 'waiting',
+									icon: Hourglass,
+									value: groups.waiting.length,
+									suffix: ' waiting',
+								},
+							]
+						: []),
 				]}
 			/>
 
 			<SceneContainer className="gap-6 max-w-5xl mx-auto">
 				<div className="gap-3 flex flex-col">
+					{friend && (
+						<p className="text-sm text-muted-foreground">
+							The people who run this library look at the books you add before they join it. Fix
+							what the page asks for, then send them.
+						</p>
+					)}
+					{limits?.quotaApplies && <InboxUsage limits={limits} />}
+					{uploadsClosed && (
+						<Alert variant="warning">
+							<CircleAlert />
+							<AlertTitle>Uploads are closed</AlertTitle>
+							<AlertDescription>
+								{limits?.closedReason || 'You can’t add books right now.'}
+							</AlertDescription>
+						</Alert>
+					)}
 					{libraries.length > 1 && (
 						<label className="gap-2 text-sm flex items-center">
 							<span className="text-muted-foreground">Add to</span>
@@ -122,7 +185,7 @@ export default function IntakeScene() {
 						onFiles={uploader.add}
 						entries={uploader.entries}
 						onClearFinished={uploader.clearFinished}
-						disabled={!libraryId}
+						disabled={!libraryId || uploadsClosed}
 					/>
 					{!libraryId && !isLoading && (
 						<p className="text-sm text-muted-foreground">You can’t add books to any library yet.</p>
@@ -146,7 +209,7 @@ export default function IntakeScene() {
 					</Section>
 				)}
 
-				{groups.toReview.length > 0 && (
+				{mode && groups.toReview.length > 0 && (
 					<Section title="To check" icon={ClipboardCheck} count={groups.toReview.length}>
 						<div className="gap-4 flex flex-col">
 							{groups.toReview.map((item) => (
@@ -156,15 +219,15 @@ export default function IntakeScene() {
 					</Section>
 				)}
 
-				{groups.ready.length > 0 && (
+				{mode && groups.ready.length > 0 && (
 					<Section
-						title="Ready to add"
-						icon={CheckCircle2}
+						title={friend ? 'Ready to send' : 'Ready to add'}
+						icon={friend ? Send : CheckCircle2}
 						count={groups.ready.length}
 						action={
 							readyIds.length > 0 && (
 								<Button size="sm" onClick={() => setConfirmingAll(true)} disabled={busy}>
-									Add all ready ({readyIds.length})
+									{friend ? 'Send all ready' : 'Add all ready'} ({readyIds.length})
 								</Button>
 							)
 						}
@@ -177,10 +240,63 @@ export default function IntakeScene() {
 					</Section>
 				)}
 
+				{mode && groups.sentBack.length > 0 && (
+					<Section
+						title="Sent back"
+						icon={MessageSquareWarning}
+						count={groups.sentBack.length}
+						description="Change what they ask for, then send them again"
+					>
+						<div className="gap-4 flex flex-col">
+							{groups.sentBack.map((item) => (
+								<IntakeItemCard key={item.id} item={item} {...cardProps} />
+							))}
+						</div>
+					</Section>
+				)}
+
+				{groups.waiting.length > 0 && (
+					<Section
+						title="Waiting for approval"
+						icon={Hourglass}
+						count={groups.waiting.length}
+						description="You can take a book back to change it until it is approved"
+					>
+						<ul className="divide-y divide-border rounded-lg border border-border">
+							{groups.waiting.map((item) => (
+								<WaitingRow
+									key={item.id}
+									item={item}
+									onWithdraw={actions.withdraw}
+									disabled={busy}
+								/>
+							))}
+						</ul>
+					</Section>
+				)}
+
+				{groups.filing.length > 0 && (
+					<Section title="Being added" icon={Loader2} count={groups.filing.length}>
+						<ul className="divide-y divide-border rounded-lg border border-border">
+							{groups.filing.map((item) => (
+								<WaitingRow
+									key={item.id}
+									item={item}
+									onWithdraw={actions.withdraw}
+									disabled={busy}
+								/>
+							))}
+						</ul>
+					</Section>
+				)}
+
 				{!isLoading &&
 					!groups.analysing.length &&
 					!groups.toReview.length &&
-					!groups.ready.length && (
+					!groups.ready.length &&
+					!groups.sentBack.length &&
+					!groups.waiting.length &&
+					!groups.filing.length && (
 						<div className="gap-2 py-10 flex flex-col items-center text-center text-muted-foreground">
 							<Inbox className="h-8 w-8" aria-hidden />
 							<p className="text-sm">Your inbox is empty.</p>
@@ -207,9 +323,11 @@ export default function IntakeScene() {
 				items={readyItems}
 				open={confirmingAll}
 				onClose={() => setConfirmingAll(false)}
-				isPending={actions.isAccepting}
+				isPending={actions.isAccepting || actions.isSubmitting}
+				verb={friend ? 'send' : 'add'}
 				onConfirm={(entries) => {
-					actions.acceptWithGenres(entries)
+					if (friend) actions.submitWithGenres(entries)
+					else actions.acceptWithGenres(entries)
 					setConfirmingAll(false)
 				}}
 			/>
@@ -266,7 +384,9 @@ function FiledRow({ item, now }: { item: IntakeItemData; now: number }) {
 	const isSeries = item.kind === IntakeKind.Series
 	const meta = item.decision?.metadata
 	const title = (isSeries || item.decision?.seriesKind ? meta?.series : meta?.title) || item.name
-	const where = destinationPaths(item)
+	// somebody who files nothing themselves has no destination: the paths are the filing's
+	const planned = destinationPaths(item)
+	const where = planned.length ? planned : (item.result?.paths ?? [])
 	const first = item.mediaIds[0]
 	const recentlyFiled =
 		!now || (!!item.filedAt && now - new Date(item.filedAt).getTime() < 5 * 60 * 1000)
@@ -285,7 +405,9 @@ function FiledRow({ item, now }: { item: IntakeItemData; now: number }) {
 					title={where.join('\n')}
 				>
 					{where.length > 1
-						? `${item.destination?.relativeDir}/ (${where.length} files)`
+						? item.destination
+							? `${item.destination.relativeDir}/ (${where.length} files)`
+							: `${where.length} files`
 						: where[0]}
 				</span>
 				{!!item.result?.notes.length && (
@@ -304,5 +426,25 @@ function FiledRow({ item, now }: { item: IntakeItemData; now: number }) {
 				<span className="text-xs shrink-0 text-muted-foreground">not scanned yet</span>
 			)}
 		</li>
+	)
+}
+
+/** How much of their inbox somebody who needs approval has used: room, and books */
+function InboxUsage({ limits }: { limits: IntakeLimitsData }) {
+	const room =
+		limits.quotaBytes > 0 ? Math.min(100, (limits.usedBytes * 100) / limits.quotaBytes) : 0
+	const full = limits.usedBytes >= limits.quotaBytes || limits.openItems >= limits.maxItems
+	return (
+		<div className="gap-1.5 text-xs flex flex-col text-muted-foreground" aria-label="Your inbox">
+			<div className="gap-x-3 flex flex-wrap justify-between">
+				<span>
+					Your inbox: {formatBytes(limits.usedBytes)} of {formatBytes(limits.quotaBytes)}
+				</span>
+				<span className={cn(full && 'text-warning')}>
+					{limits.openItems} of {limits.maxItems} books
+				</span>
+			</div>
+			<ProgressBar value={Math.round(room)} size="sm" />
+		</div>
 	)
 }

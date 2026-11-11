@@ -10,7 +10,7 @@ use models::entity::{
 	reading_list_item, reading_list_rule, reading_session, refresh_token, series,
 	series_metadata, series_tag, server_config, session, smart_list,
 	smart_list_access_rule, smart_list_view, tag, user, user_discover_rules,
-	user_login_activity, user_preferences, user_sharing_settings,
+	user_intake_limits, user_login_activity, user_preferences, user_sharing_settings,
 };
 use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, DbErr, Schema};
 pub async fn test_database() -> DbConn {
@@ -66,6 +66,7 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(access_audit::Entity),
 		schema.create_table_from_entity(access_signin_mark::Entity),
 		schema.create_table_from_entity(access_password_reset::Entity),
+		schema.create_table_from_entity(user_intake_limits::Entity),
 		schema.create_table_from_entity(server_config::Entity),
 		schema.create_table_from_entity(refresh_token::Entity),
 		schema.create_table_from_entity(session::Entity),

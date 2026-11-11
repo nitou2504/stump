@@ -1686,14 +1686,32 @@ export type IntakeGenreSuggestion = {
   value: Scalars['String']['output'];
 };
 
-/** An item of the uploader's "Add books" inbox */
+/**
+ * An item of the uploader's "Add books" inbox
+ *
+ * What it shows depends on who looks. An approver (the server owner, or anyone who manages
+ * libraries) sees it as the analysis made it. Whoever uploaded it, and may not file books
+ * themselves, sees it through their own limits: no folders, no destination, and similar books,
+ * duplicates and suggested tags only from books they can read (see `stump_core::intake::scope`).
+ */
 export type IntakeItem = {
   __typename?: 'IntakeItem';
   createdAt: Scalars['DateTime']['output'];
-  /** What will be filed: the proposal's defaults plus the uploader's edits */
+  /**
+   * What will be filed: the proposal's defaults plus the uploader's edits. For somebody who
+   * can't choose where a book goes, without the folder and the file names
+   */
   decision?: Maybe<IntakeDecision>;
-  /** Where each file goes, relative to the library root */
+  /**
+   * Where each file goes, relative to the library root. Only for approvers: it is the
+   * library's own layout, and which names exist is an answer about the library
+   */
   destination?: Maybe<IntakeDestination>;
+  /**
+   * Why the last try with the item failed. For somebody who may not file books themselves,
+   * without what only the library knows (that a file with the name is in it, that a copy of
+   * the book was added)
+   */
   error?: Maybe<Scalars['String']['output']>;
   filedAt?: Maybe<Scalars['DateTime']['output']>;
   files: Array<IntakeFile>;
@@ -1703,17 +1721,32 @@ export type IntakeItem = {
   libraryName: Scalars['String']['output'];
   /** The type of the item's library */
   libraryType: LibraryType;
-  /** The books created by the scan after filing (empty until the scan has run) */
+  /**
+   * The books created by the scan after filing that the viewer can read (empty until the scan
+   * has run)
+   */
   mediaIds: Array<Scalars['String']['output']>;
   /** The uploaded file or folder name */
   name: Scalars['String']['output'];
-  /** What still keeps the decision from being filed (empty when it can be accepted) */
+  /**
+   * What still keeps the decision from being filed (empty when it can be accepted). For
+   * somebody who may not file books themselves, what they can fix
+   */
   problems: Array<Scalars['String']['output']>;
   /** What the server proposes (empty while analysing) */
   proposal?: Maybe<IntakeProposal>;
-  /** What filing did */
+  /**
+   * What filing did. For somebody who files nothing themselves, the paths are inside the
+   * library, not on the server's disk
+   */
   result?: Maybe<IntakeResult>;
+  /** What the approver wrote when sending it back */
+  reviewNote?: Maybe<Scalars['String']['output']>;
+  /** When an approver last decided on it */
+  reviewedAt?: Maybe<Scalars['DateTime']['output']>;
   state: IntakeState;
+  /** When it was sent for approval, while it waits there */
+  submittedAt?: Maybe<Scalars['DateTime']['output']>;
   /**
    * A library of its own for what the item looks like, when it sits in a book or mixed
    * library: the first manga or light novel library (by name) the viewer may use. Only
@@ -1721,6 +1754,16 @@ export type IntakeItem = {
    */
   suggestedLibrary?: Maybe<IntakeSuggestedLibrary>;
   updatedAt: Scalars['DateTime']['output'];
+  /** Who uploaded it */
+  uploader?: Maybe<ReaderProfile>;
+};
+
+/** A page of the items waiting for approval */
+export type IntakeItemPage = {
+  __typename?: 'IntakeItemPage';
+  nodes: Array<IntakeItem>;
+  /** How many items wait in all, not only on this page */
+  totalCount: Scalars['Int']['output'];
 };
 
 /** A single book, or a series (a folder or zip of volumes: manga, light novels) */
@@ -1728,6 +1771,15 @@ export enum IntakeKind {
   Book = 'BOOK',
   Series = 'SERIES'
 }
+
+export type IntakeLimitValues = {
+  __typename?: 'IntakeLimitValues';
+  maxFileBytes: Scalars['Int']['output'];
+  maxFilesPerRequest: Scalars['Int']['output'];
+  maxItems: Scalars['Int']['output'];
+  maxRequestBytes: Scalars['Int']['output'];
+  quotaBytes: Scalars['Int']['output'];
+};
 
 /** The descriptive metadata of an item, with where each value came from */
 export type IntakeMetadata = {
@@ -1859,10 +1911,26 @@ export enum IntakeState {
   Failed = 'FAILED',
   /** Written into the library */
   Filed = 'FILED',
+  /**
+   * An approver said yes and the files are being written into the library. It is claimed
+   * with one statement (only one of two approvals wins) and finished by a task that survives
+   * the request; after a restart it goes back to waiting for approval
+   */
+  Filing = 'FILING',
   /** Something important is missing or uncertain (author folder, genres, title...) */
   NeedsReview = 'NEEDS_REVIEW',
+  /**
+   * Sent by somebody who may not file books themselves, and waiting for an approver (the
+   * server owner, or anyone who manages libraries)
+   */
+  PendingApproval = 'PENDING_APPROVAL',
   /** Everything needed to file it is known and confident; it can be accepted as is */
-  Ready = 'READY'
+  Ready = 'READY',
+  /**
+   * An approver sent it back with a note (`reviewNote`): the uploader can change it and send
+   * it again
+   */
+  Rejected = 'REJECTED'
 }
 
 /** A library an item could be filed into instead, for what it looks like */
@@ -1870,6 +1938,34 @@ export type IntakeSuggestedLibrary = {
   __typename?: 'IntakeSuggestedLibrary';
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
+};
+
+/** What the viewer may upload now, and how much of it they have used */
+export type IntakeUploadLimits = {
+  __typename?: 'IntakeUploadLimits';
+  /** Whether the viewer files books themselves: there is nobody to send them to */
+  canFileDirectly: Scalars['Boolean']['output'];
+  /** Why not, when they are not */
+  closedReason?: Maybe<Scalars['String']['output']>;
+  /** The biggest single file */
+  maxFileBytes: Scalars['Int']['output'];
+  maxFilesPerRequest: Scalars['Int']['output'];
+  /** The most open items (not filed, discarded or sent back) */
+  maxItems: Scalars['Int']['output'];
+  /** The most bytes in one upload request */
+  maxRequestBytes: Scalars['Int']['output'];
+  openItems: Scalars['Int']['output'];
+  /**
+   * Whether the quota and the item limit hold for the viewer (not for somebody who files
+   * books themselves)
+   */
+  quotaApplies: Scalars['Boolean']['output'];
+  /** The most bytes of the viewer's books waiting in their inbox */
+  quotaBytes: Scalars['Int']['output'];
+  /** Whether uploads from the viewer are accepted now */
+  uploadsOpen: Scalars['Boolean']['output'];
+  /** The bytes waiting there now */
+  usedBytes: Scalars['Int']['output'];
 };
 
 /** How an upload of several files is grouped into inbox items */
@@ -3451,26 +3547,52 @@ export type Mutation = {
   finishSeriesProgress: Scalars['Int']['output'];
   generateLibraryThumbnails: Scalars['Boolean']['output'];
   /**
-   * Files ready items into their library. Items that fail keep their state and get an
-   * `error`; the others become `FILED`.
+   * Files ready items into their library, for somebody who files books themselves. Items that
+   * fail keep their state and get an `error`; the others become `FILED`.
    */
   intakeAccept: Array<IntakeItem>;
   /**
+   * Approves items waiting in the approval queue of libraries the approver can use. Each is
+   * filed in the background (`FILING`, then `FILED`); an item already being filed comes back
+   * as it is
+   */
+  intakeApprove: Array<IntakeItem>;
+  /**
    * Moves an item to another library (one the user can use) and analyses it again there: the
-   * proposal, the folder and the file names are made for the library the item is in
+   * proposal, the folder and the file names are made for the library the item is in. An
+   * approver can move an item that waits for approval, to a library its uploader can use too
    */
   intakeChangeLibrary: IntakeItem;
   /** Throws items away with their staged files. Returns how many were discarded. */
   intakeDiscard: Scalars['Int']['output'];
   /** Analyses an item again (e.g. after a failure, or to look it up online) */
   intakeReanalyse: IntakeItem;
-  /** Saves the uploader's review of an item (omitted fields keep their value) */
+  /**
+   * Sends an item of the approval queue back to its uploader with a note (`reviewNote`): they
+   * can change it and send it again
+   */
+  intakeReject: IntakeItem;
+  /**
+   * Saves a review of an item (omitted fields keep their value). The uploader reviews their
+   * own; an approver can also review an item that waits for approval. Somebody who needs
+   * approval can't choose the folder, the file names or the kind of series, their texts are
+   * plain and of a sensible length, and the age rating can't go down.
+   */
   intakeReview: IntakeItem;
   /**
-   * Uploads books into the user's inbox for a library. Each book (or each folder / .zip
-   * of volumes) becomes an item that is analysed right away; poll `intakeItems`.
+   * Sends ready items to be approved, for somebody who may not file books themselves. They
+   * wait in the approval queue (`PENDING_APPROVAL`) until an approver files or sends them back
+   */
+  intakeSubmit: Array<IntakeItem>;
+  /**
+   * Uploads books into the user's inbox for a library, for somebody who files books
+   * themselves. Each book (or each folder / .zip of volumes) becomes an item that is analysed
+   * right away; poll `intakeItems`. Everybody else uploads through `POST /api/v2/intake/upload`,
+   * which streams the files to disk within the limits.
    */
   intakeUpload: Array<IntakeItem>;
+  /** Takes items back from the approval queue, to change them */
+  intakeWithdraw: Array<IntakeItem>;
   /** Deletes the membership of the caller to the target book club */
   leaveBookClub: BookClubMember;
   /** Lock or unlock a discussion (Moderator+) */
@@ -3747,6 +3869,11 @@ export type Mutation = {
   /** Update the status of a suggestion (Admin+) */
   updateSuggestionStatus: BookClubBookSuggestion;
   updateUser: User;
+  /**
+   * Gives a user limits of their own for what they may upload (the ones left out follow the
+   * server's), or takes them away with all fields null
+   */
+  updateUserIntakeLimits: UserIntakeLimits;
   updateUserLockStatus: User;
   updateViewer: User;
   updateViewerPreferences: UserPreferences;
@@ -4225,6 +4352,11 @@ export type MutationIntakeAcceptArgs = {
 };
 
 
+export type MutationIntakeApproveArgs = {
+  ids: Array<Scalars['ID']['input']>;
+};
+
+
 export type MutationIntakeChangeLibraryArgs = {
   id: Scalars['ID']['input'];
   libraryId: Scalars['ID']['input'];
@@ -4242,9 +4374,20 @@ export type MutationIntakeReanalyseArgs = {
 };
 
 
+export type MutationIntakeRejectArgs = {
+  id: Scalars['ID']['input'];
+  note: Scalars['String']['input'];
+};
+
+
 export type MutationIntakeReviewArgs = {
   id: Scalars['ID']['input'];
   input: IntakeReviewInput;
+};
+
+
+export type MutationIntakeSubmitArgs = {
+  ids: Array<Scalars['ID']['input']>;
 };
 
 
@@ -4253,6 +4396,11 @@ export type MutationIntakeUploadArgs = {
   libraryId: Scalars['ID']['input'];
   mode?: IntakeUploadMode;
   relativePaths?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+
+export type MutationIntakeWithdrawArgs = {
+  ids: Array<Scalars['ID']['input']>;
 };
 
 
@@ -4729,6 +4877,12 @@ export type MutationUpdateSuggestionStatusArgs = {
 export type MutationUpdateUserArgs = {
   id: Scalars['ID']['input'];
   input: UpdateUserInput;
+};
+
+
+export type MutationUpdateUserIntakeLimitsArgs = {
+  input: UserIntakeLimitsInput;
+  userId: Scalars['ID']['input'];
 };
 
 
@@ -5460,16 +5614,24 @@ export type Query = {
    * most recent first
    */
   heldFiles: Array<HeldFile>;
-  /** Existing author folders (no `seriesKind`) or series folders, for the folder picker */
+  /**
+   * Existing author folders (no `seriesKind`) or series folders, for the folder picker of
+   * somebody who chooses where books go (an approver)
+   */
   intakeFolders: Array<IntakeFolder>;
   intakeItem?: Maybe<IntakeItem>;
   /**
-   * The items of the user's "Add books" inbox, newest first. By default everything but
-   * discarded items.
+   * The items of the user's "Add books" inbox, newest first (the latest 100 at most). By
+   * default everything but discarded items.
    */
   intakeItems: Array<IntakeItem>;
   /** The libraries the user can add books to */
   intakeLibraries: Array<Library>;
+  /**
+   * What the viewer may upload, how much of it they have used, and whether uploads are open
+   * for them now
+   */
+  intakeUploadLimits: IntakeUploadLimits;
   /** The tags the library uses (most used first), for the tag picker */
   intakeVocabulary: Array<IntakeVocabularyEntry>;
   jobById?: Maybe<Job>;
@@ -5570,6 +5732,13 @@ export type Query = {
   onDeck: PaginatedMediaResponse;
   /** The online lookups' settings (whether a Google Books API key is set) */
   onlineLookupSettings: OnlineLookupSettings;
+  /** How many items wait for approval in the libraries the viewer can use */
+  pendingIntakeCount: Scalars['Int']['output'];
+  /**
+   * The items waiting for approval in the libraries the viewer can use, oldest first, for the
+   * approvers' review page
+   */
+  pendingIntakeItems: IntakeItemPage;
   /** Return all metadata fetch records that are awaiting user review. */
   pendingMetadataMatches: Array<MetadataFetchRecord>;
   /** Post-processing tasks, most recently updated first */
@@ -5656,6 +5825,11 @@ export type Query = {
   uploadConfig: UploadConfig;
   userById: User;
   userCount: Scalars['Int']['output'];
+  /**
+   * The upload limits an admin gave a user, and what applies to them. A user can read their
+   * own; reading somebody else's takes managing users
+   */
+  userIntakeLimits: UserIntakeLimits;
   users: PaginatedUserResponse;
 };
 
@@ -5979,6 +6153,13 @@ export type QueryOnDeckArgs = {
 };
 
 
+export type QueryPendingIntakeItemsArgs = {
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  page?: Scalars['Int']['input'];
+  pageSize?: Scalars['Int']['input'];
+};
+
+
 export type QueryPostProcessingTasksArgs = {
   kind?: InputMaybe<PostProcessKind>;
   libraryId?: InputMaybe<Scalars['ID']['input']>;
@@ -6097,6 +6278,11 @@ export type QueryTopReadersArgs = {
 
 export type QueryUserByIdArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryUserIntakeLimitsArgs = {
+  userId: Scalars['ID']['input'];
 };
 
 
@@ -7555,6 +7741,31 @@ export type User = {
 
 export type UserContinueReadingArgs = {
   pagination?: Pagination;
+};
+
+/** The limits that apply to somebody, and the ones an admin gave them */
+export type UserIntakeLimits = {
+  __typename?: 'UserIntakeLimits';
+  /** What applies to them now, from the server's limits and their own */
+  effective: IntakeLimitValues;
+  /** The user's own limit, in MB; empty follows the server's */
+  maxFileMb?: Maybe<Scalars['Int']['output']>;
+  maxFilesPerRequest?: Maybe<Scalars['Int']['output']>;
+  maxItems?: Maybe<Scalars['Int']['output']>;
+  quotaMb?: Maybe<Scalars['Int']['output']>;
+  userId: Scalars['ID']['output'];
+};
+
+/** The limits an admin gives a user of their own. Left out (null), a limit follows the server's */
+export type UserIntakeLimitsInput = {
+  /** The biggest file, in MB */
+  maxFileMb?: InputMaybe<Scalars['Int']['input']>;
+  /** The most files in one upload request */
+  maxFilesPerRequest?: InputMaybe<Scalars['Int']['input']>;
+  /** The most inbox items that are not filed, discarded or sent back */
+  maxItems?: InputMaybe<Scalars['Int']['input']>;
+  /** The most MB of their books that may wait in their inbox */
+  quotaMb?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type UserLoginActivity = {
@@ -9517,10 +9728,15 @@ export type UpdateHomeArrangementMutationVariables = Exact<{
 
 export type UpdateHomeArrangementMutation = { __typename?: 'Mutation', updateHomeArrangement: { __typename?: 'HomeArrangement', sections: Array<{ __typename?: 'ArrangementSection', visible: boolean, config: { __typename: 'CustomArrangementConfig' } | { __typename: 'DiscoverBooks', name?: string | null } | { __typename: 'InProgressBooks', name?: string | null } | { __typename: 'OnDeckBooks', name?: string | null } | { __typename: 'RecentlyAdded', entity: FilterableArrangementEntity, name?: string | null } | { __typename: 'SystemArrangementConfig' } }> } };
 
+export type IntakeItemFieldsFragment = { __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, libraryType: LibraryType, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, submittedAt?: any | null, reviewedAt?: any | null, reviewNote?: string | null, problems: Array<string>, mediaIds: Array<string>, suggestedLibrary?: { __typename?: 'IntakeSuggestedLibrary', id: string, name: string } | null, uploader?: { __typename?: 'ReaderProfile', id: string, username: string, avatarUrl?: string | null } | null, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null } & { ' $fragmentName'?: 'IntakeItemFieldsFragment' };
+
 export type IntakeItemsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<{ __typename?: 'IntakeItem', id: string, libraryId: string, libraryName: string, libraryType: LibraryType, state: IntakeState, kind: IntakeKind, name: string, error?: string | null, createdAt: any, filedAt?: any | null, problems: Array<string>, mediaIds: Array<string>, suggestedLibrary?: { __typename?: 'IntakeSuggestedLibrary', id: string, name: string } | null, files: Array<{ __typename?: 'IntakeFile', originalName: string, size: number, format: string, volume?: number | null, title?: string | null }>, proposal?: { __typename?: 'IntakeProposal', seriesKind?: IntakeSeriesKind | null, warnings: Array<string>, confidence: number, lookedUpOnline: boolean, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, description?: string | null, isbn?: string | null, subjects: Array<string>, genres: Array<string>, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> }, authorFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, seriesFolders: Array<{ __typename?: 'IntakeFolderCandidate', folder: string, books: number, confidence: number, reason: string, isNew: boolean }>, genreSuggestions: Array<{ __typename?: 'IntakeGenreSuggestion', value: string, confidence: number, reasons: Array<string>, libraryCount: number, selected: boolean, kind: string }>, similarBooks: Array<{ __typename?: 'IntakeSimilarBook', mediaId: string, title: string, authors: Array<string>, genres: Array<string>, reason: string }>, duplicates: Array<{ __typename?: 'IntakeDuplicate', mediaId: string, path: string, title: string, reason: string, fileName: string }> } | null, decision?: { __typename?: 'IntakeDecision', seriesKind?: IntakeSeriesKind | null, folder: string, fileNames: Array<string>, volumes: Array<number | null>, metadata: { __typename?: 'IntakeMetadata', title?: string | null, authors: Array<string>, series?: string | null, seriesIndex?: number | null, language?: string | null, year?: number | null, publisher?: string | null, genres: Array<string>, ageRating?: number | null, sources: Array<{ __typename?: 'IntakeFieldSource', field: string, source: IntakeSource }> } } | null, destination?: { __typename?: 'IntakeDestination', relativeDir: string, dirExists: boolean, files: Array<{ __typename?: 'IntakeDestinationFile', originalName: string, relativePath: string, exists: boolean }> } | null, result?: { __typename?: 'IntakeResult', paths: Array<string>, notes: Array<string> } | null }> };
+export type IntakeItemsQuery = { __typename?: 'Query', intakeItems: Array<(
+    { __typename?: 'IntakeItem' }
+    & { ' $fragmentRefs'?: { 'IntakeItemFieldsFragment': IntakeItemFieldsFragment } }
+  )> };
 
 export type IntakeLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -9545,16 +9761,6 @@ export type IntakeFoldersQueryVariables = Exact<{
 
 
 export type IntakeFoldersQuery = { __typename?: 'Query', intakeFolders: Array<{ __typename?: 'IntakeFolder', name: string, books: number }> };
-
-export type IntakeUploadMutationVariables = Exact<{
-  libraryId: Scalars['ID']['input'];
-  files: Array<Scalars['Upload']['input']> | Scalars['Upload']['input'];
-  relativePaths?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
-  mode?: IntakeUploadMode;
-}>;
-
-
-export type IntakeUploadMutation = { __typename?: 'Mutation', intakeUpload: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
 
 export type IntakeReviewMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -9593,6 +9799,84 @@ export type IntakeDiscardMutationVariables = Exact<{
 
 
 export type IntakeDiscardMutation = { __typename?: 'Mutation', intakeDiscard: number };
+
+export type IntakeUploadLimitsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeUploadLimitsQuery = { __typename?: 'Query', intakeUploadLimits: { __typename?: 'IntakeUploadLimits', maxRequestBytes: number, maxFileBytes: number, maxFilesPerRequest: number, quotaBytes: number, usedBytes: number, maxItems: number, openItems: number, quotaApplies: boolean, canFileDirectly: boolean, uploadsOpen: boolean, closedReason?: string | null } };
+
+export type PendingIntakeItemsQueryVariables = Exact<{
+  libraryId?: InputMaybe<Scalars['ID']['input']>;
+  page?: Scalars['Int']['input'];
+  pageSize?: Scalars['Int']['input'];
+}>;
+
+
+export type PendingIntakeItemsQuery = { __typename?: 'Query', pendingIntakeItems: { __typename?: 'IntakeItemPage', totalCount: number, nodes: Array<(
+      { __typename?: 'IntakeItem' }
+      & { ' $fragmentRefs'?: { 'IntakeItemFieldsFragment': IntakeItemFieldsFragment } }
+    )> } };
+
+export type PendingIntakeCountQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PendingIntakeCountQuery = { __typename?: 'Query', pendingIntakeCount: number };
+
+export type IntakeUploaderAgeQueryVariables = Exact<{
+  userId: Scalars['ID']['input'];
+}>;
+
+
+export type IntakeUploaderAgeQuery = { __typename?: 'Query', userById: { __typename?: 'User', id: string, ageRestriction?: { __typename?: 'AgeRestriction', age: number, restrictOnUnset: boolean } | null } };
+
+export type IntakeLimitUsersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type IntakeLimitUsersQuery = { __typename?: 'Query', users: { __typename?: 'PaginatedUserResponse', nodes: Array<{ __typename?: 'User', id: string, username: string, isServerOwner: boolean, permissions: Array<UserPermission> }> } };
+
+export type UserIntakeLimitsQueryVariables = Exact<{
+  userId: Scalars['ID']['input'];
+}>;
+
+
+export type UserIntakeLimitsQuery = { __typename?: 'Query', userIntakeLimits: { __typename?: 'UserIntakeLimits', userId: string, maxFileMb?: number | null, maxFilesPerRequest?: number | null, quotaMb?: number | null, maxItems?: number | null, effective: { __typename?: 'IntakeLimitValues', maxFileBytes: number, maxFilesPerRequest: number, quotaBytes: number, maxItems: number } } };
+
+export type UpdateUserIntakeLimitsMutationVariables = Exact<{
+  userId: Scalars['ID']['input'];
+  input: UserIntakeLimitsInput;
+}>;
+
+
+export type UpdateUserIntakeLimitsMutation = { __typename?: 'Mutation', updateUserIntakeLimits: { __typename?: 'UserIntakeLimits', userId: string, maxFileMb?: number | null, maxFilesPerRequest?: number | null, quotaMb?: number | null, maxItems?: number | null, effective: { __typename?: 'IntakeLimitValues', maxFileBytes: number, maxFilesPerRequest: number, quotaBytes: number, maxItems: number } } };
+
+export type IntakeSubmitMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeSubmitMutation = { __typename?: 'Mutation', intakeSubmit: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
+
+export type IntakeWithdrawMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeWithdrawMutation = { __typename?: 'Mutation', intakeWithdraw: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState }> };
+
+export type IntakeApproveMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type IntakeApproveMutation = { __typename?: 'Mutation', intakeApprove: Array<{ __typename?: 'IntakeItem', id: string, state: IntakeState, error?: string | null }> };
+
+export type IntakeRejectMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  note: Scalars['String']['input'];
+}>;
+
+
+export type IntakeRejectMutation = { __typename?: 'Mutation', intakeReject: { __typename?: 'IntakeItem', id: string, state: IntakeState, reviewNote?: string | null } };
 
 export type LibrariesSceneQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -12322,6 +12606,135 @@ export const RecentlyAddedBookFragmentDoc = new TypedDocumentString(`
   }
 }
     `, {"fragmentName":"RecentlyAddedBook"}) as unknown as TypedDocumentString<RecentlyAddedBookFragment, unknown>;
+export const IntakeItemFieldsFragmentDoc = new TypedDocumentString(`
+    fragment IntakeItemFields on IntakeItem {
+  id
+  libraryId
+  libraryName
+  libraryType
+  suggestedLibrary {
+    id
+    name
+  }
+  state
+  kind
+  name
+  error
+  createdAt
+  filedAt
+  submittedAt
+  reviewedAt
+  reviewNote
+  uploader {
+    id
+    username
+    avatarUrl
+  }
+  problems
+  mediaIds
+  files {
+    originalName
+    size
+    format
+    volume
+    title
+  }
+  proposal {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      isbn
+      subjects
+      genres
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    authorFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    seriesFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    genreSuggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    duplicates {
+      mediaId
+      path
+      title
+      reason
+      fileName
+    }
+    warnings
+    confidence
+    lookedUpOnline
+  }
+  decision {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      genres
+      ageRating
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    folder
+    fileNames
+    volumes
+  }
+  destination {
+    relativeDir
+    dirExists
+    files {
+      originalName
+      relativePath
+      exists
+    }
+  }
+  result {
+    paths
+    notes
+  }
+}
+    `, {"fragmentName":"IntakeItemFields"}) as unknown as TypedDocumentString<IntakeItemFieldsFragment, unknown>;
 export const LibrarySettingsConfigFragmentDoc = new TypedDocumentString(`
     fragment LibrarySettingsConfig on Library {
   config {
@@ -17949,125 +18362,136 @@ export const UpdateHomeArrangementDocument = new TypedDocumentString(`
 export const IntakeItemsDocument = new TypedDocumentString(`
     query IntakeItems {
   intakeItems {
-    id
-    libraryId
-    libraryName
-    libraryType
-    suggestedLibrary {
-      id
-      name
-    }
-    state
-    kind
-    name
-    error
-    createdAt
-    filedAt
-    problems
-    mediaIds
-    files {
-      originalName
-      size
-      format
-      volume
-      title
-    }
-    proposal {
-      metadata {
-        title
-        authors
-        series
-        seriesIndex
-        language
-        year
-        publisher
-        description
-        isbn
-        subjects
-        genres
-        sources {
-          field
-          source
-        }
-      }
-      seriesKind
-      authorFolders {
-        folder
-        books
-        confidence
-        reason
-        isNew
-      }
-      seriesFolders {
-        folder
-        books
-        confidence
-        reason
-        isNew
-      }
-      genreSuggestions {
-        value
-        confidence
-        reasons
-        libraryCount
-        selected
-        kind
-      }
-      similarBooks {
-        mediaId
-        title
-        authors
-        genres
-        reason
-      }
-      duplicates {
-        mediaId
-        path
-        title
-        reason
-        fileName
-      }
-      warnings
-      confidence
-      lookedUpOnline
-    }
-    decision {
-      metadata {
-        title
-        authors
-        series
-        seriesIndex
-        language
-        year
-        publisher
-        genres
-        ageRating
-        sources {
-          field
-          source
-        }
-      }
-      seriesKind
-      folder
-      fileNames
-      volumes
-    }
-    destination {
-      relativeDir
-      dirExists
-      files {
-        originalName
-        relativePath
-        exists
-      }
-    }
-    result {
-      paths
-      notes
-    }
+    ...IntakeItemFields
   }
 }
-    `) as unknown as TypedDocumentString<IntakeItemsQuery, IntakeItemsQueryVariables>;
+    fragment IntakeItemFields on IntakeItem {
+  id
+  libraryId
+  libraryName
+  libraryType
+  suggestedLibrary {
+    id
+    name
+  }
+  state
+  kind
+  name
+  error
+  createdAt
+  filedAt
+  submittedAt
+  reviewedAt
+  reviewNote
+  uploader {
+    id
+    username
+    avatarUrl
+  }
+  problems
+  mediaIds
+  files {
+    originalName
+    size
+    format
+    volume
+    title
+  }
+  proposal {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      isbn
+      subjects
+      genres
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    authorFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    seriesFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    genreSuggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    duplicates {
+      mediaId
+      path
+      title
+      reason
+      fileName
+    }
+    warnings
+    confidence
+    lookedUpOnline
+  }
+  decision {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      genres
+      ageRating
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    folder
+    fileNames
+    volumes
+  }
+  destination {
+    relativeDir
+    dirExists
+    files {
+      originalName
+      relativePath
+      exists
+    }
+  }
+  result {
+    paths
+    notes
+  }
+}`) as unknown as TypedDocumentString<IntakeItemsQuery, IntakeItemsQueryVariables>;
 export const IntakeLibrariesDocument = new TypedDocumentString(`
     query IntakeLibraries {
   intakeLibraries {
@@ -18098,19 +18522,6 @@ export const IntakeFoldersDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<IntakeFoldersQuery, IntakeFoldersQueryVariables>;
-export const IntakeUploadDocument = new TypedDocumentString(`
-    mutation IntakeUpload($libraryId: ID!, $files: [Upload!]!, $relativePaths: [String!], $mode: IntakeUploadMode! = AUTO) {
-  intakeUpload(
-    libraryId: $libraryId
-    files: $files
-    relativePaths: $relativePaths
-    mode: $mode
-  ) {
-    id
-    state
-  }
-}
-    `) as unknown as TypedDocumentString<IntakeUploadMutation, IntakeUploadMutationVariables>;
 export const IntakeReviewDocument = new TypedDocumentString(`
     mutation IntakeReview($id: ID!, $input: IntakeReviewInput!) {
   intakeReview(id: $id, input: $input) {
@@ -18150,6 +18561,255 @@ export const IntakeDiscardDocument = new TypedDocumentString(`
   intakeDiscard(ids: $ids)
 }
     `) as unknown as TypedDocumentString<IntakeDiscardMutation, IntakeDiscardMutationVariables>;
+export const IntakeUploadLimitsDocument = new TypedDocumentString(`
+    query IntakeUploadLimits {
+  intakeUploadLimits {
+    maxRequestBytes
+    maxFileBytes
+    maxFilesPerRequest
+    quotaBytes
+    usedBytes
+    maxItems
+    openItems
+    quotaApplies
+    canFileDirectly
+    uploadsOpen
+    closedReason
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeUploadLimitsQuery, IntakeUploadLimitsQueryVariables>;
+export const PendingIntakeItemsDocument = new TypedDocumentString(`
+    query PendingIntakeItems($libraryId: ID, $page: Int! = 1, $pageSize: Int! = 20) {
+  pendingIntakeItems(libraryId: $libraryId, page: $page, pageSize: $pageSize) {
+    totalCount
+    nodes {
+      ...IntakeItemFields
+    }
+  }
+}
+    fragment IntakeItemFields on IntakeItem {
+  id
+  libraryId
+  libraryName
+  libraryType
+  suggestedLibrary {
+    id
+    name
+  }
+  state
+  kind
+  name
+  error
+  createdAt
+  filedAt
+  submittedAt
+  reviewedAt
+  reviewNote
+  uploader {
+    id
+    username
+    avatarUrl
+  }
+  problems
+  mediaIds
+  files {
+    originalName
+    size
+    format
+    volume
+    title
+  }
+  proposal {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      isbn
+      subjects
+      genres
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    authorFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    seriesFolders {
+      folder
+      books
+      confidence
+      reason
+      isNew
+    }
+    genreSuggestions {
+      value
+      confidence
+      reasons
+      libraryCount
+      selected
+      kind
+    }
+    similarBooks {
+      mediaId
+      title
+      authors
+      genres
+      reason
+    }
+    duplicates {
+      mediaId
+      path
+      title
+      reason
+      fileName
+    }
+    warnings
+    confidence
+    lookedUpOnline
+  }
+  decision {
+    metadata {
+      title
+      authors
+      series
+      seriesIndex
+      language
+      year
+      publisher
+      description
+      genres
+      ageRating
+      sources {
+        field
+        source
+      }
+    }
+    seriesKind
+    folder
+    fileNames
+    volumes
+  }
+  destination {
+    relativeDir
+    dirExists
+    files {
+      originalName
+      relativePath
+      exists
+    }
+  }
+  result {
+    paths
+    notes
+  }
+}`) as unknown as TypedDocumentString<PendingIntakeItemsQuery, PendingIntakeItemsQueryVariables>;
+export const PendingIntakeCountDocument = new TypedDocumentString(`
+    query PendingIntakeCount {
+  pendingIntakeCount
+}
+    `) as unknown as TypedDocumentString<PendingIntakeCountQuery, PendingIntakeCountQueryVariables>;
+export const IntakeUploaderAgeDocument = new TypedDocumentString(`
+    query IntakeUploaderAge($userId: ID!) {
+  userById(id: $userId) {
+    id
+    ageRestriction {
+      age
+      restrictOnUnset
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeUploaderAgeQuery, IntakeUploaderAgeQueryVariables>;
+export const IntakeLimitUsersDocument = new TypedDocumentString(`
+    query IntakeLimitUsers {
+  users(pagination: {none: {unpaginated: true}}) {
+    nodes {
+      id
+      username
+      isServerOwner
+      permissions
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeLimitUsersQuery, IntakeLimitUsersQueryVariables>;
+export const UserIntakeLimitsDocument = new TypedDocumentString(`
+    query UserIntakeLimits($userId: ID!) {
+  userIntakeLimits(userId: $userId) {
+    userId
+    maxFileMb
+    maxFilesPerRequest
+    quotaMb
+    maxItems
+    effective {
+      maxFileBytes
+      maxFilesPerRequest
+      quotaBytes
+      maxItems
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<UserIntakeLimitsQuery, UserIntakeLimitsQueryVariables>;
+export const UpdateUserIntakeLimitsDocument = new TypedDocumentString(`
+    mutation UpdateUserIntakeLimits($userId: ID!, $input: UserIntakeLimitsInput!) {
+  updateUserIntakeLimits(userId: $userId, input: $input) {
+    userId
+    maxFileMb
+    maxFilesPerRequest
+    quotaMb
+    maxItems
+    effective {
+      maxFileBytes
+      maxFilesPerRequest
+      quotaBytes
+      maxItems
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<UpdateUserIntakeLimitsMutation, UpdateUserIntakeLimitsMutationVariables>;
+export const IntakeSubmitDocument = new TypedDocumentString(`
+    mutation IntakeSubmit($ids: [ID!]!) {
+  intakeSubmit(ids: $ids) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeSubmitMutation, IntakeSubmitMutationVariables>;
+export const IntakeWithdrawDocument = new TypedDocumentString(`
+    mutation IntakeWithdraw($ids: [ID!]!) {
+  intakeWithdraw(ids: $ids) {
+    id
+    state
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeWithdrawMutation, IntakeWithdrawMutationVariables>;
+export const IntakeApproveDocument = new TypedDocumentString(`
+    mutation IntakeApprove($ids: [ID!]!) {
+  intakeApprove(ids: $ids) {
+    id
+    state
+    error
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeApproveMutation, IntakeApproveMutationVariables>;
+export const IntakeRejectDocument = new TypedDocumentString(`
+    mutation IntakeReject($id: ID!, $note: String!) {
+  intakeReject(id: $id, note: $note) {
+    id
+    state
+    reviewNote
+  }
+}
+    `) as unknown as TypedDocumentString<IntakeRejectMutation, IntakeRejectMutationVariables>;
 export const LibrariesSceneDocument = new TypedDocumentString(`
     query LibrariesScene {
   libraries(pagination: {none: {unpaginated: true}}) {

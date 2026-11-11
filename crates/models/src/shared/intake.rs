@@ -46,6 +46,16 @@ pub enum IntakeState {
 	Failed,
 	/// Thrown away by the uploader; its staged files are deleted
 	Discarded,
+	/// Sent by somebody who may not file books themselves, and waiting for an approver (the
+	/// server owner, or anyone who manages libraries)
+	PendingApproval,
+	/// An approver sent it back with a note (`reviewNote`): the uploader can change it and send
+	/// it again
+	Rejected,
+	/// An approver said yes and the files are being written into the library. It is claimed
+	/// with one statement (only one of two approvals wins) and finished by a task that survives
+	/// the request; after a restart it goes back to waiting for approval
+	Filing,
 }
 
 /// A single book, or a series (a folder or zip of volumes: manga, light novels)
@@ -75,6 +85,19 @@ pub enum IntakeState {
 pub enum IntakeKind {
 	#[default]
 	Book,
+	Series,
+}
+
+/// How an upload of several files is grouped into inbox items
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Enum)]
+pub enum IntakeUploadMode {
+	/// Files in a folder (or books inside a .zip) make one series item; loose files are
+	/// one book each
+	#[default]
+	Auto,
+	/// Every file is its own book
+	Books,
+	/// All the files are the volumes of one series
 	Series,
 }
 
@@ -223,6 +246,10 @@ pub struct IntakeFile {
 	pub volume: Option<f64>,
 	/// The title read from this file (volumes may carry their own)
 	pub title: Option<String>,
+	/// What the isolated checker said of this file (its verdict, as the server stored it): the
+	/// server reads none of the bytes of a book from somebody who needs approval, it uses this
+	#[graphql(skip)]
+	pub screening: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, FromJsonQueryResult)]
@@ -316,6 +343,26 @@ pub struct IntakeProposal {
 	pub looked_up_online: bool,
 	/// How each online source answered, when they were asked
 	pub online_lookups: Vec<OnlineLookup>,
+	/// What the analysis found when it looked only at the books the uploader can read. Everything
+	/// above that comes from the whole library (the kind of series, the tags, the similar books, the
+	/// warnings, the confidence) says what the library holds, hidden books included: somebody who
+	/// may not file books themselves gets this instead, and never the proposal itself. Not part of
+	/// the API.
+	#[graphql(skip)]
+	pub uploader_view: Option<IntakeUploaderView>,
+}
+
+/// The parts of a proposal that depend on the books of the library, as one person can see them
+/// (the library hidden from them, their age restriction and the books removed from it left out)
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IntakeUploaderView {
+	pub series_kind: Option<IntakeSeriesKind>,
+	pub genre_suggestions: Vec<IntakeGenreSuggestion>,
+	pub similar_books: Vec<IntakeSimilarBook>,
+	pub warnings: Vec<String>,
+	/// 0-1
+	pub confidence: f64,
 }
 
 /// The values that will be filed: the proposal's defaults, then the uploader's edits

@@ -12,7 +12,7 @@ mod email_device;
 mod emailer;
 mod epub;
 mod filesystem;
-mod intake;
+pub(crate) mod intake;
 mod job;
 mod library;
 mod log;

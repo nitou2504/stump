@@ -44,6 +44,21 @@ pub struct Model {
 	pub created_at: DateTimeWithTimeZone,
 	pub updated_at: DateTimeWithTimeZone,
 	pub filed_at: Option<DateTimeWithTimeZone>,
+	/// When the uploader sent it for approval. Set while it waits in the approval queue (and
+	/// while it is being filed); cleared when it goes back to the uploader
+	pub submitted_at: Option<DateTimeWithTimeZone>,
+	/// When an approver last decided on it (approved or sent back)
+	pub reviewed_at: Option<DateTimeWithTimeZone>,
+	/// The approver who last decided on it. Not a foreign key: the history of an item outlives
+	/// the account of whoever reviewed it
+	#[sea_orm(column_type = "Text", nullable)]
+	pub reviewed_by: Option<String>,
+	/// What the approver wrote when sending it back
+	#[sea_orm(column_type = "Text", nullable)]
+	pub review_note: Option<String>,
+	/// The uploaded cover picture, in the item's staging folder (a later package)
+	#[sea_orm(column_type = "Text", nullable)]
+	pub cover_file: Option<String>,
 }
 
 impl Entity {

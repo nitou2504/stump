@@ -69,6 +69,15 @@ fn debug_setup() {
 }
 
 fn main() -> Result<(), EntryError> {
+	// the isolated checker of the books that people who need approval upload is this same binary
+	// (`stump intake-probe run|serve|selftest`): it never starts the server
+	#[cfg(target_os = "linux")]
+	{
+		let args: Vec<String> = std::env::args().collect();
+		if let Some(code) = stump_core::intake::probe::runner::maybe_run(&args) {
+			std::process::exit(code);
+		}
+	}
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.max_blocking_threads(max_blocking_threads())

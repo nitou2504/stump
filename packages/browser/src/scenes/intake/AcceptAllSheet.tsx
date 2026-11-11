@@ -14,20 +14,35 @@ type Props = {
 	onClose: () => void
 	onConfirm: (entries: Entry[]) => void
 	isPending?: boolean
+	/** What confirming does with the books: add them to the library, send them for approval, or approve them */
+	verb?: 'add' | 'send' | 'approve'
+	/** What the sheet says under its title, where the default isn't enough */
+	description?: string
 }
+
+const TITLES = { add: 'Add', approve: 'Approve', send: 'Send' } as const
 
 /**
  * The "does this look right?" step of "Add all ready": each book's destination and the tags
  * that will be written into it (guessed ones highlighted), with every tag untickable before
  * confirming.
  */
-export default function AcceptAllSheet({ items, open, onClose, onConfirm, isPending }: Props) {
+export default function AcceptAllSheet({
+	items,
+	open,
+	onClose,
+	onConfirm,
+	isPending,
+	verb = 'add',
+	description = 'Untick any genre that doesn’t fit.',
+}: Props) {
+	const books = `${items.length} ${items.length === 1 ? 'book' : 'books'}`
 	return (
 		<Sheet
 			open={open}
 			onClose={onClose}
-			title={`Add ${items.length} ${items.length === 1 ? 'book' : 'books'}`}
-			description="Untick any genre that doesn’t fit."
+			title={verb === 'send' ? `Send ${books} for approval` : `${TITLES[verb]} ${books}`}
+			description={description}
 			contentClassName="flex w-full flex-col sm:max-w-lg"
 		>
 			{open && (
@@ -36,13 +51,20 @@ export default function AcceptAllSheet({ items, open, onClose, onConfirm, isPend
 					onClose={onClose}
 					onConfirm={onConfirm}
 					isPending={isPending}
+					verb={verb}
 				/>
 			)}
 		</Sheet>
 	)
 }
 
-function AcceptAllList({ items, onClose, onConfirm, isPending }: Omit<Props, 'open'>) {
+function AcceptAllList({
+	items,
+	onClose,
+	onConfirm,
+	isPending,
+	verb = 'add',
+}: Omit<Props, 'open' | 'description'>) {
 	const reviewed = useTagReviewStore((store) => store.reviewed)
 	const [selection, setSelection] = useState<Record<string, string[]>>(() =>
 		Object.fromEntries(items.map((item) => [item.id, effectiveGenres(item, !!reviewed[item.id])])),
@@ -126,7 +148,7 @@ function AcceptAllList({ items, onClose, onConfirm, isPending }: Omit<Props, 'op
 					disabled={isPending || !items.length}
 					isLoading={isPending}
 				>
-					Add {items.length} {items.length === 1 ? 'book' : 'books'}
+					{TITLES[verb]} {items.length} {items.length === 1 ? 'book' : 'books'}
 				</Button>
 			</div>
 		</>

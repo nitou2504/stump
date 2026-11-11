@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use models::entity::media;
-use sea_orm::{ActiveModelTrait, ActiveValue, IntoActiveModel};
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, IntoActiveModel};
 use serde_json::Value;
 use tests::fake_data;
 
@@ -79,6 +79,71 @@ async fn test_epub_manifest_not_found() {
 	let response = app.get("/api/v2/epub/does-not-exist/manifest.json").await;
 
 	response.assert_status_not_found();
+}
+
+/// The routes open an `.epub` and nothing else. A zip is a zip: a comic or a PDF that has an EPUB's
+/// files in it (a friend's upload keeps its own bytes in those formats) must not be drawn by the
+/// reader, scripts and all, on the app's own origin.
+#[tokio::test]
+async fn test_epub_routes_open_only_an_epub() {
+	let (app, book_id) = setup_epub_book().await;
+	let db = app.conn();
+	let routes = |id: &str| {
+		vec![
+			format!("/api/v2/epub/{id}/manifest.json"),
+			format!("/api/v2/epub/{id}/positions.json"),
+			format!("/api/v2/epub/{id}/search?q=Alice&limit=5"),
+			format!("/api/v2/epub/{id}/resource/META-INF/container.xml"),
+		]
+	};
+
+	// the control: as an EPUB, the book is read (the resource route answers, whatever it holds)
+	for url in &routes(&book_id)[..3] {
+		app.get(url).await.assert_status_ok();
+	}
+
+	let dir = tempfile::tempdir().expect("a temporary folder");
+	for name in [
+		"book.cbz",
+		"book.cbr",
+		"book.pdf",
+		"book.zip",
+		"book.epub.cbz",
+		"book.epub.pdf",
+		"book",
+	] {
+		let copy = dir.path().join(name);
+		std::fs::copy(test_epub_path(), &copy).expect("a copy of the fixture");
+		let book = media::Entity::find_by_id(book_id.clone())
+			.one(db)
+			.await
+			.expect("the book")
+			.expect("a book");
+		let mut active = book.into_active_model();
+		active.path = ActiveValue::Set(copy.to_string_lossy().to_string());
+		active.update(db).await.expect("update media path");
+		for url in routes(&book_id) {
+			let response = app.get(&url).await;
+			assert!(
+				response.status_code() == 404,
+				"{name}: {url} answered {}",
+				response.status_code()
+			);
+		}
+	}
+
+	// an upper-case extension is still an EPUB
+	let copy = dir.path().join("BOOK.EPUB");
+	std::fs::copy(test_epub_path(), &copy).expect("a copy of the fixture");
+	let book = media::Entity::find_by_id(book_id.clone())
+		.one(db)
+		.await
+		.expect("the book")
+		.expect("a book");
+	let mut active = book.into_active_model();
+	active.path = ActiveValue::Set(copy.to_string_lossy().to_string());
+	active.update(db).await.expect("update media path");
+	app.get(&routes(&book_id)[0]).await.assert_status_ok();
 }
 
 /// manifest should return RWPM with absolute resource hrefs
@@ -241,6 +306,64 @@ async fn test_epub_nested_resource_path() {
 		.await;
 	response.assert_status_ok();
 	assert!(!response.as_bytes().is_empty());
+}
+
+/// a resource opened at its address (not through the reader) runs nothing: the page is sandboxed
+/// with no scripts, frames or forms, and the browser is told not to guess its type
+#[tokio::test]
+async fn test_epub_resources_are_served_sandboxed_and_not_sniffed() {
+	let (app, book_id) = setup_epub_book().await;
+
+	let manifest: Value = app
+		.get(format!("/api/v2/epub/{book_id}/manifest.json").as_str())
+		.await
+		.json();
+	let chapter_href = manifest["readingOrder"][0]["href"]
+		.as_str()
+		.expect("chapter href");
+	let chapter_path = resource_path_from_href(chapter_href).to_string();
+	// a document, a stylesheet and whatever the fixture holds under its nested path
+	for path in [
+		format!("/api/v2/{chapter_path}"),
+		format!("/api/v2/epub/{book_id}/resource/OEBPS/pgepub.css"),
+	] {
+		let response = app.get(&path).await;
+		response.assert_status_ok();
+		let policy = response
+			.headers()
+			.get("content-security-policy")
+			.and_then(|v| v.to_str().ok())
+			.unwrap_or_default()
+			.to_string();
+		assert!(
+			policy.starts_with("sandbox;") && policy.contains("default-src 'none'"),
+			"{path}: {policy:?}"
+		);
+		// nothing in it lets a page run a script, load a frame or send a form
+		assert!(
+			!policy.contains("script-src")
+				&& !policy.contains("frame-src")
+				&& !policy.contains("allow-scripts")
+				&& !policy.contains("allow-forms"),
+			"{path}: {policy:?}"
+		);
+		assert_eq!(
+			response
+				.headers()
+				.get("x-content-type-options")
+				.and_then(|v| v.to_str().ok()),
+			Some("nosniff"),
+			"{path}"
+		);
+	}
+	// the manifest itself is the reader's, and is not sandboxed
+	let manifest_response = app
+		.get(format!("/api/v2/epub/{book_id}/manifest.json").as_str())
+		.await;
+	assert!(manifest_response
+		.headers()
+		.get("content-security-policy")
+		.is_none());
 }
 
 /// manifest hrefs must use the request host

@@ -22,7 +22,17 @@ impl EpubQuery {
 			.await?
 			.ok_or("Media not found")?;
 
-		Epub::try_from(model)
+		// Only an EPUB is opened here, as in the REST routes (and as the web reader chooses it, by
+		// the file's extension). Any other book is a book that isn't here, answered exactly as an
+		// unknown id is, and its file is never opened: a zip is a zip, so a PDF or a comic with a
+		// zip stored in it (a friend's upload keeps its own bytes in those formats) would be parsed
+		// as a book by a reader that was never meant to see it, and a table of contents nested
+		// thousands of levels deep overflows the stack of the worker that reads it.
+		if !model.is_epub() {
+			return Err("Media not found".into());
+		}
+
+		Epub::try_from_async(model).await
 	}
 
 	/// Get all bookmarks for a single epub by its media ID

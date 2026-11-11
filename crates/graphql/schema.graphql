@@ -1574,7 +1574,14 @@ type IntakeGenreSuggestion {
 	kind: String!
 }
 
-"An item of the uploader's \"Add books\" inbox"
+"""
+An item of the uploader's "Add books" inbox
+
+What it shows depends on who looks. An approver (the server owner, or anyone who manages
+libraries) sees it as the analysis made it. Whoever uploaded it, and may not file books
+themselves, sees it through their own limits: no folders, no destination, and similar books,
+duplicates and suggested tags only from books they can read (see `stump_core::intake::scope`).
+"""
 type IntakeItem {
 	id: ID!
 	libraryId: String!
@@ -1583,20 +1590,45 @@ type IntakeItem {
 	"The uploaded file or folder name"
 	name: String!
 	files: [IntakeFile!]!
-	"What the server proposes (empty while analysing)"
-	proposal: IntakeProposal
-	"What will be filed: the proposal's defaults plus the uploader's edits"
-	decision: IntakeDecision
-	"Where each file goes, relative to the library root"
-	destination: IntakeDestination
-	"What filing did"
-	result: IntakeResult
-	error: String
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	filedAt: DateTime
-	"What still keeps the decision from being filed (empty when it can be accepted)"
+	"When it was sent for approval, while it waits there"
+	submittedAt: DateTime
+	"When an approver last decided on it"
+	reviewedAt: DateTime
+	"What the approver wrote when sending it back"
+	reviewNote: String
+	"What the server proposes (empty while analysing)"
+	proposal: IntakeProposal
+	"""
+	What will be filed: the proposal's defaults plus the uploader's edits. For somebody who
+	can't choose where a book goes, without the folder and the file names
+	"""
+	decision: IntakeDecision
+	"""
+	Where each file goes, relative to the library root. Only for approvers: it is the
+	library's own layout, and which names exist is an answer about the library
+	"""
+	destination: IntakeDestination
+	"""
+	Why the last try with the item failed. For somebody who may not file books themselves,
+	without what only the library knows (that a file with the name is in it, that a copy of
+	the book was added)
+	"""
+	error: String
+	"""
+	What filing did. For somebody who files nothing themselves, the paths are inside the
+	library, not on the server's disk
+	"""
+	result: IntakeResult
+	"""
+	What still keeps the decision from being filed (empty when it can be accepted). For
+	somebody who may not file books themselves, what they can fix
+	"""
 	problems: [String!]!
+	"Who uploaded it"
+	uploader: ReaderProfile
 	libraryName: String!
 	"The type of the item's library"
 	libraryType: LibraryType!
@@ -1606,14 +1638,32 @@ type IntakeItem {
 	libraries the viewer may use are ever named.
 	"""
 	suggestedLibrary: IntakeSuggestedLibrary
-	"The books created by the scan after filing (empty until the scan has run)"
+	"""
+	The books created by the scan after filing that the viewer can read (empty until the scan
+	has run)
+	"""
 	mediaIds: [String!]!
+}
+
+"A page of the items waiting for approval"
+type IntakeItemPage {
+	nodes: [IntakeItem!]!
+	"How many items wait in all, not only on this page"
+	totalCount: Int!
 }
 
 "A single book, or a series (a folder or zip of volumes: manga, light novels)"
 enum IntakeKind {
 	BOOK
 	SERIES
+}
+
+type IntakeLimitValues {
+	maxRequestBytes: Int!
+	maxFileBytes: Int!
+	maxFilesPerRequest: Int!
+	quotaBytes: Int!
+	maxItems: Int!
 }
 
 "The descriptive metadata of an item, with where each value came from"
@@ -1746,12 +1796,55 @@ enum IntakeState {
 	FAILED
 	"Thrown away by the uploader; its staged files are deleted"
 	DISCARDED
+	"""
+	Sent by somebody who may not file books themselves, and waiting for an approver (the
+	server owner, or anyone who manages libraries)
+	"""
+	PENDING_APPROVAL
+	"""
+	An approver sent it back with a note (`reviewNote`): the uploader can change it and send
+	it again
+	"""
+	REJECTED
+	"""
+	An approver said yes and the files are being written into the library. It is claimed
+	with one statement (only one of two approvals wins) and finished by a task that survives
+	the request; after a restart it goes back to waiting for approval
+	"""
+	FILING
 }
 
 "A library an item could be filed into instead, for what it looks like"
 type IntakeSuggestedLibrary {
 	id: ID!
 	name: String!
+}
+
+"What the viewer may upload now, and how much of it they have used"
+type IntakeUploadLimits {
+	"The most bytes in one upload request"
+	maxRequestBytes: Int!
+	"The biggest single file"
+	maxFileBytes: Int!
+	maxFilesPerRequest: Int!
+	"The most bytes of the viewer's books waiting in their inbox"
+	quotaBytes: Int!
+	"The bytes waiting there now"
+	usedBytes: Int!
+	"The most open items (not filed, discarded or sent back)"
+	maxItems: Int!
+	openItems: Int!
+	"""
+	Whether the quota and the item limit hold for the viewer (not for somebody who files
+	books themselves)
+	"""
+	quotaApplies: Boolean!
+	"Whether the viewer files books themselves: there is nobody to send them to"
+	canFileDirectly: Boolean!
+	"Whether uploads from the viewer are accepted now"
+	uploadsOpen: Boolean!
+	"Why not, when they are not"
+	closedReason: String
 }
 
 "How an upload of several files is grouped into inbox items"
@@ -3444,14 +3537,21 @@ type Mutation {
 	"Deletes held files for good (their copies in Stump's trash folder and their rows)"
 	deleteHeldFiles(ids: [Int!]!): HeldFilesDeleteResult!
 	"""
-	Uploads books into the user's inbox for a library. Each book (or each folder / .zip
-	of volumes) becomes an item that is analysed right away; poll `intakeItems`.
+	Uploads books into the user's inbox for a library, for somebody who files books
+	themselves. Each book (or each folder / .zip of volumes) becomes an item that is analysed
+	right away; poll `intakeItems`. Everybody else uploads through `POST /api/v2/intake/upload`,
+	which streams the files to disk within the limits.
 	"""
 	intakeUpload(		libraryId: ID!,		files: [Upload!]!,
 		"The path of each file inside an uploaded folder (same order)"
 		relativePaths: [String!],		mode: IntakeUploadMode! = AUTO
 	): [IntakeItem!]!
-	"Saves the uploader's review of an item (omitted fields keep their value)"
+	"""
+	Saves a review of an item (omitted fields keep their value). The uploader reviews their
+	own; an approver can also review an item that waits for approval. Somebody who needs
+	approval can't choose the folder, the file names or the kind of series, their texts are
+	plain and of a sensible length, and the age rating can't go down.
+	"""
 	intakeReview(id: ID!, input: IntakeReviewInput!): IntakeItem!
 	"Analyses an item again (e.g. after a failure, or to look it up online)"
 	intakeReanalyse(		id: ID!,
@@ -3460,16 +3560,40 @@ type Mutation {
 	): IntakeItem!
 	"""
 	Moves an item to another library (one the user can use) and analyses it again there: the
-	proposal, the folder and the file names are made for the library the item is in
+	proposal, the folder and the file names are made for the library the item is in. An
+	approver can move an item that waits for approval, to a library its uploader can use too
 	"""
 	intakeChangeLibrary(id: ID!, libraryId: ID!): IntakeItem!
 	"""
-	Files ready items into their library. Items that fail keep their state and get an
-	`error`; the others become `FILED`.
+	Files ready items into their library, for somebody who files books themselves. Items that
+	fail keep their state and get an `error`; the others become `FILED`.
 	"""
 	intakeAccept(ids: [ID!]!): [IntakeItem!]!
+	"""
+	Sends ready items to be approved, for somebody who may not file books themselves. They
+	wait in the approval queue (`PENDING_APPROVAL`) until an approver files or sends them back
+	"""
+	intakeSubmit(ids: [ID!]!): [IntakeItem!]!
+	"Takes items back from the approval queue, to change them"
+	intakeWithdraw(ids: [ID!]!): [IntakeItem!]!
+	"""
+	Approves items waiting in the approval queue of libraries the approver can use. Each is
+	filed in the background (`FILING`, then `FILED`); an item already being filed comes back
+	as it is
+	"""
+	intakeApprove(ids: [ID!]!): [IntakeItem!]!
+	"""
+	Sends an item of the approval queue back to its uploader with a note (`reviewNote`): they
+	can change it and send it again
+	"""
+	intakeReject(id: ID!, note: String!): IntakeItem!
 	"Throws items away with their staged files. Returns how many were discarded."
 	intakeDiscard(ids: [ID!]!): Int!
+	"""
+	Gives a user limits of their own for what they may upload (the ones left out follow the
+	server's), or takes them away with all fields null
+	"""
+	updateUserIntakeLimits(userId: ID!, input: UserIntakeLimitsInput!): UserIntakeLimits!
 	"Changes how the intake files books into a library"
 	updateLibraryIntakeSettings(libraryId: ID!, input: LibraryIntakeSettingsInput!): LibraryIntakeSettings!
 	"""
@@ -4383,8 +4507,8 @@ type Query {
 	"""
 	heldFiles(libraryId: ID): [HeldFile!]!
 	"""
-	The items of the user's "Add books" inbox, newest first. By default everything but
-	discarded items.
+	The items of the user's "Add books" inbox, newest first (the latest 100 at most). By
+	default everything but discarded items.
 	"""
 	intakeItems(states: [IntakeState!]): [IntakeItem!]!
 	intakeItem(id: ID!): IntakeItem
@@ -4394,8 +4518,28 @@ type Query {
 	libraryIntakeSettings(libraryId: ID!): LibraryIntakeSettings!
 	"The tags the library uses (most used first), for the tag picker"
 	intakeVocabulary(libraryId: ID!, search: String, limit: Int! = 30): [IntakeVocabularyEntry!]!
-	"Existing author folders (no `seriesKind`) or series folders, for the folder picker"
+	"""
+	Existing author folders (no `seriesKind`) or series folders, for the folder picker of
+	somebody who chooses where books go (an approver)
+	"""
 	intakeFolders(libraryId: ID!, seriesKind: IntakeSeriesKind, search: String, limit: Int! = 30): [IntakeFolder!]!
+	"""
+	The items waiting for approval in the libraries the viewer can use, oldest first, for the
+	approvers' review page
+	"""
+	pendingIntakeItems(libraryId: ID, page: Int! = 1, pageSize: Int! = 20): IntakeItemPage!
+	"How many items wait for approval in the libraries the viewer can use"
+	pendingIntakeCount: Int!
+	"""
+	What the viewer may upload, how much of it they have used, and whether uploads are open
+	for them now
+	"""
+	intakeUploadLimits: IntakeUploadLimits!
+	"""
+	The upload limits an admin gave a user, and what applies to them. A user can read their
+	own; reading somebody else's takes managing users
+	"""
+	userIntakeLimits(userId: ID!): UserIntakeLimits!
 	"Books filed through the intake, newest first (who added what, when, where)"
 	recentlyAddedBooks(userId: ID, limit: Int! = 50, offset: Int! = 0): [RecentlyAddedBook!]!
 	smartLists(input: SmartListsInput! = {all: null, mine: true, search: null}): [SmartList!]!
@@ -5792,6 +5936,30 @@ type User {
 	lastLogin: DateTime
 	loginSessionsCount: Int!
 	finishedReadingSessionsCount: Int!
+}
+
+"The limits that apply to somebody, and the ones an admin gave them"
+type UserIntakeLimits {
+	userId: ID!
+	"The user's own limit, in MB; empty follows the server's"
+	maxFileMb: Int
+	maxFilesPerRequest: Int
+	quotaMb: Int
+	maxItems: Int
+	"What applies to them now, from the server's limits and their own"
+	effective: IntakeLimitValues!
+}
+
+"The limits an admin gives a user of their own. Left out (null), a limit follows the server's"
+input UserIntakeLimitsInput {
+	"The biggest file, in MB"
+	maxFileMb: Int
+	"The most files in one upload request"
+	maxFilesPerRequest: Int
+	"The most MB of their books that may wait in their inbox"
+	quotaMb: Int
+	"The most inbox items that are not filed, discarded or sent back"
+	maxItems: Int
 }
 
 type UserLoginActivity {
