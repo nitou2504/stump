@@ -370,6 +370,19 @@
         "registered": "Registered!",
         "loginFailed": "Login failed. Please try again",
         "registrationFailed": "Registration failed. Please try again"
+      },
+      "mustChangePassword": {
+        "title": "Choose your password",
+        "description": "The password you were given only gets you in. Choose your own to continue.",
+        "newPassword": "New password",
+        "confirmPassword": "Repeat the new password",
+        "mismatch": "The two passwords are not the same",
+        "tooShort": "Use at least {{min}} characters",
+        "sameAsGiven": "Choose a different password from the one you were given",
+        "submit": "Save password",
+        "signOut": "Sign out",
+        "error": "The password couldn't be changed",
+        "success": "Password changed"
       }
     },
     "adminLibrarySidebar": {
@@ -1862,7 +1875,8 @@
           "tags": "Tags",
           "label": "Management",
           "recently added": "Recently added",
-          "deleted books": "Deleted books"
+          "deleted books": "Deleted books",
+          "public access": "Public access"
         }
       },
       "app/account": {
@@ -2663,6 +2677,194 @@
             "title": "Delete Activity",
             "description": "All records of login activity will be permanently deleted from the database",
             "confirm": "Delete"
+          }
+        }
+      },
+      "server/access": {
+        "helmet": "Public access",
+        "title": "Public access",
+        "description": "Let people in from the internet and keep it safe",
+        "pager": {
+          "label": "Pages",
+          "page": "Page {{page}} of {{total}}",
+          "previous": "Previous",
+          "next": "Next"
+        },
+        "person": {
+          "removed": "Removed"
+        },
+        "status": {
+          "ready": "Ready",
+          "notReady": "Not set up",
+          "notConfigured": {
+            "title": "Public access isn't set up yet",
+            "description": "Missing: {{missing}}. Invite links can't be made until these are set (see the deploy notes): the entry proxy and Stump must share the key and the state folder."
+          },
+          "publicUrl": "Public address",
+          "missing": "Not set",
+          "requirePass": "Pass required",
+          "yes": "Yes",
+          "notYet": "Not yet",
+          "stateWritten": "Proxy last told",
+          "never": "Never",
+          "activeDevices": "Devices",
+          "openInvites": "Open invites",
+          "requirePassHint": "Stump doesn't insist yet that visitors from the internet hold a pass. Turn on STUMP_EDGE_REQUIRE_PASS once the proxy sends it."
+        },
+        "invites": {
+          "title": "Invite links",
+          "description": "Make a link for one person and one device. They open it once on that device, then sign in as usual.",
+          "form": {
+            "person": "Person",
+            "choosePerson": "Choose a person",
+            "label": "Device name",
+            "labelPlaceholder": "Ana's phone",
+            "validFor": "Valid for",
+            "uses": "Times it can be opened",
+            "create": "Create link",
+            "noPeople": "There is nobody to invite yet: create their account first, in Users."
+          },
+          "validity": {
+            "h1": "1 hour",
+            "h24": "24 hours",
+            "h72": "3 days",
+            "h168": "7 days",
+            "h720": "30 days"
+          },
+          "created": {
+            "title": "Link for {{person}} ({{label}})",
+            "linkLabel": "Invite link",
+            "copy": "Copy",
+            "copied": "Link copied",
+            "copyFailed": "Couldn't copy: the link is selected, copy it by hand",
+            "once": "This link is shown only now. Stump keeps no copy of it: if you lose it, make another.",
+            "dismiss": "Done, hide the link"
+          },
+          "status": {
+            "unused": "Unused",
+            "used": "Used",
+            "usedUp": "Used up",
+            "expired": "Expired",
+            "revoked": "Revoked"
+          },
+          "detail": "Made {{created}} · expires {{expires}} · opened {{uses}} of {{max}}",
+          "empty": "No invite links yet.",
+          "revoke": "Revoke",
+          "revoked": "Invite for {{label}} revoked",
+          "errors": {
+            "create": "The link couldn't be made",
+            "revoke": "The invite couldn't be revoked"
+          }
+        },
+        "devices": {
+          "title": "Devices with a pass",
+          "description": "Each browser that opened an invite. A revoked device stops working within a couple of seconds.",
+          "empty": "No device holds a pass yet.",
+          "terminalGroup": "Made in the terminal",
+          "legacy": "Terminal pass",
+          "revoked": "Revoked",
+          "detail": "First seen {{first}} · last seen {{last}} · from {{ip}}",
+          "revoke": "Revoke",
+          "restore": "Restore",
+          "resetBudget": "Reset sign-in budget",
+          "revokeAll": "Revoke all of {{name}}",
+          "confirmTitle": "Revoke this device?",
+          "confirmDescription": "“{{label}}” will lose access within a couple of seconds. You can restore it from here.",
+          "confirmPersonTitle": "Revoke every device of this person?",
+          "confirmPersonDescription": "Every device of {{name}} will lose access, their open invites are revoked and they are signed out everywhere.",
+          "confirmRevoke": "Revoke",
+          "revokedDevice": "“{{label}}” revoked",
+          "revokedPerson": "{{name}} was cut off",
+          "revokedCount": "{{count}} devices revoked",
+          "restoredDevice": "“{{label}}” restored",
+          "budgetReset": "“{{label}}” can try to sign in again today",
+          "errors": {
+            "revoke": "Couldn't revoke it",
+            "restore": "Couldn't restore it",
+            "budget": "Couldn't reset it"
+          }
+        },
+        "signIns": {
+          "title": "Sign-in protection",
+          "description": "Who is locked out, and every attempt to sign in. Passwords are never kept.",
+          "blockedTitle": "Locked right now",
+          "nobodyBlocked": "Nobody is locked out.",
+          "lockedBy": {
+            "failures": "Too many wrong passwords",
+            "owner": "Locked by you",
+            "unknown": "Locked"
+          },
+          "blockedDetail": "{{count}} failed in the last 24 hours · last {{last}}",
+          "unblock": "Unblock",
+          "unblocked": "{{name}} can sign in again",
+          "edgeLimitNote": "The entry proxy also slows down a client that tries too often. That clears by itself within a minute.",
+          "recentTitle": "Recent sign-ins",
+          "failuresOnly": "Failures only",
+          "empty": "No sign-ins to show.",
+          "ok": "OK",
+          "failed": "Failed",
+          "cleared": "Cleared",
+          "reason": {
+            "wrongPassword": "Wrong password",
+            "locked": "Account locked",
+            "ownerViaEdge": "Owner's password from the internet (refused)",
+            "wrongPerson": "Another person's device (refused)"
+          },
+          "detail": "{{at}} · from {{ip}} · device {{device}}",
+          "errors": {
+            "unblock": "Couldn't unblock it"
+          }
+        },
+        "people": {
+          "title": "People",
+          "description": "Set a password for someone who can't get in, or let a locked account back in.",
+          "empty": "No accounts.",
+          "owner": "Owner",
+          "locked": "Locked",
+          "mustChange": "Must choose a password",
+          "lastSignIn": "Last sign-in: {{at}}",
+          "never": "never",
+          "setPassword": "Set a password",
+          "manage": "Manage",
+          "password": {
+            "title": "New password for {{name}}",
+            "label": "Password",
+            "generate": "Make another",
+            "length": "Use {{min}} to {{max}} characters",
+            "requireChange": "They choose their own at their next sign-in",
+            "requireChangeHint": "The password you set only gets them in: they must replace it before they can do anything else.",
+            "signsOut": "Setting it signs them out everywhere.",
+            "set": "Set password",
+            "close": "Close",
+            "done": "Password set for {{name}}. Copy it now: it isn't shown again.",
+            "doneMustChange": "They will be asked to choose their own when they sign in.",
+            "doneKept": "They keep this password until they change it.",
+            "copy": "Copy",
+            "copyFailed": "Couldn't copy: select it and copy it by hand",
+            "error": "The password couldn't be set"
+          }
+        },
+        "activity": {
+          "title": "Activity",
+          "description": "What was done here, and when. It never holds a link or a password.",
+          "empty": "Nothing yet.",
+          "when": "{{actor}} · {{at}}",
+          "actions": {
+            "inviteCreate": "Invite made",
+            "inviteRevoke": "Invite revoked",
+            "inviteRedeemed": "Invite opened on a device",
+            "deviceRevoke": "Device revoked",
+            "deviceRestore": "Device restored",
+            "deviceResetBudget": "Sign-in budget reset",
+            "deviceRegisteredLegacy": "Terminal pass seen for the first time",
+            "personRevokeAll": "Every device of a person revoked",
+            "userLock": "Account locked",
+            "userLockedByFailures": "Account locked by wrong passwords",
+            "userUnblock": "Account unblocked",
+            "userPasswordSet": "Password set",
+            "userPasswordChanged": "Password chosen by the person",
+            "userSessionsDeleted": "Signed out everywhere",
+            "loginActivityCleared": "Sign-in history cleared"
           }
         }
       },
