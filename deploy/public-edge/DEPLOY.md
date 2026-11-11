@@ -49,7 +49,8 @@ cd /mnt/data2/containers/stump-fork
 TS=$(date -u +%Y%m%dT%H%M%SZ); B=config.backup-$TS-db; mkdir -p $B
 sqlite3 config/stump.db ".backup $B/stump.db"; sqlite3 -readonly $B/stump.db 'pragma quick_check'     # ok
 cp -a config/Stump.toml $B/Stump.toml                 # the image rewrites it at every start: restore it on a rollback
-# the two migrations of this build, each with its own down (run in the reverse order: intake first, then access)
+# the two migrations of this build, each with its own down (run in the reverse order: intake first, then access):
+# copies for the record, next to the snapshot; the rollback below runs the same files from $S
 M=$S/crates/migrations/manual-down
 cp $M/m20261114_000000_intake_approval.sql $B/manual-down-1-intake.sql
 cp $M/m20261113_000000_public_access.sql   $B/manual-down-2-access.sql
@@ -424,11 +425,16 @@ tailscale funnel --https=8443 off                        # 1. close the public a
 docker compose stop stump-edge stump-fork                #    (Stump stopped: the SQL below runs with nothing writing)
 cp -a docker-compose.yml.bak-<date>-public-access docker-compose.yml          # 2. compose, edge files, key file
 rm -rf edge && cp -a $B/edge edge
-sqlite3 config/stump.db < $B/manual-down-1-intake.sql    # 3. the tables of the migrations, the last one first (each SQL's own checks print 0)
-sqlite3 config/stump.db < $B/manual-down-2-access.sql
+sqlite3 config/stump.db < $S/crates/migrations/manual-down/m20261114_000000_intake_approval.sql   # 3. the tables of the migrations that were applied, the last one first (each SQL's own checks print 0)
+sqlite3 config/stump.db < $S/crates/migrations/manual-down/m20261113_000000_public_access.sql
 cp -a $B/Stump.toml config/Stump.toml                    #    the previous image rewrites it at start: put it back
 docker compose up -d --force-recreate stump-fork stump-edge                    # 4. the previous image (set in the compose file) and the old edge
 ```
+
+Run only the downs of migrations that are in `seaql_migrations` (`select version from seaql_migrations order by version
+desc limit 3`), and in that order. The two files are the ones the backups hold as `manual-down.sql`: the backup made
+at the Public access deploy holds the access one, the backup made at the uploads deploy the intake one; either
+backup folder is enough to find them again (`cmp` them with the files above).
 
 Passes already handed out keep working through the old edge (their format did not change); `invite.sh stump …` and
 `revoked.map` work before, during and after. Two notes: **restoring an older database snapshot forgets the revocations
