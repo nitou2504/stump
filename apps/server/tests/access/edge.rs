@@ -236,6 +236,104 @@ async fn the_owner_is_refused_through_the_edge_with_a_token_a_cookie_or_basic_au
 	assert_eq!(basic.status_code(), StatusCode::UNAUTHORIZED);
 }
 
+/// The lead's review: the owner's API key limited to some permissions is built without the owner
+/// flag (it gets what it was given and no more), and is still the owner's credential. It is refused
+/// through the edge in every form (a Bearer header, GraphQL, the key in an OPDS address) without
+/// touching the session cookie, and is as good as ever at home (book-curator connects that way). A
+/// friend's key is not the owner's, and works on the public side
+#[tokio::test]
+async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
+	use models::shared::{api_key::APIKeyPermissions, enums::UserPermission};
+	use sea_orm::{ColumnTrait, QueryFilter};
+
+	use crate::common::api_key::create_api_key_for_user;
+
+	let env = edge_app(false).await;
+	let app = &env.app;
+	let owner = user::Entity::find()
+		.filter(user::Column::IsServerOwner.eq(true))
+		.one(app.conn())
+		.await
+		.expect("the query should run")
+		.expect("there should be an owner");
+	let (scoped_key, _) = create_api_key_for_user(
+		app,
+		&owner,
+		Some(APIKeyPermissions::Custom(vec![UserPermission::EditMetadata])),
+	)
+	.await;
+	let (inherit_key, _) = create_api_key_for_user(app, &owner, None).await;
+
+	for (kind, key) in [("scoped", &scoped_key), ("inherit", &inherit_key)] {
+		// a Bearer header
+		let bearer = app
+			.server
+			.get("/api/v2/auth/viewer")
+			.add_header("x-edge-public", "1")
+			.add_header("authorization", format!("Bearer {key}"))
+			.await;
+		assert_eq!(bearer.status_code(), StatusCode::UNAUTHORIZED, "{kind} key, bearer");
+		// the refusal does not delete the session cookie the owner has for the LAN
+		assert!(
+			bearer.headers().get("set-cookie").is_none(),
+			"{kind} key: the refusal must not touch the session cookie"
+		);
+
+		// GraphQL
+		let graphql = app
+			.server
+			.post("/api/graphql")
+			.add_header("x-edge-public", "1")
+			.add_header("authorization", format!("Bearer {key}"))
+			.json(&json!({ "query": "{ me { id } }" }))
+			.await;
+		assert_eq!(graphql.status_code(), StatusCode::UNAUTHORIZED, "{kind} key, graphql");
+
+		// the key in an OPDS address
+		let opds = app
+			.server
+			.get(&format!("/opds/{key}/v1.2/catalog"))
+			.add_header("x-edge-public", "1")
+			.await;
+		assert_eq!(opds.status_code(), StatusCode::UNAUTHORIZED, "{kind} key, opds address");
+		assert!(opds.headers().get("set-cookie").is_none());
+
+		// the same key at home is as good as before
+		app.server
+			.get("/api/v2/auth/viewer")
+			.add_header("authorization", format!("Bearer {key}"))
+			.await
+			.assert_status_ok();
+		let gql_at_home = app
+			.execute_gql_with_token("{ me { id } }", None, key)
+			.await;
+		assert!(gql_at_home.get("errors").is_none(), "{kind} key at home: {gql_at_home:#}");
+		app.server
+			.get(&format!("/opds/{key}/v1.2/catalog"))
+			.await
+			.assert_status_ok();
+	}
+
+	// a friend's key is not the owner's: the public side works for it
+	let friend = insert_user(app, "ana", "secret-pass", false).await;
+	let mut with_keys: user::ActiveModel = friend.into();
+	with_keys.permissions = Set(Some("ACCESS_API_KEYS".to_string()));
+	let friend = with_keys.update(app.conn()).await.expect("should update");
+	let (friend_key, _) = create_api_key_for_user(
+		app,
+		&friend,
+		Some(APIKeyPermissions::Custom(vec![UserPermission::EditMetadata])),
+	)
+	.await;
+	let through_the_edge = app
+		.server
+		.get("/api/v2/auth/viewer")
+		.add_header("x-edge-public", "1")
+		.add_header("authorization", format!("Bearer {friend_key}"))
+		.await;
+	through_the_edge.assert_status_ok();
+}
+
 /// Another user is not the owner: they can use the public side with their token
 #[tokio::test]
 async fn a_friend_with_a_token_is_not_refused_through_the_edge() {

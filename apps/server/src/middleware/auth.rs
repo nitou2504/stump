@@ -212,6 +212,27 @@ fn owner_through_the_edge() -> Response {
 	response
 }
 
+/// Whether these credentials are the server owner's, for a request that came through the public
+/// edge. Most credentials carry the owner flag with them. An API key limited to some permissions
+/// does not (it gets what it was given and no more, and is built with the flag off), so for a key
+/// the account's own flag is read: the owner's scoped key is refused there like every other owner
+/// credential. `None` is "cannot tell", and the caller refuses
+async fn credentials_are_the_owners(
+	conn: &DatabaseConnection,
+	auth: &AuthContext,
+) -> Result<Option<bool>, DbErr> {
+	if auth.user.is_server_owner {
+		return Ok(Some(true));
+	}
+	if auth.api_key.is_none() {
+		return Ok(Some(false));
+	}
+	Ok(user::Entity::find_by_id(auth.user.id.clone())
+		.one(conn)
+		.await?
+		.map(|account| account.is_server_owner))
+}
+
 /// Whether a user who has to choose a new password may use `path`: signing out and asking who they
 /// are (`/api/v2/auth/…`) and the GraphQL endpoint (whose handler lets through only `me` and the
 /// password change). The websocket and everything else are refused
@@ -238,8 +259,20 @@ async fn authorize(
 		.extensions()
 		.get::<EdgeRequest>()
 		.is_some_and(|edge| edge.via_public);
-	if via_public && auth.user.is_server_owner {
-		return Err(owner_through_the_edge());
+	if via_public {
+		match credentials_are_the_owners(ctx.conn.as_ref(), &auth).await {
+			Ok(Some(true)) => return Err(owner_through_the_edge()),
+			Ok(Some(false)) => {},
+			// the account is gone, or the lookup failed: refuse, never let it through
+			Ok(None) => return Err(owner_through_the_edge()),
+			Err(error) => {
+				tracing::error!(?error, "Failed to check whose credentials these are");
+				return Err(APIError::InternalServerError(
+					"Failed to check the account".to_string(),
+				)
+				.into_response());
+			},
+		}
 	}
 
 	match access_service::must_change_password(ctx.conn.as_ref(), &auth.user.id).await {
