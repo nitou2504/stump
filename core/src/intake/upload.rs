@@ -284,10 +284,16 @@ pub fn sniff_format(extension: &str, head: &[u8]) -> Result<String, UploadError>
 	let zip = head.starts_with(b"PK\x03\x04");
 	let rar = head.starts_with(b"Rar!\x1A\x07\x00")
 		|| head.starts_with(b"Rar!\x1A\x07\x01\x00");
-	let pdf = head
-		.windows(5)
-		.take(1024usize.saturating_sub(4))
-		.any(|w| w == b"%PDF-");
+	// `%PDF-` within the first KiB is a PDF only if the file doesn't start like something else:
+	// Stump's readers choose by what the first bytes say (a file that starts like a zip, with a
+	// PDF's header found further in, is read as a zip), so the check's idea of the file and the
+	// server's must be the same one
+	let pdf = !head.starts_with(b"PK")
+		&& !rar
+		&& head
+			.windows(5)
+			.take(1024usize.saturating_sub(4))
+			.any(|w| w == b"%PDF-");
 	let mismatch = || {
 		UploadError::UnsupportedType(format!(
 			"The file is not a {} file, whatever its name says",
@@ -831,6 +837,31 @@ mod tests {
 		let mut too_late = vec![b' '; 1030];
 		too_late.extend_from_slice(b"%PDF-1.4");
 		assert!(sniff_format("pdf", &too_late).is_err());
+	}
+
+	#[test]
+	fn a_pdf_is_not_a_file_that_starts_like_something_else() {
+		// Stump reads a file by what its first bytes say: these start like a zip (its other records)
+		// or a RAR, and a `%PDF-` found further in does not make them PDFs
+		let pdf = b"%PDF-1.7\n1 0 obj";
+		for start in [
+			&b"PK\x07\x08"[..],
+			&b"PK\x05\x06"[..],
+			&b"PK00PK\x03\x04"[..],
+			&b"PK\x03\x04"[..],
+			&b"Rar!\x1A\x07\x00"[..],
+			&b"Rar!\x1A\x07\x01\x00"[..],
+		] {
+			let head = [start, &[b' '; 16][..], &pdf[..]].concat();
+			assert!(
+				sniff_format("pdf", &head).is_err(),
+				"a PDF that starts {start:?}"
+			);
+		}
+		// and a real PDF still is one, with or without junk before its header
+		assert_eq!(sniff_format("pdf", pdf).unwrap(), "pdf");
+		let junk = [&b"\r\n "[..], &pdf[..]].concat();
+		assert_eq!(sniff_format("pdf", &junk).unwrap(), "pdf");
 	}
 
 	#[test]

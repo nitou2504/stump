@@ -25,7 +25,7 @@ use super::{
 };
 use crate::{
 	config::StumpConfig,
-	fs_utils::bounded,
+	fs_utils::ContentType,
 	intake::{
 		lookup,
 		title_page::read_title_page,
@@ -90,6 +90,14 @@ fn sniff(path: &Path) -> Result<Container, Reason> {
 		.map_err(io_reason)?;
 	if head.starts_with(b"PK\x03\x04") {
 		Ok(Container::Zip)
+	} else if head.starts_with(b"PK") {
+		// A file that starts like a zip's other records (`PK\x05\x06`, `PK\x07\x08`, `PK00PK..`) is
+		// a zip to Stump's readers, which choose by what the first bytes say, whatever `%PDF-` is
+		// found further in: it is not a PDF that is read as one.
+		Err(fail(
+			code::TYPE_MISMATCH,
+			"The file starts like a zip file, but not like one that holds a book",
+		))
 	} else if head.starts_with(b"Rar!\x1A\x07\x00")
 		|| head.starts_with(b"Rar!\x1A\x07\x01\x00")
 	{
@@ -100,6 +108,33 @@ fn sniff(path: &Path) -> Result<Container, Reason> {
 		Err(fail(
 			code::TYPE_MISMATCH,
 			"The file is not a zip, a RAR or a PDF file, whatever its name says",
+		))
+	}
+}
+
+/// Whether the reader Stump chooses for the file is the one for the kind of book it was checked
+/// as. Stump chooses by what `infer` finds in the file's first bytes, and by its extension only
+/// where `infer` finds nothing, so a file can be one kind to the check (a PDF, by `%PDF-` found
+/// within its first KiB) and another to the server (a zip, a GIF, an EPUB by the `mimetype` it
+/// starts with): the reader the check never ran would be the one that opens it. `linked` carries
+/// the extension the book is filed with.
+fn stump_reads_as(linked: &Path, format: &str) -> Result<(), Reason> {
+	let seen = ContentType::from_path(linked);
+	let agrees = match format {
+		"pdf" => seen == ContentType::PDF,
+		// an EPUB is read as one whether or not it starts with its `mimetype`
+		"epub" => matches!(seen, ContentType::EPUB_ZIP | ContentType::ZIP),
+		// a comic that starts with an EPUB's `mimetype` is read as an EPUB
+		"cbz" => seen == ContentType::ZIP,
+		"cbr" => seen == ContentType::RAR,
+		_ => false,
+	};
+	if agrees {
+		Ok(())
+	} else {
+		Err(fail(
+			code::TYPE_MISMATCH,
+			format!("The file is checked as {format}, but Stump would read it as {seen}"),
 		))
 	}
 }
@@ -203,6 +238,8 @@ fn inspect(
 	let linked = work.join(format!("input.{format}"));
 	let _ = std::fs::remove_file(&linked);
 	std::os::unix::fs::symlink(path, &linked).map_err(io_reason)?;
+	// and the reader Stump will choose for it once it is filed is the one that was checked
+	stump_reads_as(&linked, format)?;
 	let options = MediaProcessorOptions {
 		generate_file_hashes: true,
 		process_metadata: true,
@@ -670,6 +707,7 @@ pub(crate) mod tests {
 	use std::io::Cursor;
 
 	use super::*;
+	use crate::fs_utils::bounded;
 	use crate::intake::probe::contract::{FileJob, Limits};
 
 	pub(crate) struct World {
@@ -1267,6 +1305,86 @@ pub(crate) mod tests {
 		);
 		assert_eq!(verdict.status, Status::Reject);
 		assert_eq!(verdict.reasons[0].code, code::PAGE_SIZE);
+	}
+
+	/// The check and the server must take a file for the same kind of book: the server chooses its
+	/// reader by what `infer` finds in the first bytes, and by the name only where it finds nothing
+	#[test]
+	fn a_file_is_read_by_stump_as_it_was_checked() {
+		let world = world();
+		let mismatch = |verdict: &Verdict, what: &str| {
+			assert_eq!(
+				verdict.status,
+				Status::Reject,
+				"{what}: {:?}",
+				verdict.reasons
+			);
+			assert_eq!(
+				verdict.reasons[0].code,
+				code::TYPE_MISMATCH,
+				"{what}: {:?}",
+				verdict.reasons
+			);
+		};
+		// a PDF that starts like a zip (its other records) is a zip to Stump's readers, which would
+		// read the metadata of the zip hidden in it, whatever the PDF says
+		for (i, start) in [
+			&b"PK\x07\x08"[..],
+			&b"PK\x05\x06"[..],
+			&b"PK00PK\x03\x04"[..],
+		]
+		.iter()
+		.enumerate()
+		{
+			let bytes = [*start, &tiny_pdf("0 0 200 300")[..]].concat();
+			let verdict = run(&world.stage(&format!("p{i}.pdf"), &bytes), &world.env);
+			mismatch(&verdict, "a PDF that starts like a zip");
+		}
+		// a PDF that starts like an image, with a PDF's header within its first KiB
+		let bytes = [
+			&b"GIF89a"[..],
+			&[b' '; 64][..],
+			&tiny_pdf("0 0 200 300")[..],
+		]
+		.concat();
+		mismatch(
+			&run(&world.stage("g.pdf", &bytes), &world.env),
+			"a PDF that starts like a GIF",
+		);
+		// a comic whose first file is an EPUB's `mimetype` is an EPUB to Stump
+		let bytes = zip(&[
+			("mimetype", b"application/epub+zip".to_vec()),
+			("001.png", png(30, 40)),
+		]);
+		mismatch(
+			&run(&world.stage("c.cbz", &bytes), &world.env),
+			"a CBZ that starts like an EPUB",
+		);
+
+		// the controls: files that are read as they were checked are not refused for it
+		let verdict = run(
+			&world.stage("ok.cbz", &zip(&[("001.png", png(30, 40))])),
+			&world.env,
+		);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		let verdict = run(&world.stage("ok.epub", &epub_with(CLEAN)), &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		// a plain PDF, and one with junk before its header (which Stump reads by its name, as
+		// nothing in its first bytes says what it is): whether PDFium can draw them is another
+		// check, and a build container has no PDFium, but their type is not what refuses them
+		let junk = [&b"\r\n"[..], &tiny_pdf("0 0 200 300")[..]].concat();
+		for (name, bytes) in [("plain.pdf", tiny_pdf("0 0 200 300")), ("junk.pdf", junk)]
+		{
+			let verdict = run(&world.stage(name, &bytes), &world.env);
+			assert!(
+				verdict
+					.reasons
+					.iter()
+					.all(|r| r.code != code::TYPE_MISMATCH),
+				"{name}: {:?}",
+				verdict.reasons
+			);
+		}
 	}
 
 	#[test]
