@@ -5,7 +5,7 @@ use models::{
 };
 
 use crate::{
-	data::{AuthContext, CoreContext},
+	data::{AuthContext, CoreContext, EdgeRequest},
 	error_message,
 };
 
@@ -20,6 +20,41 @@ impl Guard for ServerOwnerGuard {
 			Ok(())
 		} else {
 			Err(error_message::FORBIDDEN_ACTION.into())
+		}
+	}
+}
+
+/// Guard: the request must not have come through the public edge, whoever sent it. The owner's
+/// session cookie is not tied to a port, so an owner who opens an invite link in their own browser
+/// would otherwise reach their admin pages through the internet.
+///
+/// A request with no [`EdgeRequest`] (a handler that forgot to add it) is refused: not knowing
+/// how a request arrived is not a reason to let it in.
+pub struct NotViaPublicEdgeGuard;
+
+impl Guard for NotViaPublicEdgeGuard {
+	async fn check(&self, ctx: &Context<'_>) -> Result<()> {
+		match ctx.data_opt::<EdgeRequest>() {
+			Some(edge) if !edge.via_public => Ok(()),
+			_ => Err(error_message::FORBIDDEN_ACTION.into()),
+		}
+	}
+}
+
+/// Guard for the mutations of the admin pages: a browser that another site made send the request
+/// is refused. A form on another site can post a GraphQL multipart request (and, from the same
+/// site, `SameSite=Lax` cookies still go along), so the check is on where the browser says the
+/// request comes from. Clients that are not browsers (a script with a token) send neither header
+/// and are not affected.
+///
+/// A request with no [`EdgeRequest`] is refused, like in [`NotViaPublicEdgeGuard`].
+pub struct SameOriginGuard;
+
+impl Guard for SameOriginGuard {
+	async fn check(&self, ctx: &Context<'_>) -> Result<()> {
+		match ctx.data_opt::<EdgeRequest>() {
+			Some(edge) if !edge.cross_site => Ok(()),
+			_ => Err(error_message::FORBIDDEN_ACTION.into()),
 		}
 	}
 }
@@ -191,5 +226,109 @@ impl Guard for BookClubRoleGuard {
 		} else {
 			Err(error_message::FORBIDDEN_ACTION.into())
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{data::EdgeRequest, tests::common::get_default_user};
+	use async_graphql::{EmptyMutation, EmptySubscription, Object, Request, Schema};
+	use models::entity::user::AuthUser;
+
+	struct Query;
+
+	#[Object]
+	impl Query {
+		#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)")]
+		async fn admin_page(&self) -> i32 {
+			1
+		}
+
+		#[graphql(guard = "SameOriginGuard")]
+		async fn form(&self) -> i32 {
+			1
+		}
+	}
+
+	fn owner() -> AuthUser {
+		AuthUser {
+			is_server_owner: true,
+			..get_default_user()
+		}
+	}
+
+	fn friend() -> AuthUser {
+		AuthUser {
+			is_server_owner: false,
+			..get_default_user()
+		}
+	}
+
+	async fn ask(
+		query: &str,
+		user: AuthUser,
+		edge: Option<EdgeRequest>,
+	) -> async_graphql::Response {
+		let schema = Schema::build(Query, EmptyMutation, EmptySubscription).finish();
+		let mut request = Request::new(query).data(AuthContext {
+			user,
+			api_key: None,
+		});
+		if let Some(edge) = edge {
+			request = request.data(edge);
+		}
+		schema.execute(request).await
+	}
+
+	fn home() -> EdgeRequest {
+		EdgeRequest::default()
+	}
+
+	fn public() -> EdgeRequest {
+		EdgeRequest {
+			via_public: true,
+			..Default::default()
+		}
+	}
+
+	/// The owner at home is let in; the owner through the public edge is not (the owner's cookie
+	/// is not tied to a port); and a request that came with no edge data at all is refused:
+	/// not knowing how a request arrived is not a reason to let it in
+	#[tokio::test]
+	async fn the_admin_pages_are_for_the_owner_at_home_only() {
+		assert!(ask("{ adminPage }", owner(), Some(home()))
+			.await
+			.errors
+			.is_empty());
+
+		for (label, user, edge) in [
+			("the owner through the edge", owner(), Some(public())),
+			("the owner with no edge data", owner(), None),
+			("somebody else at home", friend(), Some(home())),
+			("somebody else through the edge", friend(), Some(public())),
+		] {
+			let response = ask("{ adminPage }", user, edge).await;
+			assert_eq!(response.errors.len(), 1, "{label} was let in");
+			assert_eq!(response.errors[0].message, error_message::FORBIDDEN_ACTION);
+		}
+	}
+
+	#[tokio::test]
+	async fn a_form_that_another_site_made_the_browser_send_is_refused() {
+		let same_site = EdgeRequest {
+			cross_site: true,
+			..Default::default()
+		};
+		assert!(ask("{ form }", owner(), Some(home()))
+			.await
+			.errors
+			.is_empty());
+		assert_eq!(
+			ask("{ form }", owner(), Some(same_site)).await.errors.len(),
+			1
+		);
+		// no information is no reason to trust it
+		assert_eq!(ask("{ form }", owner(), None).await.errors.len(), 1);
 	}
 }

@@ -1,4 +1,151 @@
 """
+A row of the audit log: what the owner did, or a redemption of an invite. Never a token, a
+link or a password
+"""
+type AccessAuditEntry {
+	id: Int!
+	at: DateTime!
+	"The admin's username, `system`, or `public` for a redemption"
+	actor: String!
+	"`invite.create`, `device.revoke`, ..."
+	action: String!
+	"An invite id, a device id or a user id"
+	target: String!
+	detail: String!
+}
+
+type AccessAuditPage {
+	nodes: [AccessAuditEntry!]!
+	pageInfo: OffsetPaginationInfo!
+}
+
+"An account that is locked right now"
+type AccessBlockedUser {
+	person: AccessPerson!
+	"Failed sign-ins in the last 24 hours (every one, whether it counts or not)"
+	failuresLast24H: Int!
+	lastFailureAt: DateTime
+	lockedBy: AccessLockedBy!
+}
+
+"A browser that holds a pass"
+type AccessDevice {
+	"The pass id"
+	id: String!
+	"The name the owner gave it (\"Ana's phone\"); a legacy pass is named after its id"
+	label: String!
+	"Made in the terminal (`invite.sh`): the pass is not tied to a person"
+	legacy: Boolean!
+	createdAt: DateTime!
+	firstSeenAt: DateTime
+	lastSeenAt: DateTime
+	"The address of the last request that came with the pass"
+	lastIp: String!
+	"The browser of the last request that came with the pass"
+	lastAgent: String!
+	status: AccessDeviceStatus!
+	revokedAt: DateTime
+	revokedBy: String
+	"""
+	The person the device was made for. None for a legacy pass. A person who is removed is
+	still returned, with `removed` set
+	"""
+	person: AccessPerson
+}
+
+type AccessDevicePage {
+	nodes: [AccessDevice!]!
+	pageInfo: OffsetPaginationInfo!
+}
+
+enum AccessDeviceStatus {
+	ACTIVE
+	REVOKED
+}
+
+"An invite link the owner made. The link itself is never kept: it was shown once"
+type AccessInvite {
+	id: String!
+	"The device name the owner typed"
+	label: String!
+	createdAt: DateTime!
+	"The admin who made it"
+	createdBy: String!
+	expiresAt: DateTime!
+	maxUses: Int!
+	uses: Int!
+	status: AccessInviteStatus!
+	"The person the invite is for"
+	person: AccessPerson
+}
+
+type AccessInvitePage {
+	nodes: [AccessInvite!]!
+	pageInfo: OffsetPaginationInfo!
+}
+
+enum AccessInviteStatus {
+	"Not used yet, still valid"
+	UNUSED
+	"Used at least once, uses left"
+	USED
+	"Every use is spent"
+	USED_UP
+	EXPIRED
+	REVOKED
+}
+
+enum AccessLockedBy {
+	"Too many failed sign-ins"
+	FAILURES
+	"The owner locked the account"
+	OWNER
+	"Locked before this was recorded"
+	UNKNOWN
+}
+
+"What is set up, and what is missing, for people to reach Stump from the internet"
+type AccessOverview {
+	"There is a key (at least 64 characters) to sign passes with"
+	hasKey: Boolean!
+	"The public address, which invite links are made from, is set"
+	hasPublicUrl: Boolean!
+	"The folder the edge's state file goes in is set"
+	hasStateDir: Boolean!
+	"Everything needed to make invite links and have revocations followed is set"
+	configured: Boolean!
+	"A request through the public edge must carry a valid pass"
+	requirePass: Boolean!
+	"The address people reach Stump at from the internet"
+	publicUrl: String
+	"When the app last wrote the file the edge follows"
+	stateWrittenAt: DateTime
+	"Devices that hold a pass and were not revoked"
+	activeDevices: Int!
+	"Invites that can still be redeemed"
+	openInvites: Int!
+}
+
+"A person, as the owner sees them on this page"
+type AccessPerson {
+	id: String!
+	username: String!
+	"Locked: by too many failed sign-ins, or by the owner"
+	locked: Boolean!
+	"Removed: the account is gone, what it had on this page is what remains"
+	removed: Boolean!
+	isServerOwner: Boolean!
+}
+
+"An account and how it stands: for the owner to set a password or unblock it"
+type AccessPersonRow {
+	person: AccessPerson!
+	lastSignInAt: DateTime
+	"The owner set their password and they haven't chosen their own yet"
+	mustChangePassword: Boolean!
+}
+
+"""
 The different roles a user may have for a role-based access control system scoped
 to a specific entity
 """
@@ -6,6 +153,44 @@ enum AccessRole {
 	READER
 	WRITER
 	CO_CREATOR
+}
+
+"One sign-in attempt of the account's login activity, with what is known of how it came"
+type AccessSignIn {
+	id: Int!
+	at: DateTime!
+	ip: String!
+	userAgent: String!
+	successful: Boolean!
+	"The pass the sign-in came with, when it came through the public edge"
+	deviceId: String
+	"The name the owner gave that device"
+	deviceLabel: String
+	"Why a failure failed, when it is known"
+	reason: AccessSignInReason
+	"""
+	A failure the owner forgave when they unblocked the account: it no longer counts towards
+	a lock. The attempts that never counted (the owner's password through the edge, somebody
+	else's pass) are not "cleared"
+	"""
+	cleared: Boolean!
+	"Whose account the attempt was for"
+	person: AccessPerson
+}
+
+type AccessSignInPage {
+	nodes: [AccessSignIn!]!
+	pageInfo: OffsetPaginationInfo!
+}
+
+enum AccessSignInReason {
+	WRONG_PASSWORD
+	"The account was locked: the answer is the same whatever the password"
+	LOCKED
+	"The server owner's password, through the public edge: refused whatever it was"
+	OWNER_VIA_EDGE
+	"A pass made for somebody else"
+	WRONG_PERSON
 }
 
 input AddBookToClubInput {
@@ -438,6 +623,17 @@ union CoreEvent = JobStarted | JobUpdate | JobOutput | DiscoveredMissingLibrary 
 
 union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | TrashPurgeOutput | RescanBooksOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
 
+input CreateAccessInviteInput {
+	"The user the link is for: anyone but the server owner"
+	personId: String!
+	"What the device is called (\"Ana's phone\"), up to 40 characters"
+	label: String!
+	"How long the link works: 1, 24, 72, 168 or 720 hours"
+	validForHours: Int!
+	"How many times it can be opened (each one makes a device), 1 to 10"
+	maxUses: Int!
+}
+
 input CreateAnnotationInput {
 	mediaId: String!
 	locator: ReadiumLocatorInput!
@@ -514,6 +710,16 @@ input CreateUserInput {
 type CreatedAPIKey {
 	apiKey: Apikey!
 	secret: String!
+}
+
+"The invite that was just made, with the only copy of its link"
+type CreatedAccessInvite {
+	invite: AccessInvite!
+	"""
+	The link to send. It exists only in this response: Stump keeps a hash of the token, so it
+	can't show the link again
+	"""
+	link: String!
 }
 
 type CreatedManySeries {
@@ -3125,6 +3331,42 @@ type Mutation {
 	updateEmailDevice(id: Int!, input: EmailDeviceInput!): RegisteredEmailDevice!
 	patchEmailDevice(id: Int!, input: PatchEmailDeviceInput!): RegisteredEmailDevice!
 	deleteEmailDevice(id: Int!): RegisteredEmailDevice!
+	"""
+	Makes an invite link for a person and a device. The link is in the response and nowhere
+	else: Stump keeps a hash of the token, not the token
+	"""
+	createAccessInvite(input: CreateAccessInviteInput!): CreatedAccessInvite!
+	"""
+	Revokes an invite: it can't be opened any more. The devices that were made from it keep
+	their pass (revoke those one by one)
+	"""
+	revokeAccessInvite(id: ID!): Boolean!
+	"""
+	Revokes a device: its pass stops working, at once for the app and within a couple of
+	seconds at the edge. The invite it came from is revoked with it. Returns whether it
+	changed
+	"""
+	revokeAccessDevice(id: ID!): Boolean!
+	"Brings a revoked device back. Its invite stays revoked. Returns whether it changed"
+	restoreAccessDevice(id: ID!): Boolean!
+	"""
+	Cuts a person off: every device of theirs is revoked, so is every open invite of theirs,
+	and their sessions and refresh tokens are removed. Returns how many devices were revoked
+	"""
+	revokeAccessDevicesOfPerson(personId: ID!): Int!
+	"Gives a device a fresh daily sign-in budget at the edge. Returns whether the device exists"
+	resetAccessDeviceBudget(id: ID!): Boolean!
+	"""
+	Unlocks an account and forgives the failed sign-ins of the last 24 hours, so that the next
+	typo doesn't lock it again. Returns whether the account exists
+	"""
+	unblockUser(id: ID!): Boolean!
+	"""
+	Sets somebody's password. With `requireChange` (the default) they must choose their own
+	before they can use anything else: until then they can only change the password and sign
+	out. It ends their sessions. The server owner's password is never set here.
+	"""
+	setUserPassword(id: ID!, password: String!, requireChange: Boolean! = true): Boolean!
 	createApiKey(input: ApikeyInput!): CreatedAPIKey!
 	updateApiKey(id: Int!, input: ApikeyInput!): Apikey!
 	deleteApiKey(id: Int!): Apikey!
@@ -4076,6 +4318,23 @@ type Query {
 	emailDeviceById(id: Int!): RegisteredEmailDevice
 	getNotifiers: [Notifier!]!
 	getNotifierById(id: Int!): Notifier!
+	"What is set up for public access, and what is missing"
+	accessOverview: AccessOverview!
+	"The invite links that were made, the latest first. The links themselves are not kept"
+	accessInvites(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessInvitePage!
+	"The devices that hold a pass, the latest made first"
+	accessDevices(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessDevicePage!
+	"""
+	The sign-in attempts, the latest first: the account's login activity with the pass each
+	came with and why a failure failed. A password is never stored
+	"""
+	accessSignIns(failuresOnly: Boolean! = false, pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessSignInPage!
+	"The accounts that are locked right now, with who locked them"
+	accessBlockedUsers: [AccessBlockedUser!]!
+	"The accounts of the server and how each stands, for setting a password or unblocking"
+	accessPeople: [AccessPersonRow!]!
+	"What the owner did on this page, the latest first"
+	accessAudit(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessAuditPage!
 	apiKeys: [Apikey!]!
 	apiKeyById(id: Int!): Apikey!
 	jobs(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedJobResponse!

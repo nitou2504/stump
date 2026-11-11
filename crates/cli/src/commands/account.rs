@@ -104,6 +104,22 @@ async fn set_account_lock_status(
 			))
 		})?;
 
+	if !lock {
+		// Unlocking forgives the failed sign-ins of the last 24 hours, as the Users page does: the
+		// lock rule counts every one of them, so clearing only the flag would lock the account
+		// again on its next typo
+		models::services::access::unblock_user(
+			&conn,
+			sea_orm::sqlx::types::chrono::Utc::now(),
+			&user.id,
+			"cli",
+		)
+		.await?;
+		thread::sleep(Duration::from_millis(500));
+		progress.finish_with_message("Account unlocked successfully!");
+		return Ok(());
+	}
+
 	let mut active_model = user.into_active_model();
 	active_model.is_locked = Set(lock);
 	let updated_user = active_model.update(&conn).await?;

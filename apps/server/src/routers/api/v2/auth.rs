@@ -8,14 +8,17 @@ use axum::{
 };
 use axum_extra::{headers::UserAgent, TypedHeader};
 use chrono::{DateTime, Duration, FixedOffset, Utc};
-use graphql::data::{AuthContext, ServiceContext};
+use graphql::data::{AuthContext, EdgeRequest, ServiceContext};
 use models::{
 	entity::{
 		session,
 		user::{self, AuthUser, LoginUser},
 		user_login_activity,
 	},
-	services::user::{create_user_with_preferences, revoke_user_sessions},
+	services::{
+		access::{self as access_service, reason, SignInMark},
+		user::{create_user_with_preferences, revoke_user_sessions},
+	},
 	shared::image::ImageRef,
 };
 use reqwest::header;
@@ -35,7 +38,9 @@ use crate::{
 		state::AppState,
 	},
 	errors::{APIError, APIResult},
-	middleware::{auth::auth_middleware, ClientIp, HostExtractor},
+	middleware::{
+		auth::auth_middleware, edge::EDGE_PUBLIC_HEADER, ClientIp, HostExtractor,
+	},
 	utils::{
 		default_true, fetch_session_user, hash_password, verify_dummy_password,
 		verify_password,
@@ -48,10 +53,6 @@ const FAILED_LOGINS_BEFORE_LOCK: u64 = 9;
 /// A success, or a refusal of a locked account, is tracked once an hour for a client that signs in
 /// with every request (OPDS Basic auth)
 const BASIC_AUTH_TRACKING_INTERVAL_HOURS: i64 = 1;
-
-/// The header the public edge (the proxy that is the only way in from the internet) adds to the
-/// sign-ins that come through it, and strips from every other request. Only its presence counts
-const EDGE_PUBLIC_HEADER: &str = "x-edge-public";
 
 pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 	Router::new().nest(
@@ -125,6 +126,20 @@ async fn lock_account(conn: &DatabaseConnection, user_id: String) -> APIResult<(
 		"Removed all sessions and refresh tokens for locked user"
 	);
 
+	// who locked it is what tells the owner, in Public access, whether to look at the failures
+	if let Err(error) = access_service::audit(
+		conn,
+		Utc::now(),
+		"system",
+		"user.locked_by_failures",
+		&user_id,
+		"too many failed sign-ins",
+	)
+	.await
+	{
+		error!(?error, "Failed to audit the lock");
+	}
+
 	Ok(())
 }
 
@@ -175,43 +190,55 @@ async fn track_login_attempt(
 	user_agent: String,
 	client_ip: std::net::IpAddr,
 	success: bool,
+	mark: SignInMark,
 ) -> APIResult<()> {
 	let today: DateTime<FixedOffset> = Utc::now().into();
 	// TODO: make this configurable via environment variable so knowledgeable attackers can't bypass this
 	let twenty_four_hours_ago = today - Duration::hours(24);
 
-	let should_lock_account =
-		!success && !for_user.is_server_owner && !for_user.is_locked && {
-			user_login_activity::Entity::find()
-				.filter(
-					user_login_activity::Column::UserId
-						.eq(for_user.id.clone())
-						.and(
-							user_login_activity::Column::Timestamp
-								.gte(twenty_four_hours_ago)
-								.and(user_login_activity::Column::Timestamp.lte(today)),
-						)
-						.and(
-							user_login_activity::Column::AuthenticationSuccessful
-								.eq(false),
-						),
-				)
-				.count(conn)
-				.await? >= FAILED_LOGINS_BEFORE_LOCK
-		};
+	// every failure of the window counts, but the ones that were not guesses at this account's
+	// password (and the ones the owner forgave when they unblocked it)
+	let should_lock_account = !success
+		&& !for_user.is_server_owner
+		&& !for_user.is_locked
+		&& access_service::count_lock_failures(
+			conn,
+			&for_user.id,
+			twenty_four_hours_ago,
+			today,
+		)
+		.await? >= FAILED_LOGINS_BEFORE_LOCK;
 
-	let login_track_result =
-		handle_login_attempt(conn, for_user, user_agent, client_ip, success).await;
-	// I don't want to kill the login here, so not bubbling up the error
-	if let Err(err) = login_track_result {
-		error!(error = ?err, "Failed to track login attempt!");
-	}
+	record_attempt(conn, for_user, user_agent, client_ip, success, &mark).await;
 
 	if should_lock_account {
 		lock_account(conn, for_user.id.clone()).await?;
 	}
 
 	Ok(())
+}
+
+/// Records a sign-in attempt in the user's login activity, with what is known about it (the pass
+/// it came with, why it failed, whether the lock rule counts it). It never fails the sign-in: an
+/// error is logged
+async fn record_attempt(
+	conn: &DatabaseConnection,
+	for_user: &user::LoginUser,
+	user_agent: String,
+	client_ip: std::net::IpAddr,
+	success: bool,
+	mark: &SignInMark,
+) {
+	match handle_login_attempt(conn, for_user, user_agent, client_ip, success).await {
+		Ok(activity) => {
+			if let Err(error) =
+				access_service::mark_sign_in(conn, activity.id, mark).await
+			{
+				error!(?error, "Failed to mark the login attempt!");
+			}
+		},
+		Err(error) => error!(?error, "Failed to track login attempt!"),
+	}
 }
 
 /// Tracks an OPDS HTTP Basic auth attempt like [`track_login_attempt`]. A reader sends the
@@ -249,7 +276,20 @@ pub(crate) async fn track_basic_auth_attempt(
 		}
 	}
 
-	track_login_attempt(conn, for_user, user_agent, client_ip, success).await
+	let reason = match (success, for_user.is_locked) {
+		(true, _) => None,
+		(false, true) => Some(reason::LOCKED),
+		(false, false) => Some(reason::WRONG_PASSWORD),
+	};
+	track_login_attempt(
+		conn,
+		for_user,
+		user_agent,
+		client_ip,
+		success,
+		SignInMark::counting(None, reason),
+	)
+	.await
 }
 
 async fn handle_remove_earliest_session(
@@ -312,6 +352,7 @@ async fn login(
 	State(state): State<AppState>,
 	HostExtractor(details): HostExtractor,
 	headers: HeaderMap,
+	Extension(edge): Extension<EdgeRequest>,
 	Query(AuthenticationOptions {
 		generate_token,
 		create_session,
@@ -348,26 +389,56 @@ async fn login(
 		return Err(APIError::Unauthorized);
 	};
 
+	// Whether the request came through the public edge is what the edge's marker says, always
+	// (the header is also looked at directly: the answer must not depend on the request having
+	// passed through one more layer)
+	let via_public = edge.via_public || headers.contains_key(EDGE_PUBLIC_HEADER);
+	let device_id = edge.device.as_ref().map(|device| device.id.clone());
+
 	// The owner signs in from home only. Their username is easy to guess, and the public edge's
 	// limits can only slow down guessing at their password, so a sign-in as the owner that comes
 	// through the edge is refused whatever the password is, before it is even checked. It is
 	// refused like a wrong password, after the same work (so it takes as long, and doesn't say
 	// that this is the owner), and recorded, without ever counting towards a lock: the owner is
 	// never locked by failed sign-ins, and this one wasn't a guess
-	if user.is_server_owner && headers.contains_key(EDGE_PUBLIC_HEADER) {
+	if user.is_server_owner && via_public {
 		verify_dummy_password(password, &config).await;
-		if let Err(error) = handle_login_attempt(
+		record_attempt(
 			state.conn.as_ref(),
 			&user,
 			user_agent.to_string(),
 			client_ip,
 			false,
+			&SignInMark::ignored_by_lock(device_id, reason::OWNER_VIA_EDGE),
 		)
-		.await
-		{
-			error!(?error, "Failed to track login attempt!");
-		}
+		.await;
 		return Err(APIError::Unauthorized);
+	}
+
+	// A pass made from an invite is for one person: through it, only that person can sign in. Any
+	// other name gets the answer of a wrong password after the same work, and is recorded
+	// without counting towards the lock of the account it was typed for: a leaked link or a lost
+	// phone must not be a way to lock somebody else out. It is checked before the account's own
+	// state, so a locked account doesn't answer differently for it either
+	let binds_person = config.edge.as_ref().is_none_or(|edge| edge.binds_person);
+	if via_public && binds_person {
+		let bound_to = edge
+			.device
+			.as_ref()
+			.and_then(|device| device.person_id.as_deref());
+		if bound_to.is_some_and(|person_id| person_id != user.id) {
+			verify_dummy_password(password, &config).await;
+			record_attempt(
+				state.conn.as_ref(),
+				&user,
+				user_agent.to_string(),
+				client_ip,
+				false,
+				&SignInMark::ignored_by_lock(device_id, reason::WRONG_PERSON),
+			)
+			.await;
+			return Err(APIError::Unauthorized);
+		}
 	}
 
 	match session.get::<String>(SESSION_USER_KEY).await? {
@@ -383,9 +454,9 @@ async fn login(
 			}
 
 			// The user already has a session, so we just return them immediately
+			let auth_user = with_password_flag(state.conn.as_ref(), user.into()).await?;
 			return Ok(Json(LoginResponse::User(inject_avatar_url(
-				user.into(),
-				service,
+				auth_user, service,
 			))));
 		},
 		_ => {},
@@ -415,6 +486,7 @@ async fn login(
 			user_agent.to_string(),
 			client_ip,
 			false,
+			SignInMark::counting(device_id, Some(reason::LOCKED)),
 		)
 		.await?;
 		return Err(APIError::AccountLocked);
@@ -429,6 +501,10 @@ async fn login(
 		user_agent.to_string(),
 		client_ip,
 		provided_valid_credentials,
+		SignInMark::counting(
+			device_id,
+			(!provided_valid_credentials).then_some(reason::WRONG_PASSWORD),
+		),
 	)
 	.await?;
 
@@ -440,7 +516,8 @@ async fn login(
 		enforce_max_sessions(&user, state.conn.as_ref()).await?;
 	}
 
-	let auth_user = inject_avatar_url(AuthUser::from(user), service);
+	let auth_user = with_password_flag(state.conn.as_ref(), AuthUser::from(user)).await?;
+	let auth_user = inject_avatar_url(auth_user, service);
 
 	if create_session {
 		session
@@ -458,6 +535,17 @@ async fn login(
 	} else {
 		Ok(Json(LoginResponse::User(auth_user)))
 	}
+}
+
+/// The user, with whether the owner set their password and they have to choose their own: the web
+/// app learns it from the sign-in
+async fn with_password_flag(
+	conn: &DatabaseConnection,
+	mut user: AuthUser,
+) -> APIResult<AuthUser> {
+	user.must_change_password =
+		access_service::must_change_password(conn, &user.id).await?;
+	Ok(user)
 }
 
 /// Destroys the session and logs the user out.
@@ -491,8 +579,19 @@ pub async fn register(
 	session: Session,
 	State(ctx): State<AppState>,
 	HostExtractor(details): HostExtractor,
+	Extension(edge): Extension<EdgeRequest>,
+	headers: HeaderMap,
 	Json(input): Json<PasswordUserInput>,
 ) -> APIResult<Json<AuthUser>> {
+	// The internet never creates an account, the very first one (the server owner) included: that
+	// is done from home. This route reads the session itself, so it can't rely on the
+	// authentication middleware's refusal of the owner
+	if edge.via_public || headers.contains_key(EDGE_PUBLIC_HEADER) {
+		return Err(APIError::Forbidden(
+			"Accounts are created from home".to_string(),
+		));
+	}
+
 	let config = ctx.config.clone();
 	let service = ServiceContext::new(details.host, details.scheme);
 

@@ -12,7 +12,7 @@ use axum::{
 };
 
 use graphql::{
-	data::{AuthContext, ServiceContext},
+	data::{AuthContext, EdgeRequest, ServiceContext},
 	schema::{build_schema, AppSchema},
 };
 use tower_sessions::Session;
@@ -51,15 +51,63 @@ async fn playground(
 	))
 }
 
+/// The only fields a user who has to choose their own password can ask for: who they are and the
+/// mutation that changes the password. Anything else (a fragment at the root, a subscription, any
+/// other field) is refused
+const FIELDS_WHILE_PASSWORD_MUST_CHANGE: [&str; 3] = ["me", "updateViewer", "__typename"];
+
+fn asks_only_for_the_password_change(query: &str) -> bool {
+	use async_graphql::parser::{
+		parse_query,
+		types::{DocumentOperations, OperationDefinition, OperationType, Selection},
+	};
+
+	let Ok(document) = parse_query(query) else {
+		return false;
+	};
+	let operations: Vec<&OperationDefinition> = match &document.operations {
+		DocumentOperations::Single(operation) => vec![&operation.node],
+		DocumentOperations::Multiple(operations) => operations
+			.values()
+			.map(|operation| &operation.node)
+			.collect(),
+	};
+	operations.iter().all(|operation| {
+		operation.ty != OperationType::Subscription
+			&& operation.selection_set.node.items.iter().all(|selection| {
+				matches!(
+					&selection.node,
+					Selection::Field(field)
+						if FIELDS_WHILE_PASSWORD_MUST_CHANGE.contains(&field.node.name.node.as_str())
+				)
+			})
+	})
+}
+
 async fn graphql_handler(
 	schema: Extension<AppSchema>,
 	Extension(auth): Extension<AuthContext>,
+	Extension(edge): Extension<EdgeRequest>,
 	HostExtractor(details): HostExtractor,
 	session: Session,
 	req: GraphQLRequest,
 ) -> GraphQLResponse {
 	let mut req = req.into_inner();
+
+	// the owner set this user's password: until they choose their own, all they may do here is
+	// ask who they are and change it
+	if auth.user.must_change_password && !asks_only_for_the_password_change(&req.query) {
+		return async_graphql::Response::from_errors(vec![
+			async_graphql::ServerError::new(
+				"You must choose a new password before you can use anything else",
+				None,
+			),
+		])
+		.into();
+	}
+
 	req = req.data(auth);
+	req = req.data(edge);
 	req = req.data(ServiceContext {
 		host: details.host,
 		scheme: details.scheme,
@@ -72,11 +120,15 @@ async fn graphql_subscription_handler(
 	schema: Extension<AppSchema>,
 	State(ctx): State<AppState>,
 	Extension(auth): Extension<AuthContext>,
+	Extension(edge): Extension<EdgeRequest>,
 	protocol: GraphQLProtocol,
 	websocket: WebSocketUpgrade,
 ) -> impl IntoResponse {
 	let mut data = async_graphql::Data::default();
 	data.insert(auth);
+	// the websocket runs queries and mutations too: without this the guards that read it would
+	// not know how the request arrived (and refuse, but a handler must not rely on that)
+	data.insert(edge);
 	data.insert(ctx);
 
 	websocket
@@ -86,4 +138,33 @@ async fn graphql_subscription_handler(
 				.with_data(data)
 				.serve()
 		})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_user_who_must_change_the_password_may_ask_for_two_things() {
+		for query in [
+			"{ me { id } }",
+			"{ __typename }",
+			"mutation { updateViewer(input: {username: \"a\", password: \"b\"}) { id } }",
+			"query Me { me { username } }",
+		] {
+			assert!(asks_only_for_the_password_change(query), "{query}");
+		}
+		for query in [
+			"{ libraries { nodes { id } } }",
+			"{ me { id } libraries { nodes { id } } }",
+			"{ ...F } fragment F on Query { libraries { nodes { id } } }",
+			"subscription { readEvents { __typename } }",
+			"mutation { deleteLoginActivity }",
+			"{ alias: libraries { nodes { id } } }",
+			"not a query",
+			"",
+		] {
+			assert!(!asks_only_for_the_password_change(query), "{query}");
+		}
+	}
 }

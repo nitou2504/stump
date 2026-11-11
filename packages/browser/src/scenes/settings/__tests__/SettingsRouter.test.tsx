@@ -23,6 +23,9 @@ vi.mock('../server/users/UsersRouter.tsx', () => ({
 vi.mock('../server/email/EmailSettingsRouter.tsx', () => ({
 	default: () => <div data-testid="email-router" />,
 }))
+vi.mock('../server/access/index.tsx', () => ({
+	default: () => <div data-testid="access-scene" />,
+}))
 
 vi.mock('../app/general/GeneralSettingsScene.tsx', () => ({
 	default: () => <div data-testid="account-scene" />,
@@ -31,9 +34,9 @@ vi.mock('../server/general/GeneralServerSettingsScene.tsx', () => ({
 	default: () => <div data-testid="server-scene" />,
 }))
 
-const buildContext = (permissions: UserPermission[]): IAppContext => ({
+const buildContext = (permissions: UserPermission[], isServerOwner = false): IAppContext => ({
 	checkPermission: (p: UserPermission) => permissions.includes(p),
-	isServerOwner: false,
+	isServerOwner,
 	user: {} as any,
 	logout: vi.fn(),
 	enforcePermission: vi.fn(),
@@ -44,9 +47,10 @@ const buildContext = (permissions: UserPermission[]): IAppContext => ({
  *
  * @param subPath relative to settings route, e.g. 'users' or 'server'
  * @param permissions self explanatory stinky
+ * @param isServerOwner whether the user is the server owner, whatever they hold
  */
-const renderAt = (subPath: string, permissions: UserPermission[] = []) => {
-	vi.mocked(useAppContext).mockReturnValue(buildContext(permissions))
+const renderAt = (subPath: string, permissions: UserPermission[] = [], isServerOwner = false) => {
+	vi.mocked(useAppContext).mockReturnValue(buildContext(permissions, isServerOwner))
 	vi.mocked(useAppStore).mockImplementation((selector: any) => selector({ platform: 'browser' }))
 
 	return render(
@@ -90,6 +94,29 @@ describe('SettingsRouter', () => {
 			renderAt('book-approvals', [UserPermission.AddBooks])
 			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
 			expect(screen.queryByTestId('home')).not.toBeInTheDocument()
+		})
+	})
+
+	// how people come in from the internet: the owner's alone, whatever anyone else holds
+	describe('public access route', () => {
+		it('renders for the server owner', async () => {
+			renderAt('access', [], true)
+			expect(await screen.findByTestId('access-scene')).toBeInTheDocument()
+		})
+
+		it('sends everybody else to their account, even with every server permission', async () => {
+			renderAt(
+				'access',
+				[
+					UserPermission.ManageServer,
+					UserPermission.ManageUsers,
+					UserPermission.ReadUsers,
+					UserPermission.ManageLibrary,
+				],
+				false,
+			)
+			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
+			expect(screen.queryByTestId('access-scene')).not.toBeInTheDocument()
 		})
 	})
 

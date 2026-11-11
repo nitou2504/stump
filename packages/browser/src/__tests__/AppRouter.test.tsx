@@ -5,9 +5,15 @@ import { MemoryRouter, Outlet } from 'react-router'
 import { AppRouter } from '../AppRouter'
 
 vi.mock('../AppLayout.tsx', () => ({ AppLayout: () => <Outlet /> }))
+const store = vi.hoisted(() => ({ user: null as null | { mustChangePassword?: boolean } }))
 vi.mock('../stores', () => ({
 	useAppStore: (select: (state: unknown) => unknown) =>
 		select({ baseUrl: 'http://localhost:10801' }),
+	// the layout route is the gate that shows only the new-password screen when it has to
+	useUserStore: (select: (state: unknown) => unknown) => select({ user: store.user }),
+}))
+vi.mock('../scenes/auth/MustChangePasswordScene.tsx', () => ({
+	default: () => <p>Choose your password</p>,
 }))
 const flags = vi.hoisted(() => ({ myReading: true }))
 
@@ -36,6 +42,30 @@ function renderAt(path: string) {
 }
 
 describe('AppRouter', () => {
+	beforeEach(() => {
+		store.user = null
+	})
+
+	// a person whose password the owner set is shown only the screen that asks for their own: the
+	// app's layout (and everything it asks the server, which would be refused) isn't mounted
+	it('shows only the new-password screen to a person who has to choose one', async () => {
+		store.user = { mustChangePassword: true }
+
+		renderAt('/')
+
+		expect(await screen.findByText('Choose your password')).toBeInTheDocument()
+		expect(screen.queryByText('Home page')).not.toBeInTheDocument()
+	})
+
+	it('shows the app to everybody else', async () => {
+		store.user = { mustChangePassword: false }
+
+		renderAt('/')
+
+		expect(await screen.findByText('Home page')).toBeInTheDocument()
+		expect(screen.queryByText('Choose your password')).not.toBeInTheDocument()
+	})
+
 	it('has no book club pages', async () => {
 		renderAt('/clubs')
 

@@ -1,9 +1,11 @@
+pub mod edge_config;
 pub mod logging;
 pub mod oidc_config;
 mod stump_config;
 
 use std::env;
 
+pub use edge_config::*;
 pub use oidc_config::*;
 pub use stump_config::*;
 

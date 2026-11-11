@@ -39,4 +39,24 @@ describe('settings routes', () => {
 			to: '/settings/book-approvals',
 		})
 	})
+
+	it('list Public access for the server owner only, in Management after Users', () => {
+		const groups = createRouteGroups(
+			new QueryClient(),
+			new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' }),
+		)
+		const management = groups.find(({ label }) => label === 'Management')!
+		const labels = management.items.map(({ label }) => label)
+
+		expect(management.items.find(({ label }) => label === 'Public access')).toMatchObject({
+			localeKey: 'server/access',
+			ownerOnly: true,
+			to: '/settings/access',
+		})
+		// a permission is not what it is gated by
+		expect(
+			management.items.find(({ label }) => label === 'Public access')?.permissions,
+		).toBeUndefined()
+		expect(labels.indexOf('Public access')).toBe(labels.indexOf('Users') + 1)
+	})
 })

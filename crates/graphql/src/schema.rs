@@ -2,6 +2,7 @@ use crate::{
 	complexity::MAX_QUERY_COMPLEXITY,
 	data::CoreContext,
 	loader::{
+		access_person::AccessPersonLoader,
 		author::{AuthorMediaLoader, MetadataSeriesMediaLoader},
 		favorite::FavoritesLoader,
 		library::LibraryLoader,
@@ -126,6 +127,10 @@ pub fn add_data_loaders<
 		))
 		.data(DataLoader::new(
 			ReaderProfileLoader::new(conn.clone()),
+			tokio::spawn,
+		))
+		.data(DataLoader::new(
+			AccessPersonLoader::new(conn.clone()),
 			tokio::spawn,
 		))
 }

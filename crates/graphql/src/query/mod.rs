@@ -1,3 +1,4 @@
+mod access;
 mod api_key;
 mod author;
 mod book_club;
@@ -39,6 +40,7 @@ mod tag;
 pub(crate) mod trash;
 pub(crate) mod user;
 
+use access::AccessQuery;
 use api_key::APIKeyQuery;
 use author::AuthorQuery;
 use book_club::BookClubQuery;
@@ -110,6 +112,7 @@ struct UserAndNotifsQueries(UserQuery, EmailerQuery, EmailDeviceQuery, NotifierQ
 
 #[derive(async_graphql::MergedObject, Default)]
 struct SystemQueries(
+	AccessQuery,
 	APIKeyQuery,
 	JobQuery,
 	LogQuery,

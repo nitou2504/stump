@@ -1,3 +1,4 @@
+mod access;
 mod api_key;
 mod book_club;
 mod book_club_book;
@@ -35,6 +36,7 @@ mod trash;
 pub(crate) mod upload;
 mod user;
 
+use access::AccessMutation;
 use api_key::APIKeyMutation;
 use book_club::BookClubMutation;
 use book_club_book::BookClubBookMutation;
@@ -99,6 +101,7 @@ struct UserAndNotifsMutations(UserMutation, EmailerMutation, EmailDeviceMutation
 
 #[derive(async_graphql::MergedObject, Default)]
 struct SystemMutations(
+	AccessMutation,
 	APIKeyMutation,
 	JobMutation,
 	LogMutation,

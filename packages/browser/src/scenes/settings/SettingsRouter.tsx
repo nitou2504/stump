@@ -26,12 +26,13 @@ const TagSettingsScene = lazy(() => import('./server/tags'))
 const RecentlyAddedScene = lazy(() => import('./server/recentlyAdded'))
 const DeletedBooksScene = lazy(() => import('./server/deletedBooks'))
 const BookApprovalsScene = lazy(() => import('./server/bookApprovals'))
+const PublicAccessScene = lazy(() => import('./server/access'))
 
 /**
  * The main router for the settings scene(s). Mostly just a collection of nested routers
  */
 export default function SettingsRouter() {
-	const { checkPermission } = useAppContext()
+	const { checkPermission, isServerOwner } = useAppContext()
 	const paths = usePaths()
 
 	const isDesktop = useAppStore((store) => store.platform !== 'browser')
@@ -58,6 +59,8 @@ export default function SettingsRouter() {
 				{canManageServer && <Route path="logs" element={<ServerLogsScene />} />}
 				{canManageServer && <Route path="jobs" element={<JobSettingsScene />} />}
 				{canReadUsers && <Route path="users/*" element={<UsersRouter />} />}
+				{/* how people come in from the internet: the owner's alone */}
+				{isServerOwner && <Route path="access" element={<PublicAccessScene />} />}
 				{canManageEmail && <Route path="email/*" element={<EmailSettingsRouter />} />}
 				{canReadProviders && (
 					<Route path="metadata-integrations" element={<MetadataIntegrationsScene />} />

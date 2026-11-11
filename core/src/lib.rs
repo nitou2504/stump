@@ -6,6 +6,7 @@
 
 use std::{str::FromStr, sync::Arc};
 
+pub mod access;
 pub mod api_key;
 pub mod config;
 mod context;

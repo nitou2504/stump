@@ -40,6 +40,163 @@ export type Scalars = {
 };
 
 /**
+ * A row of the audit log: what the owner did, or a redemption of an invite. Never a token, a
+ * link or a password
+ */
+export type AccessAuditEntry = {
+  __typename?: 'AccessAuditEntry';
+  /** `invite.create`, `device.revoke`, ... */
+  action: Scalars['String']['output'];
+  /** The admin's username, `system`, or `public` for a redemption */
+  actor: Scalars['String']['output'];
+  at: Scalars['DateTime']['output'];
+  detail: Scalars['String']['output'];
+  id: Scalars['Int']['output'];
+  /** An invite id, a device id or a user id */
+  target: Scalars['String']['output'];
+};
+
+export type AccessAuditPage = {
+  __typename?: 'AccessAuditPage';
+  nodes: Array<AccessAuditEntry>;
+  pageInfo: OffsetPaginationInfo;
+};
+
+/** An account that is locked right now */
+export type AccessBlockedUser = {
+  __typename?: 'AccessBlockedUser';
+  /** Failed sign-ins in the last 24 hours (every one, whether it counts or not) */
+  failuresLast24H: Scalars['Int']['output'];
+  lastFailureAt?: Maybe<Scalars['DateTime']['output']>;
+  lockedBy: AccessLockedBy;
+  person: AccessPerson;
+};
+
+/** A browser that holds a pass */
+export type AccessDevice = {
+  __typename?: 'AccessDevice';
+  createdAt: Scalars['DateTime']['output'];
+  firstSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  /** The pass id */
+  id: Scalars['String']['output'];
+  /** The name the owner gave it ("Ana's phone"); a legacy pass is named after its id */
+  label: Scalars['String']['output'];
+  /** The browser of the last request that came with the pass */
+  lastAgent: Scalars['String']['output'];
+  /** The address of the last request that came with the pass */
+  lastIp: Scalars['String']['output'];
+  lastSeenAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Made in the terminal (`invite.sh`): the pass is not tied to a person */
+  legacy: Scalars['Boolean']['output'];
+  /**
+   * The person the device was made for. None for a legacy pass. A person who is removed is
+   * still returned, with `removed` set
+   */
+  person?: Maybe<AccessPerson>;
+  revokedAt?: Maybe<Scalars['DateTime']['output']>;
+  revokedBy?: Maybe<Scalars['String']['output']>;
+  status: AccessDeviceStatus;
+};
+
+export type AccessDevicePage = {
+  __typename?: 'AccessDevicePage';
+  nodes: Array<AccessDevice>;
+  pageInfo: OffsetPaginationInfo;
+};
+
+export enum AccessDeviceStatus {
+  Active = 'ACTIVE',
+  Revoked = 'REVOKED'
+}
+
+/** An invite link the owner made. The link itself is never kept: it was shown once */
+export type AccessInvite = {
+  __typename?: 'AccessInvite';
+  createdAt: Scalars['DateTime']['output'];
+  /** The admin who made it */
+  createdBy: Scalars['String']['output'];
+  expiresAt: Scalars['DateTime']['output'];
+  id: Scalars['String']['output'];
+  /** The device name the owner typed */
+  label: Scalars['String']['output'];
+  maxUses: Scalars['Int']['output'];
+  /** The person the invite is for */
+  person?: Maybe<AccessPerson>;
+  status: AccessInviteStatus;
+  uses: Scalars['Int']['output'];
+};
+
+export type AccessInvitePage = {
+  __typename?: 'AccessInvitePage';
+  nodes: Array<AccessInvite>;
+  pageInfo: OffsetPaginationInfo;
+};
+
+export enum AccessInviteStatus {
+  Expired = 'EXPIRED',
+  Revoked = 'REVOKED',
+  /** Not used yet, still valid */
+  Unused = 'UNUSED',
+  /** Used at least once, uses left */
+  Used = 'USED',
+  /** Every use is spent */
+  UsedUp = 'USED_UP'
+}
+
+export enum AccessLockedBy {
+  /** Too many failed sign-ins */
+  Failures = 'FAILURES',
+  /** The owner locked the account */
+  Owner = 'OWNER',
+  /** Locked before this was recorded */
+  Unknown = 'UNKNOWN'
+}
+
+/** What is set up, and what is missing, for people to reach Stump from the internet */
+export type AccessOverview = {
+  __typename?: 'AccessOverview';
+  /** Devices that hold a pass and were not revoked */
+  activeDevices: Scalars['Int']['output'];
+  /** Everything needed to make invite links and have revocations followed is set */
+  configured: Scalars['Boolean']['output'];
+  /** There is a key (at least 64 characters) to sign passes with */
+  hasKey: Scalars['Boolean']['output'];
+  /** The public address, which invite links are made from, is set */
+  hasPublicUrl: Scalars['Boolean']['output'];
+  /** The folder the edge's state file goes in is set */
+  hasStateDir: Scalars['Boolean']['output'];
+  /** Invites that can still be redeemed */
+  openInvites: Scalars['Int']['output'];
+  /** The address people reach Stump at from the internet */
+  publicUrl?: Maybe<Scalars['String']['output']>;
+  /** A request through the public edge must carry a valid pass */
+  requirePass: Scalars['Boolean']['output'];
+  /** When the app last wrote the file the edge follows */
+  stateWrittenAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
+/** A person, as the owner sees them on this page */
+export type AccessPerson = {
+  __typename?: 'AccessPerson';
+  id: Scalars['String']['output'];
+  isServerOwner: Scalars['Boolean']['output'];
+  /** Locked: by too many failed sign-ins, or by the owner */
+  locked: Scalars['Boolean']['output'];
+  /** Removed: the account is gone, what it had on this page is what remains */
+  removed: Scalars['Boolean']['output'];
+  username: Scalars['String']['output'];
+};
+
+/** An account and how it stands: for the owner to set a password or unblock it */
+export type AccessPersonRow = {
+  __typename?: 'AccessPersonRow';
+  lastSignInAt?: Maybe<Scalars['DateTime']['output']>;
+  /** The owner set their password and they haven't chosen their own yet */
+  mustChangePassword: Scalars['Boolean']['output'];
+  person: AccessPerson;
+};
+
+/**
  * The different roles a user may have for a role-based access control system scoped
  * to a specific entity
  */
@@ -47,6 +204,46 @@ export enum AccessRole {
   CoCreator = 'CO_CREATOR',
   Reader = 'READER',
   Writer = 'WRITER'
+}
+
+/** One sign-in attempt of the account's login activity, with what is known of how it came */
+export type AccessSignIn = {
+  __typename?: 'AccessSignIn';
+  at: Scalars['DateTime']['output'];
+  /**
+   * A failure the owner forgave when they unblocked the account: it no longer counts towards
+   * a lock. The attempts that never counted (the owner's password through the edge, somebody
+   * else's pass) are not "cleared"
+   */
+  cleared: Scalars['Boolean']['output'];
+  /** The pass the sign-in came with, when it came through the public edge */
+  deviceId?: Maybe<Scalars['String']['output']>;
+  /** The name the owner gave that device */
+  deviceLabel?: Maybe<Scalars['String']['output']>;
+  id: Scalars['Int']['output'];
+  ip: Scalars['String']['output'];
+  /** Whose account the attempt was for */
+  person?: Maybe<AccessPerson>;
+  /** Why a failure failed, when it is known */
+  reason?: Maybe<AccessSignInReason>;
+  successful: Scalars['Boolean']['output'];
+  userAgent: Scalars['String']['output'];
+};
+
+export type AccessSignInPage = {
+  __typename?: 'AccessSignInPage';
+  nodes: Array<AccessSignIn>;
+  pageInfo: OffsetPaginationInfo;
+};
+
+export enum AccessSignInReason {
+  /** The account was locked: the answer is the same whatever the password */
+  Locked = 'LOCKED',
+  /** The server owner's password, through the public edge: refused whatever it was */
+  OwnerViaEdge = 'OWNER_VIA_EDGE',
+  WrongPassword = 'WRONG_PASSWORD',
+  /** A pass made for somebody else */
+  WrongPerson = 'WRONG_PERSON'
 }
 
 export type AddBookToClubInput = {
@@ -495,6 +692,17 @@ export type CoreEvent = CreatedManySeries | CreatedMedia | CreatedOrUpdatedManyM
 
 export type CoreJobOutput = AnalyzeMediaOutput | LibraryScanOutput | MetadataFetchJobOutput | PlaceholderGenerationOutput | PostProcessOutput | RescanBooksOutput | SeriesScanOutput | ThumbnailGenerationOutput | TrashPurgeOutput;
 
+export type CreateAccessInviteInput = {
+  /** What the device is called ("Ana's phone"), up to 40 characters */
+  label: Scalars['String']['input'];
+  /** How many times it can be opened (each one makes a device), 1 to 10 */
+  maxUses: Scalars['Int']['input'];
+  /** The user the link is for: anyone but the server owner */
+  personId: Scalars['String']['input'];
+  /** How long the link works: 1, 24, 72, 168 or 720 hours */
+  validForHours: Scalars['Int']['input'];
+};
+
 export type CreateAnnotationInput = {
   annotationText?: InputMaybe<Scalars['String']['input']>;
   locator: ReadiumLocatorInput;
@@ -572,6 +780,17 @@ export type CreatedApiKey = {
   __typename?: 'CreatedAPIKey';
   apiKey: Apikey;
   secret: Scalars['String']['output'];
+};
+
+/** The invite that was just made, with the only copy of its link */
+export type CreatedAccessInvite = {
+  __typename?: 'CreatedAccessInvite';
+  invite: AccessInvite;
+  /**
+   * The link to send. It exists only in this response: Stump keeps a hash of the token, so it
+   * can't show the link again
+   */
+  link: Scalars['String']['output'];
 };
 
 export type CreatedManySeries = {
@@ -3049,6 +3268,11 @@ export type Mutation = {
   completeBook: BookClub;
   convertMedia: Scalars['Boolean']['output'];
   /**
+   * Makes an invite link for a person and a device. The link is in the response and nowhere
+   * else: Stump keeps a hash of the token, not the token
+   */
+  createAccessInvite: CreatedAccessInvite;
+  /**
    * Create an annotation (a highlight, underline, strikethrough or invert, with an
    * optional note)
    */
@@ -3302,11 +3526,15 @@ export type Mutation = {
   renameTag: Tag;
   /** Reorder uncompleted books in the club's queue. Completed books cannot be reordered since they are effectively archived */
   reorderBooks: BookClub;
+  /** Gives a device a fresh daily sign-in budget at the edge. Returns whether the device exists */
+  resetAccessDeviceBudget: Scalars['Boolean']['output'];
   /** resets the elapsed seconds for all reading sessions in the current readthrough, if there is one */
   resetElapsedSeconds: Scalars['Boolean']['output'];
   resetLibraryMetadata: Library;
   resetSeriesMetadata: Series;
   respondToBookClubInvitation: BookClubInvitation;
+  /** Brings a revoked device back. Its invite stays revoked. Returns whether it changed */
+  restoreAccessDevice: Scalars['Boolean']['output'];
   /**
    * Brings books in *Deleted books* back to their library exactly as they were (reading
    * progress, annotations, bookmarks, tags and smart lists never left). Returns how many came
@@ -3321,6 +3549,22 @@ export type Mutation = {
    * are left as they are (`skippedFields`). The revert is recorded as a new save.
    */
   revertMediaMetadataEdit: MetadataEditResult;
+  /**
+   * Revokes a device: its pass stops working, at once for the app and within a couple of
+   * seconds at the edge. The invite it came from is revoked with it. Returns whether it
+   * changed
+   */
+  revokeAccessDevice: Scalars['Boolean']['output'];
+  /**
+   * Cuts a person off: every device of theirs is revoked, so is every open invite of theirs,
+   * and their sessions and refresh tokens are removed. Returns how many devices were revoked
+   */
+  revokeAccessDevicesOfPerson: Scalars['Int']['output'];
+  /**
+   * Revokes an invite: it can't be opened any more. The devices that were made from it keep
+   * their pass (revoke those one by one)
+   */
+  revokeAccessInvite: Scalars['Boolean']['output'];
   /**
    * Run post-processing on the whole library now: the 16-grey step (or its dry-run
    * estimate) and/or the PDF steps (queued for the PDF worker)
@@ -3362,6 +3606,12 @@ export type Mutation = {
    * changes nothing. `SHARED` is not offered.
    */
   setSmartListsVisibility: Array<SmartList>;
+  /**
+   * Sets somebody's password. With `requireChange` (the default) they must choose their own
+   * before they can use anything else: until then they can only change the password and sign
+   * out. It ends their sessions. The server owner's password is never set here.
+   */
+  setUserPassword: Scalars['Boolean']['output'];
   /** Suggest a book for the book club */
   suggestBook: BookClubBookSuggestion;
   /** Send a test email to verify the SMTP configuration is working */
@@ -3374,6 +3624,11 @@ export type Mutation = {
   toggleReaction: Scalars['Boolean']['output'];
   /** Toggle like on a suggestion */
   toggleSuggestionLike: Scalars['Boolean']['output'];
+  /**
+   * Unlocks an account and forgives the failed sign-ins of the last 24 hours, so that the next
+   * typo doesn't lock it again. Returns whether the account exists
+   */
+  unblockUser: Scalars['Boolean']['output'];
   /** Change an annotation's note and/or style, only if the user created it */
   updateAnnotation: MediaAnnotation;
   updateApiKey: Apikey;
@@ -3637,6 +3892,11 @@ export type MutationCompleteBookArgs = {
 
 export type MutationConvertMediaArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationCreateAccessInviteArgs = {
+  input: CreateAccessInviteInput;
 };
 
 
@@ -4099,6 +4359,11 @@ export type MutationReorderBooksArgs = {
 };
 
 
+export type MutationResetAccessDeviceBudgetArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationResetElapsedSecondsArgs = {
   id: Scalars['ID']['input'];
 };
@@ -4122,6 +4387,11 @@ export type MutationRespondToBookClubInvitationArgs = {
 };
 
 
+export type MutationRestoreAccessDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationRestoreDeletedBooksArgs = {
   ids: Array<Scalars['ID']['input']>;
 };
@@ -4135,6 +4405,21 @@ export type MutationRestoreMediaArgs = {
 export type MutationRevertMediaMetadataEditArgs = {
   mediaId: Scalars['ID']['input'];
   saveId: Scalars['String']['input'];
+};
+
+
+export type MutationRevokeAccessDeviceArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationRevokeAccessDevicesOfPersonArgs = {
+  personId: Scalars['ID']['input'];
+};
+
+
+export type MutationRevokeAccessInviteArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -4211,6 +4496,13 @@ export type MutationSetSmartListsVisibilityArgs = {
 };
 
 
+export type MutationSetUserPasswordArgs = {
+  id: Scalars['ID']['input'];
+  password: Scalars['String']['input'];
+  requireChange?: Scalars['Boolean']['input'];
+};
+
+
 export type MutationSuggestBookArgs = {
   bookClubId: Scalars['ID']['input'];
   input: SuggestBookInput;
@@ -4232,6 +4524,11 @@ export type MutationToggleReactionArgs = {
 
 export type MutationToggleSuggestionLikeArgs = {
   suggestionId: Scalars['ID']['input'];
+};
+
+
+export type MutationUnblockUserArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -5068,6 +5365,23 @@ export type PurgedBook = {
 
 export type Query = {
   __typename?: 'Query';
+  /** What the owner did on this page, the latest first */
+  accessAudit: AccessAuditPage;
+  /** The accounts that are locked right now, with who locked them */
+  accessBlockedUsers: Array<AccessBlockedUser>;
+  /** The devices that hold a pass, the latest made first */
+  accessDevices: AccessDevicePage;
+  /** The invite links that were made, the latest first. The links themselves are not kept */
+  accessInvites: AccessInvitePage;
+  /** What is set up for public access, and what is missing */
+  accessOverview: AccessOverview;
+  /** The accounts of the server and how each stands, for setting a password or unblocking */
+  accessPeople: Array<AccessPersonRow>;
+  /**
+   * The sign-in attempts, the latest first: the account's login activity with the pass each
+   * came with and why a failure failed. A password is never stored
+   */
+  accessSignIns: AccessSignInPage;
   activeReadingSessionCount: Scalars['Int']['output'];
   /** Get all annotations (highlights/notes) for a single book */
   annotationsByMediaId: Array<MediaAnnotation>;
@@ -5343,6 +5657,27 @@ export type Query = {
   userById: User;
   userCount: Scalars['Int']['output'];
   users: PaginatedUserResponse;
+};
+
+
+export type QueryAccessAuditArgs = {
+  pagination?: OffsetPagination;
+};
+
+
+export type QueryAccessDevicesArgs = {
+  pagination?: OffsetPagination;
+};
+
+
+export type QueryAccessInvitesArgs = {
+  pagination?: OffsetPagination;
+};
+
+
+export type QueryAccessSignInsArgs = {
+  failuresOnly?: Scalars['Boolean']['input'];
+  pagination?: OffsetPagination;
 };
 
 
@@ -8906,6 +9241,13 @@ export type SurpriseMeQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type SurpriseMeQuery = { __typename?: 'Query', randomMedia: Array<{ __typename?: 'Media', id: string }> };
 
+export type ChooseOwnPasswordMutationVariables = Exact<{
+  input: UpdateUserInput;
+}>;
+
+
+export type ChooseOwnPasswordMutation = { __typename?: 'Mutation', updateViewer: { __typename?: 'User', id: string, username: string } };
+
 export type BookMetadataFragment = { __typename?: 'Media', metadata?: { __typename?: 'MediaMetadata', ageRating?: number | null, rating?: any | null, characters: Array<string>, colorists: Array<string>, coverArtists: Array<string>, editors: Array<string>, genres: Array<string>, inkers: Array<string>, letterers: Array<string>, links: Array<string>, pencillers: Array<string>, publisher?: string | null, series?: string | null, teams: Array<string>, writers: Array<string>, year?: number | null, month?: number | null, day?: number | null, volume?: number | null, number?: any | null } | null } & { ' $fragmentName'?: 'BookMetadataFragment' };
 
 export type BooksAlphabetQueryVariables = Exact<{ [key: string]: never; }>;
@@ -9672,6 +10014,112 @@ export type NavigationArrangementUpdateLockStatusMutationVariables = Exact<{
 
 
 export type NavigationArrangementUpdateLockStatusMutation = { __typename?: 'Mutation', updateNavigationArrangementLock: { __typename: 'Arrangement' } };
+
+export type PublicAccessOverviewQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PublicAccessOverviewQuery = { __typename?: 'Query', accessOverview: { __typename?: 'AccessOverview', hasKey: boolean, hasPublicUrl: boolean, hasStateDir: boolean, configured: boolean, requirePass: boolean, publicUrl?: string | null, stateWrittenAt?: any | null, activeDevices: number, openInvites: number } };
+
+export type PublicAccessPeopleQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PublicAccessPeopleQuery = { __typename?: 'Query', accessPeople: Array<{ __typename?: 'AccessPersonRow', lastSignInAt?: any | null, mustChangePassword: boolean, person: { __typename?: 'AccessPerson', id: string, username: string, locked: boolean, removed: boolean, isServerOwner: boolean } }> };
+
+export type PublicAccessInvitesQueryVariables = Exact<{
+  page: Scalars['Int']['input'];
+  pageSize: Scalars['Int']['input'];
+}>;
+
+
+export type PublicAccessInvitesQuery = { __typename?: 'Query', accessInvites: { __typename?: 'AccessInvitePage', nodes: Array<{ __typename?: 'AccessInvite', id: string, label: string, createdAt: any, createdBy: string, expiresAt: any, maxUses: number, uses: number, status: AccessInviteStatus, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
+
+export type PublicAccessDevicesQueryVariables = Exact<{
+  page: Scalars['Int']['input'];
+  pageSize: Scalars['Int']['input'];
+}>;
+
+
+export type PublicAccessDevicesQuery = { __typename?: 'Query', accessDevices: { __typename?: 'AccessDevicePage', nodes: Array<{ __typename?: 'AccessDevice', id: string, label: string, legacy: boolean, createdAt: any, firstSeenAt?: any | null, lastSeenAt?: any | null, lastIp: string, lastAgent: string, status: AccessDeviceStatus, revokedAt?: any | null, revokedBy?: string | null, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
+
+export type PublicAccessBlockedQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PublicAccessBlockedQuery = { __typename?: 'Query', accessBlockedUsers: Array<{ __typename?: 'AccessBlockedUser', failuresLast24H: number, lastFailureAt?: any | null, lockedBy: AccessLockedBy, person: { __typename?: 'AccessPerson', id: string, username: string } }> };
+
+export type PublicAccessSignInsQueryVariables = Exact<{
+  failuresOnly: Scalars['Boolean']['input'];
+  page: Scalars['Int']['input'];
+  pageSize: Scalars['Int']['input'];
+}>;
+
+
+export type PublicAccessSignInsQuery = { __typename?: 'Query', accessSignIns: { __typename?: 'AccessSignInPage', nodes: Array<{ __typename?: 'AccessSignIn', id: number, at: any, ip: string, userAgent: string, successful: boolean, deviceId?: string | null, deviceLabel?: string | null, reason?: AccessSignInReason | null, cleared: boolean, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
+
+export type PublicAccessAuditQueryVariables = Exact<{
+  page: Scalars['Int']['input'];
+  pageSize: Scalars['Int']['input'];
+}>;
+
+
+export type PublicAccessAuditQuery = { __typename?: 'Query', accessAudit: { __typename?: 'AccessAuditPage', nodes: Array<{ __typename?: 'AccessAuditEntry', id: number, at: any, actor: string, action: string, target: string, detail: string }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
+
+export type PublicAccessCreateInviteMutationVariables = Exact<{
+  input: CreateAccessInviteInput;
+}>;
+
+
+export type PublicAccessCreateInviteMutation = { __typename?: 'Mutation', createAccessInvite: { __typename?: 'CreatedAccessInvite', link: string, invite: { __typename?: 'AccessInvite', id: string } } };
+
+export type PublicAccessRevokeInviteMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessRevokeInviteMutation = { __typename?: 'Mutation', revokeAccessInvite: boolean };
+
+export type PublicAccessRevokeDeviceMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessRevokeDeviceMutation = { __typename?: 'Mutation', revokeAccessDevice: boolean };
+
+export type PublicAccessRestoreDeviceMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessRestoreDeviceMutation = { __typename?: 'Mutation', restoreAccessDevice: boolean };
+
+export type PublicAccessRevokePersonMutationVariables = Exact<{
+  personId: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessRevokePersonMutation = { __typename?: 'Mutation', revokeAccessDevicesOfPerson: number };
+
+export type PublicAccessResetBudgetMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessResetBudgetMutation = { __typename?: 'Mutation', resetAccessDeviceBudget: boolean };
+
+export type PublicAccessUnblockMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessUnblockMutation = { __typename?: 'Mutation', unblockUser: boolean };
+
+export type PublicAccessSetPasswordMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  password: Scalars['String']['input'];
+  requireChange: Scalars['Boolean']['input'];
+}>;
+
+
+export type PublicAccessSetPasswordMutation = { __typename?: 'Mutation', setUserPassword: boolean };
 
 export type DeletedBooksQueryVariables = Exact<{
   libraryId?: InputMaybe<Scalars['ID']['input']>;
@@ -16607,6 +17055,14 @@ export const SurpriseMeDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<SurpriseMeQuery, SurpriseMeQueryVariables>;
+export const ChooseOwnPasswordDocument = new TypedDocumentString(`
+    mutation ChooseOwnPassword($input: UpdateUserInput!) {
+  updateViewer(input: $input) {
+    id
+    username
+  }
+}
+    `) as unknown as TypedDocumentString<ChooseOwnPasswordMutation, ChooseOwnPasswordMutationVariables>;
 export const BooksAlphabetDocument = new TypedDocumentString(`
     query BooksAlphabet {
   mediaAlphabet
@@ -18631,6 +19087,198 @@ export const NavigationArrangementUpdateLockStatusDocument = new TypedDocumentSt
   }
 }
     `) as unknown as TypedDocumentString<NavigationArrangementUpdateLockStatusMutation, NavigationArrangementUpdateLockStatusMutationVariables>;
+export const PublicAccessOverviewDocument = new TypedDocumentString(`
+    query PublicAccessOverview {
+  accessOverview {
+    hasKey
+    hasPublicUrl
+    hasStateDir
+    configured
+    requirePass
+    publicUrl
+    stateWrittenAt
+    activeDevices
+    openInvites
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessOverviewQuery, PublicAccessOverviewQueryVariables>;
+export const PublicAccessPeopleDocument = new TypedDocumentString(`
+    query PublicAccessPeople {
+  accessPeople {
+    lastSignInAt
+    mustChangePassword
+    person {
+      id
+      username
+      locked
+      removed
+      isServerOwner
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessPeopleQuery, PublicAccessPeopleQueryVariables>;
+export const PublicAccessInvitesDocument = new TypedDocumentString(`
+    query PublicAccessInvites($page: Int!, $pageSize: Int!) {
+  accessInvites(pagination: {page: $page, pageSize: $pageSize}) {
+    nodes {
+      id
+      label
+      createdAt
+      createdBy
+      expiresAt
+      maxUses
+      uses
+      status
+      person {
+        id
+        username
+        removed
+      }
+    }
+    pageInfo {
+      totalPages
+      totalItems
+      currentPage
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessInvitesQuery, PublicAccessInvitesQueryVariables>;
+export const PublicAccessDevicesDocument = new TypedDocumentString(`
+    query PublicAccessDevices($page: Int!, $pageSize: Int!) {
+  accessDevices(pagination: {page: $page, pageSize: $pageSize}) {
+    nodes {
+      id
+      label
+      legacy
+      createdAt
+      firstSeenAt
+      lastSeenAt
+      lastIp
+      lastAgent
+      status
+      revokedAt
+      revokedBy
+      person {
+        id
+        username
+        removed
+      }
+    }
+    pageInfo {
+      totalPages
+      totalItems
+      currentPage
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessDevicesQuery, PublicAccessDevicesQueryVariables>;
+export const PublicAccessBlockedDocument = new TypedDocumentString(`
+    query PublicAccessBlocked {
+  accessBlockedUsers {
+    failuresLast24H
+    lastFailureAt
+    lockedBy
+    person {
+      id
+      username
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessBlockedQuery, PublicAccessBlockedQueryVariables>;
+export const PublicAccessSignInsDocument = new TypedDocumentString(`
+    query PublicAccessSignIns($failuresOnly: Boolean!, $page: Int!, $pageSize: Int!) {
+  accessSignIns(
+    failuresOnly: $failuresOnly
+    pagination: {page: $page, pageSize: $pageSize}
+  ) {
+    nodes {
+      id
+      at
+      ip
+      userAgent
+      successful
+      deviceId
+      deviceLabel
+      reason
+      cleared
+      person {
+        id
+        username
+        removed
+      }
+    }
+    pageInfo {
+      totalPages
+      totalItems
+      currentPage
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessSignInsQuery, PublicAccessSignInsQueryVariables>;
+export const PublicAccessAuditDocument = new TypedDocumentString(`
+    query PublicAccessAudit($page: Int!, $pageSize: Int!) {
+  accessAudit(pagination: {page: $page, pageSize: $pageSize}) {
+    nodes {
+      id
+      at
+      actor
+      action
+      target
+      detail
+    }
+    pageInfo {
+      totalPages
+      totalItems
+      currentPage
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessAuditQuery, PublicAccessAuditQueryVariables>;
+export const PublicAccessCreateInviteDocument = new TypedDocumentString(`
+    mutation PublicAccessCreateInvite($input: CreateAccessInviteInput!) {
+  createAccessInvite(input: $input) {
+    link
+    invite {
+      id
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessCreateInviteMutation, PublicAccessCreateInviteMutationVariables>;
+export const PublicAccessRevokeInviteDocument = new TypedDocumentString(`
+    mutation PublicAccessRevokeInvite($id: ID!) {
+  revokeAccessInvite(id: $id)
+}
+    `) as unknown as TypedDocumentString<PublicAccessRevokeInviteMutation, PublicAccessRevokeInviteMutationVariables>;
+export const PublicAccessRevokeDeviceDocument = new TypedDocumentString(`
+    mutation PublicAccessRevokeDevice($id: ID!) {
+  revokeAccessDevice(id: $id)
+}
+    `) as unknown as TypedDocumentString<PublicAccessRevokeDeviceMutation, PublicAccessRevokeDeviceMutationVariables>;
+export const PublicAccessRestoreDeviceDocument = new TypedDocumentString(`
+    mutation PublicAccessRestoreDevice($id: ID!) {
+  restoreAccessDevice(id: $id)
+}
+    `) as unknown as TypedDocumentString<PublicAccessRestoreDeviceMutation, PublicAccessRestoreDeviceMutationVariables>;
+export const PublicAccessRevokePersonDocument = new TypedDocumentString(`
+    mutation PublicAccessRevokePerson($personId: ID!) {
+  revokeAccessDevicesOfPerson(personId: $personId)
+}
+    `) as unknown as TypedDocumentString<PublicAccessRevokePersonMutation, PublicAccessRevokePersonMutationVariables>;
+export const PublicAccessResetBudgetDocument = new TypedDocumentString(`
+    mutation PublicAccessResetBudget($id: ID!) {
+  resetAccessDeviceBudget(id: $id)
+}
+    `) as unknown as TypedDocumentString<PublicAccessResetBudgetMutation, PublicAccessResetBudgetMutationVariables>;
+export const PublicAccessUnblockDocument = new TypedDocumentString(`
+    mutation PublicAccessUnblock($id: ID!) {
+  unblockUser(id: $id)
+}
+    `) as unknown as TypedDocumentString<PublicAccessUnblockMutation, PublicAccessUnblockMutationVariables>;
+export const PublicAccessSetPasswordDocument = new TypedDocumentString(`
+    mutation PublicAccessSetPassword($id: ID!, $password: String!, $requireChange: Boolean!) {
+  setUserPassword(id: $id, password: $password, requireChange: $requireChange)
+}
+    `) as unknown as TypedDocumentString<PublicAccessSetPasswordMutation, PublicAccessSetPasswordMutationVariables>;
 export const DeletedBooksDocument = new TypedDocumentString(`
     query DeletedBooks($libraryId: ID) {
   deletedBooks(libraryId: $libraryId) {

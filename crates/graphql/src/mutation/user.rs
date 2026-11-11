@@ -18,9 +18,12 @@ use models::{
 		user::{self, AuthUser},
 		user_discover_rules, user_login_activity, user_preferences, user_reader_settings,
 	},
-	services::user::{
-		create_user_with_preferences, revoke_user_api_keys, revoke_user_sessions,
-		NewAgeRestriction,
+	services::{
+		access as access_service,
+		user::{
+			create_user_with_preferences, revoke_user_api_keys, revoke_user_sessions,
+			NewAgeRestriction,
+		},
 	},
 	shared::{
 		arrangement::{Arrangement, HomeArrangement},
@@ -46,12 +49,23 @@ pub struct UserMutation;
 impl UserMutation {
 	#[graphql(guard = "ServerOwnerGuard")]
 	async fn delete_login_activity(&self, ctx: &Context<'_>) -> Result<u64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
 		let deleted_rows = user_login_activity::Entity::delete_many()
 			.exec(conn)
 			.await?;
 		tracing::debug!("Deleted login activity entries");
+
+		access_service::audit(
+			conn,
+			Utc::now(),
+			&user.username,
+			"login_activity.cleared",
+			"",
+			&format!("{} entries", deleted_rows.rows_affected),
+		)
+		.await?;
 
 		Ok(deleted_rows.rows_affected)
 	}
@@ -221,11 +235,39 @@ impl UserMutation {
 		let config = core_ctx.config.as_ref();
 		let conn = core_ctx.conn.as_ref();
 
+		// the password the owner set must be replaced by a different one, or "choosing your own"
+		// would mean nothing
+		let must_change = access_service::must_change_password(conn, &user.id).await?;
+		if let (true, Some(password)) = (must_change, input.password.as_deref()) {
+			let current = user::Entity::find_by_id(user.id.clone())
+				.one(conn)
+				.await?
+				.ok_or("User not found")?;
+			if bcrypt::verify(password, &current.hashed_password).unwrap_or(false) {
+				return Err(
+					"Choose a password that is different from the one you were given"
+						.into(),
+				);
+			}
+		}
+
 		let updated_user =
 			update_user(user, user.id.clone(), conn, config, &input).await?;
 
 		if input.password.is_some() {
 			revoke_other_sessions(ctx, &user.id, conn).await?;
+			// they chose their own: the requirement is over
+			if access_service::clear_password_change(conn, &user.id).await? {
+				access_service::audit(
+					conn,
+					Utc::now(),
+					&user.username,
+					"user.password_changed",
+					&user.id,
+					"chose their own password",
+				)
+				.await?;
+			}
 		}
 
 		Ok(updated_user)
@@ -313,6 +355,17 @@ impl UserMutation {
 
 		if !is_self {
 			remove_all_session_for_user(id.to_string(), conn).await?;
+			if input.password.is_some() {
+				access_service::audit(
+					conn,
+					Utc::now(),
+					&user.username,
+					"user.password_set",
+					&id,
+					&updated_user.model.username,
+				)
+				.await?;
+			}
 		} else if input.password.is_some() {
 			revoke_other_sessions(ctx, &user.id, conn).await?;
 		}
@@ -371,10 +424,20 @@ impl UserMutation {
 
 	#[graphql(guard = "ServerOwnerGuard")]
 	async fn delete_user_sessions(&self, ctx: &Context<'_>, id: ID) -> Result<u64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core_ctx = ctx.data::<CoreContext>()?;
 		let conn = core_ctx.conn.as_ref();
 
 		let removed_sessions = remove_all_session_for_user(id.to_string(), conn).await?;
+		access_service::audit(
+			conn,
+			Utc::now(),
+			&user.username,
+			"user.sessions_deleted",
+			&id,
+			&format!("{} sessions", removed_sessions.len()),
+		)
+		.await?;
 		Ok(removed_sessions.len().try_into()?)
 	}
 
@@ -398,15 +461,36 @@ impl UserMutation {
 			.one(conn)
 			.await?
 			.ok_or("User not found")?;
+
+		if !lock {
+			// Unlocking forgives the failed sign-ins of the last 24 hours: the lock rule counts
+			// every one of them, so an unlock that only cleared the flag would lock the account
+			// again on its next typo
+			access_service::unblock_user(conn, Utc::now(), &model.id, &user.username)
+				.await?;
+			let unlocked = user::Entity::find_by_id(model.id)
+				.one(conn)
+				.await?
+				.ok_or("User not found")?;
+			return Ok(User::from(unlocked));
+		}
+
 		let mut active_model = model.into_active_model();
 		active_model.is_locked = Set(lock);
 
 		let updated_user = active_model.update(conn).await?;
 
-		if lock {
-			// Delete all sessions and refresh tokens for this user if they are being locked
-			remove_all_session_for_user(id.to_string(), conn).await?;
-		}
+		// Delete all sessions and refresh tokens for this user if they are being locked
+		remove_all_session_for_user(id.to_string(), conn).await?;
+		access_service::audit(
+			conn,
+			Utc::now(),
+			&user.username,
+			"user.lock",
+			&id,
+			&updated_user.username,
+		)
+		.await?;
 
 		Ok(User::from(updated_user))
 	}

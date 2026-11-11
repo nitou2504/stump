@@ -15,6 +15,12 @@ export type GraphQLResponse<T> = {
 	errors?: Array<GraphQLError>
 }
 
-export type AuthUser = Omit<User, 'continueReading'>
+export type AuthUser = Omit<User, 'continueReading'> & {
+	/**
+	 * The server owner set this user's password and they have to choose their own before they can
+	 * use anything else. Only the REST sign-in and viewer routes say so; it is absent otherwise
+	 */
+	mustChangePassword?: boolean
+}
 
 export type BookClubMemberRoleSpec = Record<BookClubMemberRole, string>

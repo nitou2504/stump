@@ -129,6 +129,11 @@ pub struct AuthUser {
 	pub permissions: Vec<UserPermission>,
 	pub age_restriction: Option<super::age_restriction::Model>,
 	pub preferences: Option<user_preferences::Model>,
+	/// The owner set this user's password: they must choose their own before they can use
+	/// anything else (see `services::access`). The sign-in and the authentication middleware fill
+	/// it in; it is `false` everywhere else
+	#[serde(default)]
+	pub must_change_password: bool,
 }
 
 impl AuthUser {
@@ -198,6 +203,7 @@ impl FromQueryResult for AuthUser {
 			permissions,
 			age_restriction,
 			preferences,
+			must_change_password: false,
 		})
 	}
 }
@@ -300,6 +306,7 @@ impl From<LoginUser> for AuthUser {
 			permissions: user.permissions,
 			age_restriction: user.age_restriction,
 			preferences: user.preferences,
+			must_change_password: false,
 		}
 	}
 }

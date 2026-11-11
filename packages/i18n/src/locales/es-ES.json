@@ -241,6 +241,19 @@
         "registered": "¡Registrado!",
         "loginFailed": "Error de inicio de sesión. Por favor, inténtelo de nuevo",
         "registrationFailed": "Registro fallido. Por favor, inténtelo de nuevo"
+      },
+      "mustChangePassword": {
+        "title": "Elige tu contraseña",
+        "description": "La contraseña que te dieron solo te deja entrar. Elige la tuya para continuar.",
+        "newPassword": "Nueva contraseña",
+        "confirmPassword": "Repite la nueva contraseña",
+        "mismatch": "Las dos contraseñas no coinciden",
+        "tooShort": "Usa al menos {{min}} caracteres",
+        "sameAsGiven": "Elige una contraseña distinta de la que te dieron",
+        "submit": "Guardar contraseña",
+        "signOut": "Cerrar sesión",
+        "error": "No se pudo cambiar la contraseña",
+        "success": "Contraseña cambiada"
       }
     },
     "adminLibrarySidebar": {
@@ -1487,7 +1500,8 @@
           "metadata": "Metadatos",
           "notifications": "Notificaciones",
           "label": "Servidor",
-          "tags": "Etiquetas"
+          "tags": "Etiquetas",
+          "public access": "Acceso público"
         },
         "personal": {
           "account": "Cuenta",
@@ -2210,6 +2224,194 @@
             "title": "Eliminar actividad",
             "description": "Todos los registros de actividad de inicio de sesión se eliminarán permanentemente de la base de datos",
             "confirm": "Eliminar"
+          }
+        }
+      },
+      "server/access": {
+        "helmet": "Acceso público",
+        "title": "Acceso público",
+        "description": "Deja entrar a personas desde internet y mantenlo seguro",
+        "pager": {
+          "label": "Páginas",
+          "page": "Página {{page}} de {{total}}",
+          "previous": "Anterior",
+          "next": "Siguiente"
+        },
+        "person": {
+          "removed": "Eliminada"
+        },
+        "status": {
+          "ready": "Listo",
+          "notReady": "Sin configurar",
+          "notConfigured": {
+            "title": "El acceso público aún no está configurado",
+            "description": "Falta: {{missing}}. No se pueden crear enlaces de invitación hasta que se definan (consulta las notas de despliegue): el proxy de entrada y Stump deben compartir la clave y la carpeta de estado."
+          },
+          "publicUrl": "Dirección pública",
+          "missing": "Sin definir",
+          "requirePass": "Pase obligatorio",
+          "yes": "Sí",
+          "notYet": "Todavía no",
+          "stateWritten": "Último aviso al proxy",
+          "never": "Nunca",
+          "activeDevices": "Dispositivos",
+          "openInvites": "Invitaciones abiertas",
+          "requirePassHint": "Stump aún no exige que quien llega desde internet tenga un pase. Activa STUMP_EDGE_REQUIRE_PASS cuando el proxy lo envíe."
+        },
+        "invites": {
+          "title": "Enlaces de invitación",
+          "description": "Crea un enlace para una persona y un dispositivo. La persona lo abre una vez en ese dispositivo y luego inicia sesión como siempre.",
+          "form": {
+            "person": "Persona",
+            "choosePerson": "Elige una persona",
+            "label": "Nombre del dispositivo",
+            "labelPlaceholder": "Móvil de Ana",
+            "validFor": "Válido por",
+            "uses": "Veces que se puede abrir",
+            "create": "Crear enlace",
+            "noPeople": "Todavía no hay nadie a quien invitar: crea primero su cuenta en Usuarios."
+          },
+          "validity": {
+            "h1": "1 hora",
+            "h24": "24 horas",
+            "h72": "3 días",
+            "h168": "7 días",
+            "h720": "30 días"
+          },
+          "created": {
+            "title": "Enlace para {{person}} ({{label}})",
+            "linkLabel": "Enlace de invitación",
+            "copy": "Copiar",
+            "copied": "Enlace copiado",
+            "copyFailed": "No se pudo copiar: el enlace está seleccionado, cópialo a mano",
+            "once": "Este enlace se muestra solo ahora. Stump no guarda una copia: si lo pierdes, crea otro.",
+            "dismiss": "Listo, ocultar el enlace"
+          },
+          "status": {
+            "unused": "Sin usar",
+            "used": "Usado",
+            "usedUp": "Agotado",
+            "expired": "Caducado",
+            "revoked": "Revocado"
+          },
+          "detail": "Creado {{created}} · caduca {{expires}} · abierto {{uses}} de {{max}}",
+          "empty": "Todavía no hay enlaces de invitación.",
+          "revoke": "Revocar",
+          "revoked": "Invitación de {{label}} revocada",
+          "errors": {
+            "create": "No se pudo crear el enlace",
+            "revoke": "No se pudo revocar la invitación"
+          }
+        },
+        "devices": {
+          "title": "Dispositivos con pase",
+          "description": "Cada navegador que abrió una invitación. Un dispositivo revocado deja de funcionar en un par de segundos.",
+          "empty": "Ningún dispositivo tiene un pase todavía.",
+          "terminalGroup": "Creados en la terminal",
+          "legacy": "Pase de terminal",
+          "revoked": "Revocado",
+          "detail": "Visto por primera vez {{first}} · última vez {{last}} · desde {{ip}}",
+          "revoke": "Revocar",
+          "restore": "Restaurar",
+          "resetBudget": "Reiniciar intentos de inicio de sesión",
+          "revokeAll": "Revocar todos los de {{name}}",
+          "confirmTitle": "¿Revocar este dispositivo?",
+          "confirmDescription": "«{{label}}» perderá el acceso en un par de segundos. Puedes restaurarlo desde aquí.",
+          "confirmPersonTitle": "¿Revocar todos los dispositivos de esta persona?",
+          "confirmPersonDescription": "Todos los dispositivos de {{name}} perderán el acceso, sus invitaciones abiertas se revocarán y se cerrará su sesión en todas partes.",
+          "confirmRevoke": "Revocar",
+          "revokedDevice": "«{{label}}» revocado",
+          "revokedPerson": "Se cortó el acceso de {{name}}",
+          "revokedCount": "{{count}} dispositivos revocados",
+          "restoredDevice": "«{{label}}» restaurado",
+          "budgetReset": "«{{label}}» puede intentar iniciar sesión de nuevo hoy",
+          "errors": {
+            "revoke": "No se pudo revocar",
+            "restore": "No se pudo restaurar",
+            "budget": "No se pudo reiniciar"
+          }
+        },
+        "signIns": {
+          "title": "Protección de inicio de sesión",
+          "description": "Quién está bloqueado y cada intento de iniciar sesión. Las contraseñas nunca se guardan.",
+          "blockedTitle": "Bloqueados ahora",
+          "nobodyBlocked": "Nadie está bloqueado.",
+          "lockedBy": {
+            "failures": "Demasiadas contraseñas erróneas",
+            "owner": "Bloqueado por ti",
+            "unknown": "Bloqueado"
+          },
+          "blockedDetail": "{{count}} fallos en las últimas 24 horas · último {{last}}",
+          "unblock": "Desbloquear",
+          "unblocked": "{{name}} puede volver a iniciar sesión",
+          "edgeLimitNote": "El proxy de entrada también frena a un cliente que lo intenta demasiado. Eso se despeja solo en menos de un minuto.",
+          "recentTitle": "Inicios de sesión recientes",
+          "failuresOnly": "Solo fallos",
+          "empty": "No hay inicios de sesión que mostrar.",
+          "ok": "Correcto",
+          "failed": "Fallido",
+          "cleared": "Perdonado",
+          "reason": {
+            "wrongPassword": "Contraseña incorrecta",
+            "locked": "Cuenta bloqueada",
+            "ownerViaEdge": "Contraseña del propietario desde internet (rechazada)",
+            "wrongPerson": "Dispositivo de otra persona (rechazado)"
+          },
+          "detail": "{{at}} · desde {{ip}} · dispositivo {{device}}",
+          "errors": {
+            "unblock": "No se pudo desbloquear"
+          }
+        },
+        "people": {
+          "title": "Personas",
+          "description": "Pon una contraseña a quien no puede entrar, o deja volver a entrar a una cuenta bloqueada.",
+          "empty": "No hay cuentas.",
+          "owner": "Propietario",
+          "locked": "Bloqueada",
+          "mustChange": "Debe elegir una contraseña",
+          "lastSignIn": "Último inicio de sesión: {{at}}",
+          "never": "nunca",
+          "setPassword": "Poner una contraseña",
+          "manage": "Gestionar",
+          "password": {
+            "title": "Nueva contraseña para {{name}}",
+            "label": "Contraseña",
+            "generate": "Generar otra",
+            "length": "Usa de {{min}} a {{max}} caracteres",
+            "requireChange": "Elegirá la suya en su próximo inicio de sesión",
+            "requireChangeHint": "La contraseña que pongas solo le deja entrar: debe cambiarla antes de poder hacer nada más.",
+            "signsOut": "Al ponerla se cierra su sesión en todas partes.",
+            "set": "Poner contraseña",
+            "close": "Cerrar",
+            "done": "Contraseña puesta a {{name}}. Cópiala ahora: no se vuelve a mostrar.",
+            "doneMustChange": "Se le pedirá que elija la suya cuando inicie sesión.",
+            "doneKept": "Mantiene esta contraseña hasta que la cambie.",
+            "copy": "Copiar",
+            "copyFailed": "No se pudo copiar: selecciónala y cópiala a mano",
+            "error": "No se pudo poner la contraseña"
+          }
+        },
+        "activity": {
+          "title": "Actividad",
+          "description": "Qué se hizo aquí y cuándo. Nunca guarda un enlace ni una contraseña.",
+          "empty": "Todavía nada.",
+          "when": "{{actor}} · {{at}}",
+          "actions": {
+            "inviteCreate": "Invitación creada",
+            "inviteRevoke": "Invitación revocada",
+            "inviteRedeemed": "Invitación abierta en un dispositivo",
+            "deviceRevoke": "Dispositivo revocado",
+            "deviceRestore": "Dispositivo restaurado",
+            "deviceResetBudget": "Intentos de inicio de sesión reiniciados",
+            "deviceRegisteredLegacy": "Pase de terminal visto por primera vez",
+            "personRevokeAll": "Todos los dispositivos de una persona revocados",
+            "userLock": "Cuenta bloqueada",
+            "userLockedByFailures": "Cuenta bloqueada por contraseñas erróneas",
+            "userUnblock": "Cuenta desbloqueada",
+            "userPasswordSet": "Contraseña puesta",
+            "userPasswordChanged": "Contraseña elegida por la persona",
+            "userSessionsDeleted": "Sesión cerrada en todas partes",
+            "loginActivityCleared": "Historial de inicios de sesión borrado"
           }
         }
       },

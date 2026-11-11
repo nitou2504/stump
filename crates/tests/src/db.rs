@@ -1,15 +1,16 @@
 use models::catalog_revision;
 use models::entity::{
-	age_restriction, api_key, book_club, book_club_book, book_club_member, bookmark,
-	custom_emoji, held_file, intake_item, job, kobo_sync_session, last_library_visit,
-	library, library_config, library_exclusion, library_intake_settings,
-	library_scan_record, library_tag, media, media_analysis, media_annotation,
-	media_metadata, media_metadata_edit, media_purge, media_tag, metadata_fetch_record,
-	post_processing_task, reading_device, reading_list, reading_list_item,
-	reading_list_rule, reading_session, refresh_token, series, series_metadata,
-	series_tag, server_config, session, smart_list, smart_list_access_rule,
-	smart_list_view, tag, user, user_discover_rules, user_login_activity,
-	user_preferences, user_sharing_settings,
+	access_audit, access_device, access_invite, access_password_reset,
+	access_signin_mark, age_restriction, api_key, book_club, book_club_book,
+	book_club_member, bookmark, custom_emoji, held_file, intake_item, job,
+	kobo_sync_session, last_library_visit, library, library_config, library_exclusion,
+	library_intake_settings, library_scan_record, library_tag, media, media_analysis,
+	media_annotation, media_metadata, media_metadata_edit, media_purge, media_tag,
+	metadata_fetch_record, post_processing_task, reading_device, reading_list,
+	reading_list_item, reading_list_rule, reading_session, refresh_token, series,
+	series_metadata, series_tag, server_config, session, smart_list,
+	smart_list_access_rule, smart_list_view, tag, user, user_discover_rules,
+	user_login_activity, user_preferences, user_sharing_settings,
 };
 use sea_orm::{ConnectionTrait, Database, DbBackend, DbConn, DbErr, Schema};
 pub async fn test_database() -> DbConn {
@@ -60,6 +61,11 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(library_tag::Entity),
 		schema.create_table_from_entity(user_discover_rules::Entity),
 		schema.create_table_from_entity(user_sharing_settings::Entity),
+		schema.create_table_from_entity(access_invite::Entity),
+		schema.create_table_from_entity(access_device::Entity),
+		schema.create_table_from_entity(access_audit::Entity),
+		schema.create_table_from_entity(access_signin_mark::Entity),
+		schema.create_table_from_entity(access_password_reset::Entity),
 		schema.create_table_from_entity(server_config::Entity),
 		schema.create_table_from_entity(refresh_token::Entity),
 		schema.create_table_from_entity(session::Entity),

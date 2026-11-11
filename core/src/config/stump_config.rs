@@ -13,7 +13,10 @@ use schematic::{Config, ConfigLoader};
 use serde::Serialize;
 
 use crate::{
-	config::{get_default_config_dir, OidcConfig, PartialOidcConfig},
+	config::{
+		get_default_config_dir, EdgeConfig, OidcConfig, PartialEdgeConfig,
+		PartialOidcConfig,
+	},
 	CoreError, CoreResult,
 };
 
@@ -205,6 +208,14 @@ pub struct StumpConfig {
 	#[setting(nested)]
 	#[graphql(skip)]
 	pub oidc: Option<OidcConfig>,
+
+	/// The public edge: the passes it asks for and the state file it follows. Read from the
+	/// environment only (`STUMP_EDGE_*`): it is never written to `Stump.toml` (an older image
+	/// would refuse to start on it), and the key is never printed
+	#[setting(nested)]
+	#[graphql(skip)]
+	#[serde(skip_serializing)]
+	pub edge: Option<EdgeConfig>,
 
 	/// Whether to trust proxy headers for determining client IP and scheme (e.g., X-Forwarded-For)
 	#[setting(default = false)]
@@ -527,6 +538,122 @@ allowed_origins = ["http://localhost:3000"]
 						.contains("invalid type: string \"not a number\", expected u16"),
 					"should have complained about port being a string, got: {message}"
 				);
+			},
+		);
+	}
+
+	const EDGE_VARS: [&str; 6] = [
+		"STUMP_EDGE_KEY",
+		"STUMP_EDGE_COOKIE",
+		"STUMP_EDGE_PUBLIC_URL",
+		"STUMP_EDGE_STATE_DIR",
+		"STUMP_EDGE_REQUIRE_PASS",
+		"STUMP_EDGE_BINDS_PERSON",
+	];
+
+	/// With none of the `STUMP_EDGE_*` variables set, there is no usable key: the feature is
+	/// inert, whatever the loader makes of the empty section
+	#[test]
+	fn test_edge_is_inert_without_environment() {
+		temp_env::with_vars(EDGE_VARS.map(|name| (name, None::<&str>)), || {
+			let dir = tempfile::tempdir().expect("should create temp dir");
+			let config =
+				StumpConfig::load(dir.path().to_path_buf()).expect("should load config");
+			assert!(config
+				.edge
+				.as_ref()
+				.is_none_or(|edge| edge.usable_key().is_none()));
+		});
+	}
+
+	/// The nested `STUMP_EDGE_` prefix loads, with the defaults for what isn't set
+	#[test]
+	fn test_edge_loads_from_environment() {
+		let key = "k".repeat(64);
+		temp_env::with_vars(
+			[
+				("STUMP_EDGE_KEY", Some(key.as_str())),
+				("STUMP_EDGE_PUBLIC_URL", Some("https://example.test:8443/")),
+				("STUMP_EDGE_STATE_DIR", Some("/edge-state")),
+				("STUMP_EDGE_REQUIRE_PASS", Some("true")),
+				("STUMP_EDGE_COOKIE", None::<&str>),
+				("STUMP_EDGE_BINDS_PERSON", None::<&str>),
+			],
+			|| {
+				let dir = tempfile::tempdir().expect("should create temp dir");
+				let config = StumpConfig::load(dir.path().to_path_buf())
+					.expect("should load config");
+				let edge = config.edge.expect("the edge settings should load");
+				assert_eq!(edge.usable_key(), Some(key.as_str()));
+				assert_eq!(edge.cookie, "__Host-g3-stump");
+				assert_eq!(
+					edge.public_base_url().as_deref(),
+					Some("https://example.test:8443")
+				);
+				assert_eq!(
+					edge.state_directory(),
+					Some(std::path::PathBuf::from("/edge-state"))
+				);
+				assert!(edge.require_pass);
+				assert!(edge.binds_person);
+			},
+		);
+	}
+
+	/// A key shorter than 64 characters is no key: nothing verifies with it
+	#[test]
+	fn test_a_short_edge_key_is_no_key() {
+		temp_env::with_vars(
+			[
+				("STUMP_EDGE_KEY", Some("too-short")),
+				("STUMP_EDGE_COOKIE", None::<&str>),
+			],
+			|| {
+				let dir = tempfile::tempdir().expect("should create temp dir");
+				let config = StumpConfig::load(dir.path().to_path_buf())
+					.expect("should load config");
+				let edge = config.edge.expect("the edge settings should load");
+				assert_eq!(edge.usable_key(), None);
+			},
+		);
+	}
+
+	/// The lead's R1: the key is never printed, never serialised, and the section is not written
+	/// to `Stump.toml` at all (an older image rejects unknown fields and would refuse to start)
+	#[test]
+	fn test_the_edge_key_and_section_are_never_written() {
+		let key = "s3cr3t-".repeat(10);
+		temp_env::with_vars(
+			[
+				("STUMP_EDGE_KEY", Some(key.as_str())),
+				("STUMP_EDGE_PUBLIC_URL", Some("https://example.test")),
+			],
+			|| {
+				let dir = tempfile::tempdir().expect("should create temp dir");
+				let config = StumpConfig::load(dir.path().to_path_buf())
+					.expect("should load config");
+				assert!(config.edge.is_some(), "the settings should have loaded");
+
+				let debug = format!("{config:?}");
+				assert!(!debug.contains(&key), "the key is in the Debug output");
+				assert!(debug.contains("[REDACTED]"));
+
+				let json = serde_json::to_string(&config).expect("should serialise");
+				assert!(!json.contains(&key), "the key is in the JSON");
+
+				let toml = toml::to_string(&config).expect("should serialise to toml");
+				assert!(!toml.contains(&key), "the key is in the TOML");
+				assert!(
+					!toml.contains("edge"),
+					"an [edge] table is in the TOML: {toml}"
+				);
+
+				// and what write_config puts in Stump.toml loads in an image that has no `edge`
+				config.write_config().expect("should write the config");
+				let written = std::fs::read_to_string(dir.path().join("Stump.toml"))
+					.expect("should read Stump.toml");
+				assert!(!written.contains(&key));
+				assert!(!written.contains("edge"));
 			},
 		);
 	}

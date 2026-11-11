@@ -1,0 +1,24 @@
+# What apply-compose.py changes in /mnt/data2/containers/stump-fork/docker-compose.yml.
+# Nothing else in the file changes. (The key is in ./.env, mode 600, and is never printed.)
+services:
+  stump-fork:
+    environment:
+      # Public access (Settings -> Public access): the key the passes are signed with (the app mints
+      # passes and checks the pass the edge reports), the address invite links are made for, the
+      # folder the app writes the edge's state file in, and whether a request through the public edge
+      # must carry a pass ("false" until the new edge is live, then "true": DEPLOY.md, step 8)
+      - STUMP_EDGE_KEY=${STUMP_EDGE_KEY:?set STUMP_EDGE_KEY in ./.env}
+      - STUMP_EDGE_PUBLIC_URL=https://g3.tail3e401.ts.net:8443
+      - STUMP_EDGE_STATE_DIR=/edge-state
+      - STUMP_EDGE_REQUIRE_PASS=false
+    volumes:
+      - ./edge-state:/edge-state
+  stump-edge:
+    volumes:
+      # the old mount STAYS: the live nginx.conf imports gate.js from it until DEPLOY.md step 7 switches the
+      # edge, so a recreate of stump-edge before then still starts. Nothing loads it after the switch (the
+      # new nginx.conf uses edge/stump-gate.js); edge-common/invite.sh is a host script and needs no mount
+      - ../edge-common:/etc/nginx/njs:ro
+      # the app's state file (revoked devices, budget resets): read-only here; stump-gate.js (in the
+      # edge folder) follows it once a second
+      - ./edge-state:/etc/nginx/state:ro
