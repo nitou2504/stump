@@ -25,7 +25,9 @@ use zip::{read::ZipFile, ZipArchive};
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::{OptionalFeature, OptionalFeatureGuard, PermissionGuard},
+	guard::{
+		NotViaPublicEdgeGuard, OptionalFeature, OptionalFeatureGuard, PermissionGuard,
+	},
 	object::{library::Library, media::Media, series::Series},
 };
 
@@ -49,8 +51,11 @@ struct UploadSeriesInput {
 
 #[Object]
 impl UploadMutation {
+	/// Puts books straight into a library, with nobody's approval: for whoever manages libraries,
+	/// from home. *Upload files* alone is not enough, and the public edge never reaches it:
+	/// somebody who only adds books sends them through the "Add books" inbox
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::new(&[UserPermission::UploadFile, UserPermission::ManageLibrary]))"
+		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(NotViaPublicEdgeGuard).and(PermissionGuard::one(UserPermission::ManageLibrary))"
 	)]
 	async fn upload_books(
 		&self,
@@ -102,8 +107,10 @@ impl UploadMutation {
 		Ok(true)
 	}
 
+	/// Puts a series (a folder of books) straight into a library, with nobody's approval: the
+	/// same rules as `uploadBooks`
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::new(&[UserPermission::UploadFile, UserPermission::ManageLibrary]))"
+		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(NotViaPublicEdgeGuard).and(PermissionGuard::one(UserPermission::ManageLibrary))"
 	)]
 	async fn upload_series(
 		&self,

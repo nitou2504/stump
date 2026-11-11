@@ -12,6 +12,10 @@
 //! each file is a part with a file name (its path inside the folder, for a folder upload)
 //! ```
 //!
+//! From the internet (through the public edge) only somebody who needs approval can upload: the
+//! server owner is refused by the authentication layer, and anyone else who files books themselves
+//! (manages libraries) gets a 403 here.
+//!
 //! Answers `200 {"items": [{"id", "state", "name", "kind", "libraryId"}]}`; the items are being
 //! analysed, poll `intakeItems`. Refusals are `{"status", "message"}` with the status that fits:
 //! 400, 401, 403, 404, 408 (a file stalled), 411 (no `Content-Length`), 413 (too big, or no room
@@ -26,7 +30,7 @@ use axum::{
 	routing::post,
 	Extension, Json, Router,
 };
-use graphql::data::AuthContext;
+use graphql::data::{AuthContext, EdgeRequest};
 use models::{
 	entity::{intake_item, library},
 	shared::{
@@ -37,7 +41,10 @@ use models::{
 use sea_orm::prelude::*;
 use serde::{Deserialize, Serialize};
 use stump_core::{
-	intake::upload::{IncomingUpload, UploadError},
+	intake::{
+		approval::can_file_directly,
+		upload::{IncomingUpload, UploadError},
+	},
 	CoreError,
 };
 
@@ -196,6 +203,7 @@ fn declared_length(headers: &HeaderMap) -> Result<u64, Refusal> {
 async fn upload(
 	State(ctx): State<AppState>,
 	Extension(auth): Extension<AuthContext>,
+	Extension(edge): Extension<EdgeRequest>,
 	Query(params): Query<UploadParams>,
 	headers: HeaderMap,
 	mut multipart: Multipart,
@@ -211,6 +219,14 @@ async fn upload(
 		return Err(Refusal::new(
 			StatusCode::FORBIDDEN,
 			"You can't add books to this server",
+		));
+	}
+	// whoever files books themselves does it from home: through the public edge only the people
+	// who send their books for approval upload, within the limits that go with that
+	if edge.via_public && can_file_directly(&user) {
+		return Err(Refusal::new(
+			StatusCode::FORBIDDEN,
+			"Books are added from home by whoever files them directly",
 		));
 	}
 	if !ctx.config.enable_upload {

@@ -22,7 +22,7 @@ use stump_core::{
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::PermissionGuard,
+	guard::{NotViaPublicEdgeGuard, PermissionGuard, ServerOwnerGuard},
 	object::{
 		intake::{
 			IntakeFolder, IntakeItem, IntakeItemPage, IntakeLimitValues,
@@ -261,9 +261,9 @@ impl IntakeQuery {
 	}
 
 	/// The items waiting for approval in the libraries the viewer can use, oldest first, for the
-	/// approvers' review page
+	/// server owner's review page (from home: never through the public edge)
 	#[graphql(
-		guard = "PermissionGuard::one(UserPermission::ManageLibrary)",
+		guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)",
 		complexity = "crate::complexity::list_cost(Some(page_size), child_complexity)"
 	)]
 	async fn pending_intake_items(
@@ -291,8 +291,9 @@ impl IntakeQuery {
 		})
 	}
 
-	/// How many items wait for approval in the libraries the viewer can use
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	/// How many items wait for approval in the libraries the viewer can use (the server owner, from
+	/// home)
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)")]
 	async fn pending_intake_count(&self, ctx: &Context<'_>) -> Result<i64> {
 		let AuthContext { user, .. } = ctx.data()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -312,9 +313,15 @@ impl IntakeQuery {
 		let approver = can_file_directly(user);
 		let limits = limits_for(conn, &core.config, &user.id, approver).await?;
 		let (used, open) = upload::usage(conn, &user.id).await?;
-		let (uploads_open, closed_reason) = if !approver
-			&& queue::mode(&core.config) == queue::Mode::Off
-		{
+		// the same order the upload route decides in: uploads turned off for everybody come
+		// first (that is what the route answers whoever asks), then the checker for those who need
+		// approval
+		let (uploads_open, closed_reason) = if !core.config.enable_upload {
+			(
+				false,
+				Some("Uploads are turned off on this server".to_string()),
+			)
+		} else if !approver && queue::mode(&core.config) == queue::Mode::Off {
 			(
 				false,
 				Some(
@@ -326,14 +333,9 @@ impl IntakeQuery {
 			// the checker is the way in for those who need approval: when it is offline (or of
 			// another build) they are told, and the upload is not offered
 			(false, Some(error.to_string()))
-		} else if !core.config.enable_upload && approver {
-				(
-					false,
-					Some("Uploads are turned off on this server".to_string()),
-				)
-			} else {
-				(true, None)
-			};
+		} else {
+			(true, None)
+		};
 		let clamp = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
 		Ok(IntakeUploadLimits {
 			max_request_bytes: clamp(limits.max_request_bytes),

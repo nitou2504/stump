@@ -1732,6 +1732,42 @@ async fn test_the_upload_limits_are_told_and_can_be_changed_for_a_user() {
 	);
 }
 
+/// uploads turned off on the server (`enable_upload = false`) are closed for everybody, and a
+/// friend is told so: the route refuses them whoever asks, so the inbox must not offer them
+#[tokio::test(flavor = "multi_thread")]
+async fn test_uploads_turned_off_are_closed_for_a_friend_too() {
+	let world = world_with(|c| c.enable_upload = false).await;
+	let bytes = world.epub("Off", "Eco, Umberto");
+	for (who, token) in [
+		("ana", world.vis.ana.token.clone()),
+		(
+			"the owner",
+			world.app.access_token.read().await.clone().unwrap(),
+		),
+	] {
+		let response = world.gql(&token, LIMITS, json!({})).await;
+		assert_ok(&response);
+		let limits = &response["data"]["intakeUploadLimits"];
+		assert_eq!(limits["uploadsOpen"], false, "{who}: {response:#}");
+		assert!(
+			limits["closedReason"]
+				.as_str()
+				.is_some_and(|reason| reason.contains("turned off")),
+			"{who}: {response:#}"
+		);
+		let response = post_upload(
+			&world.app,
+			Some(&token),
+			&world.library.id,
+			None,
+			&UploadBody::new().file("off.epub", bytes.clone()),
+		)
+		.await;
+		assert_eq!(response.status_code(), 403, "{who}: {}", response.text());
+		assert!(message(&response).contains("turned off"), "{who}");
+	}
+}
+
 /// uploads that wait for approval are off until the server is told they may be read in-process
 #[tokio::test(flavor = "multi_thread")]
 async fn test_uploads_that_wait_for_approval_are_closed_by_default() {
@@ -1970,19 +2006,12 @@ async fn test_a_file_name_keeps_the_extension_of_its_format() {
 	assert_eq!(response["data"]["intakeReview"]["state"], "READY");
 }
 
-/// an approver sees the queue of the libraries they can use, and of no other
+/// an approver sees the queue of the libraries they can use, and of no other. Approving is the
+/// server owner's alone, so the approver here is the owner, who has *Hidden* excluded
 #[tokio::test(flavor = "multi_thread")]
 async fn test_an_approver_only_sees_the_queue_of_libraries_they_can_use() {
 	let world = world().await;
 	let vis = &world.vis;
-	// a library manager with limits: *Hidden* is hidden from them
-	let manager = vis
-		.limited_like_ana(
-			&world.app,
-			"manager",
-			vec![UserPermission::ManageLibrary, UserPermission::AddBooks],
-		)
-		.await;
 	let open = insert_item(
 		&world,
 		&vis.ana.id,
@@ -2005,13 +2034,27 @@ async fn test_an_approver_only_sees_the_queue_of_libraries_they_can_use() {
 	.await
 	.unwrap();
 
-	let response = world.gql(&manager.token, PENDING, json!({})).await;
+	// with nothing excluded the owner sees both
+	let response = world.as_owner(PENDING, json!({})).await;
+	assert_ok(&response);
+	assert_eq!(response["data"]["pendingIntakeItems"]["totalCount"], 2);
+
+	// *Hidden* is hidden from the owner: its queue is left out, and so is its count
+	models::entity::library_exclusion::ActiveModel {
+		user_id: Set(world.owner_id().await),
+		library_id: Set(vis.hidden_library.id.clone()),
+		..Default::default()
+	}
+	.insert(world.app.conn())
+	.await
+	.expect("should hide the library from the owner");
+	let response = world.as_owner(PENDING, json!({})).await;
 	assert_ok(&response);
 	let queue = &response["data"]["pendingIntakeItems"];
 	assert_eq!(queue["totalCount"], 1, "{response:#}");
 	assert_eq!(queue["nodes"][0]["id"], open);
 	vis.assert_none_hidden(&response);
-	let response = world.gql(&manager.token, PENDING_COUNT, json!({})).await;
+	let response = world.as_owner(PENDING_COUNT, json!({})).await;
 	assert_eq!(response["data"]["pendingIntakeCount"], 1);
 	// they can't approve, send back or change what they can't see: it isn't found
 	for (query, variables) in [
@@ -2022,7 +2065,7 @@ async fn test_an_approver_only_sees_the_queue_of_libraries_they_can_use() {
 			json!({ "id": hidden, "input": { "title": "mine now" } }),
 		),
 	] {
-		let response = world.gql(&manager.token, query, variables).await;
+		let response = world.as_owner(query, variables).await;
 		assert_refused(&response);
 		assert!(
 			errors(&response).contains("not found"),
@@ -2030,17 +2073,87 @@ async fn test_an_approver_only_sees_the_queue_of_libraries_they_can_use() {
 		);
 	}
 	assert_eq!(world.row(&hidden).await.state, IntakeState::PendingApproval);
-	// the owner sees both
-	let response = world.as_owner(PENDING, json!({})).await;
-	assert_eq!(response["data"]["pendingIntakeItems"]["totalCount"], 2);
 	// and what they can see, they approve (an item with nothing to file only fails, and goes
 	// back to waiting, with the reason)
-	let response = world
-		.gql(&manager.token, APPROVE, json!({ "ids": [open] }))
-		.await;
+	let response = world.as_owner(APPROVE, json!({ "ids": [open] })).await;
 	assert_ok(&response);
 }
 
+/// Approving is the server owner's alone: somebody who manages libraries is not an approver. They
+/// can't read the queue, approve, send back or change what waits in it, and what waits is as it
+/// was; they still file their own books themselves
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_library_manager_is_not_an_approver() {
+	let world = world().await;
+	let vis = &world.vis;
+	let manager = vis
+		.limited_like_ana(
+			&world.app,
+			"manager",
+			vec![UserPermission::ManageLibrary, UserPermission::AddBooks],
+		)
+		.await;
+	let waiting = insert_item(
+		&world,
+		&vis.ana.id,
+		IntakeState::PendingApproval,
+		IntakeProposal::default(),
+	)
+	.await;
+
+	for (query, variables) in [
+		(PENDING, json!({})),
+		(PENDING_COUNT, json!({})),
+		(APPROVE, json!({ "ids": [waiting] })),
+		(REJECT, json!({ "id": waiting, "note": "no" })),
+	] {
+		let response = world.gql(&manager.token, query, variables).await;
+		assert_refused(&response);
+		assert!(
+			errors(&response).contains("permission"),
+			"{query} should be refused for lack of permission: {response:#}"
+		);
+		assert!(
+			response["data"].is_null()
+				|| response["data"]
+					.as_object()
+					.is_some_and(|data| data.values().all(Value::is_null)),
+			"{query}: {response:#}"
+		);
+	}
+	// somebody else's waiting item is not found for them, in every way to change it
+	for (query, variables) in [
+		(
+			REVIEW,
+			json!({ "id": waiting, "input": { "title": "mine now" } }),
+		),
+		(REANALYSE, json!({ "id": waiting })),
+		(
+			CHANGE_LIBRARY,
+			json!({ "id": waiting, "libraryId": world.library.id }),
+		),
+	] {
+		let response = world.gql(&manager.token, query, variables).await;
+		assert_refused(&response);
+		assert!(
+			errors(&response).contains("not found"),
+			"{query}: {response:#}"
+		);
+	}
+	assert_eq!(
+		world.row(&waiting).await.state,
+		IntakeState::PendingApproval
+	);
+
+	// the owner is the approver
+	let response = world.as_owner(PENDING_COUNT, json!({})).await;
+	assert_eq!(response["data"]["pendingIntakeCount"], 1);
+	let response = world
+		.as_owner(REJECT, json!({ "id": waiting, "note": "no" }))
+		.await;
+	assert_ok(&response);
+	assert_eq!(response["data"]["intakeReject"]["state"], "REJECTED");
+}
 
 /// what ana is shown of one item, without what is about the file itself (its id and name)
 fn ana_view_of(items: &Value, name: &str) -> Value {

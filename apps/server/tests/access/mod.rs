@@ -7,6 +7,7 @@ mod invites;
 mod password;
 mod retention;
 mod signin;
+mod uploads;
 
 use axum_test::TestResponse;
 use chrono::Utc;

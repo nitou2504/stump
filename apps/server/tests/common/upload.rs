@@ -64,6 +64,18 @@ pub async fn post_upload(
 	mode: Option<&str>,
 	body: &UploadBody,
 ) -> TestResponse {
+	post_upload_with(app, token, library_id, mode, body, &[]).await
+}
+
+/// The same, with more headers on the request (e.g. the ones the public edge adds)
+pub async fn post_upload_with(
+	app: &TestApp,
+	token: Option<&str>,
+	library_id: &str,
+	mode: Option<&str>,
+	body: &UploadBody,
+	headers: &[(&str, String)],
+) -> TestResponse {
 	let bytes = body.bytes();
 	let length = body.claimed_length.unwrap_or(bytes.len() as u64);
 	let mut request = app
@@ -79,6 +91,9 @@ pub async fn post_upload(
 	}
 	if !body.without_length {
 		request = request.add_header("Content-Length", length.to_string());
+	}
+	for (name, value) in headers {
+		request = request.add_header(*name, value.clone());
 	}
 	request.bytes(bytes.into()).await
 }

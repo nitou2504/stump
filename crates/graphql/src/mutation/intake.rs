@@ -30,8 +30,11 @@ use stump_core::intake::{
 };
 
 use crate::{
-	data::{AuthContext, CoreContext},
-	guard::{OptionalFeature, OptionalFeatureGuard, PermissionGuard},
+	data::{AuthContext, CoreContext, EdgeRequest},
+	guard::{
+		NotViaPublicEdgeGuard, OptionalFeature, OptionalFeatureGuard, PermissionGuard,
+		ServerOwnerGuard,
+	},
 	mutation::upload::{enforce_max_size, validate_book_file},
 	object::intake::{IntakeItem, UserIntakeLimits},
 };
@@ -83,8 +86,14 @@ async fn own_item(
 		.ok_or_else(|| "Inbox item not found".into())
 }
 
-/// An item the viewer may change: their own, or (for an approver) somebody else's that waits for
-/// approval in a library they can use. What isn't either is not found.
+/// Whether the request came from home and not through the public edge. A request that doesn't
+/// say how it arrived counts as the internet's: not knowing is not a reason to trust it
+fn at_home(ctx: &Context<'_>) -> bool {
+	matches!(ctx.data_opt::<EdgeRequest>(), Some(edge) if !edge.via_public)
+}
+
+/// An item the viewer may change: their own, or (for the server owner, at home) somebody else's
+/// that waits for approval in a library they can use. What isn't either is not found.
 async fn item_to_change(
 	ctx: &Context<'_>,
 	user: &AuthUser,
@@ -105,7 +114,9 @@ async fn item_to_change(
 			},
 		));
 	}
-	if approver {
+	// approving is the server owner's, from home: somebody who manages libraries files their own
+	// books, and the internet never reviews anybody else's
+	if approver && user.is_server_owner && at_home(ctx) {
 		if let Ok(item) = approval::item_for_approver(conn, user, id).await {
 			if item.state == IntakeState::PendingApproval {
 				return Ok((
@@ -128,7 +139,7 @@ impl IntakeMutation {
 	/// right away; poll `intakeItems`. Everybody else uploads through `POST /api/v2/intake/upload`,
 	/// which streams the files to disk within the limits.
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::all(&[UserPermission::AddBooks, UserPermission::ManageLibrary]))"
+		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(NotViaPublicEdgeGuard).and(PermissionGuard::all(&[UserPermission::AddBooks, UserPermission::ManageLibrary]))"
 	)]
 	async fn intake_upload(
 		&self,
@@ -210,9 +221,9 @@ impl IntakeMutation {
 	}
 
 	/// Saves a review of an item (omitted fields keep their value). The uploader reviews their
-	/// own; an approver can also review an item that waits for approval. Somebody who needs
-	/// approval can't choose the folder, the file names or the kind of series, their texts are
-	/// plain and of a sensible length, and the age rating can't go down.
+	/// own; the server owner (from home) can also review an item that waits for approval.
+	/// Somebody who needs approval can't choose the folder, the file names or the kind of
+	/// series, their texts are plain and of a sensible length, and the age rating can't go down.
 	#[graphql(
 		guard = "PermissionGuard::new(&[UserPermission::AddBooks, UserPermission::ManageLibrary])"
 	)]
@@ -263,8 +274,9 @@ impl IntakeMutation {
 	}
 
 	/// Moves an item to another library (one the user can use) and analyses it again there: the
-	/// proposal, the folder and the file names are made for the library the item is in. An
-	/// approver can move an item that waits for approval, to a library its uploader can use too
+	/// proposal, the folder and the file names are made for the library the item is in. The
+	/// server owner (from home) can move an item that waits for approval, to a library its
+	/// uploader can use too
 	#[graphql(
 		guard = "PermissionGuard::new(&[UserPermission::AddBooks, UserPermission::ManageLibrary])"
 	)]
@@ -302,7 +314,7 @@ impl IntakeMutation {
 	/// Files ready items into their library, for somebody who files books themselves. Items that
 	/// fail keep their state and get an `error`; the others become `FILED`.
 	#[graphql(
-		guard = "PermissionGuard::all(&[UserPermission::AddBooks, UserPermission::ManageLibrary])"
+		guard = "NotViaPublicEdgeGuard.and(PermissionGuard::all(&[UserPermission::AddBooks, UserPermission::ManageLibrary]))"
 	)]
 	async fn intake_accept(
 		&self,
@@ -367,10 +379,11 @@ impl IntakeMutation {
 			.collect())
 	}
 
-	/// Approves items waiting in the approval queue of libraries the approver can use. Each is
-	/// filed in the background (`FILING`, then `FILED`); an item already being filed comes back
+	/// Approves items waiting in the approval queue of libraries the owner can use. Only the
+	/// server owner, and only from home (never through the public edge). Each is filed in the
+	/// background (`FILING`, then `FILED`); an item already being filed comes back
 	/// as it is
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)")]
 	async fn intake_approve(
 		&self,
 		ctx: &Context<'_>,
@@ -389,7 +402,7 @@ impl IntakeMutation {
 
 	/// Sends an item of the approval queue back to its uploader with a note (`reviewNote`): they
 	/// can change it and send it again
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)")]
 	async fn intake_reject(
 		&self,
 		ctx: &Context<'_>,

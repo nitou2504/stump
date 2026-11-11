@@ -17,7 +17,9 @@ const UPLOAD_BOOKS: &str =
 const UPLOAD_SERIES: &str = r#"mutation UploadSeries($input: UploadSeriesInput!) { uploadSeries(input: $input) }"#;
 
 /// a running app with a real library directory (inside a tempdir), a directory
-/// outside the library root, and a user with perms for UploadFile
+/// outside the library root, and a library manager who may upload (uploading straight into a
+/// library takes managing libraries: *Upload files* alone is not enough, see
+/// `test_upload_takes_managing_libraries_not_just_upload_file`)
 struct UploadFixture {
 	app: TestApp,
 	library_id: String,
@@ -46,7 +48,7 @@ async fn setup() -> UploadFixture {
 
 	let user = CreateTestUser {
 		username: "icanuploadyay-surelyiwontdoanythingbad!>:)".to_string(),
-		permissions: vec![UserPermission::UploadFile],
+		permissions: vec![UserPermission::UploadFile, UserPermission::ManageLibrary],
 		..Default::default()
 	}
 	.insert(&app)
@@ -372,25 +374,48 @@ async fn test_upload_series_benign_upload_stays_inside_library() {
 	);
 }
 
-/// a user without the UploadFile permission must not be able to upload at all
+/// uploading straight into a library (no approval, no isolated checker) takes managing libraries:
+/// nobody without it can, and *Upload files* alone is not enough. Somebody who only adds books
+/// sends them through the "Add books" inbox
 #[tokio::test]
-async fn test_upload_books_requires_upload_file_permission() {
+async fn test_upload_takes_managing_libraries_not_just_upload_file() {
 	let fixture = setup().await;
 
-	let user = CreateTestUser {
-		username: "no-upload-perms".to_string(),
-		..Default::default()
+	for (username, permissions) in [
+		("no-upload-perms", vec![]),
+		("upload-file-only", vec![UserPermission::UploadFile]),
+		(
+			"upload-file-and-add-books",
+			vec![UserPermission::UploadFile, UserPermission::AddBooks],
+		),
+	] {
+		let user = CreateTestUser {
+			username: username.to_string(),
+			permissions,
+			..Default::default()
+		}
+		.insert(&fixture.app)
+		.await;
+
+		let form = upload_books_form(
+			&fixture.library_id,
+			&fixture.library_dir.to_string_lossy(),
+			"book.epub",
+		);
+		let response = post_gql_multipart(&fixture.app, &user.token, form).await;
+		assert_upload_errored(&response);
+		assert!(
+			response.to_string().contains("permission"),
+			"{username} should be refused for lack of permission: {response:#}"
+		);
+
+		let form = upload_series_form(
+			&fixture.library_id,
+			&fixture.library_dir.to_string_lossy(),
+			"series",
+		);
+		let response = post_gql_multipart(&fixture.app, &user.token, form).await;
+		assert_upload_errored(&response);
+		assert_library_dir_empty(&fixture.library_dir);
 	}
-	.insert(&fixture.app)
-	.await;
-
-	let form = upload_books_form(
-		&fixture.library_id,
-		&fixture.library_dir.to_string_lossy(),
-		"book.epub",
-	);
-	let response = post_gql_multipart(&fixture.app, &user.token, form).await;
-
-	assert_upload_errored(&response);
-	assert_library_dir_empty(&fixture.library_dir);
 }
