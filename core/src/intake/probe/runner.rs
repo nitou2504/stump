@@ -13,6 +13,7 @@
 //! inbox read-only, one writable spool folder), see `research/` for the compose service.
 
 use std::{
+	collections::HashMap,
 	ffi::CString,
 	fs::{self, File},
 	io::{Read, Write},
@@ -220,10 +221,18 @@ struct Ended {
 }
 
 fn limit(resource: libc::__rlimit_resource_t, value: u64) {
-	let value = libc::rlim_t::try_from(value).unwrap_or(libc::RLIM_INFINITY);
+	limit_soft_hard(resource, value, value);
+}
+
+/// A limit whose soft value is below its hard one: for the CPU, the process gets `SIGXCPU` at the
+/// soft one (a check that needs more CPU than a book may is refused as such), and `SIGKILL` only
+/// at the hard one. With both equal it gets `SIGKILL` at once, which is what a host short of
+/// memory does too, so it was taken for that, and the check was tried again
+fn limit_soft_hard(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) {
+	let to_rlim = |value: u64| libc::rlim_t::try_from(value).unwrap_or(libc::RLIM_INFINITY);
 	let rlimit = libc::rlimit {
-		rlim_cur: value,
-		rlim_max: value,
+		rlim_cur: to_rlim(soft),
+		rlim_max: to_rlim(hard.max(soft)),
 	};
 	// in the child between fork and exec: nothing that allocates
 	unsafe {
@@ -237,6 +246,7 @@ fn spawn_child(
 	out_dir: &Path,
 	limits: &Limits,
 	size: u64,
+	beat: &mut dyn FnMut(),
 ) -> std::io::Result<Ended> {
 	let deadline = Duration::from_secs(limits.deadline_secs(size));
 	let mem = limits.mem_mb.saturating_mul(MIB);
@@ -277,7 +287,7 @@ fn spawn_child(
 				libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
 			}
 			limit(libc::RLIMIT_DATA, mem);
-			limit(libc::RLIMIT_CPU, cpu);
+			limit_soft_hard(libc::RLIMIT_CPU, cpu, cpu.saturating_add(5));
 			limit(libc::RLIMIT_FSIZE, fsize);
 			limit(libc::RLIMIT_NOFILE, 256);
 			limit(libc::RLIMIT_CORE, 0);
@@ -309,6 +319,7 @@ fn spawn_child(
 	});
 
 	let mut killed_by_us = false;
+	let mut last_beat = Instant::now();
 	let (status, usage) = loop {
 		let mut status = 0;
 		let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
@@ -325,6 +336,12 @@ fn spawn_child(
 		if !killed_by_us && started.elapsed() > deadline {
 			unsafe { libc::kill(-pid, libc::SIGKILL) };
 			killed_by_us = true;
+		}
+		// still here: a check can take minutes, and the server takes the checker for offline when
+		// nothing has been heard of it for a few seconds
+		if last_beat.elapsed().as_secs() >= HEARTBEAT_SECS.min(2) {
+			beat();
+			last_beat = Instant::now();
 		}
 		std::thread::sleep(Duration::from_millis(20));
 	};
@@ -436,6 +453,18 @@ pub fn run_ticket(
 	request_file: &Path,
 	request: &Request,
 ) -> Verdict {
+	run_ticket_beating(spawn, spool, request_file, request, &mut || {})
+}
+
+/// The same, calling `beat` every few seconds while the child runs (the supervisor says it is
+/// alive: a heartbeat written only between tickets is stale for the whole of a long check)
+pub fn run_ticket_beating(
+	spawn: &Spawn,
+	spool: &Spool,
+	request_file: &Path,
+	request: &Request,
+	beat: &mut dyn FnMut(),
+) -> Verdict {
 	let started = Instant::now();
 	let limits = request.limits.clamped();
 	let partial = spool.out().join(format!("{}.partial", request.id));
@@ -453,7 +482,7 @@ pub fn run_ticket(
 	}
 	// how big the file is decides how long the child may take
 	let size = request.size;
-	let ended = spawn_child(spawn, request_file, &partial, &limits, size);
+	let ended = spawn_child(spawn, request_file, &partial, &limits, size, beat);
 	let verdict = match ended {
 		Ok(ended) => verdict_of(request, ended, limits.mem_mb, started.elapsed()),
 		Err(error) => Verdict::rejected(
@@ -498,23 +527,52 @@ fn write_heartbeat(spool: &Spool, busy: bool) {
 	let _ = write_atomic(&spool.heartbeat(), value.to_string().as_bytes());
 }
 
-/// The oldest ticket waiting, moved to `running/` so nobody else takes it
-fn take_ticket(spool: &Spool) -> Option<PathBuf> {
-	let mut waiting: Vec<(SystemTime, PathBuf)> = fs::read_dir(spool.queue())
+/// Whose ticket a request is: the first part of its path in the inbox (`<user>/<item>/<file>`)
+fn user_of(ticket: &Path) -> String {
+	let mut bytes = vec![];
+	let read = File::open(ticket).and_then(|f| f.take(MAX_REQUEST_BYTES).read_to_end(&mut bytes));
+	let input = read
+		.ok()
+		.and_then(|_| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+		.and_then(|value| value.get("input")?.as_str().map(str::to_string))
+		.unwrap_or_default();
+	input.split('/').next().unwrap_or_default().to_string()
+}
+
+/// Which waiting ticket is next: whoever was served longest ago (somebody who never was goes
+/// before anybody who was), and of one person's tickets the oldest. So one person's hundred files
+/// don't keep everyone else's behind them, and two busy people can't keep a third's away either
+fn pick(
+	waiting: &[(SystemTime, PathBuf, String)],
+	served: &HashMap<String, u64>,
+) -> Option<usize> {
+	waiting
+		.iter()
+		.enumerate()
+		.min_by_key(|(_, (time, _, user))| (served.get(user).copied().unwrap_or(0), *time))
+		.map(|(index, _)| index)
+}
+
+/// The next ticket, moved to `running/` so nobody else takes it
+fn take_ticket(
+	spool: &Spool,
+	served: &HashMap<String, u64>,
+) -> Option<(PathBuf, String)> {
+	let waiting: Vec<(SystemTime, PathBuf, String)> = fs::read_dir(spool.queue())
 		.ok()?
 		.flatten()
 		.filter_map(|entry| {
 			let path = entry.path();
 			let name = path.file_name()?.to_str()?.to_string();
 			(name.ends_with(".json") && !name.starts_with('.')).then_some(())?;
-			Some((entry.metadata().ok()?.modified().ok()?, path))
+			let user = user_of(&path);
+			Some((entry.metadata().ok()?.modified().ok()?, path, user))
 		})
 		.collect();
-	waiting.sort();
-	let (_, path) = waiting.into_iter().next()?;
+	let (_, path, user) = waiting.get(pick(&waiting, served)?)?.clone();
 	let target = spool.running().join(path.file_name()?);
 	fs::rename(&path, &target).ok()?;
-	Some(target)
+	Some((target, user))
 }
 
 /// Does one ticket from `running/`: reads it, runs it, writes `done/<id>.json`
@@ -539,7 +597,9 @@ fn process_ticket(spawn: &Spawn, spool: &Spool, ticket: &Path) {
 				&& super::contract::is_valid_ticket(&request.id)
 				&& super::contract::is_safe_relative(&request.input) =>
 		{
-			run_ticket(spawn, spool, ticket, &request)
+			run_ticket_beating(spawn, spool, ticket, &request, &mut || {
+				write_heartbeat(spool, true)
+			})
 		},
 		other => {
 			// a ticket that is not one: answered, so nobody waits for it
@@ -566,6 +626,18 @@ fn process_ticket(spawn: &Spawn, spool: &Spool, ticket: &Path) {
 			)
 		},
 	};
+	println!(
+		"ticket {stem}: {:?} {} {} ms, peak {} MB",
+		verdict.status,
+		verdict
+			.reasons
+			.iter()
+			.map(|r| r.code.as_str())
+			.collect::<Vec<_>>()
+			.join(","),
+		verdict.usage.wall_ms,
+		verdict.usage.peak_rss_kb / 1024
+	);
 	if let Ok(json) = serde_json::to_vec(&verdict) {
 		let _ = write_atomic(&spool.done().join(format!("{stem}.json")), &json);
 	}
@@ -647,6 +719,9 @@ fn serve_main(args: &[String]) -> i32 {
 		.and_then(|v| v.parse::<u64>().ok())
 		.unwrap_or(256);
 	println!("stump-intake-probe {} ready", probe_revision());
+	// when each person was last served, as a count of tickets (see `pick`)
+	let mut served: HashMap<String, u64> = HashMap::new();
+	let mut served_count = 0u64;
 	let (mut last_beat, mut last_sweep) =
 		(Instant::now() - Duration::from_secs(60), Instant::now());
 	loop {
@@ -663,12 +738,17 @@ fn serve_main(args: &[String]) -> i32 {
 			std::thread::sleep(Duration::from_secs(5));
 			continue;
 		}
-		match take_ticket(&spool) {
-			Some(ticket) => {
+		match take_ticket(&spool, &served) {
+			Some((ticket, user)) => {
 				write_heartbeat(&spool, true);
 				process_ticket(&spawn, &spool, &ticket);
 				write_heartbeat(&spool, false);
 				last_beat = Instant::now();
+				served_count += 1;
+				if served.len() > 10_000 {
+					served.clear();
+				}
+				served.insert(user, served_count);
 			},
 			None => std::thread::sleep(Duration::from_millis(500)),
 		}
@@ -819,6 +899,30 @@ mod tests {
 	}
 
 	#[test]
+	fn the_supervisor_beats_while_a_long_check_runs() {
+		let id = "aaaa0000-0000-4000-8000-000000000020";
+		let dir = tempfile::tempdir().unwrap();
+		let spool = Spool::new(dir.path().join("spool"));
+		spool.ensure().unwrap();
+		let mut request = request(id);
+		// the other tests give a check 2 seconds: this one is meant to take longer
+		request.limits.timeout_secs = 30;
+		let request_file = spool.running().join(format!("{id}.json"));
+		fs::write(&request_file, serde_json::to_vec(&request).unwrap()).unwrap();
+		let spawn = Spawn {
+			exe: script(dir.path(), &format!("sleep 5; echo '{}'", good_verdict(id))),
+			intake_root: dir.path().join("inbox"),
+			die_with_parent: false,
+		};
+		let mut beats = 0u32;
+		let verdict =
+			run_ticket_beating(&spawn, &spool, &request_file, &request, &mut || beats += 1);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		// a check that takes longer than the server waits to hear of the checker is not offline
+		assert!(beats >= 2, "{beats} beats in 5 seconds");
+	}
+
+	#[test]
 	fn a_verdict_the_child_prints_is_what_the_supervisor_returns() {
 		let id = "aaaa0000-0000-4000-8000-000000000001";
 		let (verdict, _dir) =
@@ -891,6 +995,46 @@ mod tests {
 	}
 
 	#[test]
+	fn one_persons_files_do_not_keep_everyone_elses_waiting_and_two_busy_people_do_not_starve_a_third() {
+		let at = |secs: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+		let mut waiting = vec![
+			(at(1), PathBuf::from("a1"), "ana".to_string()),
+			(at(2), PathBuf::from("a2"), "ana".to_string()),
+			(at(3), PathBuf::from("a3"), "ana".to_string()),
+			(at(4), PathBuf::from("b1"), "ben".to_string()),
+			(at(5), PathBuf::from("b2"), "ben".to_string()),
+			(at(6), PathBuf::from("c1"), "cy".to_string()),
+		];
+		// nothing was served yet: the oldest
+		let mut served: HashMap<String, u64> = HashMap::new();
+		assert_eq!(pick(&waiting, &served), Some(0));
+		// the whole run, a ticket at a time: everyone gets a turn before anybody gets a second
+		let mut order = vec![];
+		let mut count = 0u64;
+		while let Some(i) = pick(&waiting, &served) {
+			let (_, path, user) = waiting.remove(i);
+			count += 1;
+			served.insert(user, count);
+			order.push(path.to_string_lossy().into_owned());
+		}
+		assert_eq!(order, ["a1", "b1", "c1", "a2", "b2", "a3"]);
+		// only the one person waits: their oldest, whoever was served last
+		let waiting = vec![
+			(at(1), PathBuf::from("a1"), "ana".to_string()),
+			(at(2), PathBuf::from("a2"), "ana".to_string()),
+		];
+		assert_eq!(pick(&waiting, &served), Some(0));
+		assert_eq!(pick(&[], &HashMap::new()), None);
+		// the user comes from the path of the request in the inbox
+		let dir = tempfile::tempdir().unwrap();
+		let file = dir.path().join("t.json");
+		fs::write(&file, br#"{"input":"user-1/item-2/001_book.epub"}"#).unwrap();
+		assert_eq!(user_of(&file), "user-1");
+		fs::write(&file, b"{not json").unwrap();
+		assert_eq!(user_of(&file), "");
+	}
+
+	#[test]
 	fn the_supervisor_answers_every_ticket_and_requeues_what_was_running() {
 		let dir = tempfile::tempdir().unwrap();
 		let spool = Spool::new(dir.path().join("spool"));
@@ -907,7 +1051,7 @@ mod tests {
 			serde_json::to_vec(&request(id)).unwrap(),
 		)
 		.unwrap();
-		let ticket = take_ticket(&spool).expect("a ticket");
+		let (ticket, _) = take_ticket(&spool, &HashMap::new()).expect("a ticket");
 		assert!(ticket.starts_with(spool.running()));
 		process_ticket(&spawn, &spool, &ticket);
 		let done: Verdict = serde_json::from_slice(
@@ -918,7 +1062,7 @@ mod tests {
 		assert!(!ticket.exists());
 		// a ticket that is rubbish is answered too
 		fs::write(spool.queue().join("junk.json"), b"{not json").unwrap();
-		let ticket = take_ticket(&spool).expect("a ticket");
+		let (ticket, _) = take_ticket(&spool, &HashMap::new()).expect("a ticket");
 		process_ticket(&spawn, &spool, &ticket);
 		let done: Verdict =
 			serde_json::from_slice(&fs::read(spool.done().join("junk.json")).unwrap())
