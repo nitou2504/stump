@@ -39,7 +39,10 @@ cd /mnt/data2/containers/stump-fork
 TS=$(date -u +%Y%m%dT%H%M%SZ); B=config.backup-$TS-db; mkdir -p $B
 sqlite3 config/stump.db ".backup $B/stump.db"; sqlite3 -readonly $B/stump.db 'pragma quick_check'     # ok
 cp -a config/Stump.toml $B/Stump.toml                 # the image rewrites it at every start: restore it on a rollback
-cp /mnt/data2/Code/stump/crates/migrations/manual-down/m20261113_000000_public_access.sql $B/manual-down.sql   # or the copy in research/
+# the two migrations of this build, each with its own down (run in the reverse order: intake first, then access)
+M=/mnt/data2/Code/stump/crates/migrations/manual-down
+cp $M/m20261114_000000_intake_approval.sql $B/manual-down-1-intake.sql
+cp $M/m20261113_000000_public_access.sql   $B/manual-down-2-access.sql
 cp -a docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-public-access
 cp -a edge $B/edge && cp -a .env $B/env.pre-public-access && chmod 600 $B/env.pre-public-access
 echo $B
@@ -48,7 +51,7 @@ echo $B
 ## 2. Image
 
 Build on `l5` and load it on `g3` as `AGENTS.md` says (`stump:fork-<rev>`), then put it in the compose file with the
-usual comment (what changed, **migration m20261113_000000_public_access**, rollback image and the manual-down SQL).
+usual comment (what changed, **migrations m20261113_000000_public_access and m20261114_000000_intake_approval**, rollback image and the manual-down SQL).
 
 ## 3. The state folder (owned by uid 1000, the `PUID` the app runs as)
 
@@ -80,7 +83,7 @@ mount after step 7; it is harmless, and can be deleted from the compose file the
 docker compose up -d --no-build stump-fork
 for i in $(seq 1 30); do [ "$(curl -s -o /dev/null -w %{http_code} http://127.0.0.1:10801/api/v2/ping)" = 200 ] && break; sleep 3; done
 docker ps --filter name=stump-fork --format '{{.Image}} {{.Status}}'
-sqlite3 -readonly config/stump.db "select max(version) from seaql_migrations"     # m20261113_000000_public_access
+sqlite3 -readonly config/stump.db "select max(version) from seaql_migrations"     # m20261114_000000_intake_approval (the latest; public_access is the one before it)
 python3 -c "import json;d=json.load(open('edge-state/state.json'));print(sorted(d), d['revoked'])"   # ['budget','revoked','v','written'] []
 docker logs --since 2m stump-fork 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -E 'Public access|panic| ERROR ' | head       # "Public access is configured", clean
 grep -c 'edge' config/Stump.toml || echo "no [edge] in Stump.toml (the key and the section are never written)"   # 0
@@ -103,7 +106,7 @@ install -m 644 /mnt/data2/Code/stump/deploy/public-edge/{nginx.conf,stump-gate.j
 cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map          # keep the break-glass revocations
 docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
   -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-# and the real config against a stub (63 checks, ~45 s, nothing live is touched):
+# and the real config against a stub (85 checks, ~1 min, nothing live is touched):
 bash /mnt/data2/Code/stump/deploy/public-edge/verify-edge.sh
 ```
 
@@ -179,6 +182,140 @@ tailscale funnel --bg --https=8443 http://127.0.0.1:10803
 tailscale funnel status          # must show ONLY :8443 -> 127.0.0.1:10803 for Stump (never :10801 or :10802)
 ```
 
+## Enable friend uploads
+
+The build already carries friend uploads, **switched off**: nobody can upload from the internet until all four things
+below are true. Do them in this order, the permission last: the edge limits, the checker, the setting, the permission.
+
+What Stump itself guarantees (tests: `apps/server/tests/access/uploads.rs`, `graphql/intake_approval.rs`,
+`graphql/upload.rs`):
+
+* the one way a book comes in from the internet is **Add books**, `POST /api/v2/intake/upload`, within the person's
+  limits; it waits for the owner's approval, and the book that is filed is one the isolated checker wrote anew;
+* **approving, sending back, the approval queue and its count are the server owner's, from home**: the edge refuses
+  them and so does the app, whatever permissions a friend holds (*Manage library* and *Delete library* included);
+* filing straight into a library (`intakeAccept`, `intakeUpload`, `uploadBooks`, `uploadSeries`) never works through
+  the edge; `uploadBooks` and `uploadSeries` need *Manage library*, so *Upload files* alone no longer skips the inbox;
+* somebody who files books themselves (*Manage library*) uploads from home only; the owner's credentials are refused
+  through the edge like everywhere.
+
+### 1. The edge: a route for books
+
+`nginx.conf` now has a location for `/api/v2/intake/upload`: a body up to `intake_max_request_mb` + 1 MB (**301 MB**;
+raise both together), 12 requests a minute per client (burst 6), 2 at a time per client and 8 in all, nothing spooled
+(`proxy_request_buffering off`), Stump's own origin only, and the pass every request needs. The public GraphQL body cap
+is **256 KB** now (a 20,000-character description in 4-byte characters fits); everything else stays at 25 MB / 64 KB.
+
+```sh
+cd /mnt/data2/containers/stump-fork
+N=$PWD/edge-new; rm -rf $N; mkdir -p $N && chmod 755 $N
+install -m 644 /mnt/data2/Code/stump/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
+cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map
+docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
+  -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
+bash /mnt/data2/Code/stump/deploy/public-edge/verify-edge.sh        # 85 checks, 0 failed (needs docker; ~1 minute)
+cp -a edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-uploads
+install -m 644 $N/nginx.conf edge/nginx.conf
+docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+E=http://127.0.0.1:10803
+echo "no pass: $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=x")"   # 404
+```
+
+### 2. The checker, and the setting
+
+Friends' books are read by a second container of the same image (`stump-intake-probe`: no network, read-only root, no
+capabilities, the inbox read-only, one process with a memory ceiling and a deadline for every file); the server reads
+none of their bytes. The compose service is in `docker/compose.fork-intake-probe.example.yml`, with its own steps:
+
+```sh
+cd /mnt/data2/containers/stump-fork
+mkdir -p ./config/workers/intake ./config/intake && ls -ld ./config/workers/intake ./config/intake     # owned by sthefano (uid 1000), not root
+# merge the example's `x-stump-image` anchor and its `stump-intake-probe` service into docker-compose.yml, and
+# make stump-fork use the same anchor (`image: *stump_image`), with the anchor's default set to the tag in use today
+cp -a docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-intake-probe
+```
+
+Then the setting, in the compose file's `environment:` for `stump-fork` (not in `Stump.toml`: Stump rewrites that file
+at every start) :
+
+```yaml
+      - STUMP_INTAKE_PROBE_MODE=queue        # off (default) | queue | subprocess | inprocess
+```
+
+`queue` is the one to use: the isolated container above. `subprocess` is the same checker as a child process of the
+server (same user, folders and network): only for a server without the second container. `inprocess` reads friends'
+books inside the server: never for the internet. `off` closes uploads for everyone who needs approval.
+
+```sh
+docker compose config -q && docker compose up -d --no-build stump-fork stump-intake-probe     # BOTH, together
+sleep 15; docker logs --since 1m stump-intake-probe 2>&1 | grep -E 'selftest|ready|WARN'
+#   selftest ok / stump-intake-probe <rev> ready; a WARN about no network or a read-only inbox means it is NOT isolated: fix that first
+find config/workers/intake/worker.json -mmin -1 && echo "checker heartbeat is fresh"
+```
+
+**From now on every Stump image change recreates both services**: `docker compose up -d --no-build stump-fork
+stump-intake-probe`. The checker and the server must be the same build; with another version the checker is "out of
+date", checking is offline, and friends' uploads close until both are recreated (the owner's own uploads are not
+affected). The deploy routine in `AGENTS.md` names only `stump-fork`.
+
+Limits (Stump.toml or `STUMP_<KEY>` in the environment; the server sends the checker its limits with every request,
+and the checker keeps them under ceilings of its own): `intake_max_request_mb` 300, `intake_max_file_mb` 300, `intake_max_files_per_request`
+50, `intake_user_quota_mb` 2048 (what a person can have waiting), `intake_user_max_items` 100, `intake_min_free_gb`
+20 (uploads stop below this much free disk), `intake_total_max_gb` 50, `intake_upload_idle_secs` 60;
+for the checker `intake_probe_timeout_secs` 120, `intake_probe_mem_mb` 768, `intake_probe_max_entries` 20000,
+`intake_probe_max_entry_mb` 64, `intake_probe_max_unpacked_mb` 2048, `intake_probe_max_pages` 10000,
+`intake_probe_max_image_mp` 50, `intake_active_content` `strip`, `intake_cbr_to_cbz` true. One person can have limits of
+their own in **Settings → Book approvals**. `enable_upload = false` closes uploads for everybody ("Uploads are turned
+off on this server").
+
+### 3. The permission
+
+In **Settings → Users**, give the friend **Add books** and nothing else of this family. Never *Upload files*,
+*Manage library*, *Delete library* or *Manage users* (the first two let a person file books without approval, from
+home). Restrict what they may see with library exclusions and an age restriction as usual: what an uploader is shown
+(similar books, folders, tags) is limited to the books they can read.
+
+### 4. Check it (loopback port of the public listener; use a test person and a test device)
+
+```sh
+cd /mnt/data2/containers/stump-fork; E=http://127.0.0.1:10803
+# a pass for a test device (Settings → Public access → Invite links; the break-glass script does the same) as in step 7
+L=$(/mnt/data2/containers/edge-common/invite.sh stump uptest 1 | sed 's|https://g3.tail3e401.ts.net:8443|'$E'|')
+C=$(curl -s -D- -o /dev/null -X POST -H 'Sec-Fetch-Site: same-origin' --data-urlencode "t=$L" $E/api/_i/ | grep -i '^set-cookie' | sed -E 's/^[Ss]et-[Cc]ookie: ([^;]+);.*/\1/')
+# the friend signs in through the edge (counts as one of the device's 8 sign-ins a day)
+TOK=$(curl -s -b "$C" -H 'Content-Type: application/json' -d '{"username":"<friend>","password":"<password>"}' "$E/api/v2/auth/login?generate_token=true" | python3 -c 'import json,sys;print(json.load(sys.stdin)["accessToken"])')
+LIB=<a library id the friend can use>
+python3 /mnt/data2/Code/stump/deploy/public-edge/make-test-epub.py /tmp/hostile.epub
+echo "upload:   $(curl -s -o /tmp/up.json -w %{http_code} -b "$C" -H "Authorization: Bearer $TOK" -F 'file=@/tmp/hostile.epub;filename=hostile.epub' "$E/api/v2/intake/upload?libraryId=$LIB")"   # 200 and {"items":[…]}
+echo "too big:  $(curl -s -o /dev/null -w %{http_code} -X POST -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: multipart/form-data; boundary=x' -H 'Content-Length: 400000000' --data-binary x "$E/api/v2/intake/upload?libraryId=$LIB")"   # 413: the edge answers before reading a byte
+echo "no pass:  $(curl -s -o /dev/null -w %{http_code} -X POST "$E/api/v2/intake/upload?libraryId=$LIB")"                                  # 404
+echo "approve:  $(curl -s -b "$C" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d '{"query":"{ pendingIntakeCount }"}' $E/api/graphql | head -c 160)"   # an error, never a number
+```
+
+Then, **at home as the owner**, open *Settings → Book approvals*: the test book waits there, with what the checker
+found (a script, a handler, a frame, a `javascript:` link, a form). Approve it, wait for *Filed*, and look at what
+reached the library:
+
+```sh
+F=$(find /mnt/data2/Books/Library -iname '*hostile*' -name '*.epub' -newer /tmp/hostile.epub | head -1); echo "$F"
+unzip -p "$F" | grep -aciE '<script|onclick=|<iframe|javascript:|<form'      # 0: the filed copy was written anew, none of it is left
+unzip -l "$F" | head                                                          # mimetype first, content.opf, nav.xhtml, toc.ncx, the page
+```
+
+Delete the test book from the library afterwards (*Remove from library*), revoke the test device in **Settings →
+Public access**, and remove the test person if you made one.
+
+### Back out
+
+```sh
+# friends can't upload any more; what is in their inboxes stays
+#   in the compose file: STUMP_INTAKE_PROBE_MODE=off
+docker compose up -d --no-build stump-fork && docker compose stop stump-intake-probe
+# the edge's upload location (optional: without the setting nothing can be uploaded anyway)
+cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf
+docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+```
+
 ## Rollback (in this order)
 
 ```sh
@@ -187,7 +324,8 @@ tailscale funnel --https=8443 off                        # 1. close the public a
 docker compose stop stump-edge stump-fork                #    (Stump stopped: the SQL below runs with nothing writing)
 cp -a docker-compose.yml.bak-<date>-public-access docker-compose.yml          # 2. compose, edge files, key file
 rm -rf edge && cp -a $B/edge edge
-sqlite3 config/stump.db < $B/manual-down.sql             # 3. the tables of the migration (the SQL's own checks print 0 and 0)
+sqlite3 config/stump.db < $B/manual-down-1-intake.sql    # 3. the tables of the migrations, the last one first (each SQL's own checks print 0)
+sqlite3 config/stump.db < $B/manual-down-2-access.sql
 cp -a $B/Stump.toml config/Stump.toml                    #    the previous image rewrites it at start: put it back
 docker compose up -d --force-recreate stump-fork stump-edge                    # 4. the previous image (set in the compose file) and the old edge
 ```
