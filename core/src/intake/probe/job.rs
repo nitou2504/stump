@@ -320,6 +320,13 @@ fn cbr_to_cbz(input: &Path, output: &Path, request: &Request) -> Result<(), Reas
 			archive = header.skip().map_err(unreadable)?;
 			continue;
 		}
+		// A friend's comic keeps its pages and nothing else. What else an archive holds (a package,
+		// pages of another kind, scripts) is not a comic's, and a zip with an EPUB's files in it is
+		// one to a reader; the metadata that goes in is written anew by `write_cbz`
+		if !request.approver && !is_page(&name) {
+			archive = header.skip().map_err(unreadable)?;
+			continue;
+		}
 		let declared = entry.unpacked_size;
 		if declared > limits.max_entry_bytes {
 			return Err(fail(code::ENTRY_TOO_LARGE, "An entry is too large"));
@@ -351,6 +358,72 @@ fn cbr_to_cbz(input: &Path, output: &Path, request: &Request) -> Result<(), Reas
 			)
 			.map_err(|e| fail(code::OUTPUT_CHECK_FAILED, e.to_string()))?;
 		writer.write_all(&data).map_err(io_reason)?;
+	}
+	writer
+		.finish()
+		.map_err(|e| fail(code::OUTPUT_CHECK_FAILED, e.to_string()))?;
+	Ok(())
+}
+
+/// A name a page may have in a comic: inside the archive, with no way out of it
+fn plain_entry_name(name: &str) -> bool {
+	!name.is_empty()
+		&& !name.starts_with('/')
+		&& !name.contains('\0')
+		&& name.split('/').all(|part| part != "..")
+}
+
+/// A comic in a ZIP archive written anew with its pages alone, in the order and under the names it
+/// had. What else is in the archive (pages of another kind, scripts, a second copy of a metadata
+/// file) is not a comic's, and the metadata that goes in is written anew by `write_cbz`. A
+/// friend's comic is filed like this, not copied
+fn cbz_pages_only(input: &Path, output: &Path, request: &Request) -> Result<(), Reason> {
+	let limits = request.limits.clamped();
+	let unreadable = |error: zip::result::ZipError| {
+		fail(
+			code::UNREADABLE,
+			format!("The ZIP file can't be read: {error}"),
+		)
+	};
+	let mut archive =
+		zip::ZipArchive::new(File::open(input).map_err(io_reason)?).map_err(unreadable)?;
+	let mut writer = ZipWriter::new(File::create(output).map_err(io_reason)?);
+	let mut written = 0u64;
+	for index in 0..archive.len() {
+		let mut entry = archive.by_index(index).map_err(unreadable)?;
+		let name = entry.name().replace('\\', "/");
+		if entry.is_dir() || !is_page(&name) || !plain_entry_name(&name) {
+			continue;
+		}
+		let declared = entry.size();
+		if declared > limits.max_entry_bytes {
+			return Err(fail(code::ENTRY_TOO_LARGE, "An entry is too large"));
+		}
+		writer
+			.start_file(
+				name.as_str(),
+				SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+			)
+			.map_err(|e| fail(code::OUTPUT_CHECK_FAILED, e.to_string()))?;
+		// never more than the entry says it holds (and than an entry may hold)
+		let copied = std::io::copy(
+			&mut (&mut entry).take(declared.min(limits.max_entry_bytes) + 1),
+			&mut writer,
+		)
+		.map_err(io_reason)?;
+		if copied > declared {
+			return Err(fail(
+				code::SIZE_MISMATCH,
+				"An entry holds more than it says",
+			));
+		}
+		written = written.saturating_add(copied);
+		if written > limits.max_unpacked_bytes {
+			return Err(fail(
+				code::UNPACKED_TOO_LARGE,
+				"The archive unpacks to too much",
+			));
+		}
 	}
 	writer
 		.finish()
@@ -421,6 +494,13 @@ fn file_job(
 			};
 			rebuild_epub(&out_path, strip)?;
 		},
+		"cbz" if !request.approver => {
+			// a friend's comic is written anew with its pages alone, not copied
+			cbz_pages_only(input, &out_path, request).inspect_err(|_| {
+				let _ = std::fs::remove_file(&out_path);
+			})?;
+			write_cbz(&out_path, meta).map_err(wrote)?;
+		},
 		"cbz" => {
 			std::fs::copy(input, &out_path).map_err(io_reason)?;
 			write_cbz(&out_path, meta).map_err(wrote)?;
@@ -450,6 +530,18 @@ fn file_job(
 				format!("{}: {}", reason.code, reason.detail),
 			)
 		})?;
+	// What came out must be the kind of file that was meant. A zip with the files of an EPUB in it
+	// reads as one whatever it is called (a RAR comic converted with the package of a book in it
+	// came out as a "cbz" that was an EPUB), and that is not a file to put in a comic's place.
+	if checked.book.format != out_format {
+		return Err(fail(
+			code::OUTPUT_CHECK_FAILED,
+			format!(
+				"The file came out as {}, not as {out_format}",
+				checked.book.format
+			),
+		));
+	}
 	if format == "epub"
 		&& request.active_content == ActiveContent::Strip
 		&& checked.book.active_content.found > 0
@@ -1592,5 +1684,86 @@ pub(crate) mod tests {
 			slowest.0,
 			slowest.1
 		);
+	}
+
+	/// The names of what is in a zip file
+	fn names_in(path: &Path) -> Vec<String> {
+		let mut archive = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
+		(0..archive.len())
+			.map(|i| archive.by_index(i).unwrap().name().to_string())
+			.collect()
+	}
+
+	#[test]
+	fn a_friends_comic_is_filed_with_its_pages_alone() {
+		let world = world();
+		let meta = FileMetadata {
+			title: Some("Filed Title".to_string()),
+			..FileMetadata::default()
+		};
+		let bytes = zip(&[
+			("001.png", png(30, 40)),
+			("sub/002.png", png(30, 40)),
+			("OEBPS/page.xhtml", b"<html><body><script>alert(1)</script></body></html>".to_vec()),
+			("scripts/x.js", b"alert(1)".to_vec()),
+			("readme.txt", b"hello".to_vec()),
+			("ComicInfo.xml", b"<ComicInfo><Title>Hostile</Title></ComicInfo>".to_vec()),
+			(".hidden.png", png(30, 40)),
+		]);
+		let request = file_request(&world, "friend.cbz", &bytes, meta.clone());
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		let made = out_file(&world, &verdict);
+		let mut names = names_in(&made);
+		names.sort();
+		// the pages, and the metadata file that was written anew
+		assert_eq!(names, vec!["001.png", "ComicInfo.xml", "sub/002.png"], "{names:?}");
+		let mut archive = zip::ZipArchive::new(File::open(&made).unwrap()).unwrap();
+		let mut info = String::new();
+		archive.by_name("ComicInfo.xml").unwrap().read_to_string(&mut info).unwrap();
+		assert!(info.contains("Filed Title") && !info.contains("Hostile"), "{info}");
+		assert_eq!(verdict.book.unwrap().pages, 2);
+
+		// the comic of somebody who files their own books is copied as it is (nothing else changes)
+		let mut request = file_request(&world, "mine.cbz", &bytes, meta);
+		request.approver = true;
+		let verdict = run(&request, &world.env);
+		assert_eq!(verdict.status, Status::Ok, "{:?}", verdict.reasons);
+		let names = names_in(&out_file(&world, &verdict));
+		assert!(names.iter().any(|n| n == "OEBPS/page.xhtml") && names.iter().any(|n| n == "readme.txt"), "{names:?}");
+	}
+
+	#[test]
+	fn a_friends_comic_with_no_page_is_refused_and_one_with_odd_names_loses_them() {
+		let world = world();
+		let bytes = zip(&[("OEBPS/page.xhtml", b"<html/>".to_vec()), ("a.txt", b"x".to_vec())]);
+		let request = file_request(&world, "none.cbz", &bytes, FileMetadata::default());
+		assert_ne!(run(&request, &world.env).status, Status::Ok);
+		assert!(!plain_entry_name("../x.png") && !plain_entry_name("/x.png") && !plain_entry_name("a/../x.png"));
+		assert!(plain_entry_name("a/b/001.png") && !plain_entry_name(""));
+	}
+
+	#[test]
+	fn a_rar_comic_is_converted_with_its_pages_alone_for_a_friend() {
+		// the fixture holds files that are not pages (a favicon and the junk of a Mac's archive)
+		let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("integration-tests/data");
+		let world = world();
+		let mut request = world.stage("x.cbr", b"unused");
+		request.cbr_to_cbz = true;
+		for fixture in ["book.rar", "book-complex-tree.rar"] {
+			let input = data.join(fixture);
+			let friend = world.root.path().join(format!("{fixture}.friend.cbz"));
+			request.approver = false;
+			cbr_to_cbz(&input, &friend, &request).unwrap();
+			let own = world.root.path().join(format!("{fixture}.own.cbz"));
+			request.approver = true;
+			cbr_to_cbz(&input, &own, &request).unwrap();
+			let friends = names_in(&friend);
+			let owns = names_in(&own);
+			assert!(!owns.is_empty(), "{fixture}: the control has entries");
+			assert!(friends.iter().all(|n| is_page(n)), "{fixture}: {friends:?}");
+			let pages: Vec<String> = owns.iter().filter(|n| is_page(n)).cloned().collect();
+			assert_eq!(friends, pages, "{fixture}");
+		}
 	}
 }
