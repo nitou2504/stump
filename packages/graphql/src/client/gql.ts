@@ -239,6 +239,7 @@ type Documents = {
     "\n\tsubscription UseCoreEvent {\n\t\treadEvents {\n\t\t\t__typename\n\t\t\t... on CreatedManySeries {\n\t\t\t\tcount\n\t\t\t\tlibraryId\n\t\t\t}\n\t\t\t... on DiscoveredMissingLibrary {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobStarted {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobUpdate {\n\t\t\t\t__typename\n\t\t\t\tid\n\t\t\t\tstatus\n\t\t\t\tmessage\n\t\t\t\tcompletedTasks\n\t\t\t\tremainingTasks\n\t\t\t\tcompletedSubtasks\n\t\t\t\ttotalSubtasks\n\t\t\t\tsubtitle\n\t\t\t}\n\t\t\t... on JobOutput {\n\t\t\t\tid\n\t\t\t\toutput {\n\t\t\t\t\t__typename\n\t\t\t\t\t... on LibraryScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tcreatedSeries\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t\tupdatedSeries\n\t\t\t\t\t}\n\t\t\t\t\t... on SeriesScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UseCoreEventDocument,
     "\n\tmutation UsePreferences($input: UpdateUserPreferencesInput!) {\n\t\tupdateViewerPreferences(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.UsePreferencesDocument,
     "\n\tquery SurpriseMe {\n\t\trandomMedia(count: 1) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.SurpriseMeDocument,
+    "\n\tmutation ChooseOwnPassword($input: UpdateUserInput!) {\n\t\tupdateViewer(input: $input) {\n\t\t\tid\n\t\t\tusername\n\t\t}\n\t}\n": typeof types.ChooseOwnPasswordDocument,
     "\n\tfragment BookMetadata on Media {\n\t\tmetadata {\n\t\t\tageRating\n\t\t\trating\n\t\t\tcharacters\n\t\t\tcolorists\n\t\t\tcoverArtists\n\t\t\teditors\n\t\t\tgenres\n\t\t\tinkers\n\t\t\tletterers\n\t\t\tlinks\n\t\t\tpencillers\n\t\t\tpublisher\n\t\t\tseries\n\t\t\tteams\n\t\t\twriters\n\t\t\tyear\n\t\t\tmonth\n\t\t\tday\n\t\t\tvolume\n\t\t\tnumber\n\t\t}\n\t}\n": typeof types.BookMetadataFragmentDoc,
     "\n\tquery BooksAlphabet {\n\t\tmediaAlphabet\n\t}\n": typeof types.BooksAlphabetDocument,
     "\n\tquery BooksInSeries(\n\t\t$seriesId: ID!\n\t\t$filter: MediaFilterInput!\n\t\t$orderBy: [MediaOrderBy!]!\n\t\t$pagination: Pagination!\n\t) {\n\t\tseriesById(id: $seriesId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t}\n\t\tmedia(filter: $filter, orderBy: $orderBy, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\ttotalItems\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.BooksInSeriesDocument,
@@ -345,6 +346,21 @@ type Documents = {
     "\n\tquery NavigationArrangement {\n\t\tme {\n\t\t\tpreferences {\n\t\t\t\tnavigationArrangement {\n\t\t\t\t\tlocked\n\t\t\t\t\tsections {\n\t\t\t\t\t\t__typename\n\t\t\t\t\t\tconfig {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on SystemArrangementConfig {\n\t\t\t\t\t\t\t\tvariant\n\t\t\t\t\t\t\t\tlinks\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvisible\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.NavigationArrangementDocument,
     "\n\tmutation NavigationArrangementUpdate($input: NavigationArrangementInput!) {\n\t\tupdateNavigationArrangement(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.NavigationArrangementUpdateDocument,
     "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n": typeof types.NavigationArrangementUpdateLockStatusDocument,
+    "\n\tquery PublicAccessOverview {\n\t\taccessOverview {\n\t\t\thasKey\n\t\t\thasPublicUrl\n\t\t\thasStateDir\n\t\t\tconfigured\n\t\t\trequirePass\n\t\t\tpublicUrl\n\t\t\tstateWrittenAt\n\t\t\tactiveDevices\n\t\t\topenInvites\n\t\t}\n\t}\n": typeof types.PublicAccessOverviewDocument,
+    "\n\tquery PublicAccessPeople {\n\t\taccessPeople {\n\t\t\tlastSignInAt\n\t\t\tmustChangePassword\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tlocked\n\t\t\t\tremoved\n\t\t\t\tisServerOwner\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessPeopleDocument,
+    "\n\tquery PublicAccessInvites($page: Int!, $pageSize: Int!) {\n\t\taccessInvites(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tcreatedAt\n\t\t\t\tcreatedBy\n\t\t\t\texpiresAt\n\t\t\t\tmaxUses\n\t\t\t\tuses\n\t\t\t\tstatus\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessInvitesDocument,
+    "\n\tquery PublicAccessDevices($page: Int!, $pageSize: Int!) {\n\t\taccessDevices(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tlegacy\n\t\t\t\tcreatedAt\n\t\t\t\tfirstSeenAt\n\t\t\t\tlastSeenAt\n\t\t\t\tlastIp\n\t\t\t\tlastAgent\n\t\t\t\tstatus\n\t\t\t\trevokedAt\n\t\t\t\trevokedBy\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessDevicesDocument,
+    "\n\tquery PublicAccessBlocked {\n\t\taccessBlockedUsers {\n\t\t\tfailuresLast24H\n\t\t\tlastFailureAt\n\t\t\tlockedBy\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessBlockedDocument,
+    "\n\tquery PublicAccessSignIns($failuresOnly: Boolean!, $page: Int!, $pageSize: Int!) {\n\t\taccessSignIns(failuresOnly: $failuresOnly, pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tat\n\t\t\t\tip\n\t\t\t\tuserAgent\n\t\t\t\tsuccessful\n\t\t\t\tdeviceId\n\t\t\t\tdeviceLabel\n\t\t\t\treason\n\t\t\t\tcleared\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessSignInsDocument,
+    "\n\tquery PublicAccessAudit($page: Int!, $pageSize: Int!) {\n\t\taccessAudit(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tat\n\t\t\t\tactor\n\t\t\t\taction\n\t\t\t\ttarget\n\t\t\t\tdetail\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessAuditDocument,
+    "\n\tmutation PublicAccessCreateInvite($input: CreateAccessInviteInput!) {\n\t\tcreateAccessInvite(input: $input) {\n\t\t\tlink\n\t\t\tinvite {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t}\n": typeof types.PublicAccessCreateInviteDocument,
+    "\n\tmutation PublicAccessRevokeInvite($id: ID!) {\n\t\trevokeAccessInvite(id: $id)\n\t}\n": typeof types.PublicAccessRevokeInviteDocument,
+    "\n\tmutation PublicAccessRevokeDevice($id: ID!) {\n\t\trevokeAccessDevice(id: $id)\n\t}\n": typeof types.PublicAccessRevokeDeviceDocument,
+    "\n\tmutation PublicAccessRestoreDevice($id: ID!) {\n\t\trestoreAccessDevice(id: $id)\n\t}\n": typeof types.PublicAccessRestoreDeviceDocument,
+    "\n\tmutation PublicAccessRevokePerson($personId: ID!) {\n\t\trevokeAccessDevicesOfPerson(personId: $personId)\n\t}\n": typeof types.PublicAccessRevokePersonDocument,
+    "\n\tmutation PublicAccessResetBudget($id: ID!) {\n\t\tresetAccessDeviceBudget(id: $id)\n\t}\n": typeof types.PublicAccessResetBudgetDocument,
+    "\n\tmutation PublicAccessUnblock($id: ID!) {\n\t\tunblockUser(id: $id)\n\t}\n": typeof types.PublicAccessUnblockDocument,
+    "\n\tmutation PublicAccessSetPassword($id: ID!, $password: String!, $requireChange: Boolean!) {\n\t\tsetUserPassword(id: $id, password: $password, requireChange: $requireChange)\n\t}\n": typeof types.PublicAccessSetPasswordDocument,
     "\n\tquery DeletedBooks($libraryId: ID) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tdeletedAt\n\t\t\tdeletedBy\n\t\t\texpiresAt\n\t\t\tpurgeAt\n\t\t\tlibraryId\n\t\t\tlibraryName\n\t\t\trelativePath\n\t\t\tfileExists\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\textension\n\t\t\t\tsize\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tmetadata {\n\t\t\t\t\twriters\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DeletedBooksDocument,
     "\n\tquery DeletedBooksSettings {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t\tnextPurgeAt\n\t\t\tlastPurgeAt\n\t\t\tlastPurge {\n\t\t\t\tfinishedAt\n\t\t\t\tjobId\n\t\t\t\tpurged\n\t\t\t\tmissingFiles\n\t\t\t\tfailed\n\t\t\t\toriginals\n\t\t\t\terrors {\n\t\t\t\t\tmediaId\n\t\t\t\t\ttitle\n\t\t\t\t\terror\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": typeof types.DeletedBooksSettingsDocument,
     "\n\tquery PurgedBooks($limit: Int!) {\n\t\tpurgedBooks(limit: $limit) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\ttitle\n\t\t\tauthors\n\t\t\tlibraryName\n\t\t\toriginalPath\n\t\t\tbytes\n\t\t\tpurgedBy\n\t\t\tautomatic\n\t\t\tpurgedAt\n\t\t}\n\t}\n": typeof types.PurgedBooksDocument,
@@ -662,6 +678,7 @@ const documents: Documents = {
     "\n\tsubscription UseCoreEvent {\n\t\treadEvents {\n\t\t\t__typename\n\t\t\t... on CreatedManySeries {\n\t\t\t\tcount\n\t\t\t\tlibraryId\n\t\t\t}\n\t\t\t... on DiscoveredMissingLibrary {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobStarted {\n\t\t\t\tid\n\t\t\t}\n\t\t\t... on JobUpdate {\n\t\t\t\t__typename\n\t\t\t\tid\n\t\t\t\tstatus\n\t\t\t\tmessage\n\t\t\t\tcompletedTasks\n\t\t\t\tremainingTasks\n\t\t\t\tcompletedSubtasks\n\t\t\t\ttotalSubtasks\n\t\t\t\tsubtitle\n\t\t\t}\n\t\t\t... on JobOutput {\n\t\t\t\tid\n\t\t\t\toutput {\n\t\t\t\t\t__typename\n\t\t\t\t\t... on LibraryScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tcreatedSeries\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t\tupdatedSeries\n\t\t\t\t\t}\n\t\t\t\t\t... on SeriesScanOutput {\n\t\t\t\t\t\tcreatedMedia\n\t\t\t\t\t\tupdatedMedia\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.UseCoreEventDocument,
     "\n\tmutation UsePreferences($input: UpdateUserPreferencesInput!) {\n\t\tupdateViewerPreferences(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.UsePreferencesDocument,
     "\n\tquery SurpriseMe {\n\t\trandomMedia(count: 1) {\n\t\t\tid\n\t\t}\n\t}\n": types.SurpriseMeDocument,
+    "\n\tmutation ChooseOwnPassword($input: UpdateUserInput!) {\n\t\tupdateViewer(input: $input) {\n\t\t\tid\n\t\t\tusername\n\t\t}\n\t}\n": types.ChooseOwnPasswordDocument,
     "\n\tfragment BookMetadata on Media {\n\t\tmetadata {\n\t\t\tageRating\n\t\t\trating\n\t\t\tcharacters\n\t\t\tcolorists\n\t\t\tcoverArtists\n\t\t\teditors\n\t\t\tgenres\n\t\t\tinkers\n\t\t\tletterers\n\t\t\tlinks\n\t\t\tpencillers\n\t\t\tpublisher\n\t\t\tseries\n\t\t\tteams\n\t\t\twriters\n\t\t\tyear\n\t\t\tmonth\n\t\t\tday\n\t\t\tvolume\n\t\t\tnumber\n\t\t}\n\t}\n": types.BookMetadataFragmentDoc,
     "\n\tquery BooksAlphabet {\n\t\tmediaAlphabet\n\t}\n": types.BooksAlphabetDocument,
     "\n\tquery BooksInSeries(\n\t\t$seriesId: ID!\n\t\t$filter: MediaFilterInput!\n\t\t$orderBy: [MediaOrderBy!]!\n\t\t$pagination: Pagination!\n\t) {\n\t\tseriesById(id: $seriesId) {\n\t\t\tid\n\t\t\tresolvedName\n\t\t}\n\t\tmedia(filter: $filter, orderBy: $orderBy, pagination: $pagination) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\t...BookCard\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\t__typename\n\t\t\t\t... on OffsetPaginationInfo {\n\t\t\t\t\tcurrentPage\n\t\t\t\t\ttotalPages\n\t\t\t\t\ttotalItems\n\t\t\t\t\tpageSize\n\t\t\t\t\tpageOffset\n\t\t\t\t\tzeroBased\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.BooksInSeriesDocument,
@@ -768,6 +785,21 @@ const documents: Documents = {
     "\n\tquery NavigationArrangement {\n\t\tme {\n\t\t\tpreferences {\n\t\t\t\tnavigationArrangement {\n\t\t\t\t\tlocked\n\t\t\t\t\tsections {\n\t\t\t\t\t\t__typename\n\t\t\t\t\t\tconfig {\n\t\t\t\t\t\t\t__typename\n\t\t\t\t\t\t\t... on SystemArrangementConfig {\n\t\t\t\t\t\t\t\tvariant\n\t\t\t\t\t\t\t\tlinks\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvisible\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.NavigationArrangementDocument,
     "\n\tmutation NavigationArrangementUpdate($input: NavigationArrangementInput!) {\n\t\tupdateNavigationArrangement(input: $input) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.NavigationArrangementUpdateDocument,
     "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n": types.NavigationArrangementUpdateLockStatusDocument,
+    "\n\tquery PublicAccessOverview {\n\t\taccessOverview {\n\t\t\thasKey\n\t\t\thasPublicUrl\n\t\t\thasStateDir\n\t\t\tconfigured\n\t\t\trequirePass\n\t\t\tpublicUrl\n\t\t\tstateWrittenAt\n\t\t\tactiveDevices\n\t\t\topenInvites\n\t\t}\n\t}\n": types.PublicAccessOverviewDocument,
+    "\n\tquery PublicAccessPeople {\n\t\taccessPeople {\n\t\t\tlastSignInAt\n\t\t\tmustChangePassword\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tlocked\n\t\t\t\tremoved\n\t\t\t\tisServerOwner\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessPeopleDocument,
+    "\n\tquery PublicAccessInvites($page: Int!, $pageSize: Int!) {\n\t\taccessInvites(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tcreatedAt\n\t\t\t\tcreatedBy\n\t\t\t\texpiresAt\n\t\t\t\tmaxUses\n\t\t\t\tuses\n\t\t\t\tstatus\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessInvitesDocument,
+    "\n\tquery PublicAccessDevices($page: Int!, $pageSize: Int!) {\n\t\taccessDevices(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tlegacy\n\t\t\t\tcreatedAt\n\t\t\t\tfirstSeenAt\n\t\t\t\tlastSeenAt\n\t\t\t\tlastIp\n\t\t\t\tlastAgent\n\t\t\t\tstatus\n\t\t\t\trevokedAt\n\t\t\t\trevokedBy\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessDevicesDocument,
+    "\n\tquery PublicAccessBlocked {\n\t\taccessBlockedUsers {\n\t\t\tfailuresLast24H\n\t\t\tlastFailureAt\n\t\t\tlockedBy\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessBlockedDocument,
+    "\n\tquery PublicAccessSignIns($failuresOnly: Boolean!, $page: Int!, $pageSize: Int!) {\n\t\taccessSignIns(failuresOnly: $failuresOnly, pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tat\n\t\t\t\tip\n\t\t\t\tuserAgent\n\t\t\t\tsuccessful\n\t\t\t\tdeviceId\n\t\t\t\tdeviceLabel\n\t\t\t\treason\n\t\t\t\tcleared\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessSignInsDocument,
+    "\n\tquery PublicAccessAudit($page: Int!, $pageSize: Int!) {\n\t\taccessAudit(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tat\n\t\t\t\tactor\n\t\t\t\taction\n\t\t\t\ttarget\n\t\t\t\tdetail\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessAuditDocument,
+    "\n\tmutation PublicAccessCreateInvite($input: CreateAccessInviteInput!) {\n\t\tcreateAccessInvite(input: $input) {\n\t\t\tlink\n\t\t\tinvite {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t}\n": types.PublicAccessCreateInviteDocument,
+    "\n\tmutation PublicAccessRevokeInvite($id: ID!) {\n\t\trevokeAccessInvite(id: $id)\n\t}\n": types.PublicAccessRevokeInviteDocument,
+    "\n\tmutation PublicAccessRevokeDevice($id: ID!) {\n\t\trevokeAccessDevice(id: $id)\n\t}\n": types.PublicAccessRevokeDeviceDocument,
+    "\n\tmutation PublicAccessRestoreDevice($id: ID!) {\n\t\trestoreAccessDevice(id: $id)\n\t}\n": types.PublicAccessRestoreDeviceDocument,
+    "\n\tmutation PublicAccessRevokePerson($personId: ID!) {\n\t\trevokeAccessDevicesOfPerson(personId: $personId)\n\t}\n": types.PublicAccessRevokePersonDocument,
+    "\n\tmutation PublicAccessResetBudget($id: ID!) {\n\t\tresetAccessDeviceBudget(id: $id)\n\t}\n": types.PublicAccessResetBudgetDocument,
+    "\n\tmutation PublicAccessUnblock($id: ID!) {\n\t\tunblockUser(id: $id)\n\t}\n": types.PublicAccessUnblockDocument,
+    "\n\tmutation PublicAccessSetPassword($id: ID!, $password: String!, $requireChange: Boolean!) {\n\t\tsetUserPassword(id: $id, password: $password, requireChange: $requireChange)\n\t}\n": types.PublicAccessSetPasswordDocument,
     "\n\tquery DeletedBooks($libraryId: ID) {\n\t\tdeletedBooks(libraryId: $libraryId) {\n\t\t\tdeletedAt\n\t\t\tdeletedBy\n\t\t\texpiresAt\n\t\t\tpurgeAt\n\t\t\tlibraryId\n\t\t\tlibraryName\n\t\t\trelativePath\n\t\t\tfileExists\n\t\t\tbook {\n\t\t\t\tid\n\t\t\t\tresolvedName\n\t\t\t\textension\n\t\t\t\tsize\n\t\t\t\tthumbnail {\n\t\t\t\t\turl\n\t\t\t\t}\n\t\t\t\tmetadata {\n\t\t\t\t\twriters\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.DeletedBooksDocument,
     "\n\tquery DeletedBooksSettings {\n\t\tdeletedBooksSettings {\n\t\t\tretentionDays\n\t\t\tnextPurgeAt\n\t\t\tlastPurgeAt\n\t\t\tlastPurge {\n\t\t\t\tfinishedAt\n\t\t\t\tjobId\n\t\t\t\tpurged\n\t\t\t\tmissingFiles\n\t\t\t\tfailed\n\t\t\t\toriginals\n\t\t\t\terrors {\n\t\t\t\t\tmediaId\n\t\t\t\t\ttitle\n\t\t\t\t\terror\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n": types.DeletedBooksSettingsDocument,
     "\n\tquery PurgedBooks($limit: Int!) {\n\t\tpurgedBooks(limit: $limit) {\n\t\t\tid\n\t\t\tmediaId\n\t\t\ttitle\n\t\t\tauthors\n\t\t\tlibraryName\n\t\t\toriginalPath\n\t\t\tbytes\n\t\t\tpurgedBy\n\t\t\tautomatic\n\t\t\tpurgedAt\n\t\t}\n\t}\n": types.PurgedBooksDocument,
@@ -1760,6 +1792,10 @@ export function graphql(source: "\n\tquery SurpriseMe {\n\t\trandomMedia(count: 
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
+export function graphql(source: "\n\tmutation ChooseOwnPassword($input: UpdateUserInput!) {\n\t\tupdateViewer(input: $input) {\n\t\t\tid\n\t\t\tusername\n\t\t}\n\t}\n"): typeof import('./graphql').ChooseOwnPasswordDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
 export function graphql(source: "\n\tfragment BookMetadata on Media {\n\t\tmetadata {\n\t\t\tageRating\n\t\t\trating\n\t\t\tcharacters\n\t\t\tcolorists\n\t\t\tcoverArtists\n\t\t\teditors\n\t\t\tgenres\n\t\t\tinkers\n\t\t\tletterers\n\t\t\tlinks\n\t\t\tpencillers\n\t\t\tpublisher\n\t\t\tseries\n\t\t\tteams\n\t\t\twriters\n\t\t\tyear\n\t\t\tmonth\n\t\t\tday\n\t\t\tvolume\n\t\t\tnumber\n\t\t}\n\t}\n"): typeof import('./graphql').BookMetadataFragmentDoc;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
@@ -2181,6 +2217,66 @@ export function graphql(source: "\n\tmutation NavigationArrangementUpdate($input
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tmutation NavigationArrangementUpdateLockStatus($locked: Boolean!) {\n\t\tupdateNavigationArrangementLock(locked: $locked) {\n\t\t\t__typename\n\t\t}\n\t}\n"): typeof import('./graphql').NavigationArrangementUpdateLockStatusDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessOverview {\n\t\taccessOverview {\n\t\t\thasKey\n\t\t\thasPublicUrl\n\t\t\thasStateDir\n\t\t\tconfigured\n\t\t\trequirePass\n\t\t\tpublicUrl\n\t\t\tstateWrittenAt\n\t\t\tactiveDevices\n\t\t\topenInvites\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessOverviewDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessPeople {\n\t\taccessPeople {\n\t\t\tlastSignInAt\n\t\t\tmustChangePassword\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tlocked\n\t\t\t\tremoved\n\t\t\t\tisServerOwner\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessPeopleDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessInvites($page: Int!, $pageSize: Int!) {\n\t\taccessInvites(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tcreatedAt\n\t\t\t\tcreatedBy\n\t\t\t\texpiresAt\n\t\t\t\tmaxUses\n\t\t\t\tuses\n\t\t\t\tstatus\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessInvitesDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessDevices($page: Int!, $pageSize: Int!) {\n\t\taccessDevices(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tlegacy\n\t\t\t\tcreatedAt\n\t\t\t\tfirstSeenAt\n\t\t\t\tlastSeenAt\n\t\t\t\tlastIp\n\t\t\t\tlastAgent\n\t\t\t\tstatus\n\t\t\t\trevokedAt\n\t\t\t\trevokedBy\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessDevicesDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessBlocked {\n\t\taccessBlockedUsers {\n\t\t\tfailuresLast24H\n\t\t\tlastFailureAt\n\t\t\tlockedBy\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessBlockedDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessSignIns($failuresOnly: Boolean!, $page: Int!, $pageSize: Int!) {\n\t\taccessSignIns(failuresOnly: $failuresOnly, pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tat\n\t\t\t\tip\n\t\t\t\tuserAgent\n\t\t\t\tsuccessful\n\t\t\t\tdeviceId\n\t\t\t\tdeviceLabel\n\t\t\t\treason\n\t\t\t\tcleared\n\t\t\t\tperson {\n\t\t\t\t\tid\n\t\t\t\t\tusername\n\t\t\t\t\tremoved\n\t\t\t\t}\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessSignInsDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery PublicAccessAudit($page: Int!, $pageSize: Int!) {\n\t\taccessAudit(pagination: { page: $page, pageSize: $pageSize }) {\n\t\t\tnodes {\n\t\t\t\tid\n\t\t\t\tat\n\t\t\t\tactor\n\t\t\t\taction\n\t\t\t\ttarget\n\t\t\t\tdetail\n\t\t\t}\n\t\t\tpageInfo {\n\t\t\t\ttotalPages\n\t\t\t\ttotalItems\n\t\t\t\tcurrentPage\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessAuditDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessCreateInvite($input: CreateAccessInviteInput!) {\n\t\tcreateAccessInvite(input: $input) {\n\t\t\tlink\n\t\t\tinvite {\n\t\t\t\tid\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').PublicAccessCreateInviteDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessRevokeInvite($id: ID!) {\n\t\trevokeAccessInvite(id: $id)\n\t}\n"): typeof import('./graphql').PublicAccessRevokeInviteDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessRevokeDevice($id: ID!) {\n\t\trevokeAccessDevice(id: $id)\n\t}\n"): typeof import('./graphql').PublicAccessRevokeDeviceDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessRestoreDevice($id: ID!) {\n\t\trestoreAccessDevice(id: $id)\n\t}\n"): typeof import('./graphql').PublicAccessRestoreDeviceDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessRevokePerson($personId: ID!) {\n\t\trevokeAccessDevicesOfPerson(personId: $personId)\n\t}\n"): typeof import('./graphql').PublicAccessRevokePersonDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessResetBudget($id: ID!) {\n\t\tresetAccessDeviceBudget(id: $id)\n\t}\n"): typeof import('./graphql').PublicAccessResetBudgetDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessUnblock($id: ID!) {\n\t\tunblockUser(id: $id)\n\t}\n"): typeof import('./graphql').PublicAccessUnblockDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tmutation PublicAccessSetPassword($id: ID!, $password: String!, $requireChange: Boolean!) {\n\t\tsetUserPassword(id: $id, password: $password, requireChange: $requireChange)\n\t}\n"): typeof import('./graphql').PublicAccessSetPasswordDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
