@@ -10,7 +10,9 @@ vi.mock('@/hooks/useTranslate', () => ({
 
 const permissions = vi.hoisted(() => ({ held: new Set<string>() }))
 vi.mock('@/context', () => ({
-	useAppContext: () => ({ checkPermission: (permission: string) => permissions.held.has(permission) }),
+	useAppContext: () => ({
+		checkPermission: (permission: string) => permissions.held.has(permission),
+	}),
 }))
 
 vi.mock('@/paths', () => ({

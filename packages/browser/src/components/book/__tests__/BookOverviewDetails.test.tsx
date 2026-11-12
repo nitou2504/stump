@@ -8,8 +8,7 @@ vi.mock('@/hooks/useTranslate', () => ({
 	useTranslate: () => ({ t: (key: string) => key, translate: (key: string) => key }),
 }))
 vi.mock('@/paths', () => ({
-	usePaths: () =>
-		new Proxy({}, { get: () => () => '/somewhere' }),
+	usePaths: () => new Proxy({}, { get: () => () => '/somewhere' }),
 }))
 vi.mock('@stump/graphql', async (importOriginal) => ({
 	...(await importOriginal<typeof import('@stump/graphql')>()),

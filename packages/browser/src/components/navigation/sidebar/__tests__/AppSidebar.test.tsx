@@ -135,15 +135,20 @@ describe('AppSidebar', () => {
 	})
 
 	// the entry the page is on has the highlight (the link sits in a box that carries it)
-	const isHighlighted = (link: HTMLElement) => link.parentElement?.classList.contains('bg-sidebar-accent')
+	const isHighlighted = (link: HTMLElement) =>
+		link.parentElement?.classList.contains('bg-sidebar-accent')
 
 	it('lights up only the page you are on: Reading lists is not My reading', async () => {
 		flags.myReading = true
 		const { Wrapper } = setup('/reading-lists')
 		render(<AppSidebar />, { wrapper: Wrapper })
 
-		expect(isHighlighted(await screen.findByRole('link', { name: 'readingLists.title' }))).toBe(true)
-		expect(isHighlighted(screen.getByRole('link', { name: 'sidebar.buttons.myReading' }))).toBe(false)
+		expect(isHighlighted(await screen.findByRole('link', { name: 'readingLists.title' }))).toBe(
+			true,
+		)
+		expect(isHighlighted(screen.getByRole('link', { name: 'sidebar.buttons.myReading' }))).toBe(
+			false,
+		)
 	})
 
 	it('lights up My reading on its own pages and on the ones below it', async () => {
@@ -152,7 +157,9 @@ describe('AppSidebar', () => {
 			const { Wrapper } = setup(route)
 			const { unmount } = render(<AppSidebar />, { wrapper: Wrapper })
 
-			expect(isHighlighted(await screen.findByRole('link', { name: 'sidebar.buttons.myReading' }))).toBe(true)
+			expect(
+				isHighlighted(await screen.findByRole('link', { name: 'sidebar.buttons.myReading' })),
+			).toBe(true)
 			expect(isHighlighted(screen.getByRole('link', { name: 'readingLists.title' }))).toBe(false)
 			unmount()
 		}
