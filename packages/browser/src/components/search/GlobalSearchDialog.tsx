@@ -2,7 +2,7 @@ import { useGraphQL } from '@stump/client'
 import { Command, Dialog, ProgressSpinner } from '@stump/components'
 import { graphql } from '@stump/graphql'
 import { ArrowRight, Dices, Library, Tags, Users } from 'lucide-react'
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useDebouncedValue } from 'rooks'
 
@@ -14,8 +14,8 @@ import { usePaths } from '@/paths'
 import { GLOBAL_SEARCH_SHORTCUT } from './shortcut'
 
 const query = graphql(`
-	query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!) {
-		media(filter: $media, pagination: { offset: { page: 1, pageSize: 6 } }) {
+	query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!, $term: String!) {
+		media(filter: $media, relevanceTo: $term, pagination: { offset: { page: 1, pageSize: 6 } }) {
 			nodes {
 				id
 				resolvedName
@@ -44,10 +44,19 @@ const query = graphql(`
 				}
 			}
 		}
+		searchAuthors(search: $term, limit: 3) {
+			value
+			count
+		}
 	}
 `)
 
 const MIN_LENGTH = 2
+
+// The value of each item: what the highlight is, so the items and the code that moves it agree
+const bookValue = (id: string) => `book-${id}`
+const authorValue = (name: string) => `author-${name}`
+const seriesValue = (id: string) => `series-${id}`
 
 type Props = {
 	open: boolean
@@ -55,7 +64,8 @@ type Props = {
 }
 
 /**
- * The title bar search's palette: books and series as you type (one request, debounced),
+ * The title bar search's palette: books (the best title first), their authors and series as you
+ * type (one request, debounced),
  * Enter on "See all" (or with nothing picked) opens the full results on the books page.
  * Empty, it offers Surprise me and the browse pages.
  */
@@ -74,20 +84,45 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 	const { data, isFetching } = useGraphQL(
 		query,
 		['globalSearch', search],
-		{ media: { search }, series: { search } },
+		{ media: { search }, series: { search }, term: search },
 		{ enabled, placeholderData: (previous) => previous, staleTime: 30_000 },
 	)
 	const hasTerm = trimmed.length >= MIN_LENGTH
 	const books = hasTerm ? (data?.media.nodes ?? []) : []
 	const series = hasTerm ? (data?.series.nodes ?? []) : []
+	const authors = hasTerm ? (data?.searchAuthors ?? []) : []
 	const total =
 		data?.media.pageInfo.__typename === 'OffsetPaginationInfo' ? data.media.pageInfo.totalItems : 0
 	const isWaiting = hasTerm && (isFetching || trimmed !== search)
+
+	// Enter opens the highlighted result, and that should be the best one. The list moves the
+	// highlight to its first item when the text changes, but what that text finds arrives later, and
+	// ranked differently: a result that was highlighted and is still listed would stay highlighted.
+	// So the highlight goes back to the first result whenever a new set of results arrives
+	const [highlighted, setHighlighted] = useState('')
+	useLayoutEffect(() => {
+		if (!hasTerm || !data) return
+		const book = data.media.nodes[0]
+		const author = data.searchAuthors[0]
+		const item = data.series.nodes[0]
+		setHighlighted(
+			book
+				? bookValue(book.id)
+				: author
+					? authorValue(author.value)
+					: item
+						? seriesValue(item.id)
+						: '',
+		)
+	}, [data, hasTerm])
 
 	const go = (to: string) => {
 		onOpenChange(false)
 		navigate(to)
 	}
+	// an author's books are the books page filtered by the writer, as the Browse page links them
+	const authorHref = (name: string) =>
+		paths.bookSearchWithFilter({ metadata: { writers: { hasAnyOf: [name] } } })
 	// The books page reads `search` URL-decoded once more than URLSearchParams does
 	const resultsHref = (value: string) =>
 		`${paths.bookSearch()}?${new URLSearchParams({ search: encodeURIComponent(value) })}`
@@ -97,7 +132,10 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 			open={open}
 			onOpenChange={(next) => {
 				onOpenChange(next)
-				if (!next) setTerm('')
+				if (!next) {
+					setTerm('')
+					setHighlighted('')
+				}
 			}}
 		>
 			<Dialog.Content
@@ -109,6 +147,8 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 				<Command
 					shouldFilter={false}
 					loop
+					value={highlighted}
+					onValueChange={setHighlighted}
 					className="p-0 rounded-none bg-dialog"
 					onKeyDown={(event) => {
 						// Enter with no result highlighted: the full results
@@ -168,7 +208,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 							</Command.Group>
 						)}
 
-						{hasTerm && !isWaiting && !books.length && !series.length && (
+						{hasTerm && !isWaiting && !books.length && !authors.length && !series.length && (
 							<p className="py-6 text-sm text-center text-muted-foreground">
 								{t('globalSearch.noMatches', { term: trimmed })}
 							</p>
@@ -187,7 +227,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 									return (
 										<Command.Item
 											key={book.id}
-											value={`book-${book.id}`}
+											value={bookValue(book.id)}
 											onSelect={() => go(paths.bookOverview(book.id))}
 											className="gap-3 py-1.5"
 										>
@@ -208,6 +248,37 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 										</Command.Item>
 									)
 								})}
+								{/* last of the books, so it is next to them and not after every author and series;
+								Enter still opens the first book */}
+								<Command.Item
+									value="all-results"
+									onSelect={() => go(resultsHref(trimmed))}
+									className="mt-1 text-muted-foreground"
+								>
+									<ArrowRight className="mr-2 h-4 w-4" />
+									{total > books.length
+										? t('globalSearch.seeAll', { total })
+										: t('globalSearch.openInExplore')}
+								</Command.Item>
+							</Command.Group>
+						)}
+
+						{authors.length > 0 && (
+							<Command.Group heading={t('globalSearch.authors')}>
+								{authors.map((author) => (
+									<Command.Item
+										key={author.value}
+										value={authorValue(author.value)}
+										onSelect={() => go(authorHref(author.value))}
+										className="gap-3 py-1.5"
+									>
+										<Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+										<span className="min-w-0 line-clamp-1 flex-1">{author.value}</span>
+										<span className="text-xs font-normal shrink-0 text-muted-foreground">
+											{t('globalSearch.bookCount', { count: author.count })}
+										</span>
+									</Command.Item>
+								))}
 							</Command.Group>
 						)}
 
@@ -216,7 +287,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 								{series.map((item) => (
 									<Command.Item
 										key={item.id}
-										value={`series-${item.id}`}
+										value={seriesValue(item.id)}
 										onSelect={() => go(paths.seriesOverview(item.id))}
 										className="gap-3 py-1.5"
 									>
@@ -233,19 +304,6 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 									</Command.Item>
 								))}
 							</Command.Group>
-						)}
-
-						{hasTerm && books.length > 0 && (
-							<Command.Item
-								value="all-results"
-								onSelect={() => go(resultsHref(trimmed))}
-								className="mt-1 text-muted-foreground"
-							>
-								<ArrowRight className="mr-2 h-4 w-4" />
-								{total > books.length
-									? t('globalSearch.seeAll', { total })
-									: t('globalSearch.openInExplore')}
-							</Command.Item>
 						)}
 					</Command.List>
 

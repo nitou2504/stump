@@ -18,6 +18,7 @@ mod query_limits;
 mod random_media;
 mod reading_history;
 mod reading_lists;
+mod search_ranking;
 mod smart_list_cache;
 mod smart_list_paging;
 mod smart_lists;

@@ -18,7 +18,7 @@ use sea_orm::{
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	filter::{media::MediaFilterInput, IntoFilter},
+	filter::{media::MediaFilterInput, search::media_relevance, IntoFilter},
 	guard::{PermissionGuard, ServerOwnerGuard},
 	object::{
 		media::Media,
@@ -31,6 +31,9 @@ use crate::{
 	},
 	utils::{db_statement, letter_counts},
 };
+
+/// The most characters of a `relevanceTo` text that are used
+const MAX_RELEVANCE_CHARS: usize = 200;
 
 #[derive(Default)]
 pub struct MediaQuery;
@@ -346,13 +349,23 @@ impl MediaQuery {
 		#[graphql(default_with = "MediaOrderBy::default_vec()")] order_by: Vec<
 			MediaOrderBy,
 		>,
+		#[graphql(
+			desc = "Put the books whose title best answers this text first, before `orderBy`: the title is exactly the text, then titles that start with it, then titles with a word that starts with it, then the rest (books found through their author, series or tags). Case and accents don't count. Not for cursor pagination"
+		)]
+		relevance_to: Option<String>,
 		#[graphql(default, validator(custom = "PaginationValidator"))]
 		pagination: Pagination,
 	) -> Result<PaginatedResponse<Media>> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 
-		let spec = MediaOrderBy::spec(&order_by);
+		let mut spec = MediaOrderBy::spec(&order_by);
+		if let Some(key) = relevance_to.as_deref().and_then(|text| {
+			// a title is never this long: the cap keeps a huge text out of the query
+			media_relevance(&text.chars().take(MAX_RELEVANCE_CHARS).collect::<String>())
+		}) {
+			spec = spec.led_by(key);
+		}
 		let query = spec.apply(
 			add_sessions_join_for_filter(
 				user,
@@ -365,6 +378,9 @@ impl MediaQuery {
 
 		match pagination.resolve() {
 			Pagination::Cursor(info) => {
+				if spec.is_led() {
+					return Err("relevanceTo can't be used with cursor pagination".into());
+				}
 				let mut query = query;
 				if let Some(ref id) = info.after {
 					let cursor =
@@ -401,6 +417,49 @@ impl MediaQuery {
 						limit: info.limit,
 					}
 					.into(),
+				})
+			},
+			// A ranked order can't stop at the first page: every match has to be ranked. So the
+			// matches are read once, in order and as IDs (their number is the count, and a page
+			// is a slice of them), and only the books of the page are read after. Counting first
+			// and then reading a page in rank order would scan every book twice.
+			Pagination::Offset(info) if spec.is_led() => {
+				let mut ids: Vec<String> = query
+					.select_only()
+					.column(media::Column::Id)
+					.into_tuple()
+					.all(conn)
+					.await?;
+				let mut seen = HashSet::new();
+				ids.retain(|id| seen.insert(id.clone()));
+				let count = ids.len() as u64;
+
+				let start = usize::try_from(info.offset())
+					.unwrap_or(usize::MAX)
+					.min(ids.len());
+				let end = start
+					.saturating_add(usize::try_from(info.limit()).unwrap_or(usize::MAX))
+					.min(ids.len());
+				let page = ids[start..end].to_vec();
+
+				let mut books: HashMap<String, media::ModelWithMetadata> =
+					media::ModelWithMetadata::find_for_user(user)
+						.filter(media::Column::Id.is_in(page.clone()))
+						.filter(media::Column::DeletedAt.is_null())
+						.into_model::<media::ModelWithMetadata>()
+						.all(conn)
+						.await?
+						.into_iter()
+						.map(|model| (model.media.id.clone(), model))
+						.collect();
+
+				Ok(PaginatedResponse {
+					nodes: page
+						.iter()
+						.filter_map(|id| books.remove(id))
+						.map(Media::from)
+						.collect(),
+					page_info: OffsetPaginationInfo::new(info, count).into(),
 				})
 			},
 			Pagination::Offset(info) => {
