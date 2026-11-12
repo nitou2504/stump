@@ -58,6 +58,15 @@
     },
     "settings": {
       "preferences": {
+        "label": "Preferencias",
+        "appTheme": {
+          "label": "Tema",
+          "options": {
+            "light": "Claro",
+            "dark": "Oscuro",
+            "system": "Sistema"
+          }
+        },
         "appPrimaryColor": {
           "label": "Acento",
           "options": {
@@ -83,59 +92,98 @@
               "slate": "Pizarra",
               "gray": "Gris",
               "zinc": "Cinc",
+              "neutral": "Neutro",
               "stone": "Piedra"
             }
           }
         },
+        "appLanguage": "Idioma",
+        "defaultServer": "Servidor predeterminado",
+        "thumbnailRatio": "Proporción de miniatura",
         "thumbnailPlaceholder": {
           "options": {
             "averageColor": "Color Promedio",
+            "colorful": "Colorido",
+            "thumbhash": "Thumbhash",
             "grayscale": "Escala de grises"
           },
           "label": "Miniatura provisoria"
         },
         "thumbnailResizeMode": {
+          "label": "Redimensionado de miniaturas",
           "options": {
+            "cover": "Cubrir",
+            "stretch": "Estirar",
             "fit": "Ajustado"
           }
         }
       },
       "reading": {
         "incognitoReading": "Lectura de Incognito",
+        "maxPageViewingSeconds": {
+          "label": "Límite de segundos de visualización de página",
+          "errors": {
+            "minimumValue": "Debe ser al menos 1 segundo",
+            "integer": "Debe ser un número entero"
+          }
+        },
         "label": "Leyendo",
+        "preferNativePdf": "Preferir PDF nativo",
+        "preferMinimalReader": "Preferir lector minimalista",
         "disableDismissGesture": "Desactivar gesto de descarte"
       },
       "tintListBackground": "Teñir el fondo de las listas",
       "management": {
+        "label": "Gestión",
         "dataUsage": {
+          "label": "Uso de datos",
+          "noServersAdded": "No hay servidores añadidos",
           "nonStumpData": "Datos no de Stump",
           "serversTotal": "Total de servidores",
           "totalFiles": "Archivos totales",
           "totalSize": "Tamaño total",
-          "storedPreferences": {
-            "label": "Preferencias guardadas"
+          "deleteDownloads": {
+            "label": "Eliminar descargas",
+            "confirmation": "¿Seguro que quieres eliminar todas las descargas de {{serverName}}?",
+            "deleteFailed": {
+              "title": "Error al eliminar",
+              "description": "Se produjo un error al eliminar todas las descargas de {{serverName}}"
+            }
           },
+          "storedPreferences": {
+            "label": "Preferencias guardadas",
+            "description": "Datos varios, como las preferencias de los libros, los temporizadores de lectura, etc"
+          },
+          "clearPreferences": "Borrar preferencias",
           "noDownloads": "No hay libros descargados de este servidor"
         }
       },
       "debug": {
+        "label": "Depuración",
         "clearCache": {
           "label": "Limpiar caché",
           "memory": {
+            "button": "Memoria",
             "success": "Caché de memoria limpiado"
           },
           "disk": {
+            "button": "Disco",
             "success": "Caché de disco limpiado"
           }
         },
         "deleteDatabase": {
+          "label": "Eliminar base de datos",
           "success": {
-            "title": "Base de datos eliminada"
+            "title": "Base de datos eliminada",
+            "description": "Reinicia la aplicación"
           },
           "error": {
-            "title": "Falló la eliminación"
+            "title": "Falló la eliminación",
+            "description": "Se produjo un error al eliminar la base de datos"
           }
         },
+        "performanceMonitor": "Monitor de rendimiento",
+        "reduceAnimations": "Reducir animaciones",
         "displayLanguageKeys": {
           "label": "Mostrar claves de idioma",
           "options": {
@@ -145,13 +193,21 @@
           }
         },
         "debugAnalytics": {
+          "label": "Analíticas de depuración",
           "description": "Enviar eventos adicionales relacionados a la depuración para ayudar a solventar problemas"
-        }
+        },
+        "maskUrls": "Ocultar URL"
       },
       "contactInfo": {
         "email": "Correo",
         "discord": "Discord",
+        "github": "GitHub",
         "label": "Contacto"
+      },
+      "supportInfo": {
+        "buildInformation": "Información de la compilación",
+        "version": "Versión: {{version}}",
+        "suuportIdentifier": "Identificador de soporte: {{supportID}}"
       },
       "stump": {
         "label": "Stump",
