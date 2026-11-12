@@ -203,11 +203,8 @@ impl OrderSpec {
 	{
 		query.query().clear_order_by();
 		if let Some(lead) = &self.lead {
-			query = query.order_by_with_nulls(
-				lead.clone(),
-				Order::Asc,
-				NullOrdering::Last,
-			);
+			query =
+				query.order_by_with_nulls(lead.clone(), Order::Asc, NullOrdering::Last);
 		}
 		for column in &self.columns {
 			query = query.order_by_with_nulls(

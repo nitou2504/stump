@@ -323,11 +323,19 @@ mod tests {
 			.build(sea_orm::DatabaseBackend::Sqlite)
 			.to_string();
 		// each word is looked for loosely first, so most titles are never folded
-		assert!(sql.contains(&format!("'{}'", loose_pattern("dune"))), "{sql}");
-		assert!(sql.contains(&format!("'{}'", loose_pattern("messiah"))), "{sql}");
+		assert!(
+			sql.contains(&format!("'{}'", loose_pattern("dune"))),
+			"{sql}"
+		);
+		assert!(
+			sql.contains(&format!("'{}'", loose_pattern("messiah"))),
+			"{sql}"
+		);
 		// the title as the book is shown: the metadata title, else the file name
 		assert!(
-			sql.contains(r#"COALESCE(NULLIF(TRIM("media_metadata"."title"), ''), "media"."name")"#),
+			sql.contains(
+				r#"COALESCE(NULLIF(TRIM("media_metadata"."title"), ''), "media"."name")"#
+			),
 			"{sql}"
 		);
 		for (rank, comparison) in [

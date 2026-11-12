@@ -280,7 +280,13 @@ async fn a_ranked_search_counts_and_pages_like_a_plain_one() {
 	}
 	// two more that only people without limits may read
 	for n in 1..=2 {
-		book(&app, &world.hidden_series, &format!("Atlas hidden {n}"), None).await;
+		book(
+			&app,
+			&world.hidden_series,
+			&format!("Atlas hidden {n}"),
+			None,
+		)
+		.await;
 	}
 
 	for (token, total) in [(&world.owner_token, 9), (&world.ana.token, 7)] {
@@ -290,7 +296,11 @@ async fn a_ranked_search_counts_and_pages_like_a_plain_one() {
 			let ranked = page_of(&app, token, "atlas", Some("atlas"), page, 3).await;
 			let plain = page_of(&app, token, "atlas", None, page, 3).await;
 			// the total, the pages and the page are the plain search's
-			assert_eq!((ranked.1, ranked.2, ranked.3), (plain.1, plain.2, plain.3), "page {page}");
+			assert_eq!(
+				(ranked.1, ranked.2, ranked.3),
+				(plain.1, plain.2, plain.3),
+				"page {page}"
+			);
 			assert_eq!(ranked.1, total, "page {page}");
 			assert_eq!(ranked.0.len(), plain.0.len(), "page {page}");
 			ranked_books.extend(ranked.0);
@@ -396,10 +406,22 @@ async fn authors(
 ) -> Vec<(String, u64)> {
 	let data = match limit {
 		Some(limit) => {
-			ask(app, token, AUTHORS, json!({ "search": search, "limit": limit })).await
+			ask(
+				app,
+				token,
+				AUTHORS,
+				json!({ "search": search, "limit": limit }),
+			)
+			.await
 		},
 		None => {
-			ask(app, token, AUTHORS_DEFAULT_LIMIT, json!({ "search": search })).await
+			ask(
+				app,
+				token,
+				AUTHORS_DEFAULT_LIMIT,
+				json!({ "search": search }),
+			)
+			.await
 		},
 	};
 	data["searchAuthors"]
@@ -471,7 +493,13 @@ async fn add_authors(app: &TestApp, world: &VisibilityFixture) {
 		},
 	)
 	.await;
-	let removed = book(app, &world.open_series, "Removed one", Some("Removed Author")).await;
+	let removed = book(
+		app,
+		&world.open_series,
+		"Removed one",
+		Some("Removed Author"),
+	)
+	.await;
 	let response = app
 		.execute_gql(
 			r#"mutation RemoveBook($id: ID!) { deleteMedia(id: $id) { id } }"#,
@@ -539,7 +567,12 @@ async fn a_friend_gets_only_the_authors_of_books_she_may_read() {
 	)
 	.await;
 	world.assert_none_hidden(&data);
-	for hidden in ["Adult Author", "Hidden Author", "Unrated Author", "Removed Author"] {
+	for hidden in [
+		"Adult Author",
+		"Hidden Author",
+		"Unrated Author",
+		"Removed Author",
+	] {
 		assert!(!data.to_string().contains(hidden), "{hidden}: {data}");
 	}
 }
@@ -578,6 +611,9 @@ async fn authors_are_found_by_the_start_of_their_words_best_first() {
 	// the middle of a word is not the start of one, and no words match no author
 	assert!(authors(&app, token, "simov", None).await.is_empty());
 	for nothing in ["", "   ", "&&&"] {
-		assert!(authors(&app, token, nothing, None).await.is_empty(), "{nothing:?}");
+		assert!(
+			authors(&app, token, nothing, None).await.is_empty(),
+			"{nothing:?}"
+		);
 	}
 }

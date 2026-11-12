@@ -163,28 +163,29 @@ pub fn best_matches(
 		return Vec::new();
 	}
 	let phrase = search_phrase(search);
-	let mut matches: Vec<(u8, std::cmp::Reverse<u64>, String, MetadataValueCount)> = values
-		.into_iter()
-		.filter_map(|value| {
-			let name = search_phrase(&value.value);
-			let starts_a_word = |word: &String| {
-				name.split(' ').any(|part| part.starts_with(word.as_str()))
-			};
-			if !words.iter().all(starts_a_word) {
-				return None;
-			}
-			let rank = if name == phrase {
-				0
-			} else if name.starts_with(&phrase) {
-				1
-			} else if format!(" {name}").contains(&format!(" {phrase}")) {
-				2
-			} else {
-				3
-			};
-			Some((rank, std::cmp::Reverse(value.count), name, value))
-		})
-		.collect();
+	let mut matches: Vec<(u8, std::cmp::Reverse<u64>, String, MetadataValueCount)> =
+		values
+			.into_iter()
+			.filter_map(|value| {
+				let name = search_phrase(&value.value);
+				let starts_a_word = |word: &String| {
+					name.split(' ').any(|part| part.starts_with(word.as_str()))
+				};
+				if !words.iter().all(starts_a_word) {
+					return None;
+				}
+				let rank = if name == phrase {
+					0
+				} else if name.starts_with(&phrase) {
+					1
+				} else if format!(" {name}").contains(&format!(" {phrase}")) {
+					2
+				} else {
+					3
+				};
+				Some((rank, std::cmp::Reverse(value.count), name, value))
+			})
+			.collect();
 	matches.sort_by(|a, b| (a.0, &a.1, &a.2).cmp(&(b.0, &b.1, &b.2)));
 	matches.truncate(limit);
 	matches.into_iter().map(|(.., value)| value).collect()
@@ -281,7 +282,13 @@ mod tests {
 		// first), the names with a word that starts with it (more books first)
 		assert_eq!(
 			names(best_matches(authors, "asimov", 10)),
-			["Asimov", "Asimovich Rex", "Isaac Asimov", "Zed Asimov", "Janet Asimov"]
+			[
+				"Asimov",
+				"Asimovich Rex",
+				"Isaac Asimov",
+				"Zed Asimov",
+				"Janet Asimov"
+			]
 		);
 	}
 
