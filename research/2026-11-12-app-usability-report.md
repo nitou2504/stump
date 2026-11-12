@@ -28,7 +28,7 @@ the same isolated sandbox with this branch's web build; the tab titles were read
 | U3 | done | `9b103719e` | `after/p1-raw-key-settings-menu.png` (Book approvals), `-es.png` (Spanish: Añadidos recientemente, Libros borrados, Aprobar libros: the same words as `feat/access-ux`'s commit `c8ed54667`, so the two branches merge without a conflict) |
 | U4 | done | `629a1f0c4` | `after/p2-language-picker-select.png` ("Español"), `-owner.png` ("English (US)") |
 | U6 | done | `6005124c5` | `after/p2-english-in-spanish-menu.png` ("Bibliotecas") |
-| U7 | done | `e471a8625`, `4f0a31e2c` | `after/p2-library-gear-friend.png`, `p2-series-gear-friend-deadend.png` (no gear for a friend), `p2-series-gear-editor-nonowner.png` (no series gear for a non-owner who holds Edit metadata) |
+| U7 | done | `e471a8625`, `4f0a31e2c` | `after/p2-library-gear-friend.png`, `p2-series-gear-friend-deadend.png` (no gear for a friend), `p2-series-gear-editor-nonowner.png` (no series gear for a non-owner who holds Edit metadata), `p2-series-gear-owner.png` (the owner keeps it) |
 | U8 | done | `06921fa62` | `after/p2-reading-lists-double-active.png` (one highlight) |
 | U5a | done | `8c6ef95da` | `after/p2-english-in-spanish-menu.png` (Autores, Géneros, Añadir libros) |
 | U5b | done | `f355553c8` | `after/p1-read-button-leido.png` ("de William Ospina"), `p2-english-books-in-this-series.png` ("Libros de esta serie", phone) |
@@ -42,6 +42,17 @@ the same isolated sandbox with this branch's web build; the tab titles were read
 | U22 | done | `2ac760370` | `after/p2-english-books-in-this-series.png` ("Leer más") |
 | U24 | done | `d40edd2d7` | `after/p3-my-reading.png` ("Search books…" fits) |
 | U19 | done | `6bd8e1127` | `after/p3-comic-page-count-twice.png` (bar up: the count once), `-bar-away.png` (bar away: the corner number) |
+
+**Second pass (after the review).** Three fixes: the series gear is the owner's (`4f0a31e2c`), a page past the end keeps its
+controls (`9b3169f41`), the Spanish settings-menu words equal `feat/access-ux`'s so the branches merge cleanly (`deb1a8961`;
+a dry `git merge-tree` with `feat/access-ux` and with `feat/public-login` has no conflicts). Evidence refreshed in the same
+isolated sandbox (this branch's rebuilt web bundle, a copy of the database, internal-only network, books read-only): four new
+shots (`p1-raw-key-settings-menu-es`, `p2-series-gear-editor-nonowner`, `p2-series-gear-owner`, `p2-series-page-past-the-end`),
+and the six pairs whose before-shot is phone-size but whose after-shot was desktop-size now have phone-size after-shots (390x844: `p1-read-button-leido`, `p2-english-in-spanish-menu`,
+`p2-english-in-spanish-search`, `p2-language-picker-select`, `p2-library-gear-friend`, `p2-new-friend-empty-home`). Before this
+pass `p2-english-in-spanish-menu.png` was a copy of the desktop home shot and the other five were desktop-size. Each scene
+asserted what it shows in the browser (no gear link for the editor, one for the owner; the Previous button on page 2 of 1 leads
+back to the nine books; the three Spanish menu labels; "Leer" and no "Leído").
 
 Decisions made inside the quick wins (small, reversible):
 - **U13a** hides the controls only when the list is loaded, fits on one page **and nothing narrows it**: while a search,
@@ -67,6 +78,11 @@ owner's decision), U9–U12, U13b, U14b, U15, U16, U18, U20, U23, U25–U27.
 - "Vol." / "Ch." position labels (manga, webtoon) and "Book N of M" on the home page are English
   (`components/book/presentation.ts`, `scenes/home/OnDeck.tsx`).
 - The Deleted books and Libraries empty states ("No libraries to display") are English, and so is the whole Deleted books page.
+- The empty state "It doesn't look like there are any books here / Do you have any books in your library?" is hard-coded English
+  in `SeriesBooksScene.tsx`, `LibraryBooksScene.tsx` and `BookSearchScene.tsx`; on a page past the end of a series
+  (`after/p2-series-page-past-the-end.png`) it is also the wrong message (the series has books, only the page is empty).
+- The Spanish settings menu cuts "Añadidos recientemente" to "Añadidos…" in its menu slot (`after/p1-raw-key-settings-menu-es.png`);
+  "Recién añadidos" fits. Both branches carry the same words now, so change it once after the merge.
 - `shared.common.xBooks` has no Spanish plural forms (reading-list and user-stat cards read "3 Books" in Spanish).
 
 **For the other squads / the merge:** this branch touches `AppSidebar.tsx`, `LibraryHeader.tsx` (gear and the Add books
