@@ -9704,13 +9704,18 @@ export type GlobalSearchQuery = { __typename?: 'Query', media: { __typename?: 'P
 
 export type SeriesContinueQueryVariables = Exact<{
   id: Scalars['ID']['input'];
+  inProgress: MediaFilterInput;
+  orderBy: Array<MediaOrderBy> | MediaOrderBy;
 }>;
 
 
 export type SeriesContinueQuery = { __typename?: 'Query', seriesById?: { __typename?: 'Series', id: string, percentageCompleted: number, upNext: Array<(
       { __typename?: 'Media', id: string, resolvedName: string }
       & { ' $fragmentRefs'?: { 'BookReadingActionsFragment': BookReadingActionsFragment } }
-    )> } | null };
+    )> } | null, media: { __typename?: 'PaginatedMediaResponse', nodes: Array<(
+      { __typename?: 'Media', id: string, resolvedName: string }
+      & { ' $fragmentRefs'?: { 'BookReadingActionsFragment': BookReadingActionsFragment } }
+    )> } };
 
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
@@ -17644,11 +17649,22 @@ export const GlobalSearchDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<GlobalSearchQuery, GlobalSearchQueryVariables>;
 export const SeriesContinueDocument = new TypedDocumentString(`
-    query SeriesContinue($id: ID!) {
+    query SeriesContinue($id: ID!, $inProgress: MediaFilterInput!, $orderBy: [MediaOrderBy!]!) {
   seriesById(id: $id) {
     id
     percentageCompleted
     upNext(take: 1) {
+      id
+      resolvedName
+      ...BookReadingActions
+    }
+  }
+  media(
+    filter: $inProgress
+    orderBy: $orderBy
+    pagination: {offset: {page: 1, pageSize: 1}}
+  ) {
+    nodes {
       id
       resolvedName
       ...BookReadingActions

@@ -123,8 +123,9 @@ Decisions made (mine, small, reversible):
   empty. The size stays on the book page. Needs `writers` in the `BookCard` fragment, so **the generated client changed
   (`packages/graphql/src/client/{gql,graphql}.ts`, a few lines): when this branch is merged with another that also regenerates it,
   take either side and run `yarn workspace @stump/graphql codegen` once after the merge**, rather than merging the generated files by hand.
-- **U13b** *Continue* if a book of the series is in progress or any is read, else *Start reading*; it opens the next unread book
-  (`Series.upNext`, the same one the info sheet lists) in the reader, where the reader was. Nothing when every book is read.
+- **U13b** *Continue* if a book of the series is in progress or any is read, else *Start reading*; it opens the book the reader is in
+  the middle of (the first one in series order, found with `readingStatus: READING`) even when an earlier book is still
+  unread, else the next unread book (`Series.upNext`, the same one the info sheet lists), in the reader, where the reader was. Nothing when every book is read.
   In the page header from a small screen up; on a phone, a full-width bar at the top of the list of books (the header has no
   room: the series name needs it). It refetches on every visit to the page, so it is never a book behind.
 - **U14b** *Continue reading* and *Your next read* are not drawn while empty. A reader with **neither** (a new friend) gets one

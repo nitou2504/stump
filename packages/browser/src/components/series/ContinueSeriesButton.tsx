@@ -1,6 +1,13 @@
 import { useGraphQL } from '@stump/client'
 import { ButtonOrLink } from '@stump/components'
-import { graphql } from '@stump/graphql'
+import {
+	graphql,
+	MediaMetadataModelOrdering,
+	MediaModelOrdering,
+	MediaOrderBy,
+	OrderDirection,
+	ReadingStatus,
+} from '@stump/graphql'
 import { Play } from 'lucide-react'
 
 import {
@@ -10,7 +17,7 @@ import {
 import { useTranslate } from '@/hooks/useTranslate'
 
 const query = graphql(`
-	query SeriesContinue($id: ID!) {
+	query SeriesContinue($id: ID!, $inProgress: MediaFilterInput!, $orderBy: [MediaOrderBy!]!) {
 		seriesById(id: $id) {
 			id
 			percentageCompleted
@@ -20,8 +27,28 @@ const query = graphql(`
 				...BookReadingActions
 			}
 		}
+		media(
+			filter: $inProgress
+			orderBy: $orderBy
+			pagination: { offset: { page: 1, pageSize: 1 } }
+		) {
+			nodes {
+				id
+				resolvedName
+				...BookReadingActions
+			}
+		}
 	}
 `)
+
+/**
+ * The series' books in the order `Series.upNext` lists them (number, then name), so that of
+ * several books in progress the first one in the series is the one asked for
+ */
+const SERIES_ORDER: MediaOrderBy[] = [
+	{ metadata: { field: MediaMetadataModelOrdering.Number, direction: OrderDirection.Asc } },
+	{ media: { field: MediaModelOrdering.Name, direction: OrderDirection.Asc } },
+]
 
 type Props = {
 	seriesId: string
@@ -33,15 +60,21 @@ type Props = {
 }
 
 /**
- * *Continue* on a series (*Start reading* when nothing of it is read yet): opens the next book of
- * the series that the reader hasn't finished, at the page they were on. Nothing when every book is
- * read, or when the series has no book the reader can see.
+ * *Continue* on a series (*Start reading* when nothing of it is read yet): opens the book of the
+ * series the reader is in the middle of, at the page they were on, else the next one they haven't
+ * finished. A book in progress comes first even when an earlier book is still unread (someone who
+ * started with book 2 continues book 2). Nothing when every book is read, or when the series has no
+ * book the reader can see.
  */
 export function ContinueSeriesButton({ seriesId, placement = 'header' }: Props) {
-	const { data } = useGraphQL(query, ['seriesContinue', seriesId], { id: seriesId })
+	const { data } = useGraphQL(query, ['seriesContinue', seriesId], {
+		id: seriesId,
+		inProgress: { seriesId: { eq: seriesId }, readingStatus: { is: ReadingStatus.Reading } },
+		orderBy: SERIES_ORDER,
+	})
 
 	const series = data?.seriesById
-	const next = series?.upNext?.[0]
+	const next = data?.media?.nodes?.[0] ?? series?.upNext?.[0]
 	if (!series || !next) return null
 
 	return (
