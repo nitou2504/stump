@@ -4,7 +4,7 @@ import { graphql, InterfaceLayout, MediaFilterInput, MediaOrderBy } from '@stump
 import { useQueryClient } from '@tanstack/react-query'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet'
-import { useNavigationType } from 'react-router'
+import { useNavigationType, useSearchParams } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
 
 import { BookCard, BookTable } from '@/components/book'
@@ -38,7 +38,7 @@ import { useBooksLayout } from '@/stores/layout'
 
 import BooksAlphabet from '../book/BooksAlphabet'
 import AuthorMatches from './AuthorMatches'
-import { relevanceFor } from './relevance'
+import { orderingInUrl, relevanceFor } from './relevance'
 
 const query = graphql(`
 	query BookSearchScene(
@@ -208,7 +208,10 @@ function BookSearchScene() {
 
 	const pageSize = pageSizeMaybeUndefined || 20 // Fallback to 20 if pageSize is undefined, this should never happen since we set a default in the useFilterScene hook
 	const orderBy = useMediaURLOrderBy(ordering)
-	const relevanceTo = relevanceFor(search, ordering)
+	// Only a sort chosen on this search (it is in the address) switches the ranking off: one that
+	// was saved in the browser by another page just orders the books inside each rank
+	const [searchParams] = useSearchParams()
+	const relevanceTo = relevanceFor(search, orderingInUrl(searchParams))
 
 	const onPrefetchLetter = useCallback(
 		(letter: string) => {
