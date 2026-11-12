@@ -436,7 +436,7 @@
           "email": {
             "label": "Correo electrónico",
             "placeholder": "Dirección de correo electrónico",
-            "description": "Una dirección de correo electrónico a la que enviar el libro. Haga clic en añadir para finalizar cada entrada"
+            "description": "Una dirección de correo electrónico a la que enviar el libro. Haz clic en Agregar para finalizar cada entrada"
           },
           "devices": {
             "label": "Dispositivos",
@@ -1096,7 +1096,7 @@
         }
       },
       "danger-zone/delete": {
-        "title": "Deletion Actions",
+        "title": "Acciones de eliminación",
         "description": "Eliminar permanentemente esta biblioteca y todos sus contenidos o ciertos recursos",
         "sections": {
           "cleanLibrary": {
@@ -1508,7 +1508,7 @@
             "customView": "Vista personalizada",
             "defaultView": "Vista por defecto",
             "noViewsSaved": "No hay vistas guardadas",
-            "selectView": "Seleccione una vista guardada"
+            "selectView": "Selecciona una vista guardada"
           },
           "filterDrawer": {
             "heading": "Filtros de lista inteligente",
@@ -1758,7 +1758,7 @@
               "label": "Avatar",
               "heading": "Cargar avatar",
               "subtitle": "Puedes cargar cualquier imagen para usar como tu avatar para las funciones sociales en Stump",
-              "dropzone": "Arrastra una imagen o has click para seleccionar",
+              "dropzone": "Arrastra una imagen o haz clic para seleccionar",
               "changeImage": "Cambiar imagen",
               "removeImage": "Remover imagen",
               "removeSelection": "Remover imagen cargada",
@@ -2119,7 +2119,7 @@
           "customEmojis": {
             "title": "Emojis personalizados",
             "description": "Carga y gestiona un emoji personalizado para tu servidor",
-            "dropzone": "Suelta una imagen o has click para seleccionar",
+            "dropzone": "Suelta una imagen o haz clic para seleccionar",
             "input": {
               "label": "Nombre del emoji",
               "placeholder": "ej. loro_fiesta"
@@ -3099,7 +3099,7 @@
               "heading": "Crear nueva etiqueta",
               "description": "Las etiquetas se pueden asignar a libros, series y bibliotecas",
               "name": {
-                "placeholder": "Ingrese el nombre de la etiqueta"
+                "placeholder": "Escribe el nombre de la etiqueta"
               }
             }
           },
