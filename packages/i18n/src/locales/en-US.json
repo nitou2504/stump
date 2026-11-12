@@ -2690,6 +2690,7 @@
         }
       },
       "server/access": {
+        "close": "Close",
         "helmet": "Public access",
         "title": "Public access",
         "description": "Let people in from the internet and keep it safe",
@@ -2736,6 +2737,7 @@
           "signOutAllConfirm": "{{name}} will have to sign in again everywhere.",
           "locked_one": "Locked after {{count}} wrong password.",
           "locked_other": "Locked after {{count}} wrong passwords.",
+          "lockedPlain": "This account is locked.",
           "unblock": "Unblock",
           "librariesTitle": "Libraries",
           "sees": "Sees: {{libraries}}",
@@ -2972,7 +2974,7 @@
         "invite": {
           "title": "Invite someone",
           "who": "Who is it for?",
-          "whoPlaceholder": "e.g. Aunt Rosa",
+          "whoPlaceholder": "e.g. {{name}}",
           "whoHelp": "Only you see this.",
           "whoMissing": "Write who it's for.",
           "linkFor": "Link for",
@@ -3031,6 +3033,7 @@
           },
           "deviceRemoved": "Removed",
           "deviceOfRemoved": "Removed person",
+          "oldPasses": "Old passes that still work",
           "restored": "{{label}} works again.",
           "error": "That didn't work.",
           "turnOffAccounts": "Turn off the accounts it made"
@@ -3041,6 +3044,10 @@
           "disableAccounts_one": "Also turn off the account it made",
           "disableAccounts_other": "Also turn off the {{count}} accounts it made",
           "confirm": "Revoke",
+          "turnOffTitle": "Turn off the accounts “{{label}}” made?",
+          "turnOffBody": "Their devices stop working and they are signed out. The accounts are not deleted.",
+          "turnOffConfirm": "Turn off",
+          "turnOffDone": "The accounts “{{label}}” made are off.",
           "done": "“{{label}}” was revoked.",
           "error": "That didn't work."
         },
@@ -3339,7 +3346,7 @@
           "help": "Leave a box empty to use the server’s limit.",
           "choose": "Choose a person",
           "person": "Person",
-          "nobody": "Nobody else can add books yet: give somebody “Add books” in Settings → Users.",
+          "nobody": "Nobody else can add books yet: give somebody “{{permission}}” in {{path}}.",
           "maxFileMb": "Biggest file",
           "maxFilesPerRequest": "Files per upload",
           "quotaMb": "Inbox space",
@@ -3366,8 +3373,6 @@
           "browser": "Browser",
           "readingApp": "Reading app"
         },
-        "detail": "Last used {{last}} · from {{ip}}",
-        "never": "never",
         "rename": {
           "label": "Device name",
           "save": "Save name",
@@ -3401,7 +3406,7 @@
         "description": "Connect KOReader, a Kobo or another reading app",
         "intro": "Read your books in KOReader, Kobo or another reading app.",
         "noDownload": "Your account can't download books, so a reading app would have nothing to read.",
-        "full": "You're using all {{limit}} devices. Remove one in My devices to add an app.",
+        "full": "You're using all {{limit}} devices. Remove one in {{page}} to add an app.",
         "name": "Name",
         "namePlaceholder": "My Kobo",
         "add": "Add a reading app",
@@ -3410,15 +3415,11 @@
         "copy": "Copy",
         "copied": "Address copied",
         "copyFailed": "Couldn't copy: select the address and copy it by hand",
-        "qr": "QR code",
-        "lastUsed": "Last used {{at}}",
-        "never": "never",
         "steps": {
           "0": "In the app, add an OPDS catalog (KOReader: Search → OPDS catalog → +).",
           "1": "Paste this address. Leave user and password empty.",
           "2": "Open the catalog and download your books."
         },
-        "otherReaders": "In other readers, add an OPDS catalog with the same address.",
         "replace": "New address",
         "remove": "Remove",
         "replaced": "{{name}} has a new address; the old one stopped working",

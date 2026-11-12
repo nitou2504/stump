@@ -2237,6 +2237,7 @@
         }
       },
       "server/access": {
+        "close": "Cerrar",
         "helmet": "Acceso público",
         "title": "Acceso público",
         "description": "Deja entrar a personas desde internet y mantenlo seguro",
@@ -2283,6 +2284,7 @@
           "signOutAllConfirm": "{{name}} tendrá que volver a entrar en todos sus dispositivos.",
           "locked_one": "Bloqueado tras {{count}} contraseña incorrecta.",
           "locked_other": "Bloqueado tras {{count}} contraseñas incorrectas.",
+          "lockedPlain": "Esta cuenta está bloqueada.",
           "unblock": "Desbloquear",
           "librariesTitle": "Bibliotecas",
           "sees": "Ve: {{libraries}}",
@@ -2519,7 +2521,7 @@
         "invite": {
           "title": "Invitar a alguien",
           "who": "¿Para quién es?",
-          "whoPlaceholder": "p. ej. Tía Rosa",
+          "whoPlaceholder": "p. ej. {{name}}",
           "whoHelp": "Solo tú lo ves.",
           "whoMissing": "Escribe para quién es.",
           "linkFor": "Enlace para",
@@ -2578,6 +2580,7 @@
           },
           "deviceRemoved": "Quitado",
           "deviceOfRemoved": "Persona borrada",
+          "oldPasses": "Pases antiguos que aún funcionan",
           "restored": "{{label}} vuelve a funcionar.",
           "error": "No funcionó.",
           "turnOffAccounts": "Apagar las cuentas que creó"
@@ -2588,6 +2591,10 @@
           "disableAccounts_one": "Apagar también la cuenta que creó",
           "disableAccounts_other": "Apagar también las {{count}} cuentas que creó",
           "confirm": "Anular",
+          "turnOffTitle": "¿Apagar las cuentas que creó «{{label}}»?",
+          "turnOffBody": "Sus dispositivos dejan de funcionar y se cierra su sesión. Las cuentas no se borran.",
+          "turnOffConfirm": "Apagar",
+          "turnOffDone": "Se apagaron las cuentas que creó «{{label}}».",
           "done": "«{{label}}» fue anulado.",
           "error": "No funcionó."
         },
@@ -2892,7 +2899,7 @@
           "help": "Deja una casilla vacía para usar el límite del servidor.",
           "choose": "Elige una persona",
           "person": "Persona",
-          "nobody": "Nadie más puede añadir libros todavía: da «Añadir libros» a alguien en Ajustes → Usuarios.",
+          "nobody": "Nadie más puede añadir libros todavía: da «{{permission}}» a alguien en {{path}}.",
           "maxFileMb": "Archivo más grande",
           "maxFilesPerRequest": "Archivos por subida",
           "quotaMb": "Espacio en la bandeja",
@@ -2919,8 +2926,6 @@
           "browser": "Navegador",
           "readingApp": "App de lectura"
         },
-        "detail": "Último uso {{last}} · desde {{ip}}",
-        "never": "nunca",
         "rename": {
           "label": "Nombre del dispositivo",
           "save": "Guardar nombre",
@@ -2954,7 +2959,7 @@
         "description": "Conecta KOReader, un Kobo u otra app de lectura",
         "intro": "Lee tus libros en KOReader, Kobo u otra app de lectura.",
         "noDownload": "Tu cuenta no puede descargar libros, así que una app de lectura no tendría nada que leer.",
-        "full": "Usas tus {{limit}} dispositivos. Quita uno en Mis dispositivos para añadir una app.",
+        "full": "Usas tus {{limit}} dispositivos. Quita uno en {{page}} para añadir una app.",
         "name": "Nombre",
         "namePlaceholder": "Mi Kobo",
         "add": "Añadir una app de lectura",
@@ -2963,15 +2968,11 @@
         "copy": "Copiar",
         "copied": "Dirección copiada",
         "copyFailed": "No se pudo copiar: selecciona la dirección y cópiala a mano",
-        "qr": "Código QR",
-        "lastUsed": "Último uso {{at}}",
-        "never": "nunca",
         "steps": {
           "0": "En la app, añade un catálogo OPDS (KOReader: Buscar → Catálogo OPDS → +).",
           "1": "Pega esta dirección. Deja usuario y contraseña vacíos.",
           "2": "Abre el catálogo y descarga tus libros."
         },
-        "otherReaders": "En otros lectores, añade un catálogo OPDS con la misma dirección.",
         "replace": "Nueva dirección",
         "remove": "Quitar",
         "replaced": "{{name}} tiene una dirección nueva; la anterior dejó de funcionar",

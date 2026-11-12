@@ -69,7 +69,7 @@ export default function UserLimits() {
 }
 
 function UserLimitsSection() {
-	const { t } = useTranslate()
+	const { t, translate } = useTranslate()
 	const { hash } = useLocation()
 	const [params] = useSearchParams()
 	const asked = params.get('person') ?? ''
@@ -119,7 +119,12 @@ function UserLimitsSection() {
 			{open && (
 				<div id="limits-body" className="gap-3 flex flex-col">
 					{users.length === 0 ? (
-						<p className="text-sm text-muted-foreground">{t(key('nobody'))}</p>
+						<p className="text-sm text-muted-foreground">
+							{t(key('nobody'), {
+								permission: t('userPermissions.ADD_BOOKS.label'),
+								path: `${translate('shared.common.settings')} → ${t('settingsScene.server/users.title')}`,
+							})}
+						</p>
 					) : (
 						<>
 							<label className="gap-2 text-sm flex items-center">

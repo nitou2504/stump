@@ -185,7 +185,7 @@ function InviteBody({ prefill, onClose }: { prefill?: InvitePrefill | null; onCl
 				id="access-invite-who"
 				label={t(accessKey('invite.who'))}
 				description={t(accessKey('invite.whoHelp'))}
-				placeholder={t(accessKey('invite.whoPlaceholder'))}
+				placeholder={t(accessKey('invite.whoPlaceholder'), { name: 'Rosa' })}
 				value={label}
 				onChange={(event) => {
 					setLabel(event.target.value)

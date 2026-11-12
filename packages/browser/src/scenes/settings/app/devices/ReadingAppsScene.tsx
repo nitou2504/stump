@@ -261,7 +261,7 @@ function AppsContent() {
 			{canDownload && atLimit && (
 				<Alert variant="warning" data-testid="reading-apps-full">
 					<AlertDescription className="gap-2 flex flex-wrap items-center">
-						{t(key('full'), { limit })}
+						{t(key('full'), { limit, page: t('settingsScene.app/devices.title') })}
 						<ButtonOrLink variant="outline" size="sm" href={paths.settings('devices')}>
 							{t(key('myDevices'))}
 						</ButtonOrLink>

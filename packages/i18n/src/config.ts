@@ -73,7 +73,21 @@ function parseMissingKeyHandler(missingKey: string) {
 type RecursiveResource = string | RecursiveResource[] | { [key: string]: RecursiveResource }
 
 function sentenceCase(obj: RecursiveResource): ResourceKey {
-	const preservedWords = new Set(['Stump', 'OPDS', 'URL', 'URLs', 'PDF', 'UI'])
+	// names of products and units that keep their capitals wherever they stand in a sentence
+	const preservedWords = new Set([
+		'Stump',
+		'OPDS',
+		'URL',
+		'URLs',
+		'PDF',
+		'UI',
+		'KOReader',
+		'Kobo',
+		'iPhone',
+		'iOS',
+		'QR',
+		'MB',
+	])
 
 	if (typeof obj === 'string') {
 		let isStartOfSentence = true
@@ -81,7 +95,7 @@ function sentenceCase(obj: RecursiveResource): ResourceKey {
 			let result
 			if (match.includes('{{') && match.includes('}}')) {
 				result = match
-			} else if (preservedWords.has(match.replace(/[^\w]+$/, ''))) {
+			} else if (preservedWords.has(match.replace(/^[^\w]+|[^\w]+$/g, ''))) {
 				result = match
 			} else if (isStartOfSentence === true) {
 				result = match
@@ -89,7 +103,8 @@ function sentenceCase(obj: RecursiveResource): ResourceKey {
 				result = match.toLowerCase()
 			}
 
-			isStartOfSentence = /[.!?]$/.test(match)
+			// an arrow in a path (Settings → My devices) starts a new name, like a full stop does
+			isStartOfSentence = /[.!?→]$/.test(match)
 			return result
 		})
 	}
