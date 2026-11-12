@@ -259,7 +259,9 @@ async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
 	let (scoped_key, _) = create_api_key_for_user(
 		app,
 		&owner,
-		Some(APIKeyPermissions::Custom(vec![UserPermission::EditMetadata])),
+		Some(APIKeyPermissions::Custom(vec![
+			UserPermission::EditMetadata,
+		])),
 	)
 	.await;
 	let (inherit_key, _) = create_api_key_for_user(app, &owner, None).await;
@@ -272,7 +274,11 @@ async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
 			.add_header("x-edge-public", "1")
 			.add_header("authorization", format!("Bearer {key}"))
 			.await;
-		assert_eq!(bearer.status_code(), StatusCode::UNAUTHORIZED, "{kind} key, bearer");
+		assert_eq!(
+			bearer.status_code(),
+			StatusCode::UNAUTHORIZED,
+			"{kind} key, bearer"
+		);
 		// the refusal does not delete the session cookie the owner has for the LAN
 		assert!(
 			bearer.headers().get("set-cookie").is_none(),
@@ -287,7 +293,11 @@ async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
 			.add_header("authorization", format!("Bearer {key}"))
 			.json(&json!({ "query": "{ me { id } }" }))
 			.await;
-		assert_eq!(graphql.status_code(), StatusCode::UNAUTHORIZED, "{kind} key, graphql");
+		assert_eq!(
+			graphql.status_code(),
+			StatusCode::UNAUTHORIZED,
+			"{kind} key, graphql"
+		);
 
 		// the key in an OPDS address
 		let opds = app
@@ -295,7 +305,11 @@ async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
 			.get(&format!("/opds/{key}/v1.2/catalog"))
 			.add_header("x-edge-public", "1")
 			.await;
-		assert_eq!(opds.status_code(), StatusCode::UNAUTHORIZED, "{kind} key, opds address");
+		assert_eq!(
+			opds.status_code(),
+			StatusCode::UNAUTHORIZED,
+			"{kind} key, opds address"
+		);
 		assert!(opds.headers().get("set-cookie").is_none());
 
 		// the same key at home is as good as before
@@ -304,10 +318,11 @@ async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
 			.add_header("authorization", format!("Bearer {key}"))
 			.await
 			.assert_status_ok();
-		let gql_at_home = app
-			.execute_gql_with_token("{ me { id } }", None, key)
-			.await;
-		assert!(gql_at_home.get("errors").is_none(), "{kind} key at home: {gql_at_home:#}");
+		let gql_at_home = app.execute_gql_with_token("{ me { id } }", None, key).await;
+		assert!(
+			gql_at_home.get("errors").is_none(),
+			"{kind} key at home: {gql_at_home:#}"
+		);
 		app.server
 			.get(&format!("/opds/{key}/v1.2/catalog"))
 			.await
@@ -322,7 +337,9 @@ async fn the_owners_api_keys_are_refused_through_the_edge_scoped_or_not() {
 	let (friend_key, _) = create_api_key_for_user(
 		app,
 		&friend,
-		Some(APIKeyPermissions::Custom(vec![UserPermission::EditMetadata])),
+		Some(APIKeyPermissions::Custom(vec![
+			UserPermission::EditMetadata,
+		])),
 	)
 	.await;
 	let through_the_edge = app

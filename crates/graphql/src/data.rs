@@ -89,6 +89,11 @@ pub struct EdgeRequest {
 	/// says `same-site` or `cross-site`, or (when the browser sends none) `Origin` is neither the
 	/// request's own origin nor an allowed one
 	pub cross_site: bool,
+	/// The edge says it serves the web app's own sign-in screen (the capability header
+	/// `X-Edge-Login: spa` came with the marker header). The app turns the SPA behaviours on only
+	/// when this and the `public_signin` switch are both true, so an older edge, which sends no
+	/// such header, leaves the server-made pages in charge
+	pub spa_login: bool,
 }
 
 /// A struct to represent the authenticated user in the current request context. A user is

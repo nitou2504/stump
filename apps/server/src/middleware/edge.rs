@@ -25,7 +25,7 @@ use std::{
 
 use axum::{
 	extract::{Request, State},
-	http::{header, HeaderMap, StatusCode},
+	http::{header, HeaderMap, Method, StatusCode},
 	middleware::Next,
 	response::{IntoResponse, Response},
 };
@@ -38,12 +38,18 @@ use crate::{
 	config::state::AppState,
 	errors::APIError,
 	middleware::host::{ClientIp, HostExtractor},
+	routers::public_pages::{private_page, words},
 };
 
 /// The marker the edge adds to what it forwards from the internet. Only its presence counts
 pub const EDGE_PUBLIC_HEADER: &str = "x-edge-public";
 /// The pass cookie's value, passed on by the edge when it checked out
 pub const EDGE_PASS_HEADER: &str = "x-edge-pass";
+/// The capability header: `spa` when the edge serves the web app's own sign-in screen (an older
+/// edge sends none). It is a hint that turns behaviour on only together with the
+/// `STUMP_EDGE_PUBLIC_SIGNIN` switch, never a credential: everything it turns on is also behind
+/// the edge's own gate
+pub const EDGE_LOGIN_HEADER: &str = "x-edge-login";
 
 /// A device's "last seen" is written at most once a minute
 const LAST_SEEN_EVERY: Duration = Duration::from_secs(60);
@@ -81,6 +87,62 @@ pub fn is_open_public_path(path: &str) -> bool {
 							&& b.bytes().all(|c| c.is_ascii_digit())
 				)
 			})
+}
+
+/// Whether `path` is a file of the web app's own build that its sign-in screen needs: a flat
+/// `/assets/<name>.<ext>` with `<name>` 1 to 120 characters of `[A-Za-z0-9._-]` starting with a
+/// letter or digit, and `<ext>` one of `js css woff2 png webp ico` (case-sensitive). No folder, no
+/// source map, no compressed twin (the app serves those itself when the browser asks)
+pub fn is_static_asset_path(path: &str) -> bool {
+	let Some(name) = path.strip_prefix("/assets/") else {
+		return false;
+	};
+	let Some((stem, ext)) = name.rsplit_once('.') else {
+		return false;
+	};
+	matches!(ext, "js" | "css" | "woff2" | "png" | "webp" | "ico")
+		&& (1..=120).contains(&stem.len())
+		&& stem.as_bytes()[0].is_ascii_alphanumeric()
+		&& stem
+			.bytes()
+			.all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
+}
+
+/// Whether a request may reach the app without a valid pass: [`is_open_public_path`] (any
+/// method), and, when the SPA sign-in is on (`public_signin` and the edge's capability header),
+/// the web app's own sign-in: GET/HEAD of exactly `/`, `/auth` and `/join` (a query is allowed,
+/// the shell ignores it), GET/HEAD of a flat static asset, and POST of
+/// `/api/v2/auth/login` and `/api/v2/auth/join`. The last two and the assets take **no query**.
+///
+/// `path_and_query` is the request line as the client sent it (never a cleaned copy), compared
+/// byte for byte and case-sensitively, the way the edge decides (`deploy/public-edge`): dot
+/// segments, `%2f`, `//`, trailing slashes and case variants are not open. The same rows, as
+/// data, are in `deploy/public-edge/open-paths.json`, which the edge's checks and a test of this
+/// function both read
+pub fn is_open_public_request(
+	method: &Method,
+	path_and_query: &str,
+	public_signin: bool,
+	spa_login: bool,
+) -> bool {
+	let (path, query) = match path_and_query.split_once('?') {
+		Some((path, query)) => (path, Some(query)),
+		None => (path_and_query, None),
+	};
+	if is_open_public_path(path) {
+		return true;
+	}
+	if !(public_signin && spa_login) {
+		return false;
+	}
+	let reads = method == Method::GET || method == Method::HEAD;
+	match path {
+		"/" | "/auth" | "/join" => reads,
+		"/api/v2/auth/login" | "/api/v2/auth/join" => {
+			*method == Method::POST && query.is_none()
+		},
+		_ => reads && query.is_none() && is_static_asset_path(path),
+	}
 }
 
 /// The origin (`scheme://host[:port]`) of an address, or of an `Origin` header's value
@@ -155,8 +217,19 @@ pub async fn edge_middleware(
 	next: Next,
 ) -> Response {
 	let headers = req.headers().clone();
+	let method = req.method().clone();
 	let path = req.uri().path().to_string();
+	// the request line as the client sent it: the open list is decided on it, never on a cleaned copy
+	let path_and_query = req
+		.uri()
+		.path_and_query()
+		.map_or_else(|| path.clone(), |target| target.as_str().to_string());
 	let via_public = headers.contains_key(EDGE_PUBLIC_HEADER);
+	let spa_login = via_public
+		&& headers
+			.get(EDGE_LOGIN_HEADER)
+			.and_then(|value| value.to_str().ok())
+			== Some("spa");
 
 	let own_origin = host.ok().map(|HostExtractor(details)| details.url());
 	let mut edge = EdgeRequest {
@@ -167,6 +240,7 @@ pub async fn edge_middleware(
 			own_origin.as_deref(),
 			&state.config.allowed_origins,
 		),
+		spa_login,
 	};
 
 	if via_public {
@@ -175,6 +249,12 @@ pub async fn edge_middleware(
 		let ClientIp(ip) =
 			ClientIp::find(&headers, req.extensions(), state.config.trust_proxy_headers);
 		let settings = state.config.edge.as_ref();
+		let open = is_open_public_request(
+			&method,
+			&path_and_query,
+			settings.is_some_and(|settings| settings.public_signin),
+			spa_login,
+		);
 		let key = settings.and_then(|settings| settings.usable_key());
 		let pass_text = headers
 			.get(EDGE_PASS_HEADER)
@@ -191,9 +271,11 @@ pub async fn edge_middleware(
 							person_id: device.person_id,
 						});
 					},
-					// a new invite replaces a revoked device, so the invite pages take it as
-					// no device at all; everywhere else it is turned away at once
-					Ok(Seen::Revoked) if path.starts_with("/api/_i/") => {},
+					// a new invite replaces a revoked device, and so does signing in again (the
+					// device was just removed: the sign-in screen must not meet a 403 in
+					// between): every open request takes a revoked pass as no device at all;
+					// everywhere else it is turned away at once
+					Ok(Seen::Revoked) if open => {},
 					Ok(Seen::Revoked) => {
 						return (
 							StatusCode::FORBIDDEN,
@@ -215,8 +297,16 @@ pub async fn edge_middleware(
 
 		if settings.is_some_and(|settings| settings.require_pass)
 			&& edge.device.is_none()
-			&& !is_open_public_path(&path)
+			&& !open
 		{
+			// the front door of a server whose public sign-in is off still says what to do
+			// (the old "private site" page), instead of a bare 404
+			if (method == Method::GET || method == Method::HEAD)
+				&& path == "/"
+				&& key.is_some()
+			{
+				return private_page(words(&headers));
+			}
 			return StatusCode::NOT_FOUND.into_response();
 		}
 	}
@@ -319,6 +409,95 @@ mod tests {
 		] {
 			assert!(!is_open_public_path(path), "{path}");
 		}
+	}
+
+	#[derive(serde::Deserialize)]
+	struct OpenRow {
+		method: String,
+		path: String,
+		app: bool,
+	}
+
+	#[derive(serde::Deserialize)]
+	struct OpenRows {
+		rows: Vec<OpenRow>,
+	}
+
+	/// The table the edge's checks read too (`deploy/public-edge/open-paths.json`): the app's own
+	/// list must agree with its `app` column, row by row
+	#[test]
+	fn the_app_opens_what_the_shared_table_says_and_nothing_else() {
+		let table: OpenRows = serde_json::from_str(include_str!(
+			"../../../../deploy/public-edge/open-paths.json"
+		))
+		.expect("the shared table should parse");
+		assert!(table.rows.len() > 100, "{} rows", table.rows.len());
+		for row in &table.rows {
+			let method = Method::from_bytes(row.method.as_bytes()).expect("a method");
+			assert_eq!(
+				is_open_public_request(&method, &row.path, true, true),
+				row.app,
+				"{} {}",
+				row.method,
+				row.path
+			);
+			// with the switch off or without the edge's capability header only the older open
+			// addresses are open: the invite pages, the manifest and the favicons
+			let older = row.app
+				&& (row.path.starts_with("/api/_i/")
+					|| row.path == "/assets/manifest.webmanifest"
+					|| row.path.starts_with("/assets/favicon-"));
+			for (public_signin, spa_login) in
+				[(false, false), (true, false), (false, true)]
+			{
+				assert_eq!(
+					is_open_public_request(&method, &row.path, public_signin, spa_login),
+					older,
+					"{} {} with public_signin={public_signin} spa_login={spa_login}",
+					row.method,
+					row.path
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn a_static_asset_is_a_flat_file_of_a_known_kind() {
+		for ok in [
+			"/assets/index-BNsZnW4I.js",
+			"/assets/a.css",
+			"/assets/inter-latin.woff2",
+			"/assets/stump-logo--irregular-256.webp",
+			"/assets/favicon.ico",
+			"/assets/x.y.z.js",
+		] {
+			assert!(is_static_asset_path(ok), "{ok}");
+		}
+		for bad in [
+			"/assets/",
+			"/assets/.js",
+			"/assets/x",
+			"/assets/x.map",
+			"/assets/x.JS",
+			"/assets/x.svg",
+			"/assets/-x.js",
+			"/assets/_x.js",
+			"/assets/a/b.js",
+			"/assets/a b.js",
+			"/assets/%41.js",
+			"/asset/x.js",
+			"/x/assets/x.js",
+		] {
+			assert!(!is_static_asset_path(bad), "{bad}");
+		}
+		assert!(is_static_asset_path(&format!(
+			"/assets/{}.js",
+			"a".repeat(120)
+		)));
+		assert!(!is_static_asset_path(&format!(
+			"/assets/{}.js",
+			"a".repeat(121)
+		)));
 	}
 
 	#[test]

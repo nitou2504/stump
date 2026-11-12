@@ -14,8 +14,9 @@ use axum::{
 	http::StatusCode,
 	response::IntoResponse,
 	routing::{get, post},
-	Json, Router,
+	Extension, Json, Router,
 };
+use graphql::data::EdgeRequest;
 use models::entity;
 use reqwest::header::USER_AGENT;
 use sea_orm::prelude::*;
@@ -50,15 +51,26 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 #[serde(rename_all = "camelCase")]
 pub struct ClaimResponse {
 	pub is_claimed: bool,
+	/// The request came through the public edge: the web app's sign-in screen then shows the
+	/// friends' version of itself (no claim form, no identity provider, no server list). Always
+	/// `false` at home and on the tailnet. The edge answers the same question itself, with
+	/// `true`, for a visitor with no pass
+	pub is_public: bool,
 }
 
-async fn claim(State(ctx): State<AppState>) -> APIResult<Json<ClaimResponse>> {
+async fn claim(
+	State(ctx): State<AppState>,
+	Extension(edge): Extension<EdgeRequest>,
+) -> APIResult<Json<ClaimResponse>> {
 	let is_claimed = entity::user::Entity::find()
 		.count(ctx.conn.as_ref())
 		.await?
 		> 0;
 
-	Ok(Json(ClaimResponse { is_claimed }))
+	Ok(Json(ClaimResponse {
+		is_claimed,
+		is_public: edge.via_public,
+	}))
 }
 
 async fn ping() -> APIResult<String> {
