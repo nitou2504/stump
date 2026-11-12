@@ -27,7 +27,7 @@ const next = (extra: Record<string, unknown> = {}) => ({
 	...extra,
 })
 
-function setup(series: unknown) {
+function setup(series: unknown, placement?: 'header' | 'bar') {
 	const sdk = new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' })
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 	const execute = vi.spyOn(sdk, 'execute').mockImplementation(async (document) => {
@@ -50,7 +50,7 @@ function setup(series: unknown) {
 		)
 	}
 
-	render(<ContinueSeriesButton seriesId="series" />, { wrapper: Wrapper })
+	render(<ContinueSeriesButton seriesId="series" placement={placement} />, { wrapper: Wrapper })
 	return { execute }
 }
 
@@ -93,5 +93,27 @@ describe('ContinueSeriesButton', () => {
 
 		await vi.waitFor(() => expect(execute).toHaveBeenCalled())
 		expect(screen.queryByRole('link')).toBeNull()
+	})
+
+	it('sits in the header from a small screen up, and is hidden on a phone', async () => {
+		setup({ id: 'series', percentageCompleted: 0, upNext: [next()] }, 'header')
+
+		const link = await screen.findByRole('link', { name: /seriesContinue\.start$/ })
+		expect(link.parentElement).toHaveClass('hidden', 'sm:block')
+	})
+
+	it('is a full-width bar on a phone, and hidden from a small screen up', async () => {
+		setup({ id: 'series', percentageCompleted: 0, upNext: [next()] }, 'bar')
+
+		const link = await screen.findByRole('link', { name: /seriesContinue\.start$/ })
+		expect(link).toHaveClass('w-full')
+		expect(link.parentElement).toHaveClass('sm:hidden')
+	})
+
+	it('leaves no gap behind when there is nothing to continue', async () => {
+		const { execute } = setup({ id: 'series', percentageCompleted: 100, upNext: [] }, 'bar')
+
+		await vi.waitFor(() => expect(execute).toHaveBeenCalled())
+		await vi.waitFor(() => expect(document.body.querySelector('.sm\\:hidden')).toBeNull())
 	})
 })

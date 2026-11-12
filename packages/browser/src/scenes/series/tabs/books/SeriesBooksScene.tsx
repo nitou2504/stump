@@ -26,6 +26,7 @@ import {
 } from '@/components/filters/useFilterScene'
 import GenericEmptyState from '@/components/GenericEmptyState'
 import { SeriesBooksAlphabet } from '@/components/series'
+import { ContinueSeriesButton } from '@/components/series/ContinueSeriesButton'
 import { EntityTableColumnConfiguration } from '@/components/table'
 import TableOrGridLayout from '@/components/TableOrGridLayout'
 import useIsInView from '@/hooks/useIsInView'
@@ -301,6 +302,9 @@ function SeriesBooksScene() {
 				</Helmet>
 
 				<section ref={containerRef} id="grid-top-indicator" className="h-0" />
+
+				{/* on a phone the series header has no room for it */}
+				<ContinueSeriesButton seriesId={series.id} placement="bar" />
 
 				<FilterHeader
 					isSearching={isLoading}

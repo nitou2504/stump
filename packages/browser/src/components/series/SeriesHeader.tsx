@@ -228,7 +228,7 @@ export function SeriesHeader() {
 				// the series settings page is the owner's (its route sends everybody else away)
 				settingsLink={isServerOwner ? paths.seriesSettings(id) : undefined}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
-				endActions={<ContinueSeriesButton seriesId={id} />}
+				endActions={<ContinueSeriesButton seriesId={id} placement="header" />}
 			/>
 
 			{canEditThumbnail && thumbnail.dialogs}
