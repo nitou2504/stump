@@ -4038,11 +4038,28 @@
         "message": "Se ha producido un error de red que sugiere que su servidor Stump no está disponible actualmente. Por favor, asegúrate de que se está ejecutando y de que es accesible desde este dispositivo"
       }
     },
+    "serverStatus": {
+      "unreachable": "Servidor inaccesible",
+      "reachable": "Servidor accesible",
+      "checking": "Comprobando el servidor...",
+      "current": "Servidor actual"
+    },
     "emptyState": {
       "noServers": "No hay servidores configurados",
       "noSmartLists": {
         "label": "Ninguna lista devuelta",
         "description": "Una vez creadas aparecerán aquí"
+      }
+    },
+    "savedServerActions": {
+      "clearCache": "Borrar caché",
+      "discardTokens": {
+        "label": "Descartar tokens",
+        "description": "Solo afecta a los tokens de inicio de sesión"
+      },
+      "deleteServer": {
+        "title": "Eliminar servidor",
+        "confirmation": "¿Seguro que quieres eliminar {{serverName}}?"
       }
     },
     "tableOfContents": {
@@ -4062,8 +4079,12 @@
     "addOrEditServer": {
       "auth": {
         "token": {
+          "label": "Token",
           "placeholder": "Token en bruto"
         },
+        "basic": "Básica",
+        "section": "Autenticación",
+        "method": "Método",
         "login": {
           "description": "Se te solicitará iniciar sesión al acceder a contenido según sea necesario",
           "label": "iniciar sesión"
@@ -4076,18 +4097,33 @@
       "checkConnection": "Verificar conexión",
       "setAsDefaultServer": "Establecer como servidor predeterminado",
       "kind": "Tipo",
+      "customHeaders": {
+        "label": "Cabeceras personalizadas",
+        "addHeader": "Añadir cabecera",
+        "invalidHeader": "Cabecera no válida"
+      },
       "networking": "Red",
       "createServer": "Crear servidor",
       "updateServer": "Actualizar servidor",
+      "basicInfo": "Información básica",
       "optionalSettings": "Ajustes opcionales",
       "advancedOptions": "Opciones avanzadas",
       "catalogUrl": "URL del catálogo",
+      "primaryUrl": {
+        "label": "URL principal",
+        "description": "La URL del servidor de Stump",
+        "placeholder": "https://stump.example.com"
+      },
+      "failedToConnect": "No se pudo conectar con el servidor",
+      "didConnect": "Conectado",
       "validation": {
+        "nameAlreadyExists": "Ese nombre ya existe",
         "cannotSetAuthorizationHeader": "No se puede establecer el encabezado 'Authorization'",
         "nameForbidden": "Este nombre está reservado",
         "urlExists": "Ya existe un servidor con esta URL"
       },
       "name": {
+        "label": "Nombre",
         "description": "Un nombre fácil para identificar este servidor",
         "placeholder": "Mi Servidor"
       }
@@ -4112,15 +4148,18 @@
       }
     },
     "serverSettings": {
+      "title": "Ajustes del servidor",
       "updateAvailable": {
         "message": "Tu servidor no está actualizado. ¡Por favor, actualiza a la última versión!"
       },
       "serverInfo": {
         "title": "Información del servidor",
         "description": "Detalles básicos sobre tu instancia de Stump",
+        "version": "Versión",
         "build": "Build",
         "nonStableChannel": {
-          "title": "Estás ejecutando una compilación no estable de Stump"
+          "title": "Estás ejecutando una compilación no estable de Stump",
+          "description": "Parece que estás usando el canal de compilación {{channelName}}"
         },
         "exactCommit": "Commit exacto",
         "debugInfo": {
@@ -4131,7 +4170,8 @@
       },
       "changelog": {
         "label": "Registro de cambios",
-        "description": "Ve que ha cambiado en la última versión de Stump"
+        "description": "Ve que ha cambiado en la última versión de Stump",
+        "fetchFailed": "No se pudo obtener el registro de cambios"
       },
       "helpfulLinks": {
         "title": "Enlaces útiles",
