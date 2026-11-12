@@ -167,16 +167,18 @@ Repeat the checks of step 7 and the walk-through below.
 
 ## 9. Walk-through (once, before telling anybody)
 
-1. **Settings → Public access → Invite links:** person (a friend's account), device name, 3 days, 3 uses → **Create
-   link** → **Copy**. The link is shown only now.
+1. **Settings → Public access → People:** click the friend → **Add a device with a link**: device name, 3 days, can be
+   opened 3 times → **Create link** → **Copy**. The link is shown only now. (A link for somebody who has no account yet is
+   **Invite someone**, on the same page.)
 2. Open it on a phone **off the tailnet** (mobile data): "Open Stump on this device?" with one button → press it →
    the sign-in page. Sign in as the friend. (The owner never signs in publicly: try it, it is refused.)
-3. Back on the page: **Devices with a pass** lists the phone with its address and *last seen*.
-4. **Revoke** it: the phone gets "Access turned off" within a couple of seconds, no reload, no terminal. **Restore**.
-5. **Sign-in protection:** three wrong passwords for the friend show up under *Recent sign-ins*; lock the account by
-   hand and **Unblock** it: a typo afterwards does not lock it again.
-6. **People → Set a new password** for the friend: the page shows a generated password once; the friend signs in
-   and is asked for a new one before anything else.
+3. Back on the page: the friend's sheet lists the phone under **Devices (1 of 3)**, with when it was last used.
+4. **Remove** it (confirm): the phone gets "Access turned off" within a couple of seconds, no reload, no terminal.
+   **Show removed devices → Restore**.
+5. **Sign-in protection:** three wrong passwords for the friend show up under **History → Sign-ins** (*Show history*); lock
+   the account by hand and **Unblock** it (in the friend's sheet): a typo afterwards does not lock it again.
+6. The friend's sheet → **Set a new password**: the dialog shows a generated password once (*They choose their own at their
+   next sign-in* is ticked); the friend signs in and is asked for a new one before anything else.
 
 Logs prove no link or token was logged and the pass is attributed:
 
@@ -343,7 +345,7 @@ whatever pass the browser holds. Run the blocks below in one shell, in this orde
 
 ```sh
 cd /mnt/data2/containers/stump-fork; E=http://127.0.0.1:10803
-# a pass for a test device (Settings → Public access → Invite links; the break-glass script does the same) as in step 7
+# a pass for a test device (Settings → Public access → a person's sheet → Add a device with a link; the break-glass script does the same) as in step 7
 L=$(/mnt/data2/containers/edge-common/invite.sh stump uptest 1 | sed 's|https://g3.tail3e401.ts.net:8443|'$E'|')
 C=$(curl -s -D- -o /dev/null -X POST -H 'Sec-Fetch-Site: same-origin' --data-urlencode "t=$L" $E/api/_i/ | grep -i '^set-cookie' | sed -E 's/^[Ss]et-[Cc]ookie: ([^;]+);.*/\1/')
 # the friend signs in through the edge (counts as one of the device's 8 sign-ins a day)
@@ -451,7 +453,8 @@ and reload the edge (`docker exec stump-edge nginx -s reload -c /etc/nginx/edge/
 Branch `feat/friend-onboarding` (design: `research/2026-11-12-friend-onboarding-design.md`, with the squad lead's
 review applied; it also contains `fix/edge-audit`). What the owner gets, all in **Settings → Public access**:
 
-* **Signup links**: a link for one person or an *open* one (a budget of 2 to 25 accounts), valid 1 hour to 30 days (3
+* **Signup links** (after the page was redone in `feat/access-ux`: the button **Invite someone** on *Public access*, one person or
+  several people; a device link for somebody who already has an account is *Add a device with a link* in their sheet, under *People*): a link for one person or an *open* one (a budget of 2 to 25 accounts), valid 1 hour to 30 days (3
   by default). The visitor opens it, chooses a username and a password, and is in: the account is made from the link's
   **preset** (default: Change password, Change avatar, Download files, Add books; **only the library named "Biblioteca"**;
   libraries made later stay hidden; 3 devices). A link can never give *Upload files*, *Scan library* or anything that
@@ -608,7 +611,7 @@ real Funnel the client address is Tailscale's. If your shell cannot tell clients
 
 ### 5. Tell the owner
 
-How to make a link (*Public access → Signup links*), what the preset gives, that a friend opens the address on any
+How to make a link (*Public access → Invite someone*: one person or several people, how long, what they get), what the preset gives, that a friend opens the address on any
 device and signs in, *My devices* / *Reading apps* for them, how to read the warnings, how to turn it all off, and the one
 decision left: **Funnel stays as it is** (the switch is the feature's, not Funnel's).
 
@@ -639,7 +642,14 @@ shows the new address; each e-reader needs it pasted again).
 ## Public login: the web app's own sign-in screen on the public address
 
 Branch `feat/public-login` (design: `research/2026-11-12-public-spa-login-design.md`, with the squad lead's review applied;
-it builds on `feat/friend-onboarding`). **No migration.** What changes for a visitor:
+it builds on `feat/friend-onboarding`). **No migration of its own.**
+
+**Deploying the integrated image (`integ/friends-8`: this branch plus `feat/access-ux`, which carries a migration)? Follow
+*Combined release (integ/friends-8)* below, not the numbered steps here one by one, and use its back-out: with that migration in
+the database the previous image alone does not start.** The steps here are the public-login part of that release (the app's
+capability header, the browser check, the edge).
+
+What changes for a visitor:
 
 * Without a pass, `https://g3.tail3e401.ts.net:8443/` is **Stump's own login screen** (the React app, the short version: a
   username, a password, one line, nothing about invite links) instead of the server-made page. A signup link
@@ -669,7 +679,7 @@ it builds on `feat/friend-onboarding`). **No migration.** What changes for a vis
 As in *Friend onboarding* step 0 (a snapshot, `edge/`, the compose file, 0 running jobs, `trust_proxy_headers = true`) and also:
 
 ```sh
-cd /mnt/data2/containers/stump-fork; S=/mnt/data2/Code/worktrees/stump/publogin     # the checkout of the revision you deploy
+cd /mnt/data2/containers/stump-fork; S=/mnt/data2/Code/worktrees/stump/integ8     # the checkout of the revision you deploy (the integrated release)
 grep -c 'STUMP_EDGE_REQUIRE_PASS=true' docker-compose.yml     # 1: the app's own pass check stays on while this is live (never turn it off with Funnel on)
 grep -c 'STUMP_EDGE_PUBLIC_SIGNIN=true' docker-compose.yml    # 1
 cp edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-publogin && cp edge/stump-gate.js edge/stump-gate.js.bak-$(date +%Y%m%d)-before-publogin
@@ -677,7 +687,7 @@ cp edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-publogin && cp edg
 
 ### 1. The app first (it is backward compatible with the older edge)
 
-New image on the shared `x-stump-image` line (comment: branch, date, no migration, rollback image), recreate **both** containers:
+New image on the shared `x-stump-image` line (comment: branch, date, the migration if the image carries one, rollback image), recreate **both** containers:
 
 ```sh
 docker compose config -q && docker compose up -d --no-build stump-fork stump-intake-probe
@@ -740,12 +750,183 @@ docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stu
 # 2. the app's switch (SET the value, do not delete the line): the new open list closes and `/` shows the "Private site" page
 sed -i 's/STUMP_EDGE_PUBLIC_SIGNIN=true/STUMP_EDGE_PUBLIC_SIGNIN=false/' docker-compose.yml && docker compose up -d --no-build stump-fork stump-intake-probe
 # 3. the IMAGE: back to the previous tag on the shared line, recreate both. Do 1 BEFORE 3: the new edge with an older image has no shell to serve
+#    If the image you are leaving carries a migration (the integrated one has m20261116), the previous image does NOT start on that
+#    database until the migration's manual down has run: use *Combined release -> Back out* (R2), not this line alone
 # 4. while you work: tailscale funnel --https=8443 off
 ```
 
 Known limits: a browser whose service worker holds an **old** build and has no pass cannot update it (`/sw.js` is not served without a pass): if its
 screen looks wrong, open the address in a private window. The shared sign-in budget can still be used by four or more clients to slow *new-device* sign-ins
 for a few minutes (known devices sign in with their pass and are not counted there). A visitor's browser is not told to contact any third party.
+
+## Combined release (integ/friends-8)
+
+One image and one deploy for five branches, merged into `integ/friends-8` on top of what is live (`stump:fork-43fa3fe50`, database
+at `m20261115_000000_friend_onboarding`): `feat/public-login` (Stump's own login screen on the public address), `feat/access-ux`
+(*Public access* redone, with warnings the owner can dismiss), `feat/app-ux` (the usability fixes), `feat/app-search` (the best title
+first, an *Authors* group) and `feat/es-strings` (the whole interface in Spanish). Their notes: `research/2026-11-12-public-spa-login-design.md`,
+`research/2026-11-12-access-ux-deploy-notes.md`, `research/2026-11-12-app-usability-report.md`. `S` below is the integ8 checkout at the revision of
+the image.
+
+| piece | change |
+|---|---|
+| database | **one migration**, `m20261116_000000_access_warning_reviews` (one table, `access_warning_reviews`), applied by Stump **when it starts**. Manual down: `crates/migrations/manual-down/m20261116_000000_access_warning_reviews.sql`; it only forgets which warnings were dismissed |
+| app (`stump-fork` image) | all five branches. Friends can reach the new `searchAuthors` and `media(relevanceTo:)` (they see only what the Browse page would show them); the new owner mutations `dismissAccessWarnings` and `restoreAccessWarnings` are owner-only and refused through the edge |
+| public edge | `edge/nginx.conf` and `edge/stump-gate.js` (from `feat/public-login`; `feat/access-ux` changes nothing in `deploy/public-edge/`). `open-paths.json` is data for the checks and is not copied to the live edge; the live `revoked.map` is never overwritten |
+| `stump-fork` compose | nothing new: `STUMP_EDGE_REQUIRE_PASS=true` and `STUMP_EDGE_PUBLIC_SIGNIN=true` are set already and **stay set** |
+| names | the older sections say *Signup links* and *Invite links*; the page now has **Invite someone** (one person or several people) and, in a person's sheet, **Add a device with a link** |
+
+**Order: the app first, then the edge.** The new app is backward compatible with the old edge (without the edge's `X-Edge-Login: spa`
+header it keeps showing the server-made pages), and the edge is the switch: friends see the app's own login screen the moment its
+`nginx.conf` is reloaded. **`STUMP_EDGE_PUBLIC_SIGNIN` stays `true` for the whole deploy** (this is not the "switch off" order of *Friend
+onboarding*): with it off, any account that is not the owner and holds a pass gets through the edge whatever permissions it has,
+reading-app keys stop working through the edge, it costs two more recreates, and it buys nothing (the old edge keeps the server-made pages
+until step 5, and `spa-capture.sh` runs on its own throwaway stack, so it cannot test the live switch anyway).
+
+Run the second block of step 1 and steps 2 to 5 in **one shell**, in `/mnt/data2/containers/stump-fork`: they share `S` and `B`.
+
+### 0. Build the image and bring it to g3
+
+The merges took one side of the generated client (`packages/graphql/src/client/gql.ts`); `crates/graphql/schema.graphql` and the client are never
+merged by hand. They are regenerated from the merged code (`scripts/fork/schema.sh`, then `yarn codegen` in `packages/graphql`) and committed, and the
+verification run (all web tests, the Rust tests per package) passes, **before** the build. Then, as in `AGENTS.md`:
+
+```sh
+cd /mnt/data2/Code/worktrees/stump/integ8; git status --short | wc -l; git rev-parse --short=9 HEAD     # 0 changes; the revision is <rev>
+l5run -- 'bash scripts/fork/build-local.sh stump:fork-<rev>'
+ssh l5 'docker save stump:fork-<rev> | gzip -1' | gunzip | docker load
+docker image inspect stump:fork-<rev> --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'      # <rev>
+```
+
+### 1. Checks that touch nothing live (on l5: g3 is short of memory while builds run)
+
+```sh
+cd /mnt/data2/Code/worktrees/stump/integ8
+l5run -- 'bash scripts/fork/node.sh "yarn install --frozen-lockfile >/tmp/y.log 2>&1 || tail -5 /tmp/y.log" && bash deploy/public-edge/spa-capture.sh stump:fork-<rev>'
+l5run -- 'bash deploy/public-edge/verify-edge.sh'          # 306 checks, ~9 min, 0 failed
+```
+
+`spa-capture.sh` (~3 min; the first run pulls the browser image if l5 does not have it) is **the gate of this release**: the real-browser check of the
+public login had never run before it, and the merged build splits the app into different files than the ones it was designed against. It must pass
+with no refused request and **0** Content-Security-Policy violations. If a file the login screen needs is refused (an open file is a flat
+`/assets/<name>.<js|css|woff2|png|webp|ico>` with no query and no leading underscore), add its exact rule to the three places named in *Public login* (the
+row in `open-paths.json`, `$edge_open` in `nginx.conf`, `is_open_public_request` in `middleware/edge.rs`), never a wildcard, and build again. On g3 itself
+the same two commands (without `l5run`) are fine only when no build runs and `free -g` shows memory to spare.
+
+Then stage the edge on g3 and let nginx read it (the live `revoked.map` is copied into the staging folder so the syntax check sees the real one):
+
+```sh
+cd /mnt/data2/containers/stump-fork; S=/mnt/data2/Code/worktrees/stump/integ8
+test -f $S/deploy/public-edge/nginx.conf && git -C $S log --oneline -1                  # <rev>: the revision of the image
+rm -rf edge-new; mkdir -p edge-new && cp $S/deploy/public-edge/nginx.conf $S/deploy/public-edge/stump-gate.js edge-new/ && cp edge/revoked.map edge-new/
+docker run --rm -v "$PWD/edge-new":/etc/nginx/edge:ro -v "$PWD/edge-state":/etc/nginx/state:ro -e EDGE_KEY=x$(printf 'x%.0s' $(seq 63)) -e EDGE_COOKIE=__Host-g3-stump \
+  --add-host stump-fork:127.0.0.1 --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
+```
+
+### 2. Pre-flight and backups
+
+```sh
+cd /mnt/data2/containers/stump-fork; S=/mnt/data2/Code/worktrees/stump/integ8
+sqlite3 -readonly config/stump.db "select count(*) from jobs where status in ('RUNNING','QUEUED','PAUSED')"     # 0: a restart interrupts a running job
+grep -c 'STUMP_EDGE_REQUIRE_PASS=true' docker-compose.yml; grep -c 'STUMP_EDGE_PUBLIC_SIGNIN=true' docker-compose.yml     # 1 and 1: leave the switch ON
+grep -E '^trust_proxy_headers *= *true' config/Stump.toml || echo 'STOP: trust_proxy_headers is not true'
+T=$(date -u +%Y%m%dT%H%M%SZ); B=config.backup-$T-db; mkdir $B && sqlite3 config/stump.db ".backup $B/stump.db"; echo $B
+cp config/Stump.toml $B/; cp -a edge $B/edge; cp $S/crates/migrations/manual-down/m20261116_000000_access_warning_reviews.sql $B/manual-down.sql
+cp docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-integ8
+cp -n edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-publogin; cp -n edge/stump-gate.js edge/stump-gate.js.bak-$(date +%Y%m%d)-before-publogin   # -n: a second run never overwrites the first backup
+```
+
+### 3. Rehearse the migration on a copy (never on the live database)
+
+```sh
+M=/tmp/migtest-integ8; rm -rf $M; docker rm -f migtest-integ8 >/dev/null 2>&1; mkdir -p $M/config; cp $B/stump.db $B/Stump.toml $M/config/
+docker run -d --name migtest-integ8 --network none -v $M/config:/config -e PUID=1000 -e PGID=1000 -e STUMP_CONFIG_DIR=/config \
+  -e STUMP_EDGE_KEY=$(head -c 32 /dev/urandom | xxd -p -c 64) stump:fork-<rev> >/dev/null
+for i in $(seq 1 40); do sqlite3 -readonly $M/config/stump.db "select version from seaql_migrations order by version desc limit 1" 2>/dev/null | grep -q m20261116 && break; sleep 3; done
+docker stop migtest-integ8 >/dev/null; docker rm migtest-integ8 >/dev/null     # (a file-watcher and local-address error in its log is the missing network and library: harmless)
+sqlite3 -readonly $M/config/stump.db "select version from seaql_migrations order by version desc limit 1"     # m20261116_000000_access_warning_reviews
+sqlite3 $M/config/stump.db < $B/manual-down.sql                                                                # prints 0 and 0
+sqlite3 -readonly $M/config/stump.db "pragma integrity_check; select version from seaql_migrations order by version desc limit 1"     # ok, then m20261115_000000_friend_onboarding
+rm -rf $M
+```
+
+### 4. The app (friends see a short outage while it restarts)
+
+Put `stump:fork-<rev>` on the shared `x-stump-image` line, with a comment above it: `integ/friends-8 <rev>`, the date, the migration
+`m20261116_000000_access_warning_reviews`, and the rollback (`stump:fork-43fa3fe50` **after** `<snapshot folder>/manual-down.sql`, plus
+`docker-compose.yml.bak-<date>-integ8` and the `edge/*.bak-<date>-before-publogin` files). Then recreate **both** containers:
+
+```sh
+docker compose config -q && docker compose up -d --no-build stump-fork stump-intake-probe
+for i in $(seq 1 40); do [ "$(curl -s -o /dev/null -w %{http_code} http://127.0.0.1:10801/api/v2/ping)" = 200 ] && break; sleep 3; done
+docker logs --since 3m stump-fork 2>&1 | grep -iE 'panic| error' | grep -v FORCE_DB | head -3                           # nothing
+docker logs --since 3m stump-intake-probe 2>&1 | grep -cE 'WARN|FAIL'                                               # 0
+docker logs --since 3m stump-intake-probe 2>&1 | grep -o 'stump-intake-probe [0-9a-f]* ready' | tail -1            # `stump-intake-probe <rev> ready`
+echo "home $(curl -s -o /dev/null -w %{http_code} http://127.0.0.1:10801/api/v2/ping) tailnet $(curl -s -o /dev/null -w %{http_code} https://g3.tail3e401.ts.net:10802/api/v2/ping)"     # 200 200
+sqlite3 -readonly config/stump.db "select version from seaql_migrations order by version desc limit 1"             # m20261116_000000_access_warning_reviews
+curl -s http://127.0.0.1:10803/ | grep -c 'action="/api/_i/signin"'                                                # 1: the OLD edge still shows the server-made page
+```
+
+Then look, as the owner at home, at *Public access* (the attention list, *Dismiss* and *Undo*, the badge on the settings button) and, as a friend's
+test account, at *My devices*.
+
+### 5. The edge: this is the switch
+
+```sh
+cp edge-new/nginx.conf edge/nginx.conf && cp edge-new/stump-gate.js edge/stump-gate.js        # only these two: the live revoked.map stays
+docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+sleep 3; docker logs --since 1m stump-edge 2>&1 | grep -c emerg                         # 0: a failed reload would keep the OLD config running
+docker exec stump-edge grep -c 'X-Edge-Login' /etc/nginx/edge/nginx.conf                # 2 or more: the new file is the one running
+bash $S/deploy/public-edge/verify-edge.sh --live                                        # on g3: the live listener, incl. the policy of the pass-less shell
+curl -s http://127.0.0.1:10803/ | grep -c 'id="root"'                                  # 1: the app's own shell
+curl -s -D- -o /dev/null http://127.0.0.1:10803/ | grep -iE '^(content-security-policy|cache-control)'     # a policy, and no-store
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:10803/api/v2/auth/viewer       # 401: a pass-less viewer
+```
+
+### 6. Walk through it once, in a private window, then clean up
+
+As *Public login* step 4 (a throwaway signup link made with **Invite someone**, its account, the join screen, a sign-in on another browser, a wrong
+password, the fourth device), then clean up the same way (revoke the link with its accounts turned off, delete the account, remove the temporary files).
+
+### 7. Tell the owner
+
+*Public access* is the new page (*Needs your attention* with *Dismiss* and *Clear all*, *People* with **Invite someone**, a collapsed *History*); friends
+see the app's own login screen; the interface is complete in Spanish; search puts the best title first and has an *Authors* group; the cards say what
+the numbers count. Funnel stays as it is.
+
+### Back out (fastest first)
+
+```sh
+cd /mnt/data2/containers/stump-fork
+# R1: the EDGE only (about a second, no restart). The app goes back to the server-made pages by itself; the rest of the release stays
+cp edge/nginx.conf.bak-<date>-before-publogin edge/nginx.conf && cp edge/stump-gate.js.bak-<date>-before-publogin edge/stump-gate.js
+docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+
+# R2: the IMAGE. Only after R1: the new edge has no page to serve with the old image. NEVER the previous image alone: it does not start on a
+# database that holds m20261116 (Stump migrates on start and an older image refuses a migration it does not know)
+tailscale funnel --https=8443 off
+docker compose stop stump-fork stump-intake-probe
+sqlite3 config/stump.db < config.backup-<UTC>-db/manual-down.sql                    # prints 0 and 0
+cp docker-compose.yml.bak-<date>-integ8 docker-compose.yml                         # the x-stump-image line is stump:fork-43fa3fe50 again
+docker compose up -d --no-build stump-fork stump-intake-probe
+docker logs --since 2m stump-intake-probe 2>&1 | grep -o 'stump-intake-probe [0-9a-f]* ready' | tail -1     # wait for `ready`
+tailscale funnel --bg --https=8443 http://127.0.0.1:10803
+```
+
+Restoring the snapshot (`<snapshot folder>/stump.db`) instead of running the manual down also works, but it loses everything done since: the revocations,
+the accounts the links made, what friends read. What R2 loses: only which warnings the owner had dismissed (they all show again). Accounts, passes,
+libraries and reading history stay.
+
+### Known limits of this release (from the integration review)
+
+* **`searchAuthors` and `media(relevanceTo:)` have no query cost of their own**, and the schema does not limit aliases: one friend request can ask for
+  thousands of aliased calls. The same weakness already exists for `metadataValueCounts`; the public edge bounds it (4 connections, 20 s, 256 KB). A fixed
+  cost for both fields would close it (a follow-up). Their inputs are capped: a relevance text 200 characters and 8 words, an author search 100 characters and 20 results.
+* **A Spanish friend who joins gets an English app**: the join screen follows the browser's language, but the account is created with language `en`.
+  They change it under *Settings → Account settings → Language*.
+* **EPUBs at the http home address** (`http://192.168.0.17:10801`) lose their images, styles and fonts (the reader asks the browser to upgrade the book's
+  files to https, and the home address serves plain http only). The tailnet and public addresses are https and unaffected. Not patched, by decision: at home, open Stump at `https://g3.tail3e401.ts.net:10802`.
+* The clipped badge on the settings button noted in the usability report (*for the other squads*) is not fixed (`Settings.tsx` is untouched); nobody has looked at it on screen.
 
 ## Operations
 

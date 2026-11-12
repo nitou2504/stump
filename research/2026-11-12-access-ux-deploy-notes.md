@@ -4,7 +4,7 @@ Built from `43fa3fe50` (the live 43fa3fe50 image). Spec: `2026-11-12-access-ux-s
 
 ## What it changes on a server
 
-* **One migration**, `m20261116_000000_access_warning_reviews` (one table, `access_warning_reviews`; an older image never reads it).
+* **One migration**, `m20261116_000000_access_warning_reviews` (one table, `access_warning_reviews`; an older image never reads the table, but it refuses to start on a database that records the migration: see *Rollback*).
   Manual down: `crates/migrations/manual-down/m20261116_000000_access_warning_reviews.sql` (copy: `research/2026-11-16-access-warning-reviews-manual-down.sql`);
   it only forgets which warnings were dismissed (they all show again). Its test runs that very file.
 * **GraphQL, additive**: `dismissAccessWarnings`, `restoreAccessWarnings`, `accessWarnings(includeDismissed)`, new warning kinds
@@ -20,7 +20,9 @@ Built from `43fa3fe50` (the live 43fa3fe50 image). Spec: `2026-11-12-access-ux-s
 4. `docker compose up -d --no-build stump-fork stump-intake-probe`; `docker logs` clean, probe `ready`, home/tailnet 200, public 404.
 5. Look at Settings → Public access (the attention list, a person's sheet, *Invite someone*) and the badge.
 
-Rollback: the previous image (the new table is ignored), or the manual-down SQL then the previous image.
+Rollback: **the manual-down SQL first, then the previous image** (`stump:fork-43fa3fe50`, or whatever ran before). The previous image alone does not start: Stump runs
+its migrations when it starts, and an older image refuses a database that records a migration it does not know. The table itself would be harmless; its row in
+`seaql_migrations` is what stops it. When this branch goes out together with the others, follow `deploy/public-edge/DEPLOY.md`, *Combined release (integ/friends-8)*.
 
 ## Merging with the other branches
 
