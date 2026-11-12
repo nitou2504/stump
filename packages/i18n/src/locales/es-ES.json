@@ -3003,6 +3003,11 @@
       "genres_other": "géneros",
       "read": "leídos"
     },
+    "seriesContinue": {
+      "start": "Empezar a leer",
+      "continueWith": "Seguir con {{title}}",
+      "startWith": "Empezar por {{title}}"
+    },
     "sidebar": {
       "buttons": {
         "books": "Explorar",

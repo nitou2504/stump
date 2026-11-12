@@ -25,6 +25,7 @@ import { usePaths } from '@/paths'
 
 import { CompleteSeriesConfirmation } from './CompleteSeriesConfirmation'
 import { useSeriesContext } from './context'
+import { ContinueSeriesButton } from './ContinueSeriesButton'
 import { usePrefetchSeriesBooks } from './queries'
 import { SeriesOverviewSheet } from './SeriesOverviewSheet'
 import { useSeriesThumbnailActions } from './useSeriesThumbnailActions'
@@ -227,6 +228,7 @@ export function SeriesHeader() {
 				// the series settings page is the owner's (its route sends everybody else away)
 				settingsLink={isServerOwner ? paths.seriesSettings(id) : undefined}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
+				endActions={<ContinueSeriesButton seriesId={id} />}
 			/>
 
 			{canEditThumbnail && thumbnail.dialogs}

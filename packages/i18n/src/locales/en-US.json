@@ -3451,6 +3451,11 @@
       "genres_other": "genres",
       "read": "read"
     },
+    "seriesContinue": {
+      "start": "Start reading",
+      "continueWith": "Continue with {{title}}",
+      "startWith": "Start with {{title}}"
+    },
     "sidebar": {
       "buttons": {
         "books": "Explore",

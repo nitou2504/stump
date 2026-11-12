@@ -9702,6 +9702,16 @@ export type GlobalSearchQueryVariables = Exact<{
 
 export type GlobalSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalItems: number } }, series: { __typename?: 'PaginatedSeriesResponse', nodes: Array<{ __typename?: 'Series', id: string, resolvedName: string, mediaCount: number, thumbnail: { __typename?: 'ImageRef', url: string } }> } };
 
+export type SeriesContinueQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type SeriesContinueQuery = { __typename?: 'Query', seriesById?: { __typename?: 'Series', id: string, percentageCompleted: number, upNext: Array<(
+      { __typename?: 'Media', id: string, resolvedName: string }
+      & { ' $fragmentRefs'?: { 'BookReadingActionsFragment': BookReadingActionsFragment } }
+    )> } | null };
+
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
   pagination?: InputMaybe<Pagination>;
@@ -17633,6 +17643,31 @@ export const GlobalSearchDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<GlobalSearchQuery, GlobalSearchQueryVariables>;
+export const SeriesContinueDocument = new TypedDocumentString(`
+    query SeriesContinue($id: ID!) {
+  seriesById(id: $id) {
+    id
+    percentageCompleted
+    upNext(take: 1) {
+      id
+      resolvedName
+      ...BookReadingActions
+    }
+  }
+}
+    fragment BookReadingActions on Media {
+  id
+  extension
+  readProgress {
+    page
+    locator {
+      href
+    }
+  }
+  readHistory {
+    __typename
+  }
+}`) as unknown as TypedDocumentString<SeriesContinueQuery, SeriesContinueQueryVariables>;
 export const SeriesBookGridDocument = new TypedDocumentString(`
     query SeriesBookGrid($id: String!, $pagination: Pagination) {
   media(filter: {seriesId: {eq: $id}}, pagination: $pagination) {
