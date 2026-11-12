@@ -209,6 +209,16 @@ export default function PeopleSection({ onInvite, onOpenPerson }: Props) {
 					</Button>
 				}
 			>
+				{!overview.configured && (
+					<Text
+						size="sm"
+						variant="muted"
+						className="px-4 pt-3"
+						data-testid="access-invite-needs-setup"
+					>
+						{t(accessKey('people.inviteNeedsSetup'))}
+					</Text>
+				)}
 				{inside.length === 0 && invited === 0 && home.length === 0 && ended === 0 ? (
 					<Text size="sm" variant="muted" className="px-4 py-6 text-center">
 						{t(accessKey('people.empty'))}

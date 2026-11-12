@@ -1,7 +1,7 @@
 import { Badge, Button, cn, NewCard, Switch, Tabs, Text } from '@stump/components'
 import { AccessSignInReason } from '@stump/graphql'
 import { ChevronDown } from 'lucide-react'
-import { Suspense, useEffect, useState, useTransition } from 'react'
+import { Suspense, useEffect, useRef, useState, useTransition } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
@@ -212,17 +212,25 @@ export default function HistorySection({ focus }: Props) {
 	const [tab, setTab] = useState('signins')
 	const [failuresOnly, setFailuresOnly] = useState(false)
 	const [, startTransition] = useTransition()
+	const section = useRef<HTMLElement>(null)
 
-	// a warning that points at the attempts opens the history on them
+	// a warning that points at the attempts opens the history on them, and takes you there (it is
+	// the last block of the page: on its own the click would seem to do nothing)
 	useEffect(() => {
 		if (!focus) return
 		setOpen(true)
 		setTab('signins')
 		setFailuresOnly(focus.failuresOnly)
+		section.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
 	}, [focus])
 
 	return (
-		<section id="access-history" data-testid="access-history" className="gap-3 flex flex-col">
+		<section
+			ref={section}
+			id="access-history"
+			data-testid="access-history"
+			className="gap-3 flex flex-col"
+		>
 			<NewCard label={t(accessKey('history.title'))}>
 				{!open ? (
 					<div className="px-4 py-3">

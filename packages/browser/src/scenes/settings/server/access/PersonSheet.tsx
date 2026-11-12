@@ -11,8 +11,8 @@ import {
 	Text,
 } from '@stump/components'
 import { AccessDeviceKind } from '@stump/graphql'
-import { BookOpen, ChevronDown, Monitor, Terminal } from 'lucide-react'
-import { Suspense, useState } from 'react'
+import { BookOpen, ChevronDown, ChevronRight, Monitor, Terminal } from 'lucide-react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useTranslate } from '@/hooks/useTranslate'
@@ -236,31 +236,47 @@ function Body({
 							run: () => actions.revokePerson(person.id),
 						}
 
+	const confirmRef = useRef<HTMLDivElement>(null)
+	useEffect(() => {
+		// on a phone the control that asked can be far from the top: keep the question in view
+		if (ask) confirmRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+	}, [ask])
+
+	// shown right where the control that asked is, not at the top of the sheet
+	const confirmBox = confirmation ? (
+		<div
+			ref={confirmRef}
+			role="alert"
+			data-testid="access-confirm"
+			className="gap-3 p-4 flex flex-col rounded-xl border border-border bg-muted/40"
+		>
+			<Text size="sm">{confirmation.text}</Text>
+			<div className="gap-2 flex">
+				<Button variant="outline" size="sm" onClick={() => setAsk(null)}>
+					{translate('shared.common.cancel')}
+				</Button>
+				<Button
+					size="sm"
+					variant={confirmation.destructive ? 'destructive' : 'default'}
+					isLoading={actions.isPending}
+					onClick={() => guard(confirmation.run)}
+				>
+					{confirmation.label}
+				</Button>
+			</div>
+		</div>
+	) : null
+	const confirmAt = (kind: NonNullable<Ask>['kind'], inCard = false) =>
+		ask?.kind === kind ? (
+			inCard ? (
+				<div className="p-3 border-t border-border/70">{confirmBox}</div>
+			) : (
+				confirmBox
+			)
+		) : null
+
 	return (
 		<div className="gap-6 flex flex-col" data-testid="access-person-sheet">
-			{confirmation && (
-				<div
-					role="alert"
-					data-testid="access-confirm"
-					className="gap-3 p-4 flex flex-col rounded-xl border border-border bg-muted/40"
-				>
-					<Text size="sm">{confirmation.text}</Text>
-					<div className="gap-2 flex">
-						<Button variant="outline" size="sm" onClick={() => setAsk(null)}>
-							{translate('shared.common.cancel')}
-						</Button>
-						<Button
-							size="sm"
-							variant={confirmation.destructive ? 'destructive' : 'default'}
-							isLoading={actions.isPending}
-							onClick={() => guard(confirmation.run)}
-						>
-							{confirmation.label}
-						</Button>
-					</div>
-				</div>
-			)}
-
 			<NewCard>
 				<NewCard.Row
 					label={t(accessKey('person.internet'))}
@@ -279,6 +295,7 @@ function Body({
 					/>
 				</NewCard.Row>
 			</NewCard>
+			{confirmAt('off')}
 
 			<NewCard
 				label={t(accessKey('person.devices'), { active: active.length, limit: row.maxDevices })}
@@ -301,9 +318,11 @@ function Body({
 						))}
 					</div>
 				)}
+				{confirmAt('removeDevice', true)}
 				<NewCard.Row label={t(accessKey('person.limit'))} htmlFor="access-person-limit">
 					<NativeSelect
 						id="access-person-limit"
+						className="w-40 shrink-0"
 						value={row.maxDevices}
 						disabled={actions.isPending}
 						onChange={(event) =>
@@ -357,7 +376,9 @@ function Body({
 					<div className="px-4 pt-3">
 						<Alert variant="warning" data-testid="access-person-locked">
 							<AlertDescription className="gap-3 flex items-center justify-between">
-								{t(accessKey('person.locked'), { count: blocked?.failuresLast24H ?? 0 })}
+								{blocked && blocked.failuresLast24H > 0
+									? t(accessKey('person.locked'), { count: blocked.failuresLast24H })
+									: t(accessKey('person.lockedPlain'))}
 								<Button
 									size="sm"
 									variant="outline"
@@ -369,16 +390,15 @@ function Body({
 						</Alert>
 					</div>
 				)}
-				<NewCard.Row
+				<ActionRow
 					label={t(accessKey('person.setPassword'))}
 					onClick={() => onSetPassword({ id: person.id, username: person.username })}
-					className="cursor-pointer"
 				/>
-				<NewCard.Row
+				<ActionRow
 					label={t(accessKey('person.signOutAll'))}
 					onClick={() => setAsk({ kind: 'signOutAll' })}
-					className="cursor-pointer"
 				/>
+				{confirmAt('signOutAll', true)}
 			</NewCard>
 
 			<NewCard label={t(accessKey('person.librariesTitle'))}>
@@ -470,6 +490,23 @@ function Body({
 					{t(accessKey('person.removeAll'))}
 				</Button>
 			</div>
+			{confirmAt('removeAll')}
+		</div>
+	)
+}
+
+/** A row of a card that does one thing when pressed: a real button, so the keyboard and a screen reader reach it */
+function ActionRow({ label, onClick }: { label: string; onClick: () => void }) {
+	return (
+		<div className="border-t border-border/70 first:border-t-0">
+			<button
+				type="button"
+				onClick={onClick}
+				className="px-4 py-3.5 text-sm font-medium focus-visible:ring-brand flex w-full items-center justify-between text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+			>
+				{label}
+				<ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+			</button>
 		</div>
 	)
 }

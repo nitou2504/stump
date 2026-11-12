@@ -10,6 +10,15 @@ import { AppContext, IAppContext } from '@/context'
 // a busy machine renders slowly: wait longer for what the screens show before calling it missing
 configure({ asyncUtilTimeout: 5000 })
 
+// jsdom has no computed `transform`, which the drawer library reads when a press is released:
+// without this, every click inside a phone drawer is reported as an uncaught error
+const computedStyle = window.getComputedStyle.bind(window)
+window.getComputedStyle = (element: Element, pseudoElement?: string | null) => {
+	const style = computedStyle(element, pseudoElement)
+	if (!style.transform) Object.defineProperty(style, 'transform', { value: 'none' })
+	return style
+}
+
 type Answers = (query: string, variables: Record<string, unknown> | undefined) => unknown
 
 /**
