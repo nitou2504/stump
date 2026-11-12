@@ -1,23 +1,29 @@
 #!/bin/bash
 # verify-edge.sh: runs the REAL nginx.conf of this folder in a throwaway container pair against a stub
 # upstream that echoes the headers it gets, and checks what the edge promises. Needs docker, curl,
-# openssl, python3. Nothing live is touched (own network, own ports 18080/18081, own state folder).
+# openssl, python3. Nothing live is touched (own network, own ports 18080/18081, own state folder; set
+# VERIFY_NET / VERIFY_PUB_PORT / VERIFY_HOME_PORT to run beside another copy; VERIFY_KEEP=1 leaves the containers up).
 #
 #   bash deploy/public-edge/verify-edge.sh            # from the repo root
 #   bash deploy/public-edge/verify-edge.sh --live     # also checks the LIVE edge on 127.0.0.1:10803 (no pass → 404)
 set -u
 LIVE=0; [ "${1:-}" = "--live" ] && LIVE=1
 HERE="$(cd "$(dirname "$0")" && pwd)"
-NET=stump-edge-verify
+# names and ports can be changed (VERIFY_NET, VERIFY_PUB_PORT, VERIFY_HOME_PORT) so that two runs, from two
+# checkouts, never remove each other's containers
+NET=${VERIFY_NET:-stump-edge-verify}
+PUB_PORT=${VERIFY_PUB_PORT:-18081}; HOME_PORT=${VERIFY_HOME_PORT:-18080}
 KEY=$(python3 -c "import json;print(json.load(open('$HERE/vectors.json'))['key'])")
 COOKIE=__Host-g3-stump
 STATE=$(mktemp -d); chmod 755 "$STATE"
-PUB=http://127.0.0.1:18081; HOME_=http://127.0.0.1:18080
+EDGE="$STATE/edge"; mkdir -p "$EDGE"; cp -a "$HERE"/. "$EDGE"/   # a copy: the break-glass test writes to its revoked.map
+PUB=http://127.0.0.1:$PUB_PORT; HOME_=http://127.0.0.1:$HOME_PORT
 fail=0; n=0
 ok()   { n=$((n+1)); echo "  ok   $*"; }
 bad()  { n=$((n+1)); fail=$((fail+1)); echo "  FAIL $*"; }
 check(){ local want="$1" got="$2" what="$3"; if [ "$got" = "$want" ]; then ok "$what ($got)"; else bad "$what: wanted $want, got $got"; fi; }
-cleanup() { docker rm -f $NET-edge $NET-stub >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$STATE" /tmp/$NET-stub.conf; }
+cleanup() { [ "${VERIFY_KEEP:-0}" = 1 ] && { echo "(VERIFY_KEEP=1: containers $NET-edge and $NET-stub left running; state in $STATE)"; return; }
+  docker rm -f $NET-edge $NET-stub >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; rm -rf "$STATE" /tmp/$NET-stub.conf; }
 trap cleanup EXIT
 
 mac() { printf '%s' "$1" | openssl dgst -sha256 -hmac "$KEY" -binary | openssl base64 -A | tr '+/' '-_' | tr -d '='; }
@@ -45,8 +51,8 @@ http { server { listen 10801;
     return 200 "pub=[$http_x_edge_public] pass=[$http_x_edge_pass] cookie=[$http_cookie] host=[$http_host] xfp=[$http_x_forwarded_proto] xff=[$http_x_forwarded_for] real=[$http_x_real_ip] fwd=[$http_forwarded] fhost=[$http_x_forwarded_host] upg=[$http_upgrade] conn=[$http_connection] uri=$request_uri\n"; } } }
 EOF
 docker run -d --name $NET-stub --network $NET --network-alias stump-fork -v /tmp/$NET-stub.conf:/etc/nginx/nginx.conf:ro nginx:alpine >/dev/null
-docker run -d --name $NET-edge --network $NET -p 127.0.0.1:18081:8081 -p 127.0.0.1:18080:8080 \
-  -e EDGE_KEY="$KEY" -e EDGE_COOKIE=$COOKIE -v "$HERE":/etc/nginx/edge:ro -v "$STATE":/etc/nginx/state:ro \
+docker run -d --name $NET-edge --network $NET -p 127.0.0.1:$PUB_PORT:8081 -p 127.0.0.1:$HOME_PORT:8080 \
+  -e EDGE_KEY="$KEY" -e EDGE_COOKIE=$COOKIE -v "$EDGE":/etc/nginx/edge:ro -v "$STATE":/etc/nginx/state:ro \
   --entrypoint nginx nginx:alpine -c /etc/nginx/edge/nginx.conf -g 'daemon off;' >/dev/null
 sleep 3
 docker exec $NET-edge nginx -t -c /etc/nginx/edge/nginx.conf >/dev/null 2>&1 && ok "nginx -t" || bad "nginx -t"
@@ -74,6 +80,23 @@ done
 check 404 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$(pass_for ana-phone-k3f9x $(( $(date +%s) - 181*86400 )))")" "an expired pass"
 check 404 "$(code $PUB/api/_i/../v2/ping)" "a path trick without a pass"
 check 404 "$(code --path-as-is $PUB/api/_i/%2e%2e/v2/ping)" "an encoded path trick without a pass"
+
+echo "== the exemptions (invite links, manifest, favicons) are decided on the request line as sent, not on nginx's cleaned-up path"
+# these all clean up to an exempt path ($uri) while Stump would get the raw line: refused with or without a pass
+for t in /settings/access/../../api/_i/x /api/v2/ping/..%2F..%2F_i/x /api/v2/ping/%2e%2e/%2e%2e/_i/x /api//_i/x \
+         /api/_i/../_i/x /./api/_i/x /api/%5Fi/x /api/_i/x/y /api/_i/. \
+         /assets/./manifest.webmanifest /assets/x/../manifest.webmanifest /assets//manifest.webmanifest \
+         /assets/%6Danifest.webmanifest /assets/..%2Fassets/manifest.webmanifest /x/..%2Fassets/manifest.webmanifest \
+         /assets/favicon-32x32.png/../favicon-16x16.png; do
+  check 404 "$(code --path-as-is "$PUB$t")" "no pass: $t"
+  check 404 "$(code --path-as-is "$PUB$t" -H "Cookie: $COOKIE=$P")" "a pass does not make it an invite or a static file: $t"
+done
+for t in /api/_i/.. /api/_i/%2e%2e/x /api/_i/..%2F..%2Fapi/v2/ping /api/_i/x%2Fy /api/_i/x%0d%0a; do
+  check 404 "$(code --path-as-is "$PUB$t")" "no pass: $t"
+done
+# and the plain static forms still work without one (the invite forms are checked after the uploads: the invite page has a rate limit of its own)
+check 200 "$(code "$PUB/assets/manifest.webmanifest?v=3")" "the manifest with a query"
+check 200 "$(code $PUB/assets/favicon-16x16.png)" "another favicon"
 
 echo "== what Stump is told: the marker always, the pass only when it is valid, nothing from the client"
 A=$(curl -s $PUB/api/v2/ping -H "Cookie: $COOKIE=$P; stump_session=abc; other=zzz" -H 'X-Edge-Public: evil' -H "X-Edge-Pass: planted" -H 'Forwarded: for=6.6.6.6' -H 'X-Forwarded-Host: evil.test' -H 'X-Forwarded-For: 6.6.6.6')
@@ -177,9 +200,41 @@ grep -q '"message"' "$STATE/429.body" && bad "the edge's 429 looks like one of S
 check 404 "$(code -X POST "$UPLOAD?libraryId=x" "${MULTI[@]}" --data-binary x)" "and the pass is still asked for"
 echo "$(curl -s $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" | grep -q 'pub=\[1\]' && ok "the rate limit of uploads does not touch the rest" || bad "the rest of the public side was affected by the upload limit"
 
+echo "== the plain invite forms still work without a pass (after a pause: the invite page allows 6 a minute, and the tests before used it up)"
+sleep 51
+check 200 "$(code $PUB/api/_i/)" "the paste form's page (/api/_i/)"
+check 200 "$(code "$PUB/api/_i/?t=https%3A%2F%2Fg3.tail3e401.ts.net%3A8443%2Fapi%2F_i%2FAAAAAAAAAAAAAAAAAAAAAA")" "a pasted link (/api/_i/?t=...)"
+check 200 "$(code $PUB/api/_i/ana-phone-k3f9x.1700000000.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA)" "a legacy invite link (name.expiry.mac)"
+
+echo "== break-glass revoked.map: the edge refuses the device, and Stump is never told about its pass"
+echo 'ana-phone-k3f9x 1;' >> "$EDGE/revoked.map"
+docker exec $NET-edge nginx -s reload -c /etc/nginx/edge/nginx.conf >/dev/null 2>&1; sleep 2.5
+check 404 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" "a device in revoked.map is refused"
+B=$(curl -s $PUB/assets/manifest.webmanifest -H "Cookie: $COOKIE=$P")   # a path that needs no pass, so the request reaches Stump
+echo "$B" | grep -q 'pub=\[1\]' && echo "$B" | grep -q 'pass=\[\]' && ok "on a path that needs no pass Stump gets the marker and no pass" || bad "a revoked.map device's pass reached Stump: $B"
+sed -i '/^ana-phone-k3f9x 1;$/d' "$EDGE/revoked.map"
+docker exec $NET-edge nginx -s reload -c /etc/nginx/edge/nginx.conf >/dev/null 2>&1; sleep 2.5
+check 200 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" "and it works again once the line is gone"
+
+echo "== the home listener: a password is tried a few times a minute, API-key traffic is never counted"
+sleep 1
+ok_first=$(code -X POST $HOME_/api/v2/auth/login -H 'Content-Type: application/json' -d '{}')
+got429=0; for i in $(seq 1 14); do [ "$(code -X POST $HOME_/api/v2/auth/login -H 'Content-Type: application/json' -d '{}')" = 429 ] && got429=$((got429+1)); done
+[ "$ok_first" != 429 ] && ok "the first sign-in goes through ($ok_first)" || bad "the first sign-in was limited"
+[ "$got429" -ge 1 ] && ok "a flood of sign-ins is limited ($got429 of 14 got a 429)" || bad "no sign-in was limited in a burst of 14"
+check 200 "$(code $HOME_/api/v2/ping)" "other requests are not affected"
+bearer_bad=0; for i in $(seq 1 60); do [ "$(code -X POST $HOME_/api/graphql -H 'Authorization: Bearer stump_testkey' -H 'Content-Type: application/json' -d '{}')" != 200 ] && bearer_bad=$((bearer_bad+1)); done
+[ "$bearer_bad" = 0 ] && ok "60 API-key (Bearer) requests in a burst: none limited" || bad "$bearer_bad of 60 Bearer requests were refused"
+basic429=0; for i in $(seq 1 150); do [ "$(code $HOME_/opds/v1.2/catalog -H 'Authorization: Basic Zm9vOmJhcg==')" = 429 ] && basic429=$((basic429+1)); done
+[ "$basic429" -ge 1 ] && [ "$basic429" -lt 60 ] && ok "HTTP Basic: a reader's burst of about 120 goes through, a flood does not ($basic429 of 150 got a 429)" || bad "HTTP Basic limit: $basic429 of 150 requests got a 429 (wanted 1 to 59)"
+check 200 "$(code $HOME_/api/v2/ping)" "and a request without Basic is still answered"
+check 404 "$(code $HOME_/api/v2/ping -H 'Tailscale-Funnel-Request: ?1')" "the Funnel refusal still holds after the floods"
+
 if [ "$LIVE" = 1 ]; then
   echo "== the live edge"
   check 404 "$(code http://127.0.0.1:10803/api/v2/ping)" "no pass"
+  check 404 "$(code --path-as-is "http://127.0.0.1:10803/settings/access/../../api/_i/x")" "no pass, a dot-segment invite path"
+  check 404 "$(code --path-as-is "http://127.0.0.1:10803/api/v2/ping/..%2F..%2F_i/x")" "no pass, an escaped-slash invite path"
 fi
 
 echo

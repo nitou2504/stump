@@ -117,7 +117,7 @@ install -m 644 $S/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
 cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map          # keep the break-glass revocations
 docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
   -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-# and the real config against a stub (85 checks, ~1 min, nothing live is touched):
+# and the real config against a stub (137 checks, ~4 min, nothing live is touched):
 bash $S/deploy/public-edge/verify-edge.sh
 ```
 
@@ -257,7 +257,7 @@ cd /mnt/data2/containers/stump-fork && : "${S:?set S first, see the top of this 
 && echo "edge switched"
 ```
 
-`verify-edge.sh` ends with `85 checks, 0 failed` (needs docker; about a minute). If the chain stops, read its last
+`verify-edge.sh` ends with `137 checks, 0 failed` (needs docker; about four minutes). If the chain stops, read its last
 line: before `install -m 644 $N/nginx.conf edge/nginx.conf` nothing live has changed; after it, put the old file back
 (`cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf`, see *Back out*).
 
@@ -454,3 +454,14 @@ and reload the edge (`docker exec stump-edge nginx -s reload -c /etc/nginx/edge/
   pass (fail closed) until the app writes it again; the app writes it at every start, after every change and every 6 hours.
 * A rate-limit rejection (`429`) of the edge's own per-client limit (6 sign-ins a minute) has no state to clear: it ends
   within a minute. The daily budget (8 sign-ins a device) is reset from the page.
+* **What the edge decides without a pass** (invite links, `/assets/manifest.webmanifest`, the favicons) it decides on the
+  request line exactly as the client sent it (`$request_uri`), never on nginx's cleaned-up path: a dot segment, an escaped
+  slash or `//` is an ordinary request that needs a pass. `verify-edge.sh` checks the tricks with and without a pass.
+  The pass of a device that `edge/revoked.map` refuses is not forwarded to Stump either.
+* **The home listener limits password sign-ins** (LAN, this host, the tailnet: the app never locks the owner's account):
+  `POST /api/v2/auth/login` 10 a minute per address (burst 5, then `429`), HTTP Basic on `/opds` 60 a minute (burst 120: a
+  reading app sends it on every request). API-key (Bearer) traffic, book-curator's, is never counted. If you lock
+  yourself out on the LAN, wait a minute (all of the host's own processes share one address, 192.168.192.1).
+* **`stump-pdf-worker` has no network** (`network_mode: none`), a read-only root, no capabilities and no new privileges:
+  it talks to Stump only through `config/workers/pdf`. If a future worker needs the network, give it its own `internal: true`
+  network; never the compose default one, where it would reach `stump-fork:10801` as "home".
