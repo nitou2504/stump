@@ -1,6 +1,7 @@
 import { cn } from '@stump/components'
 import { AccessRole } from '@stump/graphql'
 import { Suspense, useMemo, useRef } from 'react'
+import { Helmet } from 'react-helmet'
 import { Outlet, useLocation, useParams } from 'react-router'
 import { useMediaMatch } from 'rooks'
 
@@ -108,6 +109,9 @@ export default function UserSmartListLayout() {
 				}}
 			>
 				<div className="relative flex flex-1">
+					<Helmet>
+						<title>Stump | {list.name}</title>
+					</Helmet>
 					{displaySideBar && <SmartListSettingsSideBar />}
 
 					<div className="min-w-0 flex flex-1 flex-col">

@@ -9,6 +9,7 @@ import {
 import { BookReaderSceneQuery, graphql, ReadingMode } from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Helmet } from 'react-helmet'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { ImageBasedReader } from '@/components/readers/imageBased'
@@ -79,9 +80,14 @@ export default function BookReaderSceneContainer() {
 	}
 
 	return (
-		<Suspense>
-			<BookReaderScene book={media} />
-		</Suspense>
+		<>
+			<Helmet>
+				<title>Stump | {media.resolvedName}</title>
+			</Helmet>
+			<Suspense>
+				<BookReaderScene book={media} />
+			</Suspense>
+		</>
 	)
 }
 

@@ -2,6 +2,7 @@ import { useGraphQL, useGraphQLMutation, useSDK } from '@stump/client'
 import { graphql, UserPermission } from '@stump/graphql'
 import { Book, Library, Rows3, ScanLine } from 'lucide-react'
 import { useCallback, useRef } from 'react'
+import { Helmet } from 'react-helmet'
 
 import { SceneContainer } from '@/components/container'
 import GenericEmptyState from '@/components/GenericEmptyState'
@@ -89,8 +90,11 @@ export default function LibrariesScene() {
 
 	return (
 		<>
+			<Helmet>
+				<title>Stump | {translate('shared.common.libraries')}</title>
+			</Helmet>
 			<CollectionSceneHeader
-				title="Libraries"
+				title={translate('shared.common.libraries')}
 				docsLink="https://stumpapp.dev/docs/guides/fundamentals/libraries"
 				actions={
 					canScan

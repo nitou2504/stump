@@ -90,7 +90,7 @@ export default function HomeScene() {
 		<>
 			<Helmet>
 				{/* Doing this so Helmet splits the title into an array, I'm not just insane lol */}
-				<title>Stump | {'Home'}</title>
+				<title>Stump | {translate('shared.common.home')}</title>
 			</Helmet>
 
 			<PageHeader>
