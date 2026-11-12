@@ -14,6 +14,10 @@ export const FRIEND_PERMISSIONS = [
 	UserPermission.AccessSmartList,
 ] as const
 
+/** A permission's name in the middle of a sentence: "Scan libraries" is "scan libraries", "API keys" stays as it is */
+export const inSentence = (name: string) =>
+	/^[A-Z][a-z]/.test(name) ? name.charAt(0).toLowerCase() + name.slice(1) : name
+
 /** The permission's name in the locale files: `ADD_BOOKS` is `addBooks` */
 export const permissionKey = (permission: string) =>
 	permission.toLowerCase().replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())

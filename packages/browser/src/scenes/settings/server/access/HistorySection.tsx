@@ -221,7 +221,13 @@ export default function HistorySection({ focus }: Props) {
 		setOpen(true)
 		setTab('signins')
 		setFailuresOnly(focus.failuresOnly)
-		section.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+		// once the list has come in under the heading: before, the page is too short to bring the
+		// heading to the top
+		const timer = window.setTimeout(
+			() => section.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }),
+			300,
+		)
+		return () => window.clearTimeout(timer)
 	}, [focus])
 
 	return (
@@ -266,7 +272,9 @@ export default function HistorySection({ focus }: Props) {
 						</Suspense>
 						{tab === 'signins' && (
 							<Text size="xs" variant="muted" className="px-4">
-								{t(accessKey('history.allSignIns'))}
+								{t(accessKey('history.allSignIns'), {
+									users: t('settingsScene.server/users.title'),
+								})}
 							</Text>
 						)}
 						<div className="px-4">

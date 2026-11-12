@@ -34,6 +34,7 @@ import {
 	useAllAccessDevices,
 } from './graphql'
 import { accessKey } from './keys'
+import { inSentence } from './permissions'
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error && error.message ? error.message : undefined
@@ -348,7 +349,7 @@ function Item({
 		note: warning.detail ?? '',
 		extras: (warning.detail ?? '')
 			.split(',')
-			.map((word) => t(`userPermissions.${word.trim()}.label`))
+			.map((word) => inSentence(t(`userPermissions.${word.trim()}.label`)))
 			.join(', '),
 	})
 

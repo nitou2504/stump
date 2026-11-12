@@ -2605,7 +2605,7 @@
           "signIns": "Entradas",
           "changes": "Cambios",
           "failuresOnly": "Solo fallos",
-          "allSignIns": "Todas las entradas, también en casa, están en Usuarios → Historial de autenticación.",
+          "allSignIns": "Todas las entradas, también en casa, están en {{users}} → Historial de autenticación.",
           "fromInternet": "Desde internet",
           "system": "Stump",
           "noSignIns": "No hay entradas que mostrar.",

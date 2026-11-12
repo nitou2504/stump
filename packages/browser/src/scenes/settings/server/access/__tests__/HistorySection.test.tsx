@@ -69,7 +69,9 @@ describe('History', () => {
 			failuresOnly: false,
 		})
 		// the footer says where every sign-in is
-		expect(screen.getByText(K('history.allSignIns'))).toBeInTheDocument()
+		expect(
+			screen.getByText(`${K('history.allSignIns')} users=settingsScene.server/users.title`),
+		).toBeInTheDocument()
 	})
 
 	it('keeps the address and the browser for the row that is opened', async () => {

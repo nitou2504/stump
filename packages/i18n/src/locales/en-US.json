@@ -3058,7 +3058,7 @@
           "signIns": "Sign-ins",
           "changes": "Changes",
           "failuresOnly": "Failures only",
-          "allSignIns": "Every sign-in, also at home, is in Users → Authentication history.",
+          "allSignIns": "Every sign-in, also at home, is in {{users}} → Authentication history.",
           "fromInternet": "From the internet",
           "system": "Stump",
           "noSignIns": "No sign-ins to show.",

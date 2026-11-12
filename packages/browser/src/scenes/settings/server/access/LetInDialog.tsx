@@ -24,7 +24,7 @@ import {
 	useUserLoader,
 } from './graphql'
 import { accessKey } from './keys'
-import { FRIEND_PERMISSIONS, permissionKey } from './permissions'
+import { FRIEND_PERMISSIONS, inSentence, permissionKey } from './permissions'
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error && error.message ? error.message : undefined
@@ -131,7 +131,7 @@ export default function LetInDialog({ person, onClose, onSetPassword }: Props) {
 								{t(accessKey('letIn.extras'), {
 									name: account?.username ?? '',
 									extras: extras
-										.map((permission) => t(`userPermissions.${permission}.label`))
+										.map((permission) => inSentence(t(`userPermissions.${permission}.label`)))
 										.join(', '),
 								})}
 							</AlertDescription>
