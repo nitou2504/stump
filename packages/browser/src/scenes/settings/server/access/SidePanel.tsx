@@ -1,5 +1,5 @@
 import { Drawer, SheetPrimitive } from '@stump/components'
-import type { PropsWithChildren } from 'react'
+import type { PropsWithChildren, ReactNode } from 'react'
 
 import { useIsWide } from './useIsWide'
 
@@ -7,7 +7,7 @@ type Props = PropsWithChildren<{
 	open: boolean
 	onClose: () => void
 	title: string
-	description?: string
+	description?: ReactNode
 	testId?: string
 }>
 

@@ -2751,7 +2751,8 @@
           "lastIn": "Last in {{when}}",
           "neverIn": "Never signed in",
           "error": "That didn't work.",
-          "allowMoreTriesHelp": "After too many wrong passwords on this device."
+          "allowMoreTriesHelp": "After too many wrong passwords on this device.",
+          "lastInFrom": "Last in {{when}} from {{device}}"
         },
         "status": {
           "notConfigured": {

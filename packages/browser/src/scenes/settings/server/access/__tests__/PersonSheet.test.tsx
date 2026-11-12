@@ -81,6 +81,14 @@ describe('A person’s sheet', () => {
 		expect(sheet).not.toHaveTextContent('198.51.100.7')
 	})
 
+	it('says under their name when they were last in and from which device', async () => {
+		renderSheet()
+
+		const sheet = await screen.findByTestId('access-sheet', undefined, { timeout: 5000 })
+		await waitFor(() => expect(sheet).toHaveTextContent(`${K('person.lastInFrom')} when=`))
+		expect(sheet).toHaveTextContent('device=Ana’s phone')
+	})
+
 	it('opens a device to show where it was first seen, from where and with what', async () => {
 		renderSheet()
 		const user = userEvent.setup()

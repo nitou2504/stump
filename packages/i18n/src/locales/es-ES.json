@@ -2298,7 +2298,8 @@
           "lastIn": "Última vez {{when}}",
           "neverIn": "Nunca ha entrado",
           "error": "No funcionó.",
-          "allowMoreTriesHelp": "Tras demasiadas contraseñas incorrectas en este dispositivo."
+          "allowMoreTriesHelp": "Tras demasiadas contraseñas incorrectas en este dispositivo.",
+          "lastInFrom": "Última vez {{when}} desde {{device}}"
         },
         "status": {
           "notConfigured": {

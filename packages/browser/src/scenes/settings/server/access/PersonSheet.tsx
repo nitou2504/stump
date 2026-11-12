@@ -474,6 +474,29 @@ function Body({
 	)
 }
 
+/** When they were last in and from which of their devices, under their name */
+function LastIn({ row }: { row: AccessPersonRow }) {
+	const { t } = useTranslate()
+	const devices = useAccessDevices(row.person.id, false).nodes
+	const latest = devices
+		.filter((device) => device.lastSeenAt)
+		.sort(
+			(a, b) => new Date(b.lastSeenAt ?? 0).getTime() - new Date(a.lastSeenAt ?? 0).getTime(),
+		)[0]
+
+	if (!row.lastSignInAt) return <>{t(accessKey('person.neverIn'))}</>
+	return (
+		<>
+			{latest
+				? t(accessKey('person.lastInFrom'), {
+						when: formatAgo(row.lastSignInAt),
+						device: latest.label,
+					})
+				: t(accessKey('person.lastIn'), { when: formatAgo(row.lastSignInAt) })}
+		</>
+	)
+}
+
 /**
  * Everything about one person in one place: whether they can sign in from the internet, their
  * devices (each can be allowed more tries, removed, or brought back; a device link adds another),
@@ -482,7 +505,6 @@ function Body({
  * can point straight at it
  */
 export default function PersonSheet({ personId, onClose, onLetIn, onSetPassword, hidden }: Props) {
-	const { t } = useTranslate()
 	const people = useAccessPeople()
 	const row = people.find(({ person }) => person.id === personId) ?? null
 	const open = !!personId && !!row && !hidden
@@ -494,9 +516,11 @@ export default function PersonSheet({ personId, onClose, onLetIn, onSetPassword,
 			testId="access-sheet"
 			title={row?.person.username ?? ''}
 			description={
-				row?.lastSignInAt
-					? t(accessKey('person.lastIn'), { when: formatAgo(row.lastSignInAt) })
-					: t(accessKey('person.neverIn'))
+				row && (
+					<Suspense fallback={null}>
+						<LastIn row={row} />
+					</Suspense>
+				)
 			}
 		>
 			{row && (
