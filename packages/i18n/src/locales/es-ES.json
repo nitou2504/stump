@@ -3817,6 +3817,73 @@
       },
       "unknownSeriesName": "serie"
     },
+    "readingDevice": {
+      "device": "Dispositivo",
+      "description": "Algunas funciones de lectura relacionan la actividad con dispositivos concretos. Puedes configurarlos si quieres activar ese comportamiento",
+      "placeholder": {
+        "ios": "Mi dispositivo iOS",
+        "android": "Mi dispositivo Android",
+        "macos": "Mi dispositivo macOS"
+      }
+    },
+    "readingTimeline": {
+      "title": "Cronología de lectura",
+      "startOfReadthrough": "Inicio de la lectura {{readthroughNumber}}",
+      "readthroughDateRange": "{{startDate}} - {{endDate}}",
+      "feedType": {
+        "sessions": "Sesiones",
+        "events": "Eventos"
+      },
+      "goToSession": "Ir a la sesión",
+      "deleteSession": {
+        "label": "Eliminar sesión",
+        "finishedConfirm": "Esta sesión completa una lectura, así que eliminarla cambiará mucho tu cronología y no se puede deshacer",
+        "dnfedConfirm": "Esta sesión completa una lectura abandonada, así que eliminarla cambiará mucho tu cronología y no se puede deshacer",
+        "normalConfirm": "Esto eliminará la sesión de tu cronología de forma permanente",
+        "failedToDelete": "No se pudo eliminar la sesión"
+      },
+      "extendSession": {
+        "label": "Prolongar sesión",
+        "description": "Esto actualizará la sesión para que siga activa, lo que afecta a la ventana de duración registrada de la sesión",
+        "failedToExtend": "No se pudo prolongar la sesión"
+      },
+      "emptyState": {
+        "label": "Sin actividad",
+        "description": "Cuando empieces a leer, vuelve aquí para ver tu cronología"
+      }
+    },
+    "readingJournal": {
+      "editorPlaceholder": "Escribe algunas ideas...",
+      "failedToSaveEntry": "No se pudo guardar la entrada del diario"
+    },
+    "readingStats": {
+      "title": "Estadísticas",
+      "range": {
+        "week": "Esta semana",
+        "month": "Este mes",
+        "year": "Este año",
+        "lifetime": "Total"
+      },
+      "activeDays_one": "Has leído {{count}} día",
+      "activeDays_other": "Has leído {{count}} días",
+      "dailyActivity": "Tus días",
+      "streaks": {
+        "current": "Racha actual",
+        "longest": "Racha más larga"
+      },
+      "dayOfWeek": {
+        "title": "Por día de la semana",
+        "description": "Tiempo medio de lectura en cada día de la semana"
+      },
+      "booksFinished": "Libros terminados",
+      "avgPerActiveDay": "Media por día",
+      "avgPerSession": "Tiempo medio por sesión",
+      "timeToFinish": {
+        "title": "Tiempo para terminar",
+        "books_one": "Basado en {{count}} libro",
+        "books_other": "Basado en {{count}} libros"
+      }
+    },
     "errors": {
       "unknown": "Error desconocido",
       "serverConnectFailed": {
