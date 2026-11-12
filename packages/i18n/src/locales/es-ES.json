@@ -4031,6 +4031,10 @@
     },
     "errors": {
       "unknown": "Error desconocido",
+      "bookNotFound": {
+        "title": "Libro no encontrado",
+        "description": "No se pudo encontrar el libro que buscas. Puede que se haya eliminado o movido"
+      },
       "serverConnectFailed": {
         "heading": "Servidor no disponible",
         "reconnected": "¡Reconectado al servidor! Redirigiendo...",
@@ -4045,7 +4049,11 @@
       "current": "Servidor actual"
     },
     "emptyState": {
+      "noStumpServers": "No hay servidores de Stump añadidos",
+      "noOPDSServers": "No hay servidores OPDS añadidos",
       "noServers": "No hay servidores configurados",
+      "cta": "Empieza añadiendo un servidor para acceder a tus colecciones de libros",
+      "seeDocumentation": "Ver documentación",
       "noSmartLists": {
         "label": "Ninguna lista devuelta",
         "description": "Una vez creadas aparecerán aquí"
@@ -4072,8 +4080,11 @@
       "showCurrentChapter": "Mostrar capítulo actual"
     },
     "textCase": {
+      "label": "Uso de mayúsculas",
       "options": {
-        "lowerCase": "Minúsculas"
+        "lowerCase": "Minúsculas",
+        "sentenceCase": "Como en una oración",
+        "titleCase": "Como en un título"
       }
     },
     "addOrEditServer": {
