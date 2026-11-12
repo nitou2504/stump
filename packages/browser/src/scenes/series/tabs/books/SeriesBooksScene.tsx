@@ -35,6 +35,7 @@ import { useBooksLayout } from '@/stores/layout'
 
 import { useSeriesContext } from '../../../../components/series/context'
 import { getQueryKey, query, usePrefetchSeriesBooks } from '../../../../components/series/queries'
+import { fitsOnOnePage } from './fitsOnOnePage'
 
 export default function SeriesBooksSceneContainer() {
 	return (
@@ -180,6 +181,15 @@ function SeriesBooksScene() {
 		throw new Error('Invalid pagination type, expected OffsetPaginationInfo')
 	}
 
+	// a short series (everything on one page, nothing narrowing it) needs no search, A–Z bar or page controls
+	const everythingFits = fitsOnOnePage({
+		loaded: !!data,
+		totalPages: pageInfo.totalPages || 1,
+		search,
+		startsWith,
+		filters,
+	})
+
 	const previousPage = usePrevious(pageInfo.currentPage)
 	const shouldScroll = !!previousPage && previousPage !== pageInfo.currentPage
 	// back/forward to another page of results returns to where it was left instead
@@ -198,6 +208,7 @@ function SeriesBooksScene() {
 		if (layoutMode === InterfaceLayout.Grid) {
 			return (
 				<URLFilterContainer
+					hideFooter={everythingFits}
 					currentPage={pageInfo.currentPage || 1}
 					pages={pageInfo.totalPages || 1}
 					onChangePage={(page) => {
@@ -296,9 +307,10 @@ function SeriesBooksScene() {
 					orderControls={<URLOrdering entity="media" />}
 					filterControls={<URLFilterDrawer entity="media" />}
 					navOffset
+					search={everythingFits ? <span /> : undefined}
 				/>
 
-				{enableAlphabetSelect && (
+				{enableAlphabetSelect && !everythingFits && (
 					<SeriesBooksAlphabet
 						startsWith={startsWith}
 						onSelectLetter={onSelectLetter}
