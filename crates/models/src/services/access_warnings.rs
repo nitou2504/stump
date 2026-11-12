@@ -509,7 +509,10 @@ where
 	{
 		let seen = device.last_seen_at.unwrap_or(device.created_at);
 		let terminal = device.person_id.is_none();
-		let gone = device.person_id.as_ref().is_some_and(|id| !live.contains(id));
+		let gone = device
+			.person_id
+			.as_ref()
+			.is_some_and(|id| !live.contains(id));
 		if terminal || gone || seen <= cutoff {
 			leftovers += 1;
 			let latest = seen.max(device.created_at);
@@ -635,11 +638,8 @@ where
 	}
 
 	// forget the rows of warnings that are gone for good
-	let current: HashSet<String> = warnings(conn, now)
-		.await?
-		.iter()
-		.map(Warning::id)
-		.collect();
+	let current: HashSet<String> =
+		warnings(conn, now).await?.iter().map(Warning::id).collect();
 	let stale = access_warning_review::Entity::find()
 		.filter(access_warning_review::Column::DismissedAt.lt(now - Duration::days(30)))
 		.all(conn)

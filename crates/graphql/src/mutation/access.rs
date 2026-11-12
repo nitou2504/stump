@@ -302,7 +302,8 @@ impl AccessMutation {
 		let ids = warning_ids(ids)?;
 
 		let now = Utc::now();
-		let changed = access_warnings::dismiss(conn, now, &user.id, ids.as_deref()).await?;
+		let changed =
+			access_warnings::dismiss(conn, now, &user.id, ids.as_deref()).await?;
 		if changed > 0 {
 			service::audit(
 				conn,

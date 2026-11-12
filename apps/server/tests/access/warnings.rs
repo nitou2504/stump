@@ -407,7 +407,12 @@ async fn count_of(app: &TestApp) -> i64 {
 }
 
 async fn audit_actions(app: &TestApp) -> Vec<String> {
-	let page = owner_gql(app, "{ accessAudit { nodes { action target detail } } }", None).await;
+	let page = owner_gql(
+		app,
+		"{ accessAudit { nodes { action target detail } } }",
+		None,
+	)
+	.await;
 	page["data"]["accessAudit"]["nodes"]
 		.as_array()
 		.unwrap()
@@ -427,12 +432,8 @@ async fn dismissing_hides_a_warning_from_the_list_and_the_count_and_restoring_sh
 	assert_eq!(count_of(app).await, 1);
 
 	// an id that is not a warning is ignored; the real one is marked
-	let done = owner_gql(
-		app,
-		DISMISS,
-		Some(json!({"ids": ["Nonsense:-", ids[0]]})),
-	)
-	.await;
+	let done =
+		owner_gql(app, DISMISS, Some(json!({"ids": ["Nonsense:-", ids[0]]}))).await;
 	assert_eq!(done["data"]["dismissAccessWarnings"], 1, "{done:#}");
 	assert!(visible_ids(app).await.is_empty());
 	assert_eq!(count_of(app).await, 0);
@@ -450,14 +451,18 @@ async fn dismissing_hides_a_warning_from_the_list_and_the_count_and_restoring_sh
 	// nothing is deleted: the device rows are where they were
 	assert_eq!(devices_of(app, &ana.id).await.len(), 3);
 	// the audit log says so, with the id (one id) and the count
-	assert!(audit_actions(app).await.contains(&"warning.dismiss".to_string()));
+	assert!(audit_actions(app)
+		.await
+		.contains(&"warning.dismiss".to_string()));
 
 	// Undo shows it again
 	let back = owner_gql(app, RESTORE, Some(json!({"ids": [ids[0]]}))).await;
 	assert_eq!(back["data"]["restoreAccessWarnings"], 1, "{back:#}");
 	assert_eq!(visible_ids(app).await, ids);
 	assert_eq!(count_of(app).await, 1);
-	assert!(audit_actions(app).await.contains(&"warning.restore".to_string()));
+	assert!(audit_actions(app)
+		.await
+		.contains(&"warning.restore".to_string()));
 
 	// nothing to restore is not an error, and writes nothing
 	let none = owner_gql(app, RESTORE, Some(json!({"ids": ["Nonsense:-"]}))).await;
@@ -495,7 +500,10 @@ async fn clear_all_marks_every_visible_warning_and_a_new_event_brings_one_back()
 	// one row in the audit log for the call
 	let actions = audit_actions(app).await;
 	assert_eq!(
-		actions.iter().filter(|a| a.as_str() == "warning.dismiss").count(),
+		actions
+			.iter()
+			.filter(|a| a.as_str() == "warning.dismiss")
+			.count(),
 		1
 	);
 	// clearing nothing writes nothing
@@ -514,7 +522,10 @@ async fn clear_all_marks_every_visible_warning_and_a_new_event_brings_one_back()
 	)
 	.await
 	.unwrap();
-	assert_eq!(visible_ids(app).await, vec![format!("DeviceLimitHit:{}", ben.id)]);
+	assert_eq!(
+		visible_ids(app).await,
+		vec![format!("DeviceLimitHit:{}", ben.id)]
+	);
 	assert_eq!(count_of(app).await, 1);
 }
 
@@ -604,7 +615,10 @@ async fn locked_accounts_leftover_devices_and_books_waiting_are_warnings() {
 
 	// a locked account
 	app.conn()
-		.execute_unprepared(&format!("UPDATE users SET is_locked = 1 WHERE id = '{}'", ana.id))
+		.execute_unprepared(&format!(
+			"UPDATE users SET is_locked = 1 WHERE id = '{}'",
+			ana.id
+		))
 		.await
 		.unwrap();
 	assert_eq!(
@@ -612,7 +626,10 @@ async fn locked_accounts_leftover_devices_and_books_waiting_are_warnings() {
 		vec![(WarningKind::AccountLocked, Some(ana.id.clone()))]
 	);
 	app.conn()
-		.execute_unprepared(&format!("UPDATE users SET is_locked = 0 WHERE id = '{}'", ana.id))
+		.execute_unprepared(&format!(
+			"UPDATE users SET is_locked = 0 WHERE id = '{}'",
+			ana.id
+		))
 		.await
 		.unwrap();
 
@@ -629,7 +646,9 @@ async fn locked_accounts_leftover_devices_and_books_waiting_are_warnings() {
 		)
 		.await
 		.unwrap();
-	let found = access_warnings::warnings(app.conn(), Utc::now()).await.unwrap();
+	let found = access_warnings::warnings(app.conn(), Utc::now())
+		.await
+		.unwrap();
 	let leftovers = found
 		.iter()
 		.find(|w| w.kind == WarningKind::LeftoverDevices)
@@ -649,7 +668,9 @@ async fn locked_accounts_leftover_devices_and_books_waiting_are_warnings() {
 			.await
 			.unwrap();
 	}
-	let found = access_warnings::warnings(app.conn(), Utc::now()).await.unwrap();
+	let found = access_warnings::warnings(app.conn(), Utc::now())
+		.await
+		.unwrap();
 	let waiting = found
 		.iter()
 		.find(|w| w.kind == WarningKind::BooksWaiting)
@@ -686,7 +707,10 @@ async fn marking_warnings_as_seen_is_for_the_owner_at_home() {
 		let refused = app.execute_gql_with_token(query, variables, &token).await;
 		assert!(refused.get("errors").is_some(), "{query}: {refused:#}");
 	}
-	assert_eq!(visible_ids(app).await, vec![format!("AtDeviceLimit:{}", ana.id)]);
+	assert_eq!(
+		visible_ids(app).await,
+		vec![format!("AtDeviceLimit:{}", ana.id)]
+	);
 
 	// the owner through the public edge is refused too
 	let owner_token = app.access_token.read().await.clone().unwrap();
@@ -709,6 +733,10 @@ async fn marking_warnings_as_seen_is_for_the_owner_at_home() {
 	assert!(visible_ids(app)
 		.await
 		.contains(&format!("AtDeviceLimit:{}", ana.id)));
-	assert!(!audit_actions(app).await.contains(&"warning.dismiss".to_string()));
-	assert!(!audit_actions(app).await.contains(&"warning.restore".to_string()));
+	assert!(!audit_actions(app)
+		.await
+		.contains(&"warning.dismiss".to_string()));
+	assert!(!audit_actions(app)
+		.await
+		.contains(&"warning.restore".to_string()));
 }
