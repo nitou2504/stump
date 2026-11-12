@@ -4546,7 +4546,10 @@ type Query {
 	activeReadingSessionCount: Int!
 	"The disk space of the books the user can see"
 	mediaDiskUsage: Int!
-	media(filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null}, orderBy: [MediaOrderBy!]! = [{media: {field: NAME, direction: ASC}}], pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedMediaResponse!
+	media(		filter: MediaFilterInput! = {id: null, name: null, size: null, extension: null, createdAt: null, updatedAt: null, seriesId: null, libraryId: null, libraryType: null, status: null, path: null, pages: null, readingStatus: null, metadata: null, series: null, tags: null, search: null, _and: null, _not: null, _or: null},		orderBy: [MediaOrderBy!]! = [{media: {field: NAME, direction: ASC}}],
+		"Put the books whose title best answers this text first, before `orderBy`: the title is exactly the text, then titles that start with it, then titles with a word that starts with it, then the rest (books found through their author, series or tags). Case and accents don't count. Not for cursor pagination"
+		relevanceTo: String,		pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}
+	): PaginatedMediaResponse!
 	mediaById(id: ID!): Media
 	"""
 	Books removed from their library (soft-deleted; the files are still on disk), most
@@ -4643,6 +4646,15 @@ type Query {
 	genre and how many books have it
 	"""
 	metadataValueCounts(field: MetadataFacetField!, libraryId: ID, search: String): [MetadataValueCount!]!
+	"""
+	Authors for a search box: the writers of the books you can see whose name answers
+	`search` (every word of it starts a word of the name; case and accents don't count), the
+	best first (the name is the search, starts with it, has a word that starts with it, then
+	the rest) and, among equals, the one with more books first. Each comes with how many of the
+	books you can see they wrote: an author whose books are all hidden from you is not in the
+	answer, and a hidden book is not in a count. At most `limit` (4 by default, 20 at most).
+	"""
+	searchAuthors(search: String!, limit: Int! = 4): [MetadataValueCount!]!
 	"""
 	Finds one of your own reading sessions by its ID. A reading session is its reader's: nobody
 	else gets it, not through a shared book club and not with its ID, and it isn't returned

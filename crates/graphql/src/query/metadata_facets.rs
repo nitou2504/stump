@@ -10,7 +10,10 @@ use async_graphql::{Context, Enum, Object, Result, SimpleObject, ID};
 use models::entity::{media, media_metadata, user::AuthUser};
 use sea_orm::{prelude::*, sea_query::SelectStatement, ConnectionTrait, QuerySelect};
 
-use crate::data::{AuthContext, CoreContext};
+use crate::{
+	data::{AuthContext, CoreContext},
+	filter::search::{search_phrase, search_words},
+};
 
 /// The metadata fields which can be listed with their book counts
 #[derive(Enum, Copy, Clone, Debug, Eq, PartialEq)]
@@ -139,6 +142,54 @@ pub fn sort_key(value: &str) -> String {
 		.collect()
 }
 
+/// The most characters of an author search that are used
+const MAX_AUTHOR_SEARCH_CHARS: usize = 100;
+
+/// The most authors [`MetadataFacetQuery::search_authors`] gives back
+const MAX_AUTHOR_MATCHES: i32 = 20;
+
+/// The `values` (a name and how many books carry it) that answer `search`, the best first, at
+/// most `limit`. Every word of the search has to start a word of the name, ignoring case and
+/// accents like the book search does. The best are the names that are the search, then the names
+/// that start with it, then those with a word that starts with it, then the rest; the more books
+/// first among equals, then alphabetically (see [`sort_key`]). A search with no words matches nothing.
+pub fn best_matches(
+	values: Vec<MetadataValueCount>,
+	search: &str,
+	limit: usize,
+) -> Vec<MetadataValueCount> {
+	let words = search_words(search);
+	if words.is_empty() {
+		return Vec::new();
+	}
+	let phrase = search_phrase(search);
+	let mut matches: Vec<(u8, std::cmp::Reverse<u64>, String, MetadataValueCount)> = values
+		.into_iter()
+		.filter_map(|value| {
+			let name = search_phrase(&value.value);
+			let starts_a_word = |word: &String| {
+				name.split(' ').any(|part| part.starts_with(word.as_str()))
+			};
+			if !words.iter().all(starts_a_word) {
+				return None;
+			}
+			let rank = if name == phrase {
+				0
+			} else if name.starts_with(&phrase) {
+				1
+			} else if format!(" {name}").contains(&format!(" {phrase}")) {
+				2
+			} else {
+				3
+			};
+			Some((rank, std::cmp::Reverse(value.count), name, value))
+		})
+		.collect();
+	matches.sort_by(|a, b| (a.0, &a.1, &a.2).cmp(&(b.0, &b.1, &b.2)));
+	matches.truncate(limit);
+	matches.into_iter().map(|(.., value)| value).collect()
+}
+
 #[derive(Default)]
 pub struct MetadataFacetQuery;
 
@@ -164,5 +215,124 @@ impl MetadataFacetQuery {
 			search,
 		)
 		.await?)
+	}
+
+	/// Authors for a search box: the writers of the books you can see whose name answers
+	/// `search` (every word of it starts a word of the name; case and accents don't count), the
+	/// best first (the name is the search, starts with it, has a word that starts with it, then
+	/// the rest) and, among equals, the one with more books first. Each comes with how many of the
+	/// books you can see they wrote: an author whose books are all hidden from you is not in the
+	/// answer, and a hidden book is not in a count. At most `limit` (4 by default, 20 at most).
+	async fn search_authors(
+		&self,
+		ctx: &Context<'_>,
+		search: String,
+		#[graphql(default = 4)] limit: i32,
+	) -> Result<Vec<MetadataValueCount>> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let search: String = search.chars().take(MAX_AUTHOR_SEARCH_CHARS).collect();
+		if search_words(&search).is_empty() {
+			return Ok(Vec::new());
+		}
+		let limit = limit.clamp(1, MAX_AUTHOR_MATCHES) as usize;
+
+		// The same call the Browse page's list is made with, so the books it reads and counts
+		// are the ones `find_for_user` lets this user see and no others
+		let authors = metadata_value_counts(
+			conn,
+			user,
+			MetadataFacetField::Writers,
+			None,
+			None,
+			None,
+		)
+		.await?;
+		Ok(best_matches(authors, &search, limit))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn author(value: &str, count: u64) -> MetadataValueCount {
+		MetadataValueCount {
+			value: value.to_string(),
+			count,
+		}
+	}
+
+	fn names(matches: Vec<MetadataValueCount>) -> Vec<String> {
+		matches.into_iter().map(|m| m.value).collect()
+	}
+
+	#[test]
+	fn the_best_name_comes_first_then_the_most_books() {
+		let authors = vec![
+			author("Zed Asimov", 40),
+			author("Isaac Asimov", 148),
+			author("Asimov", 1),
+			author("Asimovich Rex", 2),
+			author("Janet Asimov", 3),
+		];
+		// the name that is the search, the names that start with it (the one with more books
+		// first), the names with a word that starts with it (more books first)
+		assert_eq!(
+			names(best_matches(authors, "asimov", 10)),
+			["Asimov", "Asimovich Rex", "Isaac Asimov", "Zed Asimov", "Janet Asimov"]
+		);
+	}
+
+	#[test]
+	fn every_word_must_start_a_word_of_the_name_in_any_order() {
+		let authors = vec![
+			author("Isaac Asimov", 10),
+			author("Isaac Newton", 5),
+			author("Janet Asimov", 3),
+		];
+		assert_eq!(
+			names(best_matches(authors.clone(), "isaac as", 10)),
+			["Isaac Asimov"]
+		);
+		// the words may come in any order
+		assert_eq!(
+			names(best_matches(authors.clone(), "asimov isaac", 10)),
+			["Isaac Asimov"]
+		);
+		// the middle of a word is not the start of one
+		assert!(best_matches(authors, "simov", 10).is_empty());
+	}
+
+	#[test]
+	fn case_and_accents_do_not_count() {
+		let authors = vec![
+			author("Gabriel García Márquez", 12),
+			author("Ñoño Pérez", 2),
+		];
+		assert_eq!(
+			names(best_matches(authors.clone(), "GARCIA marq", 10)),
+			["Gabriel García Márquez"]
+		);
+		assert_eq!(names(best_matches(authors, "nono", 10)), ["Ñoño Pérez"]);
+	}
+
+	#[test]
+	fn the_limit_keeps_the_best() {
+		let authors = (0..10)
+			.map(|n| author(&format!("Ann {n}"), n))
+			.chain([author("Ann", 1)])
+			.collect();
+		let found = best_matches(authors, "ann", 3);
+		assert_eq!(names(found), ["Ann", "Ann 9", "Ann 8"]);
+	}
+
+	#[test]
+	fn a_search_without_words_matches_nothing() {
+		let authors = vec![author("Isaac Asimov", 10)];
+		assert!(best_matches(authors.clone(), "", 10).is_empty());
+		assert!(best_matches(authors.clone(), "  ", 10).is_empty());
+		assert!(best_matches(authors, "&&& ...", 10).is_empty());
 	}
 }

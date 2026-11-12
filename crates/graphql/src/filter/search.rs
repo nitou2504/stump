@@ -90,24 +90,49 @@ pub fn search_words(query: &str) -> Vec<String> {
 	words
 }
 
+/// A search as the phrase it spells: [`fold`]ed, [`SEPARATORS`] as spaces, its words in order (repeats
+/// too) and joined with one space. [`phrase_sql`] makes the same of a title, so the two can be compared.
+pub fn search_phrase(query: &str) -> String {
+	fold(query)
+		.split(|c: char| c.is_whitespace() || SEPARATORS.contains(&c))
+		.filter(|word| !word.is_empty())
+		.collect::<Vec<_>>()
+		.join(" ")
+}
+
 /// Characters treated as spaces between words, e.g. in `Física_(IB)` or `Asignatura: Física`
 const SEPARATORS: &[char] = &[
 	'_', '-', '(', ')', '[', ']', ':', ',', '.', ';', '/', '"', '«', '»', '¿', '?', '¡',
 	'!', '—', '–', '·', '|',
 ];
 
-/// `column` lowercased, without accents and with separators as spaces, after a leading
-/// space, as an SQL expression: ` fisica diploma del ib ` for `Física (Diploma del IB)`
-fn folded_sql(column: &str) -> String {
+/// `column` lowercased, without accents and with separators as spaces, as an SQL expression:
+/// `fisica  diploma del ib` for `Física (Diploma del IB)` (a separator next to a space leaves two
+/// spaces: see [`phrase_sql`])
+fn spaced_sql(column: &str) -> String {
 	let folded = ACCENTS
 		.iter()
 		.fold(format!("LOWER({column})"), |sql, (accented, plain)| {
 			format!("REPLACE({sql}, '{accented}', '{plain}')")
 		});
-	let spaced = SEPARATORS.iter().fold(folded, |sql, separator| {
+	SEPARATORS.iter().fold(folded, |sql, separator| {
 		format!("REPLACE({sql}, '{separator}', ' ')")
+	})
+}
+
+/// [`spaced_sql`] after a leading space, as an SQL expression: ` fisica  diploma del ib` for
+/// `Física (Diploma del IB)`, so a word can be looked for as `% word%`
+fn folded_sql(column: &str) -> String {
+	format!("(' ' || {})", spaced_sql(column))
+}
+
+/// `column` as the phrase it spells, to compare with [`search_phrase`]: [`spaced_sql`] with runs of
+/// spaces made one (up to eight in a row) and none at either end: `fisica diploma del ib`
+fn phrase_sql(column: &str) -> String {
+	let collapsed = (0..3).fold(spaced_sql(column), |sql, _| {
+		format!("REPLACE({sql}, '  ', ' ')")
 	});
-	format!("(' ' || {spaced})")
+	format!("TRIM({collapsed})")
 }
 
 /// The columns joined into one text, so it is folded once per row and word
@@ -188,6 +213,40 @@ pub fn media_search_condition(query: &str) -> Condition {
 		})
 }
 
+/// How well the title of a book answers `query`, as an SQL sort key (smaller is better): `0` when the
+/// title is the query, `1` when it starts with it, `2` when a word of it does, `3` for the other books
+/// found (by their author, series, tags...). The title is the one the book is shown with: the
+/// metadata title, else the file name. Case, accents and separators don't count, as in
+/// [`media_search_condition`]. `None` when the query has no words, which matches everything and ranks
+/// nothing. The query must join `media_metadata`.
+pub fn media_relevance(query: &str) -> Option<Expr> {
+	let words = search_words(query);
+	if words.is_empty() {
+		return None;
+	}
+	let phrase = search_phrase(query);
+	let title = r#"COALESCE(NULLIF(TRIM("media_metadata"."title"), ''), "media"."name")"#;
+	// a title that can't hold every word is rank 3 without being folded (the same cheap pre-check as the filter's)
+	let holds_every_word = words
+		.iter()
+		.map(|_| format!("({title}) LIKE ? ESCAPE '\\'"))
+		.collect::<Vec<_>>()
+		.join(" AND ");
+	let title_phrase = phrase_sql(title);
+	let sql = format!(
+		"CASE WHEN NOT ({holds_every_word}) THEN 3 \
+		WHEN {title_phrase} = ? THEN 0 \
+		WHEN {title_phrase} LIKE ? ESCAPE '\\' THEN 1 \
+		WHEN (' ' || {title_phrase}) LIKE ? ESCAPE '\\' THEN 2 \
+		ELSE 3 END"
+	);
+	let mut values: Vec<String> = words.iter().map(|word| loose_pattern(word)).collect();
+	values.push(phrase.clone());
+	values.push(format!("{}%", escape_like_fragment(&phrase)));
+	values.push(format!("% {}%", escape_like_fragment(&phrase)));
+	Some(Expr::cust_with_values(sql, values))
+}
+
 /// The series fields searched. The query must join `series_metadata`.
 const SERIES_COLUMNS: &[&str] = &[r#""series"."name""#, r#""series_metadata"."title""#];
 
@@ -204,7 +263,7 @@ pub fn series_search_condition(query: &str) -> Condition {
 mod tests {
 	use super::*;
 	use models::entity::media;
-	use sea_orm::{EntityTrait, QueryFilter, QueryTrait};
+	use sea_orm::{EntityTrait, QueryFilter, QueryOrder, QueryTrait};
 
 	#[test]
 	fn folds_case_and_accents() {
@@ -238,6 +297,58 @@ mod tests {
 		assert!(sql.contains(") AND ("), "{sql}");
 		assert!(sql.contains(r#""media_metadata"."writers""#), "{sql}");
 		assert!(sql.contains(r#""tags"."name""#), "{sql}");
+	}
+
+	#[test]
+	fn a_search_is_the_phrase_it_spells() {
+		assert_eq!(search_phrase("  Dune:  MESSIAH "), "dune messiah");
+		assert_eq!(search_phrase("Física (IB)"), "fisica ib");
+		// repeats stay: they are part of a title, unlike in the words of a filter
+		assert_eq!(search_phrase("the the"), "the the");
+		assert_eq!(search_phrase("  "), "");
+	}
+
+	#[test]
+	fn relevance_needs_a_word_to_rank_by() {
+		assert!(media_relevance("").is_none());
+		assert!(media_relevance("   ").is_none());
+		assert!(media_relevance("&&& ...").is_none());
+		assert!(media_relevance("dune").is_some());
+	}
+
+	#[test]
+	fn relevance_ranks_exact_then_prefix_then_word_start() {
+		let sql = media::Entity::find()
+			.order_by_asc(media_relevance("Dune Messiah").unwrap())
+			.build(sea_orm::DatabaseBackend::Sqlite)
+			.to_string();
+		// each word is looked for loosely first, so most titles are never folded
+		assert!(sql.contains(&format!("'{}'", loose_pattern("dune"))), "{sql}");
+		assert!(sql.contains(&format!("'{}'", loose_pattern("messiah"))), "{sql}");
+		// the title as the book is shown: the metadata title, else the file name
+		assert!(
+			sql.contains(r#"COALESCE(NULLIF(TRIM("media_metadata"."title"), ''), "media"."name")"#),
+			"{sql}"
+		);
+		for (rank, comparison) in [
+			(0, "= 'dune messiah'"),
+			(1, "LIKE 'dune messiah%'"),
+			(2, "LIKE '% dune messiah%'"),
+		] {
+			assert!(sql.contains(&comparison.to_string()), "{comparison}: {sql}");
+			assert!(sql.contains(&format!("THEN {rank}")), "{rank}: {sql}");
+		}
+		assert!(sql.contains("ELSE 3 END"), "{sql}");
+	}
+
+	#[test]
+	fn relevance_escapes_what_like_would_read_as_a_pattern() {
+		let sql = media::Entity::find()
+			.order_by_asc(media_relevance("50% off").unwrap())
+			.build(sea_orm::DatabaseBackend::Sqlite)
+			.to_string();
+		assert!(sql.contains(r"LIKE '50\% off%'"), "{sql}");
+		assert!(sql.contains(r"LIKE '% 50\% off%'"), "{sql}");
 	}
 
 	#[test]

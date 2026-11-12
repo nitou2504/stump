@@ -158,12 +158,26 @@ pub(crate) fn series_position_spec() -> OrderSpec {
 /// An ordered list of table-qualified columns with an order
 #[derive(Default)]
 pub struct OrderSpec {
+	/// A computed key that sorts before every column, ascending (e.g. how well a title matches a
+	/// search). It isn't a column, so a cursor can't be made of it: see [OrderSpec::is_led]
+	lead: Option<Expr>,
 	columns: Vec<OrderSpecColumn>,
 }
 
 impl OrderSpec {
 	pub fn new() -> Self {
 		Self::default()
+	}
+
+	/// sort by `key` (smallest first) before the columns
+	pub fn led_by(mut self, key: Expr) -> Self {
+		self.lead = Some(key);
+		self
+	}
+
+	/// whether [OrderSpec::led_by] was used. A spec that is led can't page with a cursor
+	pub fn is_led(&self) -> bool {
+		self.lead.is_some()
 	}
 
 	/// append a column with order to the internal list
@@ -188,6 +202,13 @@ impl OrderSpec {
 		Q: QueryOrder<QueryStatement = SelectStatement>,
 	{
 		query.query().clear_order_by();
+		if let Some(lead) = &self.lead {
+			query = query.order_by_with_nulls(
+				lead.clone(),
+				Order::Asc,
+				NullOrdering::Last,
+			);
+		}
 		for column in &self.columns {
 			query = query.order_by_with_nulls(
 				column.expr(),
