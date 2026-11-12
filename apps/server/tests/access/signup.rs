@@ -2,7 +2,7 @@
 
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set};
 
 use super::*;
 
@@ -876,4 +876,59 @@ async fn the_defaults_are_the_friend_preset_and_the_biblioteca_library() {
 	assert_eq!(preset["maxDevices"], 3);
 	assert_eq!(preset["libraries"].as_array().unwrap().len(), 1);
 	assert_eq!(preset["libraries"][0]["id"], shelves.biblioteca.id);
+}
+
+/// When the account was made but its session could not be started, nobody holds the pass of its
+/// first device: the device must not stay in use, or one of the person's three is lost for nothing
+#[tokio::test]
+async fn a_signup_whose_session_cannot_start_leaves_no_device_in_use() {
+	let env = signin_app().await;
+	let app = &env.app;
+	let shelves = shelves(app).await;
+	let (_, url) = make_signup_link(app, "SINGLE", 1, &[&shelves.biblioteca.id]).await;
+	let token = token_of(&url);
+
+	// the sessions cannot be read for a moment, so the sign-in cannot be completed
+	app.conn()
+		.execute_unprepared("ALTER TABLE sessions RENAME TO sessions_away")
+		.await
+		.unwrap();
+	let response = join(app, token, "ana", PASSWORD, PASSWORD, None, "203.0.113.5").await;
+	app.conn()
+		.execute_unprepared("ALTER TABLE sessions_away RENAME TO sessions")
+		.await
+		.unwrap();
+
+	// she is sent to the sign-in page, with no pass and no session
+	assert_eq!(
+		response.status_code(),
+		StatusCode::SEE_OTHER,
+		"{}",
+		response.text()
+	);
+	assert_eq!(response.header("location"), "/api/_i/signin");
+	assert!(cookie_in(&response, COOKIE).is_none());
+	assert!(cookie_in(&response, "stump_session").is_none());
+
+	// the account is there, and the device that was made for her was revoked
+	let account = user_row(app, "ana").await;
+	let devices = devices_of(app, &account.id).await;
+	assert_eq!(devices.len(), 1);
+	assert!(devices[0].revoked_at.is_some(), "{devices:?}");
+
+	// so she signs in on the page, gets a pass, and has one device in use of her three
+	let response = page_signin(app, "ana", PASSWORD, None, "203.0.113.5").await;
+	assert_eq!(
+		response.status_code(),
+		StatusCode::SEE_OTHER,
+		"{}",
+		response.text()
+	);
+	assert!(cookie_in(&response, COOKIE).is_some());
+	let in_use = devices_of(app, &account.id)
+		.await
+		.iter()
+		.filter(|device| device.revoked_at.is_none())
+		.count();
+	assert_eq!(in_use, 1);
 }

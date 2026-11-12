@@ -26,7 +26,7 @@ use graphql::data::EdgeRequest;
 use models::{
 	entity::user::LoginUser,
 	services::{
-		access::{SignInMark, MAX_AGENT_CHARS},
+		access::{self as service, SignInMark, MAX_AGENT_CHARS},
 		access_policy::{check_password, check_username, USERNAME_MAX_CHARS},
 		signup::{self, Signup, SignupError},
 	},
@@ -248,6 +248,17 @@ pub(crate) async fn submit(
 			?error,
 			"Signup: the account was made but the session was not"
 		);
+		// no pass is sent for the first device, so it would use up one of the person's three for
+		// nothing: it is revoked, as the sign-in page does
+		if let Some(device) = &created.device {
+			let _ = service::revoke_device(
+				state.conn.as_ref(),
+				Utc::now(),
+				&device.id,
+				"system",
+			)
+			.await;
+		}
 		// the account exists: send them to sign in with it
 		return page(
 			StatusCode::SEE_OTHER,
