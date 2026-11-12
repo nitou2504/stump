@@ -1,5 +1,10 @@
 import { useGraphQLMutation, useSuspenseGraphQL } from '@stump/client'
-import { graphql, type TypedDocumentString } from '@stump/graphql'
+import {
+	graphql,
+	type SignupLinkKind,
+	type TypedDocumentString,
+	type UserPermission,
+} from '@stump/graphql'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 
@@ -29,6 +34,13 @@ const overviewQuery = graphql(`
 			stateWrittenAt
 			activeDevices
 			openInvites
+			publicSignin
+			activeSignupLinks
+			signinStats {
+				failuresLast10Min
+				namesWaiting
+				globalBudgetTripped
+			}
 		}
 	}
 `)
@@ -38,6 +50,14 @@ const peopleQuery = graphql(`
 		accessPeople {
 			lastSignInAt
 			mustChangePassword
+			publicSignin
+			maxDevices
+			activeDevices
+			sessions
+			newLibrariesHidden
+			signupLinkId
+			beyondFriendSet
+			hiddenLibraries
 			person {
 				id
 				username
@@ -83,6 +103,7 @@ const devicesQuery = graphql(`
 				id
 				label
 				legacy
+				kind
 				createdAt
 				firstSeenAt
 				lastSeenAt
@@ -168,7 +189,104 @@ const auditQuery = graphql(`
 	}
 `)
 
+const signupLinksQuery = graphql(`
+	query PublicAccessSignupLinks($page: Int!, $pageSize: Int!) {
+		accessSignupLinks(pagination: { page: $page, pageSize: $pageSize }) {
+			nodes {
+				id
+				label
+				kind
+				createdAt
+				createdBy
+				expiresAt
+				maxUses
+				uses
+				status
+				revokedAt
+				preset {
+					permissions
+					maxDevices
+					ageRestriction {
+						age
+						restrictOnUnset
+					}
+					libraries {
+						id
+						name
+					}
+				}
+				people {
+					id
+					username
+					removed
+				}
+			}
+			pageInfo {
+				totalPages
+				totalItems
+				currentPage
+			}
+		}
+	}
+`)
+
+const presetDefaultsQuery = graphql(`
+	query PublicAccessPresetDefaults {
+		signupPresetDefaults {
+			permissions
+			maxDevices
+			libraries {
+				id
+				name
+			}
+		}
+	}
+`)
+
+const librariesQuery = graphql(`
+	query PublicAccessLibraries {
+		libraries(pagination: { none: { unpaginated: true } }) {
+			nodes {
+				id
+				name
+			}
+		}
+	}
+`)
+
+const warningsQuery = graphql(`
+	query PublicAccessWarnings {
+		accessWarnings {
+			id
+			kind
+			severity
+			count
+			since
+			detail
+			linkId
+			person {
+				id
+				username
+				removed
+			}
+		}
+	}
+`)
+
+/** What the badge in the sidebar asks: just how many there are (the owner at home only) */
+export const warningCountQuery = graphql(`
+	query PublicAccessWarningCount {
+		accessWarningCount
+	}
+`)
+
 export type AccessOverview = ResultOf<typeof overviewQuery>['accessOverview']
+export type AccessSignupLink = ResultOf<
+	typeof signupLinksQuery
+>['accessSignupLinks']['nodes'][number]
+export type AccessWarning = ResultOf<typeof warningsQuery>['accessWarnings'][number]
+export type PresetDefaults = ResultOf<typeof presetDefaultsQuery>['signupPresetDefaults']
+export type LibraryChoice = ResultOf<typeof librariesQuery>['libraries']['nodes'][number]
 export type AccessPersonRow = ResultOf<typeof peopleQuery>['accessPeople'][number]
 export type AccessInvite = ResultOf<typeof invitesQuery>['accessInvites']['nodes'][number]
 export type AccessDevice = ResultOf<typeof devicesQuery>['accessDevices']['nodes'][number]
@@ -216,6 +334,27 @@ export function useAccessAudit(page: number) {
 		page,
 		pageSize: PAGE_SIZE,
 	}).data.accessAudit
+}
+
+export function useAccessSignupLinks(page: number) {
+	return useSuspenseGraphQL(signupLinksQuery, [PUBLIC_ACCESS_KEY, 'signupLinks', page], {
+		page,
+		pageSize: PAGE_SIZE,
+	}).data.accessSignupLinks
+}
+
+export function usePresetDefaults() {
+	return useSuspenseGraphQL(presetDefaultsQuery, [PUBLIC_ACCESS_KEY, 'presetDefaults']).data
+		.signupPresetDefaults
+}
+
+/** Every library, for the checklist of what a link's accounts see */
+export function useLibraryChoices() {
+	return useSuspenseGraphQL(librariesQuery, [PUBLIC_ACCESS_KEY, 'libraries']).data.libraries.nodes
+}
+
+export function useAccessWarnings() {
+	return useSuspenseGraphQL(warningsQuery, [PUBLIC_ACCESS_KEY, 'warnings']).data.accessWarnings
 }
 
 const createInviteMutation = graphql(`
@@ -271,11 +410,64 @@ const setPasswordMutation = graphql(`
 	}
 `)
 
+const createSignupLinkMutation = graphql(`
+	mutation PublicAccessCreateSignupLink($input: CreateSignupLinkInput!) {
+		createAccessSignupLink(input: $input) {
+			url
+			link {
+				id
+			}
+		}
+	}
+`)
+
+const revokeSignupLinkMutation = graphql(`
+	mutation PublicAccessRevokeSignupLink($id: ID!, $disableAccounts: Boolean!) {
+		revokeAccessSignupLink(id: $id, disableAccounts: $disableAccounts)
+	}
+`)
+
+const setPersonAccessMutation = graphql(`
+	mutation PublicAccessSetPersonAccess($input: PersonAccessInput!) {
+		setPersonAccess(input: $input) {
+			publicSignin
+			maxDevices
+			hiddenLibraries
+			newLibrariesHidden
+		}
+	}
+`)
+
 export type CreateInviteInput = {
 	personId: string
 	label: string
 	validForHours: number
 	maxUses: number
+}
+
+/** What a link gives the accounts it makes */
+export type SignupPresetInput = {
+	permissions: UserPermission[]
+	libraryIds: string[]
+	ageRestriction?: { age: number; restrictOnUnset: boolean } | null
+	maxDevices: number
+}
+
+export type CreateSignupLinkInput = {
+	label: string
+	kind: SignupLinkKind
+	validForHours: number
+	maxUses: number
+	preset: SignupPresetInput
+}
+
+/** What the owner changes about one person's access: what is left out stays as it is */
+export type PersonAccessChange = {
+	personId: string
+	publicSignin?: boolean
+	maxDevices?: number
+	newLibrariesHidden?: boolean
+	onlyLibraryIds?: string[]
 }
 
 /**
@@ -296,6 +488,9 @@ export function useAccessActions() {
 	const options = { onSuccess: refresh }
 
 	const create = useGraphQLMutation(createInviteMutation, { ...options, gcTime: 0 })
+	const createSignup = useGraphQLMutation(createSignupLinkMutation, { ...options, gcTime: 0 })
+	const revokeSignup = useGraphQLMutation(revokeSignupLinkMutation, options)
+	const setAccess = useGraphQLMutation(setPersonAccessMutation, options)
 	const revokeInvite = useGraphQLMutation(revokeInviteMutation, options)
 	const revokeDevice = useGraphQLMutation(revokeDeviceMutation, options)
 	const restoreDevice = useGraphQLMutation(restoreDeviceMutation, options)
@@ -311,6 +506,18 @@ export function useAccessActions() {
 			create.reset()
 			return createAccessInvite.link
 		},
+		/** Makes a link that lets somebody make their own account: the address exists only in this answer */
+		createSignupLink: async (input: CreateSignupLinkInput) => {
+			const { createAccessSignupLink } = await createSignup.mutateAsync({ input })
+			createSignup.reset()
+			return createAccessSignupLink.url
+		},
+		/** Stops a link; with `disableAccounts`, turns off the accounts it made. Says how many */
+		revokeSignupLink: async (id: string, disableAccounts: boolean) => {
+			const { revokeAccessSignupLink } = await revokeSignup.mutateAsync({ id, disableAccounts })
+			return revokeAccessSignupLink
+		},
+		setPersonAccess: (input: PersonAccessChange) => setAccess.mutateAsync({ input }),
 		revokeInvite: (id: string) => revokeInvite.mutateAsync({ id }),
 		revokeDevice: (id: string) => revokeDevice.mutateAsync({ id }),
 		restoreDevice: (id: string) => restoreDevice.mutateAsync({ id }),
@@ -325,6 +532,9 @@ export function useAccessActions() {
 			setPassword.mutateAsync({ id, password, requireChange }),
 		isPending:
 			create.isPending ||
+			createSignup.isPending ||
+			revokeSignup.isPending ||
+			setAccess.isPending ||
 			revokeInvite.isPending ||
 			revokeDevice.isPending ||
 			restoreDevice.isPending ||

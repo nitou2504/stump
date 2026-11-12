@@ -26,6 +26,8 @@ const REASON_KEY: Record<AccessSignInReason, string> = {
 	[AccessSignInReason.Locked]: 'locked',
 	[AccessSignInReason.OwnerViaEdge]: 'ownerViaEdge',
 	[AccessSignInReason.WrongPerson]: 'wrongPerson',
+	[AccessSignInReason.NotAllowedPublicly]: 'notAllowedPublicly',
+	[AccessSignInReason.DeviceLimit]: 'deviceLimit',
 }
 
 /** The accounts that are locked right now, and the button that lets them in again */

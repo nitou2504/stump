@@ -308,7 +308,10 @@ export const associatedPermissions: Record<UserPermission, UserPermission[]> = {
 	[UserPermission.AccessSmartList]: [],
 	[UserPermission.DownloadFile]: [],
 	[UserPermission.FileExplorer]: [],
-	[UserPermission.UploadFile]: [UserPermission.ScanLibrary],
+	// Upload files used to tick Scan library with it. The server never implied that (`associated()` has
+	// no such link): it was only this page's convenience, and it made friends hold a permission that
+	// starts a scan of a whole library. Ticking Upload files ticks nothing else
+	[UserPermission.UploadFile]: [],
 	[UserPermission.CreateLibrary]: [UserPermission.EditLibrary],
 	[UserPermission.EditLibrary]: [],
 	[UserPermission.ScanLibrary]: [],

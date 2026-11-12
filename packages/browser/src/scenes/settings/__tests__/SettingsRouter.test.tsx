@@ -36,6 +36,12 @@ vi.mock('../server/general/GeneralServerSettingsScene.tsx', () => ({
 vi.mock('../server/bookApprovals', () => ({
 	default: () => <div data-testid="book-approvals-scene" />,
 }))
+vi.mock('../app/devices/MyDevicesScene.tsx', () => ({
+	default: () => <div data-testid="my-devices-scene" />,
+}))
+vi.mock('../app/devices/ReadingAppsScene.tsx', () => ({
+	default: () => <div data-testid="reading-apps-scene" />,
+}))
 
 const buildContext = (permissions: UserPermission[], isServerOwner = false): IAppContext => ({
 	checkPermission: (p: UserPermission) => permissions.includes(p),
@@ -121,6 +127,33 @@ describe('SettingsRouter', () => {
 			)
 			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
 			expect(screen.queryByTestId('access-scene')).not.toBeInTheDocument()
+		})
+	})
+
+	// a person's own devices and reading apps: not the owner's, who has none of their own
+	describe('my devices and reading apps routes', () => {
+		it('render for somebody who is not the owner', async () => {
+			renderAt('devices', [], false)
+			expect(await screen.findByTestId('my-devices-scene')).toBeInTheDocument()
+		})
+
+		it('are not there for the server owner', async () => {
+			renderAt('devices', [], true)
+			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
+			expect(screen.queryByTestId('my-devices-scene')).not.toBeInTheDocument()
+		})
+
+		it('reading apps also need Download files', async () => {
+			renderAt('reading-apps', [UserPermission.DownloadFile], false)
+			expect(await screen.findByTestId('reading-apps-scene')).toBeInTheDocument()
+		})
+
+		it('send a person who can not download to their account, and so the owner', async () => {
+			renderAt('reading-apps', [], false)
+			expect(await screen.findByTestId('account-scene')).toBeInTheDocument()
+			expect(screen.queryByTestId('reading-apps-scene')).not.toBeInTheDocument()
+			renderAt('reading-apps', [UserPermission.DownloadFile], true)
+			expect(await screen.findAllByTestId('account-scene')).not.toHaveLength(0)
 		})
 	})
 

@@ -15,6 +15,8 @@ const AppearanceSettingsScene = lazy(() => import('./app/preferences/AppearanceS
 const ReaderDefaultSettingsScene = lazy(() => import('./app/reader/ReaderDefaultSettingsScene.tsx'))
 const DesktopSettingsScene = lazy(() => import('./app/desktop'))
 const APIKeySettingsScene = lazy(() => import('./app/apiKeys'))
+const MyDevicesScene = lazy(() => import('./app/devices/MyDevicesScene.tsx'))
+const ReadingAppsScene = lazy(() => import('./app/devices/ReadingAppsScene.tsx'))
 
 const GeneralServerSettingsScene = lazy(
 	() => import('./server/general/GeneralServerSettingsScene.tsx'),
@@ -38,6 +40,7 @@ export default function SettingsRouter() {
 	const isDesktop = useAppStore((store) => store.platform !== 'browser')
 
 	const apiKeys = checkPermission(UserPermission.AccessApiKeys)
+	const canDownload = checkPermission(UserPermission.DownloadFile)
 	const canManageServer = checkPermission(UserPermission.ManageServer)
 	const canReadUsers = checkPermission(UserPermission.ReadUsers)
 	const canManageEmail = checkPermission(UserPermission.EmailerManage)
@@ -53,6 +56,11 @@ export default function SettingsRouter() {
 				<Route path="preferences" element={<AppearanceSettingsScene />} />
 				<Route path="reader" element={<ReaderDefaultSettingsScene />} />
 				{apiKeys && <Route path="api-keys" element={<APIKeySettingsScene />} />}
+				{/* a person's own devices and reading apps: the owner has none of their own */}
+				{!isServerOwner && <Route path="devices" element={<MyDevicesScene />} />}
+				{!isServerOwner && canDownload && (
+					<Route path="reading-apps" element={<ReadingAppsScene />} />
+				)}
 				{isDesktop && <Route path="desktop" element={<DesktopSettingsScene />} />}
 
 				{canManageServer && <Route path="server" element={<GeneralServerSettingsScene />} />}

@@ -13,7 +13,7 @@ import { createRouteGroups } from './routes'
  */
 export function useSettingsRoutes() {
 	const { sdk } = useSDK()
-	const { checkPermission } = useAppContext()
+	const { checkPermission, isServerOwner } = useAppContext()
 
 	const client = useQueryClient()
 
@@ -24,10 +24,14 @@ export function useSettingsRoutes() {
 			routeGroups
 				.map((group) => {
 					// Filter out items that the user doesn't have access to. If an item has no
-					// permissions requirement, then it will be included.
+					// permissions requirement, then it will be included. A page for the server owner
+					// alone (Public access) is not offered to anybody else, and one for people with
+					// devices of their own (My devices) is not offered to the owner
 					const filteredItems = group.items.filter(
-						({ permissions }) =>
-							!permissions || permissions.every((permission) => checkPermission(permission)),
+						({ permissions, ownerOnly, nonOwnerOnly }) =>
+							(!ownerOnly || isServerOwner) &&
+							(!nonOwnerOnly || !isServerOwner) &&
+							(!permissions || permissions.every((permission) => checkPermission(permission))),
 					)
 
 					if (filteredItems.length === 0) {
@@ -40,7 +44,7 @@ export function useSettingsRoutes() {
 					}
 				})
 				.filter(Boolean) as typeof routeGroups,
-		[checkPermission, routeGroups],
+		[checkPermission, isServerOwner, routeGroups],
 	)
 
 	return { groups: adjustedGroups }

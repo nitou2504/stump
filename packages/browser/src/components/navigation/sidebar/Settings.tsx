@@ -6,6 +6,8 @@ import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 import ApprovalsBadge from '@/scenes/intake/ApprovalsBadge'
 
+import AccessWarningsBadge from './AccessWarningsBadge'
+
 export default function SettingsButton() {
 	const navigate = useNavigate()
 	const location = useLocation()
@@ -28,6 +30,7 @@ export default function SettingsButton() {
 			>
 				<Settings className="h-4 w-4 -scale-x-[1] transform" />
 				<ApprovalsBadge />
+				<AccessWarningsBadge />
 			</IconButton>
 		</ToolTip>
 	)

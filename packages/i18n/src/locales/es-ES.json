@@ -1509,7 +1509,9 @@
           "api keys": "Llaves API",
           "reader": "Lector",
           "desktop": "Escritorio",
-          "label": "Personal"
+          "label": "Personal",
+          "my devices": "Mis dispositivos",
+          "reading apps": "Apps de lectura"
         }
       },
       "app/account": {
@@ -2256,7 +2258,18 @@
           "never": "Nunca",
           "activeDevices": "Dispositivos",
           "openInvites": "Invitaciones abiertas",
-          "requirePassHint": "Stump aún no exige que quien llega desde internet tenga un pase. Activa STUMP_EDGE_REQUIRE_PASS cuando el proxy lo envíe."
+          "requirePassHint": "Stump aún no exige que quien llega desde internet tenga un pase. Activa STUMP_EDGE_REQUIRE_PASS cuando el proxy lo envíe.",
+          "publicSignin": "Entrada pública",
+          "on": "Activada",
+          "off": "Desactivada",
+          "activeSignupLinks": "Enlaces de registro abiertos",
+          "failedLately": "Intentos fallidos (10 min)",
+          "namesWaiting": "Nombres en espera",
+          "publicSigninOffHint": "La entrada pública está desactivada: nadie puede entrar desde internet, crear una cuenta ni usar la dirección de una app de lectura. Pon STUMP_EDGE_PUBLIC_SIGNIN=true para activarla.",
+          "budgetTripped": {
+            "title": "La entrada rechaza a todos durante unos minutos",
+            "description": "Demasiados intentos fallidos desde demasiados lugares. La página se recupera sola; un amigo bloqueado solo tiene que esperar."
+          }
         },
         "invites": {
           "title": "Enlaces de invitación",
@@ -2329,7 +2342,8 @@
             "revoke": "No se pudo revocar",
             "restore": "No se pudo restaurar",
             "budget": "No se pudo reiniciar"
-          }
+          },
+          "readingApp": "App de lectura"
         },
         "signIns": {
           "title": "Protección de inicio de sesión",
@@ -2355,7 +2369,9 @@
             "wrongPassword": "Contraseña incorrecta",
             "locked": "Cuenta bloqueada",
             "ownerViaEdge": "Contraseña del propietario desde internet (rechazada)",
-            "wrongPerson": "Dispositivo de otra persona (rechazado)"
+            "wrongPerson": "Dispositivo de otra persona (rechazado)",
+            "notAllowedPublicly": "Contraseña correcta, sin permiso desde internet",
+            "deviceLimit": "Contraseña correcta, pero usa todos sus dispositivos"
           },
           "detail": "{{at}} · desde {{ip}} · dispositivo {{device}}",
           "errors": {
@@ -2389,7 +2405,35 @@
             "copy": "Copiar",
             "copyFailed": "No se pudo copiar: selecciónala y cópiala a mano",
             "error": "No se pudo poner la contraseña"
-          }
+          },
+          "publicSignin": {
+            "label": "Entrada pública",
+            "badge": "En internet",
+            "turnedOn": "{{name}} puede entrar desde internet",
+            "turnedOff": "{{name}} ya no puede entrar desde internet",
+            "error": "No se pudo cambiar",
+            "onTitle": "¿Dejar entrar a {{name}} desde internet?",
+            "offTitle": "¿Desactivar la entrada pública de {{name}}?",
+            "beyond": "{{name}} tiene permisos que no son para internet: {{permissions}}. Quítaselos primero y vuelve a intentarlo.",
+            "onDescription": "{{name}} podrá entrar desde cualquier dispositivo, leer lo que ve, descargar libros y añadir libros para tu aprobación. No podrá gestionar nada.",
+            "offDescription": "{{name}} ya no podrá usar Stump desde internet. Sigue con la sesión iniciada en casa. Sus dispositivos se quedan a menos que los quites.",
+            "libraries": "Bibliotecas",
+            "onlyLibrary": "Solo {{name}}",
+            "leaveLibraries": "Dejar lo que ve como está",
+            "newPassword": "Poner una contraseña nueva ahora",
+            "newPasswordHint": "Recomendado para una cuenta que ya existía: elige una que solo la persona conozca.",
+            "removeDevices": "Quitar también sus {{count}} dispositivos",
+            "turnOn": "Activar",
+            "turnOff": "Desactivar"
+          },
+          "devices": {
+            "label": "Dispositivos permitidos",
+            "fewer": "Menos dispositivos",
+            "more": "Más dispositivos",
+            "error": "No se pudo cambiar el número de dispositivos"
+          },
+          "numbers": "Dispositivos {{active}} de {{max}} · {{sessions}} sesiones · {{hidden}} bibliotecas ocultas",
+          "beyond": "Tiene más de lo que debe un amigo:"
         },
         "activity": {
           "title": "Actividad",
@@ -2411,8 +2455,132 @@
             "userPasswordSet": "Contraseña puesta",
             "userPasswordChanged": "Contraseña elegida por la persona",
             "userSessionsDeleted": "Sesión cerrada en todas partes",
-            "loginActivityCleared": "Historial de inicios de sesión borrado"
+            "loginActivityCleared": "Historial de inicios de sesión borrado",
+            "signupLinkCreated": "Enlace de registro creado",
+            "signupLinkRevoked": "Enlace de registro revocado",
+            "signupCreated": "Cuenta creada desde un enlace de registro",
+            "personAccessSet": "Cambió la entrada pública",
+            "signinDeviceLimit": "Entrada rechazada: todos los dispositivos en uso",
+            "signinBackoff": "Se frenó un nombre tras fallos repetidos",
+            "signinGlobalBudget": "La entrada pública rechazó a todos un rato",
+            "signinUnknownNames": "Entradas fallidas con nombres que no existen",
+            "deviceRemovedByPerson": "Dispositivo quitado por su persona",
+            "opdsKeyCreated": "Dirección de app de lectura creada",
+            "opdsKeyReplaced": "Dirección de app de lectura reemplazada"
           }
+        },
+        "signups": {
+          "title": "Enlaces de registro",
+          "description": "Envía un enlace y cada persona crea su propia cuenta: elige un usuario y una contraseña, y ya está dentro. Tú decides qué puede hacer la cuenta y qué bibliotecas ve.",
+          "off": "La entrada pública está desactivada (STUMP_EDGE_PUBLIC_SIGNIN), así que todavía no se puede crear un enlace.",
+          "form": {
+            "label": "Nota",
+            "labelPlaceholder": "Club de lectura",
+            "kind": "Enlace para",
+            "validFor": "Válido por",
+            "uses": "Cuentas permitidas",
+            "whatTheyGet": "Qué reciben",
+            "change": "Cambiar…",
+            "done": "Listo",
+            "create": "Crear enlace"
+          },
+          "kind": {
+            "single": "Una persona",
+            "open": "Enlace abierto"
+          },
+          "validity": {
+            "h24": "1 día",
+            "h72": "3 días",
+            "h168": "7 días",
+            "h336": "14 días",
+            "h720": "30 días"
+          },
+          "summary": {
+            "can": "Puede:",
+            "sees": "Ve:",
+            "later": "Las bibliotecas que añadas después quedan ocultas para ella.",
+            "devices": "Hasta {{count}} dispositivos.",
+            "age": "Límite de edad {{age}}.",
+            "nothing": "nada"
+          },
+          "permission": {
+            "changePassword": "cambiar su contraseña",
+            "changeUsername": "cambiar su usuario",
+            "changeAvatar": "cambiar su avatar",
+            "downloadFile": "descargar libros",
+            "addBooks": "añadir libros para tu aprobación",
+            "accessSmartList": "usar listas inteligentes"
+          },
+          "editor": {
+            "permissions": "Qué pueden hacer",
+            "notOffered": "Un enlace nunca da Subir archivos, Escanear biblioteca ni nada que gestione, edite o elimine.",
+            "libraries": "Bibliotecas que ven",
+            "noLibraries": "Elige al menos una biblioteca, o no verían nada.",
+            "devices": "Dispositivos por persona",
+            "age": "Límite de edad",
+            "agePlaceholder": "Ninguno",
+            "ageInvalid": "Usa un número del 1 al 120, o déjalo vacío."
+          },
+          "openAddBooks": "Este enlace abierto permite a cualquiera que lo reciba añadir libros para tu aprobación. Compártelo solo con gente de confianza y mantén bajos el presupuesto y los días.",
+          "created": {
+            "title": "Enlace para «{{label}}»",
+            "linkLabel": "Enlace de registro",
+            "copy": "Copiar",
+            "copied": "Enlace copiado",
+            "copyFailed": "No se pudo copiar: selecciona el enlace y cópialo a mano",
+            "share": "Compartir",
+            "once": "Esta es la única vez que se muestra el enlace: Stump no guarda copia. Si lo pierdes, crea otro.",
+            "dismiss": "Listo"
+          },
+          "status": {
+            "active": "Abierto",
+            "usedUp": "Agotado",
+            "expired": "Caducado",
+            "revoked": "Revocado"
+          },
+          "detail": "Creado {{created}} · caduca {{expires}} · cuentas {{uses}} de {{max}}",
+          "madeAccounts": "Cuentas:",
+          "empty": "Aún no hay enlaces de registro.",
+          "revoke": "Revocar",
+          "turnOffAccounts": "Desactivar sus cuentas",
+          "revoked": "Enlace «{{label}}» revocado",
+          "revokedAccounts": "{{count}} cuentas desactivadas",
+          "confirm": {
+            "title": "¿Revocar este enlace?",
+            "description": "Nadie podrá crear una cuenta con «{{label}}». Las cuentas que ya creó se quedan.",
+            "alsoAccounts": "Desactivar también las {{count}} cuentas que creó",
+            "alsoAccountsHint": "Se desactiva su entrada pública, se quitan sus dispositivos y se cierra su sesión. Puedes volver a activarla para cada persona.",
+            "revoke": "Revocar"
+          },
+          "errors": {
+            "create": "No se pudo crear el enlace",
+            "revoke": "No se pudo revocar el enlace"
+          }
+        },
+        "warnings": {
+          "title": "Hay que mirar ({{count}})",
+          "since": "Desde {{at}}",
+          "review": "Revisar",
+          "badge": "{{count}} cosas que mirar en Acceso público",
+          "kinds": {
+            "atDeviceLimit": "{{name}} usa todos sus dispositivos ({{count}}).",
+            "overDeviceLimit": "{{name}} tiene {{count}} dispositivos, más que su límite.",
+            "manyDevices": "{{name}} tiene {{count}} dispositivos.",
+            "deviceLimitHit": "A {{name}} le negaron un dispositivo nuevo {{count}} veces porque usa todos los que puede.",
+            "manySessions": "{{name}} tiene la sesión iniciada {{count}} veces.",
+            "signinFailures": "{{count}} intentos de entrada fallidos de {{name}} en la última hora.",
+            "signinFailuresUnknown": "{{count}} intentos de entrada fallidos con nombres que no existen.",
+            "nameBackoff": "Alguien siguió adivinando la contraseña de {{name}} y se le frenó.",
+            "nameBackoffUnknown": "Alguien siguió adivinando un nombre que no existe y se le frenó.",
+            "globalBudget": "La entrada pública rechazó a todos unos minutos tras una avalancha de intentos fallidos.",
+            "notEnabledTried": "{{name}} intentó entrar desde internet pero no tiene permiso. ¿Activarlo en Personas?",
+            "notFriendClass": "{{name}} no puede usar internet mientras tenga: {{detail}}.",
+            "linkNearBudget": "Al enlace «{{detail}}» le queda una cuenta.",
+            "linkNoLibraries": "El enlace «{{detail}}» no se puede usar: sus bibliotecas ya no existen."
+          }
+        },
+        "qr": {
+          "label": "Código QR de la dirección"
         }
       },
       "server/email": {
@@ -2674,6 +2842,80 @@
       "server/bookApprovals": {
         "title": "Libros por aprobar",
         "description": "Revisa los libros que han añadido otras personas antes de que pasen a la biblioteca"
+      },
+      "app/devices": {
+        "helmet": "Mis dispositivos",
+        "title": "Mis dispositivos",
+        "description": "Dónde has entrado y las apps de lectura que usas",
+        "thisDevice": "Este dispositivo",
+        "kind": {
+          "browser": "Navegador",
+          "readingApp": "App de lectura"
+        },
+        "detail": "Último uso {{last}} · desde {{ip}}",
+        "never": "nunca",
+        "rename": {
+          "label": "Nombre del dispositivo",
+          "save": "Guardar nombre",
+          "cancel": "Cancelar",
+          "start": "Renombrar {{name}}"
+        },
+        "remove": "Quitar",
+        "removeAndSignOut": "Quitar y cerrar sesión",
+        "removed": "{{name}} quitado",
+        "count": "Usas {{active}} de {{limit}} dispositivos.",
+        "full": "Usas los {{limit}} dispositivos que puedes. Quita uno para entrar en otro.",
+        "empty": "No hay dispositivos.",
+        "footer": "Puedes usar hasta {{limit}} dispositivos. Las apps de lectura cuentan como dispositivos, e instalar Stump en la pantalla de inicio de un iPhone cuenta como otro.",
+        "confirm": {
+          "title": "¿Quitar este dispositivo?",
+          "description": "{{name}} dejará de funcionar en unos segundos. Podrás volver a entrar allí si tienes un dispositivo libre.",
+          "currentTitle": "¿Quitar este dispositivo y cerrar sesión?",
+          "currentDescription": "Estás usando {{name}} ahora. Se quitará y se cerrará tu sesión."
+        },
+        "errors": {
+          "rename": "No se pudo cambiar el nombre",
+          "remove": "No se pudo quitar el dispositivo"
+        }
+      },
+      "app/readingApps": {
+        "helmet": "Apps de lectura",
+        "title": "Apps de lectura",
+        "description": "Conecta KOReader, un Kobo u otra app de lectura",
+        "intro": "Conecta KOReader, un Kobo o cualquier app de lectura compatible con OPDS. Cada app tiene su propia dirección; la clave va en ella, así que no hay que iniciar sesión allí. Guárdala para ti y reemplázala si se filtra. Cada una cuenta como uno de tus dispositivos.",
+        "noDownload": "Tu cuenta no puede descargar libros, así que una app de lectura no tendría nada que leer.",
+        "full": "Usas los {{limit}} dispositivos que puedes. Quita uno para añadir una app de lectura.",
+        "name": "Nombre",
+        "namePlaceholder": "Mi Kobo",
+        "add": "Añadir una app de lectura",
+        "empty": "Aún no hay apps de lectura.",
+        "address": "Dirección",
+        "copy": "Copiar",
+        "copied": "Dirección copiada",
+        "copyFailed": "No se pudo copiar: selecciona la dirección y cópiala a mano",
+        "qr": "Código QR",
+        "lastUsed": "Último uso {{at}}",
+        "never": "nunca",
+        "steps": {
+          "0": "En KOReader: Buscar → Catálogo OPDS → el botón + y pega la dirección.",
+          "1": "Deja vacíos el usuario y la contraseña.",
+          "2": "Abre el catálogo nuevo para explorar y descargar tus libros."
+        },
+        "otherReaders": "En otros lectores, añade un catálogo OPDS con la misma dirección.",
+        "replace": "Reemplazar dirección",
+        "remove": "Quitar",
+        "replaced": "{{name}} tiene una dirección nueva; la anterior dejó de funcionar",
+        "removed": "{{name}} quitada",
+        "confirm": {
+          "replaceTitle": "¿Reemplazar esta dirección?",
+          "replaceDescription": "{{name}} recibe una dirección nueva y la anterior deja de funcionar al instante. Tendrás que pegar la nueva en la app.",
+          "removeTitle": "¿Quitar esta app de lectura?",
+          "removeDescription": "La dirección de {{name}} deja de funcionar al instante."
+        },
+        "errors": {
+          "create": "No se pudo añadir la app de lectura",
+          "change": "No se pudo cambiar"
+        }
       }
     },
     "jobOverlay": {

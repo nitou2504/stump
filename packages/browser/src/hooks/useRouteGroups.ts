@@ -21,6 +21,8 @@ type Route = {
 	customPermission?: () => boolean
 	/** Only the server owner is offered it (not whoever holds a permission) */
 	ownerOnly?: boolean
+	/** Not offered to the server owner (a page of a person's own devices, which the owner has none of) */
+	nonOwnerOnly?: boolean
 	to: string
 	subItems?: SubItem[]
 	disabled?: boolean
@@ -53,8 +55,9 @@ export function useRouteGroups({ routeGroups }: UseRouteGroupsParams) {
 					// permissions requirement, then it will be included. An owner-only item is
 					// for the server owner, whatever permissions anyone else holds.
 					const filteredItems = group.items.filter(
-						({ permissions, ownerOnly }) =>
+						({ permissions, ownerOnly, nonOwnerOnly }) =>
 							(!ownerOnly || isServerOwner) &&
+							(!nonOwnerOnly || !isServerOwner) &&
 							(!permissions || permissions.every((permission) => checkPermission(permission))),
 					)
 

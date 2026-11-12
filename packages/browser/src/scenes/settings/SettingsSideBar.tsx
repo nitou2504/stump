@@ -1,3 +1,4 @@
+import AccessWarningsBadge from '@/components/navigation/sidebar/AccessWarningsBadge'
 import { SecondarySidebar } from '@/components/sharedLayout'
 import { useRouterContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
@@ -40,6 +41,7 @@ export default function SettingsSideBar() {
 								prefetch={prefetch}
 							>
 								{t(`settingsScene.sidebar.${groupKey}.${label.toLowerCase()}`)}
+								{to === '/settings/access' && <AccessWarningsBadge variant="inline" />}
 							</SecondarySidebar.Item>
 						))}
 					</SecondarySidebar.Group>

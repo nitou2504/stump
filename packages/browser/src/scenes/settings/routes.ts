@@ -4,6 +4,7 @@ import { QueryClient } from '@tanstack/react-query'
 import {
 	AlarmClock,
 	BookOpen,
+	BookMarked,
 	BookPlus,
 	Brush,
 	ClipboardCheck,
@@ -14,6 +15,7 @@ import {
 	ScrollText,
 	Server,
 	ShieldCheck,
+	Smartphone,
 	Tag,
 	Trash2,
 	UserCircle,
@@ -55,6 +57,23 @@ export const createRouteGroups = (client: QueryClient, api: Api): RouteGroup[] =
 				localeKey: 'app/apiKeys',
 				permissions: [UserPermission.AccessApiKeys],
 				to: '/settings/api-keys',
+			},
+			{
+				// the devices a person comes in from (a friend's: the owner has none of their own)
+				icon: Smartphone,
+				label: 'My devices',
+				localeKey: 'app/devices',
+				nonOwnerOnly: true,
+				to: '/settings/devices',
+			},
+			{
+				// KOReader, a Kobo and other OPDS readers: an address with a key, no sign-in
+				icon: BookMarked,
+				label: 'Reading apps',
+				localeKey: 'app/readingApps',
+				nonOwnerOnly: true,
+				permissions: [UserPermission.DownloadFile],
+				to: '/settings/reading-apps',
 			},
 			{
 				icon: PcCase,

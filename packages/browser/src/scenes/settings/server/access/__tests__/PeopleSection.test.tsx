@@ -29,6 +29,14 @@ const row = (
 	person: { id, username, locked: false, removed: false, isServerOwner: false, ...extra },
 	lastSignInAt: null,
 	mustChangePassword: false,
+	publicSignin: false,
+	maxDevices: 3,
+	activeDevices: 0,
+	sessions: 0,
+	newLibrariesHidden: true,
+	signupLinkId: null,
+	beyondFriendSet: [],
+	hiddenLibraries: 0,
 	...rest,
 })
 

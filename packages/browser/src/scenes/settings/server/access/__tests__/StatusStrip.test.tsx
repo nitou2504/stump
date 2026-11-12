@@ -17,6 +17,9 @@ const overview = (extra: Record<string, unknown> = {}) => ({
 	stateWrittenAt: '2026-11-10T12:00:00Z',
 	activeDevices: 4,
 	openInvites: 2,
+	publicSignin: true,
+	activeSignupLinks: 1,
+	signinStats: { failuresLast10Min: 0, namesWaiting: 0, globalBudgetTripped: false },
 	...extra,
 })
 
@@ -71,5 +74,42 @@ describe('Public access status', () => {
 
 		expect(await screen.findByText(K('status.requirePassHint'))).toBeInTheDocument()
 		expect(screen.getByText(K('status.notYet'))).toBeInTheDocument()
+	})
+
+	it('says whether public sign-in is on, with what the sign-in page has seen lately', async () => {
+		renderStrip(
+			overview({
+				activeSignupLinks: 3,
+				signinStats: { failuresLast10Min: 7, namesWaiting: 2, globalBudgetTripped: false },
+			}),
+		)
+
+		const status = await screen.findByTestId('access-status')
+		expect(within(status).getByText(K('status.on'))).toBeInTheDocument()
+		expect(within(status).getByText('3')).toBeInTheDocument()
+		expect(within(status).getByText('7')).toBeInTheDocument()
+		expect(within(status).queryByText(K('status.publicSigninOffHint'))).toBeNull()
+		expect(within(status).queryByTestId('access-budget-tripped')).toBeNull()
+	})
+
+	it('explains how to turn it on when it is off, and hides the counters of a page that is not there', async () => {
+		renderStrip(overview({ publicSignin: false }))
+
+		const status = await screen.findByTestId('access-status')
+		expect(within(status).getByText(K('status.off'))).toBeInTheDocument()
+		expect(within(status).getByText(K('status.publicSigninOffHint'))).toBeInTheDocument()
+		expect(within(status).queryByText(K('status.failedLately'))).toBeNull()
+		expect(within(status).queryByText(K('status.namesWaiting'))).toBeNull()
+	})
+
+	it('alerts when the sign-in page is refusing everybody for a few minutes', async () => {
+		renderStrip(
+			overview({
+				signinStats: { failuresLast10Min: 40, namesWaiting: 5, globalBudgetTripped: true },
+			}),
+		)
+
+		const alert = await screen.findByTestId('access-budget-tripped')
+		expect(within(alert).getByText(K('status.budgetTripped.title'))).toBeInTheDocument()
 	})
 })

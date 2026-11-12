@@ -12,7 +12,16 @@ type Answers = (query: string, variables: Record<string, unknown> | undefined) =
  * An app with the server answering through `answers` (the text of the document and its variables
  * to what the server says; throw to refuse), and the owner signed in
  */
-export function setup({ answers, path = '/' }: { answers: Answers; path?: string }) {
+export function setup({
+	answers,
+	path = '/',
+	context = {},
+}: {
+	answers: Answers
+	path?: string
+	/** What the app knows of the person, over the owner's (a friend is `isServerOwner: false`) */
+	context?: Record<string, unknown>
+}) {
 	const sdk = new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' })
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -23,6 +32,8 @@ export function setup({ answers, path = '/' }: { answers: Answers; path?: string
 	const app = {
 		user: { id: 'owner', isServerOwner: true },
 		isServerOwner: true,
+		checkPermission: () => true,
+		...context,
 	} as unknown as IAppContext
 
 	function Wrapper({ children }: PropsWithChildren) {

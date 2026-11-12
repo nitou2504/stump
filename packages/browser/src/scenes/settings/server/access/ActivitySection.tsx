@@ -26,6 +26,17 @@ const ACTIONS: Record<string, string> = {
 	'user.password_changed': 'userPasswordChanged',
 	'user.sessions_deleted': 'userSessionsDeleted',
 	'login_activity.cleared': 'loginActivityCleared',
+	'signup.link_created': 'signupLinkCreated',
+	'signup.link_revoked': 'signupLinkRevoked',
+	'signup.created': 'signupCreated',
+	'person.access_set': 'personAccessSet',
+	'signin.device_limit': 'signinDeviceLimit',
+	'signin.backoff': 'signinBackoff',
+	'signin.global_budget': 'signinGlobalBudget',
+	'signin.unknown_names': 'signinUnknownNames',
+	'device.removed_by_person': 'deviceRemovedByPerson',
+	'opds.key_created': 'opdsKeyCreated',
+	'opds.key_replaced': 'opdsKeyReplaced',
 }
 
 function ActivityList() {

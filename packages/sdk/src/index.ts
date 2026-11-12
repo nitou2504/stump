@@ -1,4 +1,4 @@
-export { Api } from './api'
+export { Api, EDGE_SIGN_IN_HEADER, EDGE_SIGN_IN_PAGE } from './api'
 export { type AuthenticationMethod, Configuration } from './configuration'
 export * as constants from './constants'
 export { IntakeUploadError, intakeUploadErrorOf } from './controllers/intake-api'

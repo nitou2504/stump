@@ -2,7 +2,8 @@ import '@/__mocks__/resizeObserver'
 
 import { Form } from '@stump/components'
 import { UserPermission } from '@stump/graphql'
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useForm } from 'react-hook-form'
 
 import { CreateOrUpdateUserSchema, formDefaults } from '../schema'
@@ -16,10 +17,14 @@ vi.mock('@/paths', () => ({
 	usePaths: () => ({ docs: () => 'https://example.test/docs' }),
 }))
 
+/** What the form holds, read back by a test */
+let held: UserPermission[] = []
+
 const Subject = () => {
 	const form = useForm<Pick<CreateOrUpdateUserSchema, 'permissions'>>({
 		defaultValues: formDefaults(),
 	})
+	held = form.watch('permissions')
 
 	return (
 		<Form form={form} onSubmit={vi.fn()}>
@@ -48,5 +53,36 @@ describe('UserPermissionsTable', () => {
 		expect(row(container, UserPermission.CreateBookClub)).toBeNull()
 		expect(container.textContent).not.toContain(UserPermission.AccessBookClub)
 		expect(container.textContent).not.toContain(UserPermission.CreateBookClub)
+	})
+
+	// the table used to tick Scan library with Upload files, which made every friend who could add a
+	// file hold the permission that starts a scan of a whole library. The server never implied it
+	it('ticks nothing else when Upload files is ticked', async () => {
+		const { container } = render(<Subject />)
+		const user = userEvent.setup()
+		held = []
+
+		await user.click(row(container, UserPermission.UploadFile)!)
+
+		await waitFor(() => expect(held).toContain(UserPermission.UploadFile))
+		expect(held).toEqual([UserPermission.UploadFile])
+		expect(held).not.toContain(UserPermission.ScanLibrary)
+	})
+
+	it('still ticks what a permission really implies', async () => {
+		const { container } = render(<Subject />)
+		const user = userEvent.setup()
+
+		await user.click(row(container, UserPermission.ManageLibrary)!)
+
+		await waitFor(() => expect(held).toContain(UserPermission.ScanLibrary))
+		expect(held).toEqual(
+			expect.arrayContaining([
+				UserPermission.ManageLibrary,
+				UserPermission.ScanLibrary,
+				UserPermission.EditLibrary,
+				UserPermission.EditThumbnails,
+			]),
+		)
 	})
 })

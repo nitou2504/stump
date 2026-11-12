@@ -1,5 +1,5 @@
 import { Badge, Button, cn, ConfirmationModal, Text } from '@stump/components'
-import { AccessDeviceStatus } from '@stump/graphql'
+import { AccessDeviceKind, AccessDeviceStatus } from '@stump/graphql'
 import { Suspense, useMemo, useState, useTransition } from 'react'
 import { toast } from 'sonner'
 
@@ -134,6 +134,11 @@ function DeviceList() {
 												{device.legacy && (
 													<Badge size="xs" variant="secondary">
 														{t(accessKey('devices.legacy'))}
+													</Badge>
+												)}
+												{device.kind === AccessDeviceKind.Opds && (
+													<Badge size="xs" variant="primary">
+														{t(accessKey('devices.readingApp'))}
 													</Badge>
 												)}
 												{!isActive && (

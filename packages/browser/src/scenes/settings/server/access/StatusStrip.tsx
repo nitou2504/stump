@@ -44,6 +44,14 @@ export default function StatusStrip() {
 				</Alert>
 			)}
 
+			{overview.signinStats.globalBudgetTripped && (
+				<Alert variant="warning" data-testid="access-budget-tripped">
+					<AlertTriangle />
+					<AlertTitle>{t(accessKey('status.budgetTripped.title'))}</AlertTitle>
+					<AlertDescription>{t(accessKey('status.budgetTripped.description'))}</AlertDescription>
+				</Alert>
+			)}
+
 			<Card className="p-4">
 				<div className="gap-x-8 gap-y-4 flex flex-wrap items-center">
 					<Badge size="lg" variant={overview.configured ? 'success' : 'warning'}>
@@ -61,10 +69,31 @@ export default function StatusStrip() {
 								? formatWhen(overview.stateWrittenAt)
 								: t(accessKey('status.never'))}
 						</Fact>
+						<Fact label={t(accessKey('status.publicSignin'))}>
+							{t(accessKey(overview.publicSignin ? 'status.on' : 'status.off'))}
+						</Fact>
 						<Fact label={t(accessKey('status.activeDevices'))}>{overview.activeDevices}</Fact>
 						<Fact label={t(accessKey('status.openInvites'))}>{overview.openInvites}</Fact>
+						<Fact label={t(accessKey('status.activeSignupLinks'))}>
+							{overview.activeSignupLinks}
+						</Fact>
+						{overview.publicSignin && (
+							<>
+								<Fact label={t(accessKey('status.failedLately'))}>
+									{overview.signinStats.failuresLast10Min}
+								</Fact>
+								<Fact label={t(accessKey('status.namesWaiting'))}>
+									{overview.signinStats.namesWaiting}
+								</Fact>
+							</>
+						)}
 					</dl>
 				</div>
+				{!overview.publicSignin && (
+					<Text size="sm" variant="muted" className="mt-3">
+						{t(accessKey('status.publicSigninOffHint'))}
+					</Text>
+				)}
 				{overview.configured && !overview.requirePass && (
 					<Text size="sm" variant="muted" className="mt-3">
 						{t(accessKey('status.requirePassHint'))}

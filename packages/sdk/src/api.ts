@@ -44,6 +44,35 @@ export type ApiParams = {
 /**
  * A class representing the Stump API
  */
+/**
+ * The public edge answers a request that holds no (valid) pass with a 404 that carries
+ * `X-Edge-Sign-In: 1`. A browser that signed in on this device before, then lost its pass (it was
+ * removed in *My devices*, or the owner revoked it), would otherwise sit in a web app that answers
+ * every call with an error: it is sent to the server's own sign-in page, **by address**. Never by
+ * reloading `/`: the web app's service worker answers that with the cached app, so it would show
+ * the same broken page again
+ */
+export const EDGE_SIGN_IN_HEADER = 'x-edge-sign-in'
+export const EDGE_SIGN_IN_PAGE = '/api/_i/signin'
+
+function goToSignInWhenTheEdgeAsks(instance: AxiosInstance) {
+	// optional: a test double of axios may have no response interceptors at all
+	instance.interceptors?.response?.use(undefined, (error: unknown) => {
+		const headers = (error as { response?: { headers?: Record<string, unknown> } })?.response
+			?.headers
+		const asked = headers?.[EDGE_SIGN_IN_HEADER] === '1'
+		if (
+			asked &&
+			typeof window !== 'undefined' &&
+			// not while already on one of the server's own pages (the sign-in page itself)
+			!window.location.pathname.startsWith('/api/_i/')
+		) {
+			window.location.assign(EDGE_SIGN_IN_PAGE)
+		}
+		return Promise.reject(error)
+	})
+}
+
 export class Api {
 	/**
 	 * The raw base URL for the API. This will be used to construct the service URL, and
@@ -137,6 +166,7 @@ export class Api {
 			}
 			return config
 		})
+		goToSignInWhenTheEdgeAsks(instance)
 		this.axiosInstance = instance
 	}
 
@@ -163,6 +193,7 @@ export class Api {
 			}
 			return config
 		})
+		goToSignInWhenTheEdgeAsks(instance)
 		this.axiosInstance = instance
 	}
 
@@ -282,10 +313,12 @@ export class Api {
 	 */
 	set serviceURL(url: string) {
 		this.baseURL = url
-		this.axiosInstance = axios.create({
+		const instance = axios.create({
 			baseURL: this.serviceURL,
 			withCredentials: this.configuration.authMethod === 'session',
 		})
+		goToSignInWhenTheEdgeAsks(instance)
+		this.axiosInstance = instance
 	}
 
 	get eventSourceURL(): string {

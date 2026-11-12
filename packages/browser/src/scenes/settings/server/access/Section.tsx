@@ -17,6 +17,7 @@ type Props = PropsWithChildren<{
 export default function Section({ id, title, description, actions, children }: Props) {
 	return (
 		<section
+			id={`access-${id}`}
 			data-testid={`access-${id}`}
 			aria-labelledby={`access-${id}-title`}
 			className="gap-y-4 flex flex-col"

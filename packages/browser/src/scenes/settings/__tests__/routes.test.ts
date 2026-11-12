@@ -59,4 +59,26 @@ describe('settings routes', () => {
 		).toBeUndefined()
 		expect(labels.indexOf('Public access')).toBe(labels.indexOf('Users') + 1)
 	})
+
+	it('list My devices and Reading apps in Personal, for people who are not the owner', () => {
+		const groups = createRouteGroups(
+			new QueryClient(),
+			new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' }),
+		)
+		const personal = groups.find(({ label }) => label === 'Personal')!
+		const labels = personal.items.map(({ label }) => label)
+
+		expect(personal.items.find(({ label }) => label === 'My devices')).toMatchObject({
+			localeKey: 'app/devices',
+			nonOwnerOnly: true,
+			to: '/settings/devices',
+		})
+		expect(personal.items.find(({ label }) => label === 'Reading apps')).toMatchObject({
+			localeKey: 'app/readingApps',
+			nonOwnerOnly: true,
+			permissions: [UserPermission.DownloadFile],
+			to: '/settings/reading-apps',
+		})
+		expect(labels.indexOf('My devices')).toBeGreaterThan(labels.indexOf('Account'))
+	})
 })
