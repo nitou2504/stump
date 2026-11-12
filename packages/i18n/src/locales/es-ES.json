@@ -1059,7 +1059,7 @@
       "integrations/analysis": {
         "sections": {
           "analyzeBooks": {
-            "disclaimer": "This process is resource-intensive and may take a while to complete. In the future, it will be more configurable",
+            "disclaimer": "Puede tardar un poco en completarse. En el futuro será más configurable",
             "heading": "Analizar libros",
             "description": "Analizar los libros de esta biblioteca para añadir metadatos adicionales a la base de datos, como las dimensiones de las páginas para libros basados en imágenes",
             "disclaimerTitle": "Este proceso es intensivo en recursos",
@@ -1349,7 +1349,7 @@
                 "date": "A fecha",
                 "number": "A"
               },
-              "inclusive": "Inclusive"
+              "inclusive": "Inclusivo"
             },
             "listValue": {
               "placeholder": "Añadir valores",
@@ -2062,7 +2062,7 @@
               "confirmation": {
                 "trigger": "Clear authentication",
                 "title": "Clear authentication",
-                "description": "This will remove all securely-stored access tokens for your servers",
+                "description": "¿Seguro que quieres eliminar todos los tokens almacenados?",
                 "confirm": "Clear authentication"
               }
             },
@@ -2352,7 +2352,7 @@
             },
             "file": {
               "explorer": {
-                "label": "File Explorer",
+                "label": "Explorador de archivos",
                 "description": "Permite al usuario acceder al explorador de archivos. No se admite restricción de contenido cuando se concede esta función"
               },
               "download": {
@@ -2390,7 +2390,7 @@
             },
             "user": {
               "manage": {
-                "description": "Allows the user to manage other users on the server.\nIncludes permissions to create and update",
+                "description": "Permite al usuario gestionar a otros usuarios del servidor.\nIncluye permisos para leer, crear y actualizar",
                 "label": "Gestionar usuarios"
               },
               "label": "Gestión de usuarios",
@@ -2401,7 +2401,7 @@
             },
             "smartlist": {
               "read": {
-                "description": "Allows the user to access smart lists features",
+                "description": "Permite al usuario acceder a las funciones de listas inteligentes. Los permisos granulares aún no están implementados, por lo que esto\nincluye permisos para leer, crear y actualizar sus propias listas",
                 "label": "Acceder a la función de listas inteligentes"
               }
             },
@@ -3922,7 +3922,7 @@
       "publicationRun": "Número de publicación"
     },
     "readerSettings": {
-      "title": "Reader Settings",
+      "title": "Ajustes del lector de imágenes",
       "overrideGlobalSettings": "Sobreescribir ajustes globales",
       "sections": {
         "mode": "Modo",
@@ -4537,7 +4537,7 @@
         "title": "Información del servidor",
         "description": "Detalles básicos sobre tu instancia de Stump",
         "version": "Versión",
-        "build": "Build",
+        "build": "Compilación",
         "nonStableChannel": {
           "title": "Estás ejecutando una compilación no estable de Stump",
           "description": "Parece que estás usando el canal de compilación {{channelName}}"
