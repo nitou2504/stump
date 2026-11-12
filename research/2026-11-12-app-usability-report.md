@@ -14,6 +14,65 @@ in **For the other squads** at the end.
 **Legend.** P1 breaks a task or misleads · P2 annoying · P3 polish. Effort S / M / L. **QW** = safe quick win (S effort,
 low risk, no product decision). **Decision** = needs the owner's call before building.
 
+## Status after implementation (branch `feat/app-ux`, 2026-11-12)
+
+All 14 quick-win items are **done**, each in its own commit with a test where the code has them (the new tests
+fail on the old behaviour, checked by reverting each fix once). Evidence: `after/<same name as before>.png`, taken in
+the same isolated sandbox with this branch's web build; the tab titles were read back with `page.title()`
+(`after/titles.json`). Verification: the whole browser suite (172 files, 1,324 tests), `tsc -b` for `browser`,
+`i18n` and `components`, and eslint on the 40 files this branch changed, all clean. No Rust, API or data change.
+
+| id | status | commit | evidence |
+|---|---|---|---|
+| U2 | done | `fe179288b` | `after/p1-read-button-leido.png` ("Leer") |
+| U3 | done | `9b103719e` | `after/p1-raw-key-settings-menu.png` (Book approvals; es also Deleted books, Recently added) |
+| U4 | done | `629a1f0c4` | `after/p2-language-picker-select.png` ("Español"), `-owner.png` ("English (US)") |
+| U6 | done | `6005124c5` | `after/p2-english-in-spanish-menu.png` ("Bibliotecas") |
+| U7 | done | `e471a8625` | `after/p2-library-gear-friend.png`, `p2-series-gear-friend-deadend.png` (no gear for a friend) |
+| U8 | done | `06921fa62` | `after/p2-reading-lists-double-active.png` (one highlight) |
+| U5a | done | `8c6ef95da` | `after/p2-english-in-spanish-menu.png` (Autores, Géneros, Añadir libros) |
+| U5b | done | `f355553c8` | `after/p1-read-button-leido.png` ("de William Ospina"), `p2-english-books-in-this-series.png` ("Libros de esta serie", phone) |
+| U5c | done | `bad3fd77f` | `after/p2-english-in-spanish-search.png`, `-results.png` |
+| U5d | done | `ff9adf842` | `after/p2-pagination-spanish.png` ("20 por página", "1 de 41") |
+| U5e | done | `af6e6458a` | no shot (owner-only page; covered by a Spanish render test) |
+| U5f + U21 | done | `d59e3bce0` | `after/titles.json` (Inicio, Bibliotecas, Explorar, the smart list's and the comic's own names) |
+| U14a | done | `9e7e3e20c` | `after/p2-new-friend-empty-home.png` ("Nada pendiente por ahora") |
+| U17 | done | `2ab4c3a08` | `after/p2-language-picker-select.png` (no banner for a friend), `-owner.png` (banner stays) |
+| U13a | done | `d9721504a` | `after/p2-series-page-controls-file-size.png` (6 books: no A–Z, search, footer), `-big-series.png` (58 books: they stay) |
+| U22 | done | `2ac760370` | `after/p2-english-books-in-this-series.png` ("Leer más") |
+| U24 | done | `d40edd2d7` | `after/p3-my-reading.png` ("Search books…" fits) |
+| U19 | done | `6bd8e1127` | `after/p3-comic-page-count-twice.png` (bar up: the count once), `-bar-away.png` (bar away: the corner number) |
+
+Decisions made inside the quick wins (small, reversible):
+- **U13a** hides the controls only when the list is loaded, fits on one page **and nothing narrows it**: while a search,
+  a letter or a filter is applied they stay, so it can always be undone. In the table layout the footer stays (it holds
+  the column controls). A short series still shows its sort, filter and layout buttons.
+- **U19** applies to all three readers (EPUB, comic, PDF), which share the corner number and the top bar's position.
+- **U5b** also translates the neighbouring "Story" / "Art" credit labels (comic and manga libraries), same lines.
+- **U14a** also fixes the typo "recomendaciónes" in the next line.
+- **U24** shortened the text (en "Search books…", es "Buscar libros…") instead of widening the compact box.
+- **U7** is hidden, not disabled: the owner and anyone with Manage library / Edit metadata see the gear as before.
+- **U17** needed `dismissAlert` exported from the `@stump/components` root (one word) so the banner is testable.
+- **U5c** adds `src/__mocks__/locale.tsx`, a test helper that renders the app's real translations (en-US, es-ES).
+
+**Left alone on purpose** (not quick wins, or someone else's screen): U1 (EPUB images over plain http: needs the
+owner's decision), U9–U12, U13b, U14b, U15, U16, U18, U20, U23, U25–U27.
+
+**New small findings while verifying** (not fixed, all cosmetic):
+- The library page's own search box still says English "Search" in Spanish (`components/filters/Search.tsx`).
+- The EPUB and PDF readers' tab titles stay "Stump": their components load the book themselves; a title there is a
+  small follow-up in `ReadiumWebReader` / `NativePDFViewer`.
+- "Vol." / "Ch." position labels (manga, webtoon) and "Book N of M" on the home page are English
+  (`components/book/presentation.ts`, `scenes/home/OnDeck.tsx`).
+- The Deleted books and Libraries empty states ("No libraries to display") are English, and so is the whole Deleted books page.
+- `shared.common.xBooks` has no Spanish plural forms (reading-list and user-stat cards read "3 Books" in Spanish).
+
+**For the other squads / the merge:** this branch touches `AppSidebar.tsx`, `LibraryHeader.tsx` (gear and the Add books
+label), `en-US.json` / `es-ES.json` (distinct keys: `sidebar.buttons.{authors,genres,addBooks}`, `globalSearch.*`,
+`pagination.*`, `seriesSettingsScene.*`, `bookOverviewScene.{by,moreBy,credits}`, `settingsScene.app/account.sections.language.placeholder`,
+the three settings-menu keys) and adds `URLFilterContainer`'s `hideFooter`. It does not touch `public_pages`, `deploy/public-edge`, the
+auth scene, `settings/server/access`, `bookApprovals`, `settings/app/devices`, the Add books / intake screens or the sidebar badge.
+
 ## Summary
 
 | id | P | screen | issue | effort | class |
