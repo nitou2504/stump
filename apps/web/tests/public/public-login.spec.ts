@@ -76,6 +76,7 @@ const strangers = (asked: string[]) =>
 
 let owner: APIRequestContext
 let signupToken = ''
+let libraryId = ''
 
 async function ownerGraphql(query: string, variables: Record<string, unknown> = {}) {
 	const response = await owner.post('/api/graphql', { data: { query, variables } })
@@ -85,6 +86,15 @@ async function ownerGraphql(query: string, variables: Record<string, unknown> = 
 }
 
 async function newSignupLink(): Promise<string> {
+	// a link must name at least one library ("otherwise they would see nothing"): the throwaway stack has none, so make an
+	// empty one (no scan) the first time
+	if (!libraryId) {
+		const made = await ownerGraphql(
+			`mutation($i: CreateOrUpdateLibraryInput!) { createLibrary(input: $i) { id } }`,
+			{ i: { name: 'Biblioteca', path: '/tmp', scanAfterPersist: false } },
+		)
+		libraryId = String(made.createLibrary.id)
+	}
 	const data = await ownerGraphql(
 		`mutation($i: CreateSignupLinkInput!) { createAccessSignupLink(input: $i) { url } }`,
 		{
@@ -95,7 +105,7 @@ async function newSignupLink(): Promise<string> {
 				maxUses: 1,
 				preset: {
 					permissions: ['CHANGE_PASSWORD', 'CHANGE_AVATAR', 'DOWNLOAD_FILE', 'ADD_BOOKS'],
-					libraryIds: [],
+					libraryIds: [libraryId],
 					maxDevices: 3,
 				},
 			},
@@ -230,6 +240,14 @@ test('on another device a friend just opens the address and signs in, and that d
 }) => {
 	const context = await browser.newContext()
 	const page = await context.newPage()
+	// a device new to the address fetches the sign-in screen and then the whole app (about 200 files) with nothing cached:
+	// the edge must not refuse one of them (the files have a budget of their own; they once used up the API's, and the
+	// screen stayed on its loading spinner)
+	const refusedFiles: string[] = []
+	context.on('response', (response) => {
+		const { pathname } = new URL(response.url())
+		if (response.status() === 429 && pathname.startsWith('/assets/')) refusedFiles.push(pathname)
+	})
 	await page.goto('/')
 	await page.waitForURL(/\/auth/)
 
@@ -238,6 +256,8 @@ test('on another device a friend just opens the address and signs in, and that d
 	await page.getByTestId('loginOrRegisterButton').click()
 
 	await page.waitForURL(`${PUBLIC}/`)
+	await page.waitForLoadState('networkidle')
+	expect(refusedFiles, 'files of the app the edge refused with a 429').toEqual([])
 	const names = (await context.cookies()).map((cookie) => cookie.name)
 	expect(names).toEqual(expect.arrayContaining([PASS_COOKIE, 'stump_session']))
 	expect((await context.request.get('/api/v2/auth/viewer')).status()).toBe(200)
