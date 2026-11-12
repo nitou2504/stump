@@ -37,6 +37,13 @@ pub struct EdgeConfig {
 	/// Whether a pass made from an invite may only sign in as the person the invite was for
 	#[setting(default = true)]
 	pub binds_person: bool,
+
+	/// Whether the public address serves a sign-in page and signup links to people who hold no
+	/// pass yet, and whether reading-app keys work through the edge. Off: those routes answer
+	/// 404 and everything behaves as before this feature. The switch to turn all of it off at
+	/// once
+	#[setting(default = false)]
+	pub public_signin: bool,
 }
 
 impl EdgeConfig {
@@ -74,6 +81,7 @@ impl std::fmt::Debug for EdgeConfig {
 			.field("state_dir", &self.state_dir)
 			.field("require_pass", &self.require_pass)
 			.field("binds_person", &self.binds_person)
+			.field("public_signin", &self.public_signin)
 			.finish()
 	}
 }

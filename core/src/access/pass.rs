@@ -9,6 +9,9 @@
 //!   (43 characters). The key is the hex string used **as is**: its text bytes are the HMAC key,
 //!   it is not hex-decoded;
 //! - a **legacy invite** is `<name>.<expiry>.<mac>` with the MAC over `"inv|<name>|<expiry>"`;
+//! - a **reading-app key** (the address a reading app like KOReader is given) is `<id>.<mac>` with
+//!   the MAC over `"opds|<id>"`. It has no date: it lives until it is revoked. The domain tags
+//!   (`dev|`, `inv|`, `opds|`) keep one kind of token from ever verifying as another;
 //! - an **invite token** is 22 characters of base64url from 16 random bytes. Only its SHA-256 is
 //!   stored.
 
@@ -136,6 +139,31 @@ pub fn mint_legacy_invite(key: &str, name: &str, expiry: i64) -> String {
 	)
 }
 
+/// A reading-app key for device `id`: derived, not stored, so the database holds nothing secret
+/// and the page can show the address again
+pub fn mint_reading_key(key: &str, id: &str) -> String {
+	format!("{id}.{}", mac(key, &format!("opds|{id}")))
+}
+
+/// Splits `<id>.<mac>` when both parts have the shape of one, **without** checking the MAC
+fn split_reading_key(text: &str) -> Option<(&str, &str)> {
+	let (id, tag) = text.split_once('.')?;
+	(is_pass_name(id) && is_mac_text(tag)).then_some((id, tag))
+}
+
+/// Whether `text` has the shape of a reading-app key (`<id>.<43 characters>`). Such a path
+/// segment is never an API key (those are `stump_<short>_<long>`, no dot), and is never handed to
+/// the API key check, whether or not its MAC is right
+pub fn is_reading_key_shaped(text: &str) -> bool {
+	split_reading_key(text).is_some()
+}
+
+/// The device id of a reading-app key whose MAC checks out
+pub fn verify_reading_key(key: &str, value: &str) -> Option<String> {
+	let (id, tag) = split_reading_key(value)?;
+	mac_matches(key, &format!("opds|{id}"), tag).then(|| id.to_string())
+}
+
 /// The SHA-256 of an invite token, as lowercase hex: what is stored
 pub fn token_hash(token: &str) -> String {
 	data_encoding::HEXLOWER
@@ -207,6 +235,13 @@ mod tests {
 		pass: PassVector,
 		legacy_invite: LegacyVector,
 		forged: Vec<String>,
+		reading_key: ReadingKeyVector,
+		forged_reading_keys: Vec<String>,
+	}
+	#[derive(Deserialize)]
+	struct ReadingKeyVector {
+		id: String,
+		value: String,
 	}
 	#[derive(Deserialize)]
 	struct PassVector {
@@ -383,5 +418,67 @@ mod tests {
 		] {
 			assert_eq!(parse_invite_input(text), None, "{text:?}");
 		}
+	}
+
+	#[test]
+	fn the_edges_reading_key_vector_verifies_here() {
+		let v = vectors();
+		assert_eq!(mint_reading_key(&v.key, &v.reading_key.id), v.reading_key.value);
+		assert_eq!(
+			verify_reading_key(&v.key, &v.reading_key.value),
+			Some(v.reading_key.id.clone())
+		);
+		assert!(is_reading_key_shaped(&v.reading_key.value));
+	}
+
+	#[test]
+	fn a_tampered_reading_key_is_refused() {
+		let v = vectors();
+		for forged in &v.forged_reading_keys {
+			assert_eq!(verify_reading_key(&v.key, forged), None, "{forged}");
+		}
+		// another key signs differently
+		let other = "f".repeat(64);
+		assert_eq!(verify_reading_key(&other, &v.reading_key.value), None);
+		// shape: extra parts, empty parts, a bad id, a bad alphabet
+		for bad in [
+			"",
+			".",
+			"kobo.",
+			".McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JDw",
+			"KOBO.McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JDw",
+			"kobo-9x2mq.McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JDw.extra",
+			"kobo-9x2mq.McainKqtlReNVD+NH/ztpytSFG_kpJ4n1byByz17JDw",
+		] {
+			assert_eq!(verify_reading_key(&v.key, bad), None, "{bad}");
+			assert!(!is_reading_key_shaped(bad), "{bad}");
+		}
+	}
+
+	/// A pass is not a key and a key is not a pass: the MACs are over different tags
+	#[test]
+	fn a_pass_and_a_reading_key_never_verify_as_each_other() {
+		let v = vectors();
+		let id = "kobo-9x2mq";
+		let pass = mint_pass(&v.key, id, 1_794_400_000);
+		// the pass's MAC dropped into a key's place
+		let pass_mac = pass.rsplit('.').next().unwrap();
+		assert_eq!(verify_reading_key(&v.key, &format!("{id}.{pass_mac}")), None);
+		// the key's MAC dropped into a pass
+		let key_mac = mint_reading_key(&v.key, id);
+		let key_mac = key_mac.rsplit('.').next().unwrap();
+		assert_eq!(
+			verify_pass(&v.key, &format!("{id}.1794400000.{key_mac}"), 1_794_400_100),
+			None
+		);
+	}
+
+	/// An API key is `stump_<short>_<long>`: it has no dot, so it can never be taken for a
+	/// reading-app key, and the other way round
+	#[test]
+	fn an_api_key_is_not_shaped_like_a_reading_key() {
+		assert!(!is_reading_key_shaped(
+			"stump_abcdefgh_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+		));
 	}
 }

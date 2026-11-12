@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by core/src/access/pass.rs (cargo test) and deploy/public-edge/verify-edge.sh. KEY is the hex-looking string used AS IS as the HMAC key (its text bytes). mac = unpadded base64url(HMAC-SHA256(KEY, 'dev|<id>|<issued>')) for a pass and 'inv|<name>|<expiry>' for a legacy invite. Regenerate with openssl dgst -sha256 -hmac KEY -binary | base64 -w0 | tr '+/' '-_' | tr -d '='.",
+  "_comment": "Shared by core/src/access/pass.rs (cargo test) and deploy/public-edge/verify-edge.sh. KEY is the hex-looking string used AS IS as the HMAC key (its text bytes). mac = unpadded base64url(HMAC-SHA256(KEY, 'dev|<id>|<issued>')) for a pass and 'inv|<name>|<expiry>' for a legacy invite and 'opds|<id>' for a reading-app key (key = <id>.<mac>, no date). Regenerate with openssl dgst -sha256 -hmac KEY -binary | base64 -w0 | tr '+/' '-_' | tr -d '='.",
   "key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "pass": {
     "id": "ana-phone-k3f9x",
@@ -16,5 +16,16 @@
     "ana-phone-k3f9x.1794400000.N_TJjeCuUisuzgjFotzUw7qsRvXNndMwQaHfF5AA8MA",
     "ana-phone-k3f9x.1794400000.2vmrSWFgfkZybvaszKo5NSSYqxRvQbSrac-tEWtsPWY",
     "ana-phone-k3f9x.1794400000.XVeP307-ZcoTQs3J6upkSjSSHtfW4nDJZ62j9PL5DVE"
+  ],
+  "reading_key": {
+    "id": "kobo-9x2mq",
+    "value": "kobo-9x2mq.McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JDw"
+  },
+  "forged_reading_keys": [
+    "ben-kobo-aaaaa.McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JDw",
+    "kobo-9x2mq.McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JDA",
+    "kobo-9x2mq.ve-hwGacQ5yrN5gQGuQquDqE8wFxttFC502N22EVva4",
+    "kobo-9x2mq.McainKqtlReNVD-NH-ztpytSFG_kpJ4n1byByz17JD",
+    "kobo-9x2mq"
   ]
 }

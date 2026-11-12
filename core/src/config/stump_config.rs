@@ -736,6 +736,7 @@ allowed_origins = ["http://localhost:3000"]
 				);
 				assert!(edge.require_pass);
 				assert!(edge.binds_person);
+				assert!(!edge.public_signin, "public sign-in is off unless it is switched on");
 			},
 		);
 	}

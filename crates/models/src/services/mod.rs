@@ -1,4 +1,5 @@
 pub mod access;
+pub mod access_policy;
 pub mod reading_history;
 pub mod reading_progress;
 pub mod reading_stats;

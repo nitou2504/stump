@@ -55,6 +55,7 @@ pub fn edge_settings(dir: &TempDir, require_pass: bool) -> EdgeConfig {
 		state_dir: Some(dir.path().to_string_lossy().to_string()),
 		require_pass,
 		binds_person: true,
+		public_signin: false,
 	}
 }
 

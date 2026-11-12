@@ -99,6 +99,7 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 			has_state_dir = edge.state_directory().is_some(),
 			require_pass = edge.require_pass,
 			binds_person = edge.binds_person,
+			public_signin = edge.public_signin,
 			"Public access is configured"
 		),
 		None => {
