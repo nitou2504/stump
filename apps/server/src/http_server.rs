@@ -238,14 +238,58 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 	Ok(())
 }
 
-/// The address of a request as the trace spans record it. An invite link carries its token in the
-/// address (`/api/_i/<token>`, or `?t=` when it was pasted), so nothing after `/api/_i/` is kept:
-/// a token must not end up in a log
+/// The address of a request as the trace spans record it. Two kinds of address carry a secret, and
+/// neither may end up in a log (a reading-app key does not expire):
+///
+/// - an invite link carries its token in the address (`/api/_i/<token>`, or `?t=` when it was
+///   pasted), so nothing after `/api/_i/` is kept;
+/// - a reading-app address (or one with a Stump API key) carries its key in the first segment after
+///   `/opds/`, `/koreader/` or `/kobo/` (`/opds/<key>/v1.2/...`), which is replaced by `-key-`
+///   whatever its shape, so a key that is mistyped, truncated or used on the wrong route is hidden
+///   too. A bare version (`/opds/v1.2/...`, `/opds/v2.0/...`, a reader on the LAN) is not a key and
+///   is logged as it is. This is the rule of the edge's `$log_uri`
 pub(crate) fn loggable_uri(uri: &Uri) -> String {
-	if uri.path().starts_with("/api/_i/") {
-		"/api/_i/-hidden-".to_string()
-	} else {
-		uri.to_string()
+	let path = uri.path();
+	if path.starts_with("/api/_i/") {
+		return "/api/_i/-hidden-".to_string();
+	}
+	match hide_the_key_segment(path) {
+		Some(hidden) => match uri.query() {
+			Some(query) => format!("{hidden}?{query}"),
+			None => hidden,
+		},
+		None => uri.to_string(),
+	}
+}
+
+/// `path` with the key segment replaced by `-key-`, when `path` is a reading-app, KOReader or Kobo
+/// address that has one: the first segment after the service that is not empty and not a bare version
+fn hide_the_key_segment(path: &str) -> Option<String> {
+	let (service, after) = ["/opds/", "/koreader/", "/kobo/"]
+		.into_iter()
+		.find_map(|service| path.strip_prefix(service).map(|after| (service, after)))?;
+	let mut segments: Vec<&str> = after.split('/').collect();
+	let key = segments.iter().position(|segment| !segment.is_empty())?;
+	if is_a_bare_version(segments[key]) {
+		return None;
+	}
+	segments[key] = "-key-";
+	Some(format!("{service}{}", segments.join("/")))
+}
+
+/// `v1`, `v1.2`, `v2.0`: what the keyless reading-app addresses carry where a key would go. A key
+/// (`<id>.<43 characters>`, or `stump_<short>_<long>`) is never made of digits only after its `v`
+fn is_a_bare_version(segment: &str) -> bool {
+	let Some(numbers) = segment.strip_prefix('v') else {
+		return false;
+	};
+	let digits =
+		|part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+	let mut parts = numbers.split('.');
+	match (parts.next(), parts.next(), parts.next()) {
+		(Some(major), None, _) => digits(major),
+		(Some(major), Some(minor), None) => digits(major) && digits(minor),
+		_ => false,
 	}
 }
 
@@ -300,5 +344,91 @@ mod tests {
 		}
 		let other: Uri = "/api/v2/ping?x=1".parse().unwrap();
 		assert_eq!(loggable_uri(&other), "/api/v2/ping?x=1");
+	}
+
+	/// A real reading-app key, as the owner's page hands it out
+	fn a_reading_key() -> String {
+		stump_core::access::pass::mint_reading_key("edge-key-for-the-tests", "ana-phone")
+	}
+
+	#[test]
+	fn a_reading_app_key_is_never_in_a_logged_address() {
+		let key = a_reading_key();
+		let mac = key.split_once('.').unwrap().1.to_string();
+		let api_key = "stump_ab12cd34_0123456789abcdefghijklmnopqrstuv";
+		for (address, logged) in [
+			(
+				format!("/opds/{key}/v1.2/catalog"),
+				"/opds/-key-/v1.2/catalog",
+			),
+			(format!("/opds/{key}/v1.2"), "/opds/-key-/v1.2"),
+			(
+				format!("/opds/{key}/v1.2/series?page=2&size=20"),
+				"/opds/-key-/v1.2/series?page=2&size=20",
+			),
+			// whatever follows, and nothing following
+			(format!("/opds/{key}/"), "/opds/-key-/"),
+			(format!("/opds/{key}"), "/opds/-key-"),
+			(format!("/kobo/{key}"), "/kobo/-key-"),
+			(
+				format!("/koreader/{key}/syncs/progress/0123abcd"),
+				"/koreader/-key-/syncs/progress/0123abcd",
+			),
+			(
+				format!("/kobo/{key}/v1/library/sync"),
+				"/kobo/-key-/v1/library/sync",
+			),
+			// a Stump API key sits in the same place
+			(
+				format!("/opds/{api_key}/v1.2/catalog"),
+				"/opds/-key-/v1.2/catalog",
+			),
+			// a key that is truncated, or used on a route that is not one: hidden all the same
+			(format!("/opds/{}/v1.2/x", &key[..20]), "/opds/-key-/v1.2/x"),
+			(format!("/opds/{key}/nonsense"), "/opds/-key-/nonsense"),
+			// an empty segment in front of the key does not hide it
+			(format!("/opds//{key}/v1.2/x"), "/opds//-key-/v1.2/x"),
+			// more than a version is not a version
+			("/opds/v1.2.3/x".to_string(), "/opds/-key-/x"),
+			("/opds/v1.x/x".to_string(), "/opds/-key-/x"),
+			("/opds/v/x".to_string(), "/opds/-key-/x"),
+		] {
+			let uri: Uri = address.parse().unwrap();
+			let shown = loggable_uri(&uri);
+			assert_eq!(shown, logged, "{address}");
+			assert!(!shown.contains(&mac), "{address}");
+			assert!(!shown.contains(api_key), "{address}");
+		}
+
+		// an address in the form a proxy may send does not leak it either
+		let absolute: Uri = format!("https://g3.test/opds/{key}/v1.2/catalog?x=1")
+			.parse()
+			.unwrap();
+		let shown = loggable_uri(&absolute);
+		assert_eq!(shown, "/opds/-key-/v1.2/catalog?x=1");
+		assert!(!shown.contains(&mac));
+	}
+
+	#[test]
+	fn the_keyless_reading_app_addresses_are_logged_as_they_are() {
+		for address in [
+			"/opds/v1.2/catalog",
+			"/opds/v1.2/series?page=2",
+			"/opds/v1.2",
+			"/opds/v2.0/libraries",
+			"/opds/v2.0/books/keep-reading?x=1",
+			"/opds/v1/x",
+			"/opds/",
+			"/opds",
+			"/kobo/",
+			// not the address of a service: kept as it is
+			"/opdsx/abc/def",
+			"/kobo-sync/abc/def",
+			"/api/v2/opds/abc/def",
+			"/api/graphql",
+		] {
+			let uri: Uri = address.parse().unwrap();
+			assert_eq!(loggable_uri(&uri), address);
+		}
 	}
 }
