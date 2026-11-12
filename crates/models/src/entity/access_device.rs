@@ -35,6 +35,10 @@ pub struct Model {
 	/// edge; 0 = never
 	#[sea_orm(default_value = "0")]
 	pub budget_reset_at: i64,
+	/// `browser` (a pass in a browser's cookie) or `opds` (a reading-app key: `<id>.<mac>` in an
+	/// address). Both count as devices of the person, and both are revoked the same way
+	#[sea_orm(column_type = "Text", default_value = "browser")]
+	pub kind: String,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

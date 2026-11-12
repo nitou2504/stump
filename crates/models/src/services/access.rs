@@ -4,7 +4,8 @@
 //! invite tokens) and the file the edge follows are in `stump_core::access`.
 //!
 //! - invites: one link for one person, hashed at rest, spent by a single conditional update;
-//! - devices: the browsers that hold a pass, revoked and restored from the page;
+//! - devices: the browsers that hold a pass and the reading-app keys, each counted against their
+//!   person's limit by one conditional insert, revoked and restored from the page;
 //! - the sign-in log, which is `user_login_activity` plus [`access_signin_mark`] (the pass a
 //!   sign-in came with, why it failed, whether the lock rule counts it);
 //! - the lock rule's count and the *unblock* that really clears a lock;
@@ -21,8 +22,9 @@ use sea_orm::{
 	prelude::*,
 	sea_query::{Expr, Query},
 	ActiveValue::{Set, Unchanged},
-	ColumnTrait, ConnectionTrait, DbErr, EntityTrait, ExprTrait, PaginatorTrait,
-	QueryFilter, QueryOrder, QuerySelect, TransactionSession, TransactionTrait,
+	ColumnTrait, Condition, ConnectionTrait, DbBackend, DbErr, EntityTrait, ExprTrait,
+	PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement, TransactionSession,
+	TransactionTrait, Value,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -30,9 +32,12 @@ use uuid::Uuid;
 use crate::{
 	entity::{
 		access_audit, access_device, access_invite, access_password_reset,
-		access_signin_mark, user, user_login_activity,
+		access_person, access_signin_mark, access_signup_link, user, user_login_activity,
 	},
-	services::user::revoke_user_sessions,
+	services::{
+		access_policy::{self, DORMANT_AFTER_DAYS},
+		user::revoke_user_sessions,
+	},
 };
 
 /// The most characters of a device name
@@ -58,6 +63,18 @@ pub mod reason {
 	pub const LOCKED: &str = "locked";
 	pub const OWNER_VIA_EDGE: &str = "owner_via_edge";
 	pub const WRONG_PERSON: &str = "wrong_person";
+	/// The right password of an account that is not allowed in from the internet
+	pub const NOT_ALLOWED_PUBLICLY: &str = "not_allowed_publicly";
+	/// The right password, but the person already uses all their devices
+	pub const DEVICE_LIMIT: &str = "device_limit";
+}
+
+/// The two kinds of device
+pub mod device_kind {
+	/// A pass in a browser's cookie
+	pub const BROWSER: &str = "browser";
+	/// A reading-app key (`<id>.<mac>` in an address)
+	pub const OPDS: &str = "opds";
 }
 
 #[derive(Debug, Error)]
@@ -70,6 +87,9 @@ pub enum AccessError {
 	PersonNotAllowed,
 	#[error("{0}")]
 	Invalid(&'static str),
+	/// A refusal that names something (the permissions an account holds beyond the friend set)
+	#[error("{0}")]
+	Message(String),
 }
 
 // -------------------------------------------------------------------------------------------
@@ -261,6 +281,15 @@ where
 		.await?
 		.filter(|person| !person.is_server_owner)
 		.ok_or(AccessError::PersonNotAllowed)?;
+
+	// a device link for an existing account also lets a friend-class account in from the internet
+	// (the owner's decision, made by making the link); an account that holds more than the friend
+	// set can't be, and the People table says why
+	if access_policy::is_friend_class(person.permissions.as_deref())
+		&& !person.hashed_password.is_empty()
+	{
+		crate::services::access_people::enable_public_signin(&txn, now, &person.id).await?;
+	}
 
 	let invite = access_invite::ActiveModel {
 		id: Set(Uuid::new_v4().to_string()),
@@ -465,6 +494,7 @@ where
 		revoked_at: Set(None),
 		revoked_by: Set(None),
 		budget_reset_at: Set(0),
+		kind: Set(device_kind::BROWSER.to_string()),
 	}
 	.insert(&txn)
 	.await?;
@@ -529,6 +559,7 @@ where
 		revoked_at: Set(None),
 		revoked_by: Set(None),
 		budget_reset_at: Set(0),
+		kind: Set(device_kind::BROWSER.to_string()),
 	}
 	.insert(conn)
 	.await;
@@ -609,6 +640,19 @@ pub async fn revoke_device<C>(
 where
 	C: TransactionTrait,
 {
+	revoke_device_as(conn, now, id, actor, "device.revoke").await
+}
+
+async fn revoke_device_as<C>(
+	conn: &C,
+	now: DateTime<Utc>,
+	id: &str,
+	actor: &str,
+	action: &str,
+) -> Result<bool, DbErr>
+where
+	C: TransactionTrait,
+{
 	let txn = conn.begin().await?;
 	let Some(device) = find_device(&txn, id).await? else {
 		return Ok(false);
@@ -634,7 +678,7 @@ where
 				.exec(&txn)
 				.await?;
 		}
-		audit(&txn, now, actor, "device.revoke", id, &device.label).await?;
+		audit(&txn, now, actor, action, id, &device.label).await?;
 	}
 	txn.commit().await?;
 	Ok(changed)
@@ -757,6 +801,271 @@ where
 }
 
 // -------------------------------------------------------------------------------------------
+// a person's devices: the limit, self-service, reading-app keys
+// -------------------------------------------------------------------------------------------
+
+/// A device that has been seen (or made) since this moment counts against its person's limit
+pub fn dormant_cutoff(now: DateTime<Utc>) -> DateTime<Utc> {
+	now - Duration::days(DORMANT_AFTER_DAYS)
+}
+
+/// The rows that count against a limit: of this person, not revoked, seen (or, never seen, made)
+/// within the last [`DORMANT_AFTER_DAYS`] days, of either kind
+fn counts_for(person_id: &str, now: DateTime<Utc>) -> Condition {
+	let cutoff = dormant_cutoff(now);
+	Condition::all()
+		.add(access_device::Column::PersonId.eq(person_id))
+		.add(access_device::Column::RevokedAt.is_null())
+		.add(
+			Condition::any()
+				.add(access_device::Column::LastSeenAt.gt(cutoff))
+				.add(
+					Condition::all()
+						.add(access_device::Column::LastSeenAt.is_null())
+						.add(access_device::Column::CreatedAt.gt(cutoff)),
+				),
+		)
+}
+
+/// How many devices of the person count against their limit at `now`
+pub async fn count_person_devices<C>(
+	conn: &C,
+	now: DateTime<Utc>,
+	person_id: &str,
+) -> Result<u64, DbErr>
+where
+	C: ConnectionTrait,
+{
+	access_device::Entity::find()
+		.filter(counts_for(person_id, now))
+		.count(conn)
+		.await
+}
+
+/// The person's limit: their row's, or the default for somebody with no row
+pub async fn max_devices_of<C>(conn: &C, person_id: &str) -> Result<i32, DbErr>
+where
+	C: ConnectionTrait,
+{
+	Ok(access_person::Entity::find_by_id(person_id.to_string())
+		.one(conn)
+		.await?
+		.map_or(access_policy::DEFAULT_MAX_DEVICES, |row| row.max_devices))
+}
+
+/// A device to make: what [`insert_device_within_limit`] needs
+pub struct NewDevice<'a> {
+	pub id: String,
+	pub invite_id: Option<&'a str>,
+	pub person_id: &'a str,
+	pub label: &'a str,
+	pub kind: &'a str,
+	pub ip: &'a str,
+	pub agent: &'a str,
+}
+
+/// A device id nobody has used (a revoked device's id is never reused: a revoked reading-app key
+/// would come back to life under the same id)
+pub async fn unused_device_id<C>(conn: &C, label: &str) -> Result<String, DbErr>
+where
+	C: ConnectionTrait,
+{
+	let mut id = new_device_id(label);
+	for _ in 0..8 {
+		if find_device(conn, &id).await?.is_none() {
+			return Ok(id);
+		}
+		id = new_device_id(label);
+	}
+	Ok(id)
+}
+
+/// Makes a device for a person **only if they have fewer than `limit` devices that count**, as
+/// one statement: ten sign-ins at once at two of three make exactly one device. `None` is "at the
+/// limit"
+pub async fn insert_device_within_limit<C>(
+	conn: &C,
+	now: DateTime<Utc>,
+	device: NewDevice<'_>,
+	limit: i32,
+) -> Result<Option<access_device::Model>, DbErr>
+where
+	C: ConnectionTrait,
+{
+	let cutoff = dormant_cutoff(now);
+	let sql = "INSERT INTO access_devices \
+		(id, invite_id, person_id, label, created_at, first_seen_at, last_seen_at, last_ip, last_agent, revoked_at, revoked_by, budget_reset_at, kind) \
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ? \
+		WHERE (SELECT COUNT(*) FROM access_devices \
+			WHERE person_id = ? AND revoked_at IS NULL \
+			AND COALESCE(last_seen_at, created_at) > ?) < ?";
+	let values: Vec<Value> = vec![
+		device.id.clone().into(),
+		device.invite_id.map(str::to_string).into(),
+		device.person_id.to_string().into(),
+		clean_text(device.label, MAX_LABEL_CHARS).into(),
+		now.into(),
+		now.into(),
+		now.into(),
+		clean_text(device.ip, 64).into(),
+		clean_text(device.agent, MAX_AGENT_CHARS).into(),
+		device.kind.to_string().into(),
+		device.person_id.to_string().into(),
+		cutoff.into(),
+		limit.into(),
+	];
+	let inserted = conn
+		.execute_raw(Statement::from_sql_and_values(
+			DbBackend::Sqlite,
+			sql,
+			values,
+		))
+		.await?
+		.rows_affected();
+	if inserted == 0 {
+		return Ok(None);
+	}
+	find_device(conn, &device.id).await
+}
+
+/// The person's devices that are not revoked, the oldest first: what they see in *My devices*
+pub async fn devices_of_person<C>(
+	conn: &C,
+	person_id: &str,
+) -> Result<Vec<access_device::Model>, DbErr>
+where
+	C: ConnectionTrait,
+{
+	access_device::Entity::find()
+		.filter(access_device::Column::PersonId.eq(person_id))
+		.filter(access_device::Column::RevokedAt.is_null())
+		.order_by_asc(access_device::Column::CreatedAt)
+		.all(conn)
+		.await
+}
+
+/// Renames one of the person's own devices. `None` when it isn't theirs (or is revoked): a
+/// person only ever reaches their own
+pub async fn rename_device_of_person<C>(
+	conn: &C,
+	person_id: &str,
+	id: &str,
+	label: &str,
+) -> Result<Option<access_device::Model>, AccessError>
+where
+	C: ConnectionTrait,
+{
+	let label = clean_text(label, MAX_LABEL_CHARS);
+	if label.is_empty() {
+		return Err(AccessError::Invalid("Give the device a name"));
+	}
+	let changed = access_device::Entity::update_many()
+		.col_expr(access_device::Column::Label, Expr::value(label))
+		.filter(access_device::Column::Id.eq(id))
+		.filter(access_device::Column::PersonId.eq(person_id))
+		.filter(access_device::Column::RevokedAt.is_null())
+		.exec(conn)
+		.await?
+		.rows_affected;
+	if changed == 0 {
+		return Ok(None);
+	}
+	Ok(find_device(conn, id).await?)
+}
+
+/// A person removes one of their own devices: it is revoked (so the pass or key stops working at
+/// once for the app and within seconds at the edge). `None` when it isn't theirs
+pub async fn remove_device_of_person<C>(
+	conn: &C,
+	now: DateTime<Utc>,
+	person_id: &str,
+	username: &str,
+	id: &str,
+) -> Result<Option<access_device::Model>, DbErr>
+where
+	C: TransactionTrait + ConnectionTrait,
+{
+	let Some(device) = find_device(conn, id)
+		.await?
+		.filter(|device| device.person_id.as_deref() == Some(person_id))
+	else {
+		return Ok(None);
+	};
+	revoke_device_as(conn, now, id, username, "device.removed_by_person").await?;
+	Ok(Some(device))
+}
+
+/// A person's reading-app keys that are not revoked
+pub async fn reading_apps_of_person<C>(
+	conn: &C,
+	person_id: &str,
+) -> Result<Vec<access_device::Model>, DbErr>
+where
+	C: ConnectionTrait,
+{
+	access_device::Entity::find()
+		.filter(access_device::Column::PersonId.eq(person_id))
+		.filter(access_device::Column::Kind.eq(device_kind::OPDS))
+		.filter(access_device::Column::RevokedAt.is_null())
+		.order_by_asc(access_device::Column::CreatedAt)
+		.all(conn)
+		.await
+}
+
+/// Makes a reading-app key for a person: a device of kind `opds`, within their limit. `None` is
+/// "at the limit". With `replacing` the old key is revoked first, in the same transaction, so a
+/// person at the limit can replace a key
+pub async fn create_reading_app<C>(
+	conn: &C,
+	now: DateTime<Utc>,
+	person_id: &str,
+	username: &str,
+	label: &str,
+	replacing: Option<&str>,
+) -> Result<Option<access_device::Model>, AccessError>
+where
+	C: TransactionTrait,
+{
+	let label = clean_text(label, MAX_LABEL_CHARS);
+	if label.is_empty() {
+		return Err(AccessError::Invalid("Give the reading app a name"));
+	}
+	let txn = conn.begin().await?;
+	if let Some(old) = replacing {
+		let is_theirs = find_device(&txn, old).await?.is_some_and(|device| {
+			device.person_id.as_deref() == Some(person_id)
+				&& device.kind == device_kind::OPDS
+		});
+		if !is_theirs {
+			return Ok(None);
+		}
+		revoke_device_as(&txn, now, old, username, "opds.key_replaced").await?;
+	}
+	let limit = max_devices_of(&txn, person_id).await?;
+	let id = unused_device_id(&txn, &label).await?;
+	let created = insert_device_within_limit(
+		&txn,
+		now,
+		NewDevice {
+			id,
+			invite_id: None,
+			person_id,
+			label: &label,
+			kind: device_kind::OPDS,
+			ip: "",
+			agent: "",
+		},
+		limit,
+	)
+	.await?;
+	if let Some(device) = &created {
+		audit(&txn, now, username, "opds.key_created", &device.id, &device.label).await?;
+		txn.commit().await?;
+	}
+	Ok(created)
+}
+
+// -------------------------------------------------------------------------------------------
 // what the edge follows
 // -------------------------------------------------------------------------------------------
 
@@ -811,10 +1120,27 @@ where
 		.await?
 		.rows_affected;
 
+	// a revoked reading-app key is **never** forgotten: it has no expiry, so once its id left the
+	// state file the edge would accept it again, and a new device that happened to get the same
+	// id would bring it back to life in the app. (A pass is different: it expires on its own)
 	removed += access_device::Entity::delete_many()
 		.filter(
 			access_device::Column::RevokedAt
 				.lt(now - Duration::days(REVOKED_DEVICE_KEEP_DAYS)),
+		)
+		.filter(access_device::Column::Kind.ne(device_kind::OPDS))
+		.exec(conn)
+		.await?
+		.rows_affected;
+
+	// signup links that expired, were used up or were revoked a month ago (the accounts they made
+	// forget them: the foreign key sets their link to nothing)
+	let old_links = now - Duration::days(INVITE_KEEP_DAYS);
+	removed += access_signup_link::Entity::delete_many()
+		.filter(
+			Condition::any()
+				.add(access_signup_link::Column::ExpiresAt.lt(old_links))
+				.add(access_signup_link::Column::RevokedAt.lt(old_links)),
 		)
 		.exec(conn)
 		.await?
