@@ -1880,7 +1880,8 @@
           "label": "Management",
           "recently added": "Recently added",
           "deleted books": "Deleted books",
-          "public access": "Public access"
+          "public access": "Public access",
+          "book approvals": "Book approvals"
         }
       },
       "app/account": {
