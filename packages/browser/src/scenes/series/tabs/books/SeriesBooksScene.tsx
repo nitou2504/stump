@@ -185,6 +185,7 @@ function SeriesBooksScene() {
 	const everythingFits = fitsOnOnePage({
 		loaded: !!data,
 		totalPages: pageInfo.totalPages || 1,
+		currentPage: pageInfo.currentPage || 1,
 		search,
 		startsWith,
 		filters,
