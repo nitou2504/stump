@@ -316,7 +316,14 @@
           }
         }
       },
-      "nextInSeries": "Siguiente en la serie"
+      "booksInSeries": "Libros de esta serie",
+      "nextInSeries": "Siguiente en la serie",
+      "by": "de",
+      "moreBy": "Más de {{author}}",
+      "credits": {
+        "story": "Guion",
+        "art": "Arte"
+      }
     },
     "createOrUpdateBookClubForm": {
       "fields": {

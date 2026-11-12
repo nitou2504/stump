@@ -61,7 +61,7 @@ type Props = {
 }
 
 export function BookOverviewDetails({ fragment: fragmentRef, onEditGenres }: Props) {
-	const { translate } = useTranslate()
+	const { t, translate } = useTranslate()
 
 	const media = useFragment(fragment, fragmentRef)
 	const paths = usePaths()
@@ -109,13 +109,19 @@ export function BookOverviewDetails({ fragment: fragmentRef, onEditGenres }: Pro
 
 				<div className="gap-x-2 gap-y-1 text-sm flex flex-wrap items-center text-muted-foreground">
 					{presentation.credits === 'byline' && writers.length > 0 && (
-						<span>by {joined(writers, 'writers')}</span>
+						<span>
+							{t('bookOverviewScene.by')} {joined(writers, 'writers')}
+						</span>
 					)}
 					{presentation.credits === 'credits' && writers.length > 0 && (
-						<span>Story {joined(writers, 'writers')}</span>
+						<span>
+							{t('bookOverviewScene.credits.story')} {joined(writers, 'writers')}
+						</span>
 					)}
 					{presentation.credits === 'credits' && artists.length > 0 && (
-						<span>Art {joined(artists, 'pencillers')}</span>
+						<span>
+							{t('bookOverviewScene.credits.art')} {joined(artists, 'pencillers')}
+						</span>
 					)}
 
 					{media.series ? (

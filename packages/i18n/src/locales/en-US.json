@@ -446,7 +446,13 @@
         }
       },
       "booksInSeries": "Books in This Series",
-      "nextInSeries": "Next in Series"
+      "nextInSeries": "Next in Series",
+      "by": "by",
+      "moreBy": "More by {{author}}",
+      "credits": {
+        "story": "Story",
+        "art": "Art"
+      }
     },
     "createOrUpdateBookClubForm": {
       "fields": {
