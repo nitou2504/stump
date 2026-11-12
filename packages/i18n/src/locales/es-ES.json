@@ -3821,6 +3821,154 @@
           "changelog": "Registro de cambios"
         }
       }
+    },
+    "reader": {
+      "settings": {
+        "title": "Ajustes del lector",
+        "theme": "Tema",
+        "text": "Texto",
+        "page": "Página",
+        "display": "Pantalla",
+        "pageNumber": "Número de página",
+        "layout": "Páginas",
+        "size": "Tamaño",
+        "smaller": "Texto más pequeño",
+        "larger": "Texto más grande",
+        "font": "Fuente",
+        "bookFont": "Libro",
+        "spacing": "Espaciado",
+        "spacingTight": "Interlineado reducido",
+        "spacingNormal": "Interlineado normal",
+        "spacingLoose": "Interlineado amplio",
+        "margins": "Márgenes",
+        "marginsNarrow": "Márgenes estrechos",
+        "marginsNormal": "Márgenes normales",
+        "marginsWide": "Márgenes amplios",
+        "fixedLayoutText": "Las páginas de este libro conservan las fuentes y el diseño de la editorial; se ajustan al tamaño de la pantalla",
+        "align": "Alineación",
+        "direction": "Dirección",
+        "brightness": "Brillo",
+        "more": "Más",
+        "less": "Menos",
+        "shortcuts": "Atajos",
+        "bookFontName": "Propia del libro",
+        "defaults": {
+          "label": "Valores predeterminados",
+          "own": "Este libro tiene sus propios ajustes",
+          "following": "Usando tus valores predeterminados de {{kind}}",
+          "makeDefault": "Usar como predeterminado en todos los {{kinds}}",
+          "reset": "Restablecer este libro",
+          "kind": {
+            "epub": "EPUB",
+            "pdf": "PDF",
+            "comic": "cómic"
+          },
+          "kinds": {
+            "epub": "EPUB",
+            "pdf": "PDF",
+            "comic": "cómics"
+          }
+        }
+      },
+      "layout": {
+        "label": "Diseño de página",
+        "single": "Una página",
+        "double": "Dos páginas",
+        "paged": "Pasar páginas",
+        "continuous": "Desplazar",
+        "needsWiderScreen": "Dos páginas necesitan una pantalla más ancha",
+        "flowingTextScrollsInOneColumn": "El texto fluido se desplaza en una sola columna",
+        "fixedLayout": "Este libro define su propio diseño de página",
+        "coverAlone": "Portada sola",
+        "coverAloneHint": "En los diseños de dos páginas, la primera queda sola, como en un libro abierto",
+        "spreadsTurnOnly": "Las páginas dobles se pasan una a una"
+      },
+      "comic": {
+        "crop": "Recortar",
+        "cropHint": "Recorta los márgenes en blanco alrededor de cada página",
+        "widePages": "Anchas",
+        "widePagesHint": "Imágenes de dos páginas con Ajustar a la página en una pantalla estrecha",
+        "wideZoom": "Ampliar y desplazar",
+        "wideSplit": "Dividir en dos",
+        "wideFit": "Ajustar completa"
+      },
+      "themes": {
+        "auto": "Automático",
+        "light": "Claro",
+        "sepia": "Sepia",
+        "dark": "Oscuro",
+        "black": "Negro",
+        "autoHint": "Sigue el tema de la aplicación"
+      },
+      "shortcuts": {
+        "dayNight": "Cambiar entre día y noche",
+        "settings": "Ajustes del lector",
+        "toggleBar": "Mostrar u ocultar la barra superior",
+        "turnPageAlways": "Pasar la página",
+        "panZoomed": "Moverse por una página ampliada",
+        "stepPage": "Parte o página siguiente / anterior",
+        "stepScreen": "Pantalla o página siguiente / anterior",
+        "scrollPage": "Desplazar y luego pasar de página",
+        "scrollLine": "Desplazar hacia arriba / abajo",
+        "scrollScreen": "Desplazar una pantalla",
+        "scrollScreenChapter": "Desplazar una pantalla y luego pasar al capítulo siguiente",
+        "scrollSideways": "Moverse hacia los lados en una página ampliada",
+        "firstLastPage": "Primera / última página",
+        "chapterStartEnd": "Inicio / final del capítulo",
+        "goTo": "Ir a"
+      },
+      "extend": {
+        "continues": "Continúa desde la página anterior",
+        "acrossChapters": "Una selección no puede pasar a otro capítulo"
+      },
+      "direction": {
+        "label": "Dirección de lectura",
+        "ltr": "De izquierda a derecha",
+        "rtl": "De derecha a izquierda (manga)"
+      },
+      "fit": {
+        "label": "Ajuste",
+        "width": "Ajustar a lo ancho",
+        "height": "Ajustar a lo alto",
+        "page": "Ajustar a la página",
+        "original": "Tamaño original"
+      },
+      "text": {
+        "alignment": "Alineación del texto",
+        "alignBook": "Según el libro",
+        "alignJustify": "Justificado (con separación silábica)",
+        "alignStart": "Alineado a la izquierda"
+      },
+      "pages": "Páginas",
+      "goToPage": "Ir a página",
+      "goToLocation": "Ir a ubicación",
+      "noSuchLocation": "No existe esa ubicación en este libro",
+      "progress": {
+        "label": "Progreso",
+        "off": "Desactivado",
+        "number": "Número",
+        "bar": "Barra",
+        "barShows": "La barra muestra",
+        "items": {
+          "chapter": "Capítulo",
+          "page": "Página",
+          "pagesLeft": "Páginas restantes",
+          "percent": "% del libro",
+          "clock": "Reloj"
+        },
+        "pagesLeftInChapter_one": "Queda {{count}} página en el capítulo",
+        "pagesLeftInChapter_other": "Quedan {{count}} páginas en el capítulo",
+        "pagesLeftShort_one": "Queda {{count}} página",
+        "pagesLeftShort_other": "Quedan {{count}} páginas",
+        "pageInChapter": "Página {{page}} de {{total}} del capítulo",
+        "pageOf": "Página {{page}} de {{total}}",
+        "leftInChapter": "Restantes en el capítulo: {{count}}"
+      },
+      "history": {
+        "back": "Volver a {{place}}",
+        "forward": "Avanzar a {{place}}",
+        "location": "Ubicación {{position}}"
+      }
     }
   }
 }
