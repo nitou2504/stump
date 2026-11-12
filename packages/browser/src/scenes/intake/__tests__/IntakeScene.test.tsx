@@ -106,7 +106,7 @@ describe('IntakeScene for somebody who needs approval', () => {
 	it('says what happens to their books, and how much of their inbox is used', () => {
 		renderScene()
 
-		expect(screen.getByText(/looks over your books before they join it/)).toBeInTheDocument()
+		expect(screen.getByText(/They’re added once approved/)).toBeInTheDocument()
 		// a quarter full is nothing to say
 		expect(screen.queryByLabelText(/almost full/)).not.toBeInTheDocument()
 	})
@@ -286,7 +286,7 @@ describe('IntakeScene for somebody who files books themselves', () => {
 		renderScene()
 
 		expect(screen.getByRole('region', { name: 'Ready to add' })).toBeInTheDocument()
-		expect(screen.queryByText(/looks over your books/)).not.toBeInTheDocument()
+		expect(screen.queryByText(/They’re added once approved/)).not.toBeInTheDocument()
 		expect(screen.queryByLabelText(/Your inbox is almost full/)).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Add all ready (2)' }))
 		expect(screen.getByRole('heading', { name: 'Add 2 books' })).toBeInTheDocument()

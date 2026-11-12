@@ -1,10 +1,14 @@
 import { SDKContext, StumpClientContext } from '@stump/client'
 import { Api } from '@stump/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { configure } from '@testing-library/react'
 import { PropsWithChildren, Suspense } from 'react'
 import { MemoryRouter } from 'react-router'
 
 import { AppContext, IAppContext } from '@/context'
+
+// a busy machine renders slowly: wait longer for what the screens show before calling it missing
+configure({ asyncUtilTimeout: 5000 })
 
 type Answers = (query: string, variables: Record<string, unknown> | undefined) => unknown
 

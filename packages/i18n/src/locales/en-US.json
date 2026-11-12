@@ -3487,7 +3487,8 @@
         "noSmartlists": "No Smart Lists",
         "createSmartlist": "Create Smart List",
         "myReading": "My reading",
-        "seeAll": "See All"
+        "seeAll": "See All",
+        "addBooks": "Add books"
       },
       "libraryOptions": {
         "manageLibrary": "Settings",
@@ -3709,7 +3710,35 @@
       "removeFromList": "Remove from my list",
       "sourceFailures_one": "Couldn't check online ({{count}} source).",
       "sourceFailures_other": "Couldn't check online ({{count}} sources).",
-      "sourceDetails": "Details"
+      "sourceDetails": "Details",
+      "title": "Add books",
+      "statReview": "need your details",
+      "statReady": "ready",
+      "statWaiting": "waiting",
+      "friendIntro": "Send books to the library. They’re added once approved.",
+      "closed": "Uploads are closed",
+      "closedNow": "You can’t add books right now.",
+      "noLibrary": "You can’t add books to any library yet.",
+      "beingRead": "Being read",
+      "sentBack": "Sent back",
+      "sentBackHelp": "Change what they ask for, then send them again",
+      "needsDetails": "Needs your details",
+      "readyToSend": "Ready to send",
+      "readyToAdd": "Ready to add",
+      "sendAllReady": "Send all ready",
+      "addAllReady": "Add all ready",
+      "waiting": "Waiting for approval",
+      "waitingHelp": "You can take a book back to change it until it is approved",
+      "beingAdded": "Being added",
+      "added": "Added",
+      "showFewer": "Show fewer",
+      "showAll": "Show all {{count}}",
+      "stepDrop": "Drop your books",
+      "stepCheck": "Check the details",
+      "stepSend": "Send them for approval",
+      "stepAdd": "Add them to the library",
+      "empty": "Your inbox is empty.",
+      "howItWorks": "How adding books works"
     }
   },
   "shared": {

@@ -160,7 +160,7 @@ export default function AppSidebar() {
 								icon={BookPlus}
 								isActive={location.pathname === paths.addBooks()}
 							>
-								Add books
+								{t('sidebar.buttons.addBooks')}
 							</SideBarButtonLink>
 						)}
 					</Fragment>

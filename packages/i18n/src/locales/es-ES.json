@@ -3038,7 +3038,8 @@
         "noSmartlists": "Sin listas inteligentes",
         "createSmartlist": "Crear lista inteligente",
         "myReading": "Mi lectura",
-        "seeAll": "Ver todo"
+        "seeAll": "Ver todo",
+        "addBooks": "Añadir libros"
       },
       "libraryOptions": {
         "manageLibrary": "Administrar",
@@ -3346,7 +3347,35 @@
       "removeFromList": "Quitar de mi lista",
       "sourceFailures_one": "No se pudo consultar en línea ({{count}} fuente).",
       "sourceFailures_other": "No se pudo consultar en línea ({{count}} fuentes).",
-      "sourceDetails": "Detalles"
+      "sourceDetails": "Detalles",
+      "title": "Añadir libros",
+      "statReview": "necesitan tus datos",
+      "statReady": "listos",
+      "statWaiting": "esperando",
+      "friendIntro": "Envía libros a la biblioteca. Se añaden cuando se aprueban.",
+      "closed": "Las subidas están cerradas",
+      "closedNow": "Ahora no puedes añadir libros.",
+      "noLibrary": "Todavía no puedes añadir libros a ninguna biblioteca.",
+      "beingRead": "Leyéndose",
+      "sentBack": "Devueltos",
+      "sentBackHelp": "Cambia lo que piden y vuelve a enviarlos",
+      "needsDetails": "Necesitan tus datos",
+      "readyToSend": "Listos para enviar",
+      "readyToAdd": "Listos para añadir",
+      "sendAllReady": "Enviar todos los listos",
+      "addAllReady": "Añadir todos los listos",
+      "waiting": "Esperando aprobación",
+      "waitingHelp": "Puedes retirar un libro para cambiarlo hasta que se apruebe",
+      "beingAdded": "Añadiéndose",
+      "added": "Añadidos",
+      "showFewer": "Ver menos",
+      "showAll": "Ver todos ({{count}})",
+      "stepDrop": "Suelta tus libros",
+      "stepCheck": "Revisa los datos",
+      "stepSend": "Envíalos para aprobación",
+      "stepAdd": "Añádelos a la biblioteca",
+      "empty": "Tu bandeja está vacía.",
+      "howItWorks": "Cómo se añaden libros"
     }
   },
   "shared": {
