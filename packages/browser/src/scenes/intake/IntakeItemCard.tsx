@@ -99,9 +99,10 @@ export default function IntakeItemCard({
 	const reviewing = mode === 'review'
 	const { t } = useTranslate()
 	const [sendingBack, setSendingBack] = useState(false)
-	// the same file as one in the library: the server refuses it, so there is nothing to send
+	// the same file as one in the library: the server refuses it from somebody whose books need
+	// approval, so there is nothing to send. The owner's own filing allows it ("Add anyway")
 	const sameFile =
-		!reviewing &&
+		friend &&
 		item.state !== IntakeState.Failed &&
 		(proposal?.duplicates ?? []).some((duplicate) => duplicate.reason === 'SAME_FILE')
 	const sentBack = isSentBack(item)

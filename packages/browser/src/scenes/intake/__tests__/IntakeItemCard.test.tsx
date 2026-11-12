@@ -259,6 +259,13 @@ describe('IntakeItemCard for somebody who needs approval', () => {
 		expect(onDiscard).toHaveBeenCalledWith([expect.any(String)])
 	})
 
+	it('leaves the owner’s own filing alone: the same file can still be added, as the server allows it', () => {
+		renderCard({ proposal: withProposal({ duplicates: [duplicate('SAME_FILE')] }) })
+
+		expect(screen.queryByTestId('intake-same-file')).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /^Add/ })).toBeEnabled()
+	})
+
 	it('still lets a book with a similar title be sent anyway', () => {
 		friendCard({ proposal: withProposal({ duplicates: [duplicate('SAME_TITLE')] }) })
 
