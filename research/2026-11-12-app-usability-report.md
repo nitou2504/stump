@@ -93,6 +93,50 @@ adds the same three, so this branch's Spanish is set to its words ("Añadidos re
 which makes the two changes identical and the merge clean) and adds `URLFilterContainer`'s `hideFooter`. It does not touch `public_pages`, `deploy/public-edge`, the
 auth scene, `settings/server/access`, `bookApprovals`, `settings/app/devices`, the Add books / intake screens or the sidebar badge.
 
+## Status of the owner-approved items (third pass, 2026-11-12)
+
+The owner approved U11, U12, U13b, U14b and U15 and left the way to do them to the usability lead. **U9/U10 (search)
+are done by another worker on `feat/app-search`**, not here. **Not approved, not done: U16** (last-name sorting) **and
+U1** (the reader is not patched: read EPUBs at home through the tailnet address). Each item is its own commit, with
+tests of the new behaviour (written to assert what the old code did not do; not each one run against the reverted code); web only, no Rust change. Evidence in `after2/` (an isolated sandbox: a copy of the
+database, internal-only network, books read-only, this branch's rebuilt web bundle; the owner `nitou` and a Spanish
+friend `amiga`, Biblioteca only; 1440x900 and 390x844).
+
+| id | status | commit | evidence |
+|---|---|---|---|
+| U11 | done | `f7cf20e86` | `after2/p2-unlabeled-stat-chips-library.png` ("813 series, 8,756 books, 56.6 GB"), `p2-unlabeled-chips-smart-lists.png` and `-phone.png` ("344 books, 89 series"; no "1", no "Private"), `p2-series-page-controls-file-size.png` ("6 books, 0 read, 142 MB") |
+| U12 | done | `090675663` | `after2/p2-series-page-controls-file-size.png` and `-phone.png` ("George R. R. Martin" under each cover instead of "10 MB") |
+| U13b | done | `d751908dd`, `b114671bf` | `after2/p2-series-page-controls-file-size.png` (**Start reading**, header), `p2-series-page-continue-button.png` (**Continue** after the first book is read), `-phone.png` (the full-width bar; the series name keeps its room) |
+| U14b | done | `eda09d124` | `after2/p2-new-friend-empty-home.png` (phone) and `-desktop.png` (one line: "Nada en progreso todavía", then the picks) |
+| U15 | done | `f1f4ea17a` | `after2/p2-sidebar-45-smart-lists.png` (folded: "Smart lists 45"), `-open.png` ("See all" first), `-phone.png` (the phone menu) |
+
+Decisions made (mine, small, reversible):
+- **U11** every chip is a number *and its word* ("813 series", "2 read"; the plural and the number format follow the
+  language: `webApp.statChips.*`, es: "813 series", "1 serie", "2 leídos"). In the **library** and **series** headers only what
+  the thing *is* stays: series, books, size (series header: books, how many are read, size). The reader's own in-progress
+  count and reading time live in the info sheet (the (i) button), which already labels them, so the header is shorter than it was.
+  The **smart list card** shows books and series, the libraries only when the list spans more than one, and a badge only when it
+  says something: *Shared*, or *by Ana*. A private list of the user's own, the usual case, says nothing. The same words are on
+  the reading-list and library cards and on the reading lists, smart lists, libraries, authors and genres headers. `MiniStatCard`
+  now puts a real space between the number and its word (screen readers read "813 series", not "813series").
+- **U12** under a book not started: its authors (first ones; the card cuts the line), else its file size, so the line is never
+  empty. The size stays on the book page. Needs `writers` in the `BookCard` fragment, so **the generated client changed
+  (`packages/graphql/src/client/{gql,graphql}.ts`, a few lines): when this branch is merged with another that also regenerates it,
+  take either side and run `yarn workspace @stump/graphql codegen` once after the merge**, rather than merging the generated files by hand.
+- **U13b** *Continue* if a book of the series is in progress or any is read, else *Start reading*; it opens the next unread book
+  (`Series.upNext`, the same one the info sheet lists) in the reader, where the reader was. Nothing when every book is read.
+  In the page header from a small screen up; on a phone, a full-width bar at the top of the list of books (the header has no
+  room: the series name needs it). It refetches on every visit to the page, so it is never a book behind.
+- **U14b** *Continue reading* and *Your next read* are not drawn while empty. A reader with **neither** (a new friend) gets one
+  line at the top of the home instead: "Nothing in progress yet. Start any book and it will show up here." It counts only the
+  sections the reader has turned on. They come back with the first book.
+- **U15** the app has no pinned or favourite smart lists, so: past **6** lists the sidebar section starts **folded** with the number
+  on it, and *See all* (the Smart lists page) is then always the first entry; it starts open when the reader is on one of the
+  lists, and a few lists look and act as before. The collapsed (icon) sidebar is already a menu and is unchanged.
+
+**Not done / for the next pass:** the book card's own words ("Completed", "N pages left", "File Missing") are still hard-coded
+English (U5-style, not in the approved list); the reader-side U1; U16.
+
 ## Summary
 
 | id | P | screen | issue | effort | class |
