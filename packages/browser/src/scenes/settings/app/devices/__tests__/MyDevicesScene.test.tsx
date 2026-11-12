@@ -139,8 +139,12 @@ describe('My devices', () => {
 		await user.click(within(dialog).getByRole('button', { name: K('removeAndSignOut') }))
 
 		await waitFor(() => expect(sent(execute, 'RemoveMyDevice')).toEqual([{ id: 'a' }]))
-		await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith('/api/_i/signin'))
-	})
+		// not at once: the edge needs a moment to learn the pass is revoked
+		expect(assign).not.toHaveBeenCalled()
+		await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith('/api/_i/signin'), {
+			timeout: 5000,
+		})
+	}, 15_000)
 
 	it('does not leave the page, and says so, when the server removed nothing', async () => {
 		renderScene({ devices: [device('a', 'Chrome on Android', { current: true })], removed: false })

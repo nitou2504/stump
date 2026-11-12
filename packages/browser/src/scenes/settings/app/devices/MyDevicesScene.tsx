@@ -12,6 +12,9 @@ import { formatWhen } from '@/scenes/settings/server/access/format'
 
 import { type MyDevice, useMyAccessActions, useMyDevices } from './graphql'
 
+/** How long the page waits after the device in use is removed (see `confirm`) */
+const SIGN_OUT_DELAY_MS = 2500
+
 const key = (name: string) => `settingsScene.app/devices.${name}`
 
 const errorMessage = (error: unknown) =>
@@ -126,8 +129,13 @@ function DeviceList() {
 				return
 			}
 			toast.success(t(key('removed'), { name: device.label }))
-			// the device you are on is gone, and so is your session: the sign-in page is where this ends
-			if (device.current) window.location.assign(EDGE_SIGN_IN_PAGE)
+			// the device you are on is gone, and so is your session: the sign-in page is where this ends. A
+			// moment is given first: the edge follows the app's state file once a second, and until it has
+			// the pass is still honoured there, so a page opened at once would be served as a signed-in
+			// visit and could meet the old pass again
+			if (device.current) {
+				window.setTimeout(() => window.location.assign(EDGE_SIGN_IN_PAGE), SIGN_OUT_DELAY_MS)
+			}
 		} catch (error) {
 			toast.error(t(key('errors.remove')), { description: errorMessage(error) })
 		}
