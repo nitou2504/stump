@@ -444,7 +444,12 @@ async fn login(
 					false,
 					&SignInMark::ignored_by_lock(
 						device_id,
-						if right {
+						// locked first, as the sign-in page does and as every other failed attempt at a
+						// locked account is recorded: the owner is not told to turn a locked account on
+						// in People
+						if user.is_locked {
+							reason::LOCKED
+						} else if right {
 							reason::NOT_ALLOWED_PUBLICLY
 						} else {
 							reason::WRONG_PASSWORD

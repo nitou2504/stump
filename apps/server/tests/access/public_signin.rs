@@ -601,6 +601,63 @@ async fn the_web_apps_sign_in_follows_the_same_rules_with_public_sign_in_on() {
 	assert_eq!(owner.status_code(), StatusCode::UNAUTHORIZED);
 }
 
+/// A locked account that types its right password into the web app is recorded as locked, as the
+/// sign-in page records it, and not as "not allowed from the internet": that would send the owner to
+/// turn a locked account on in People
+#[tokio::test]
+async fn the_web_app_records_a_locked_account_as_locked() {
+	let env = signin_app().await;
+	let app = &env.app;
+	let dora = friend_in_biblioteca(app, "dora", "203.0.113.7").await;
+	let cara = {
+		let shelf = shelves_of(app).await;
+		sign_up_friend(app, "cara", &[&shelf], "203.0.113.6").await
+	};
+	// cara: the owner switched her off. dora: locked
+	owner_gql(
+		app,
+		"mutation($i: PersonAccessInput!) { setPersonAccess(input: $i) { publicSignin } }",
+		Some(json!({"i": {"personId": cara.id, "publicSignin": false}})),
+	)
+	.await;
+	let mut row = user_row(app, "dora").await.into_active_model();
+	row.is_locked = Set(true);
+	row.update(app.conn()).await.unwrap();
+
+	// both typed the right password, from a device that has a pass: both are refused like a wrong one
+	let legacy = pass_for("deploy-old");
+	for (name, password) in [
+		("dora", dora.password.as_str()),
+		("cara", cara.password.as_str()),
+	] {
+		let response = public_login(app, name, password, Some(&legacy)).await;
+		assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED, "{name}");
+	}
+	assert!(
+		eventually(|| async {
+			let log = sign_in_log(app).await;
+			let has = |name: &str, reason: &str| {
+				log.iter().any(|(who, ok, why)| {
+					who == name && !*ok && why.as_deref() == Some(reason)
+				})
+			};
+			has("dora", "LOCKED") && has("cara", "NOT_ALLOWED_PUBLICLY")
+		})
+		.await
+	);
+
+	// so the owner is told to look at cara, and not at dora
+	let kinds = warning_kinds(app).await;
+	assert!(
+		kinds.contains(&("NOT_ENABLED_TRIED".to_string(), "cara".to_string())),
+		"{kinds:?}"
+	);
+	assert!(
+		!kinds.contains(&("NOT_ENABLED_TRIED".to_string(), "dora".to_string())),
+		"{kinds:?}"
+	);
+}
+
 /// The sign-ins of a person are in `user_login_activity`; nothing that was typed is stored
 #[tokio::test]
 async fn no_password_is_ever_stored() {
