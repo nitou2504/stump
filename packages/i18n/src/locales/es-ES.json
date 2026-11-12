@@ -575,6 +575,11 @@
             "description": "El formato de las imágenes de vista en miniatura generadas",
             "format": "Formato de imagen",
             "quality": "Calidad"
+          },
+          "thumbnailColors": {
+            "label": "Colores de miniatura",
+            "description": "Extrae los colores dominantes de las miniaturas para usos estéticos en toda la aplicación",
+            "requiredWhenGenerationOn": "Es obligatorio cuando la generación está activada"
           }
         },
         "ignoreRules": {
@@ -647,17 +652,34 @@
         },
         "organization": {
           "label": "Organización",
+          "description": "Esto indica a Stump cómo interpretar tu biblioteca durante los escaneos. Estos ajustes no se pueden cambiar después",
           "filesystemPattern": {
             "label": "Patrón de biblioteca",
             "COLLECTION_BASED": {
+              "label": "Colecciones de nivel superior",
               "description": "Cada carpeta en el nivel superior de la raíz de la biblioteca es una sola serie"
             },
             "SERIES_BASED": {
+              "label": "Series recursivas",
               "description": "Cada carpeta en cualquier nivel recursivamente es una sola serie"
             }
+          },
+          "mode": {
+            "label": "Modo",
+            "filesystem": {
+              "label": "Sistema de archivos",
+              "description": "Agrupa los libros en series según sus carpetas y un patrón del sistema de archivos"
+            },
+            "metadata": {
+              "label": "Metadatos",
+              "description": "Escanea todas las carpetas y agrupa los libros por sus metadatos de serie, si los hay"
+            },
+            "processingRequired": "Se necesita procesar los metadatos para organizar una biblioteca mediante metadatos",
+            "noOneshots": "Las bibliotecas por metadatos usan los metadatos para organizar los one-shots"
           }
         },
         "viewOptions": {
+          "label": "Opciones de vista",
           "defaultTab": {
             "label": "Vista por defecto de la biblioteca",
             "description": "Configurar cuál pestaña se muestra por defecto al abrir esta biblioteca",
@@ -677,6 +699,7 @@
         },
         "oneshotsDirectory": {
           "label": "Directorio de One-shots",
+          "description": "El nombre del directorio donde se guardan los one-shots, relativo a la ruta de la biblioteca. Si está vacío, no se procesarán los one-shots",
           "placeholder": "_oneshots"
         }
       },
@@ -749,6 +772,16 @@
         }
       }
     },
+    "directoryPicker": {
+      "title": "Selecciona un directorio",
+      "description": "Elige el directorio donde está tu biblioteca",
+      "unableToOpen": "No se pudo abrir",
+      "noSubdirectories": "Sin subdirectorios",
+      "goToParent": "Ir al directorio superior",
+      "goToPath": "Ir a la ruta",
+      "inputPlaceholder": "/ruta/al/directorio",
+      "showHiddenFiles": "Mostrar ocultos"
+    },
     "fileExplorer": {
       "uploadModal": {
         "title": {
@@ -788,8 +821,10 @@
           "reading": "Leyendo",
           "scanning": "Escaneando",
           "thumbnails": "Vistas en miniatura",
+          "post-processing": "Posprocesado",
           "ignore-rules": "Ignorar reglas",
           "label": "Opciones",
+          "add-books": "Añadir libros",
           "general": "General"
         },
         "integrations": {
@@ -887,6 +922,10 @@
         "title": "Miniaturas",
         "description": "Ajustes y opciones de gestión para las miniaturas de esta biblioteca"
       },
+      "options/post-processing": {
+        "title": "Posprocesado",
+        "description": "Reduce el tamaño del manga y aplica OCR a los PDF escaneados"
+      },
       "integrations/analysis": {
         "sections": {
           "analyzeBooks": {
@@ -937,7 +976,8 @@
             "disclaimer": "Aunque esta acción no eliminará ningún archivo, eliminará permanentemente todos los registros relacionados a los medios y series que carezcan estado",
             "confirmation": {
               "label": "Limpiar biblioteca",
-              "text": "¿Estás seguro de querer limpiar esta biblioteca?"
+              "text": "¿Estás seguro de querer limpiar esta biblioteca?",
+              "loading": "Limpiando biblioteca..."
             },
             "emptyText": "No había nada para limpiar",
             "missingEntitiesTable": {
@@ -963,6 +1003,10 @@
             ]
           }
         }
+      },
+      "options/add-books": {
+        "title": "Añadir libros",
+        "description": "Dónde se archivan los libros añadidos"
       },
       "danger-zone/access-control": {
         "title": "Control de acceso",
@@ -1079,6 +1123,27 @@
       "errors": {
         "failedToUpdateCompletion": "No se pudo actualizar el estado de finalización del libro"
       }
+    },
+    "thumbnailManagement": {
+      "changeThumbnail": {
+        "label": "Cambiar miniatura",
+        "descriptionLibrary": "Elige otra miniatura para esta biblioteca"
+      },
+      "deleteThumbnails": {
+        "label": "Eliminar miniaturas",
+        "descriptionLibrary": "Elimina de forma permanente todas las miniaturas generadas de esta biblioteca"
+      },
+      "regenerateThumbnails": {
+        "label": "Regenerar miniaturas",
+        "description": "Genera las miniaturas que faltan o fuerza la recreación de todas"
+      },
+      "processColors": {
+        "label": "Extraer colores de las miniaturas",
+        "description": "Los colores dominantes de las miniaturas para usos estéticos en toda la aplicación"
+      },
+      "generate": "Generar",
+      "everything": "Todo",
+      "missingOnly": "Solo las que faltan"
     },
     "createOrUpdateSmartListForm": {
       "fields": {
