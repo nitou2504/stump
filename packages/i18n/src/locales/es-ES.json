@@ -2953,6 +2953,27 @@
         "signOut": "Cerrar sesión"
       }
     },
+    "globalSearch": {
+      "label": "Buscar en la biblioteca",
+      "title": "Buscar",
+      "placeholder": "Busca libros, autores, series…",
+      "discover": "Descubrir",
+      "surpriseMe": "Sorpréndeme",
+      "surpriseMeHint": "un libro al azar sin leer",
+      "allBooks": "Todos los libros",
+      "authors": "Autores",
+      "genres": "Géneros",
+      "books": "Libros",
+      "series": "Series",
+      "noMatches": "Nada coincide con “{{term}}”",
+      "seeAll": "Ver los {{total}} libros",
+      "openInExplore": "Abrir en Explorar",
+      "toMove": "↑↓ para moverte",
+      "toOpen": "↵ para abrir",
+      "anywhere": "{{shortcut}} en cualquier parte",
+      "bookCount_one": "{{count}} libro",
+      "bookCount_other": "{{count}} libros"
+    },
     "sidebar": {
       "buttons": {
         "books": "Explorar",

@@ -8,6 +8,8 @@ import userEvent from '@testing-library/user-event'
 import { PropsWithChildren } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 
+import { localeWrapper } from '@/__mocks__/locale'
+
 import GlobalSearch from '../GlobalSearch'
 import { GLOBAL_SEARCH_SHORTCUT } from '../shortcut'
 
@@ -21,7 +23,8 @@ function Location() {
 	return <p data-testid="location">{location.pathname + location.search}</p>
 }
 
-function setup() {
+function setup(locale: 'en-US' | 'es-ES' = 'en-US') {
+	const LocaleWrapper = localeWrapper(locale)
 	const sdk = new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' })
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 	const execute = vi.spyOn(sdk, 'execute').mockImplementation(async (document) => {
@@ -46,25 +49,27 @@ function setup() {
 	})
 	function Wrapper({ children }: PropsWithChildren) {
 		return (
-			<SDKContext.Provider value={{ sdk, setSDK: vi.fn() }}>
-				<StumpClientContext.Provider value={{}}>
-					<QueryClientProvider client={client}>
-						<MemoryRouter>
-							<Routes>
-								<Route
-									path="*"
-									element={
-										<>
-											{children}
-											<Location />
-										</>
-									}
-								/>
-							</Routes>
-						</MemoryRouter>
-					</QueryClientProvider>
-				</StumpClientContext.Provider>
-			</SDKContext.Provider>
+			<LocaleWrapper>
+				<SDKContext.Provider value={{ sdk, setSDK: vi.fn() }}>
+					<StumpClientContext.Provider value={{}}>
+						<QueryClientProvider client={client}>
+							<MemoryRouter>
+								<Routes>
+									<Route
+										path="*"
+										element={
+											<>
+												{children}
+												<Location />
+											</>
+										}
+									/>
+								</Routes>
+							</MemoryRouter>
+						</QueryClientProvider>
+					</StumpClientContext.Provider>
+				</SDKContext.Provider>
+			</LocaleWrapper>
 		)
 	}
 	return { execute, Wrapper }
@@ -102,5 +107,38 @@ describe('GlobalSearch', () => {
 		await user.click(screen.getByText('See all 9 books'))
 		expect(screen.getByTestId('location')).toHaveTextContent('/books?search=rose')
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+	})
+
+	it('speaks Spanish: the icon, the suggestions, the results and the footer', async () => {
+		const user = userEvent.setup()
+		const { Wrapper } = setup('es-ES')
+		render(<GlobalSearch />, { wrapper: Wrapper })
+
+		const icon = screen.getByRole('button', { name: 'Buscar en la biblioteca' })
+		expect(icon).toHaveAttribute('title', `Buscar · ${GLOBAL_SEARCH_SHORTCUT}`)
+		await user.click(icon)
+
+		// before typing
+		const input = await screen.findByPlaceholderText('Busca libros, autores, series…')
+		for (const text of [
+			'Descubrir',
+			'Sorpréndeme',
+			'un libro al azar sin leer',
+			'Todos los libros',
+			'Autores',
+			'Géneros',
+		]) {
+			expect(screen.getByText(text)).toBeInTheDocument()
+		}
+		expect(screen.getByText('↑↓ para moverte')).toBeInTheDocument()
+		expect(screen.getByText(`${GLOBAL_SEARCH_SHORTCUT} en cualquier parte`)).toBeInTheDocument()
+		expect(screen.queryByText('Discover')).toBeNull()
+
+		// results
+		await user.type(input, 'rose')
+		expect(await screen.findByText('The Name of the Rose')).toBeInTheDocument()
+		expect(screen.getByText('Libros')).toBeInTheDocument()
+		expect(screen.getByText('Ver los 9 libros')).toBeInTheDocument()
+		expect(screen.queryByText('See all 9 books')).toBeNull()
 	})
 })
