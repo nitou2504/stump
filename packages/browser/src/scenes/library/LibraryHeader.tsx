@@ -38,6 +38,7 @@ export default function LibraryHeader() {
 
 	const canAccessFiles = checkPermission(UserPermission.FileExplorer)
 	const canAddBooks = checkPermission(UserPermission.AddBooks)
+	const canManageLibrary = checkPermission(UserPermission.ManageLibrary)
 	const hideSeriesView = config?.hideSeriesView ?? false
 	const showOneshots = !!config?.oneshotsDirectory
 
@@ -141,7 +142,7 @@ export default function LibraryHeader() {
 				parents={[{ label: translate('shared.common.libraries'), to: paths.libraries() }]}
 				tabs={tabs}
 				stats={resolvedStats}
-				settingsLink={paths.libraryManage(id)}
+				settingsLink={canManageLibrary ? paths.libraryManage(id) : undefined}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
 				endActions={
 					canAddBooks ? (

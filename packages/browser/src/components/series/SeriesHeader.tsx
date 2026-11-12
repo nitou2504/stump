@@ -93,6 +93,7 @@ export function SeriesHeader() {
 
 	const canAnalyze = checkPermission(UserPermission.ManageLibrary)
 	const canEditThumbnail = checkPermission(UserPermission.EditThumbnails)
+	const canEditMetadata = checkPermission(UserPermission.EditMetadata)
 	const canUpload = thumbnail.canUpload
 
 	const actions = [
@@ -231,7 +232,7 @@ export function SeriesHeader() {
 				tabs={tabs}
 				actions={actions}
 				stats={resolvedStats}
-				settingsLink={paths.seriesSettings(id)}
+				settingsLink={canEditMetadata ? paths.seriesSettings(id) : undefined}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
 			/>
 
