@@ -22,6 +22,13 @@ export type PasswordUserInput = {
 	password: string
 }
 
+export type JoinInput = {
+	/** The invite link's token, as the join screen read it from the address's fragment */
+	token: string
+	username: string
+	password: string
+}
+
 export type OidcConfig = {
 	enabled: boolean
 	allowRegistration: boolean
@@ -108,6 +115,19 @@ export class AuthAPI extends APIBase {
 	}
 
 	/**
+	 * Make an account from an invite link (the public address's join screen) and sign in with it. The
+	 * server makes the session, and the pass of this device, as a successful sign-in does
+	 */
+	async join({ token, username, password }: JoinInput): Promise<AuthUser> {
+		const { data } = await this.api.axios.post<AuthUser>(authURL('/join'), {
+			password,
+			token,
+			username,
+		})
+		return data
+	}
+
+	/**
 	 * Log out the currently authenticated user. If token-based authentication is used, the token will be
 	 * removed from the API instance.
 	 */
@@ -140,6 +160,7 @@ export class AuthAPI extends APIBase {
 	 */
 	get keys(): ClassQueryKeys<InstanceType<typeof AuthAPI>> {
 		return {
+			join: 'auth.join',
 			login: 'auth.login',
 			logout: 'auth.logout',
 			me: 'auth.me',

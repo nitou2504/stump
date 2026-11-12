@@ -23,6 +23,7 @@ use crate::{
 	middleware::edge::{is_cross_site, origin_of},
 };
 
+pub(crate) mod json;
 pub(crate) mod signin;
 pub(crate) mod signup;
 
@@ -51,7 +52,6 @@ pub(crate) struct Words {
 	pub password: &'static str,
 	pub signin_button: &'static str,
 	pub signin_failed: &'static str,
-	pub have_link: &'static str,
 	pub forgot: &'static str,
 	pub too_many_title: &'static str,
 	pub too_many: &'static str,
@@ -66,6 +66,8 @@ pub(crate) struct Words {
 	pub have_account: &'static str,
 	pub passwords_differ: &'static str,
 	pub name_taken: &'static str,
+	// the account was made but the session could not start (the web app's own join screen)
+	pub account_ready: &'static str,
 }
 
 pub(crate) const ENGLISH: Words = Words {
@@ -84,7 +86,6 @@ pub(crate) const ENGLISH: Words = Words {
 	password: "Password",
 	signin_button: "Sign in",
 	signin_failed: "Wrong username or password.",
-	have_link: "Have an invite link?",
 	forgot: "Forgot your password? Ask the owner.",
 	too_many_title: "Too many attempts",
 	too_many: "Wait a few minutes and try again.",
@@ -97,6 +98,7 @@ pub(crate) const ENGLISH: Words = Words {
 	have_account: "Have an account? Sign in",
 	passwords_differ: "The passwords don't match",
 	name_taken: "That username is taken",
+	account_ready: "Your account is ready. Sign in.",
 };
 
 pub(crate) const SPANISH: Words = Words {
@@ -115,7 +117,6 @@ pub(crate) const SPANISH: Words = Words {
 	password: "Contraseña",
 	signin_button: "Entrar",
 	signin_failed: "Usuario o contraseña incorrectos.",
-	have_link: "¿Tienes un enlace de invitación?",
 	forgot: "¿Olvidaste tu contraseña? Pregunta al administrador.",
 	too_many_title: "Demasiados intentos",
 	too_many: "Espera unos minutos e inténtalo de nuevo.",
@@ -128,6 +129,7 @@ pub(crate) const SPANISH: Words = Words {
 	have_account: "¿Ya tienes cuenta? Entra",
 	passwords_differ: "Las contraseñas no coinciden",
 	name_taken: "Ese usuario ya existe",
+	account_ready: "Tu cuenta está lista. Entra.",
 };
 
 pub(crate) fn words(headers: &HeaderMap) -> &'static Words {
@@ -396,7 +398,6 @@ mod tests {
 			(ENGLISH.password, SPANISH.password),
 			(ENGLISH.signin_button, SPANISH.signin_button),
 			(ENGLISH.signin_failed, SPANISH.signin_failed),
-			(ENGLISH.have_link, SPANISH.have_link),
 			(ENGLISH.forgot, SPANISH.forgot),
 			(ENGLISH.too_many_title, SPANISH.too_many_title),
 			(ENGLISH.too_many, SPANISH.too_many),
@@ -409,6 +410,7 @@ mod tests {
 			(ENGLISH.have_account, SPANISH.have_account),
 			(ENGLISH.passwords_differ, SPANISH.passwords_differ),
 			(ENGLISH.name_taken, SPANISH.name_taken),
+			(ENGLISH.account_ready, SPANISH.account_ready),
 		];
 		for (english, spanish) in pairs {
 			assert!(!english.is_empty() && !spanish.is_empty());

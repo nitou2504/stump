@@ -117,7 +117,7 @@ install -m 644 $S/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
 cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map          # keep the break-glass revocations
 docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
   -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-# and the real config against a stub (257 checks, ~5 min, nothing live is touched):
+# and the real config against a stub (306 checks, ~9 min, nothing live is touched):
 bash $S/deploy/public-edge/verify-edge.sh
 ```
 
@@ -257,7 +257,7 @@ cd /mnt/data2/containers/stump-fork && : "${S:?set S first, see the top of this 
 && echo "edge switched"
 ```
 
-`verify-edge.sh` ends with `257 checks, 0 failed` (needs docker; about five minutes). If the chain stops, read its last
+`verify-edge.sh` ends with `306 checks, 0 failed` (needs docker; about nine minutes). If the chain stops, read its last
 line: before `install -m 644 $N/nginx.conf edge/nginx.conf` nothing live has changed; after it, put the old file back
 (`cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf`, see *Back out*).
 
@@ -544,7 +544,7 @@ mkdir -p edge-new && cp $S/deploy/public-edge/nginx.conf $S/deploy/public-edge/s
 # nginx -t with the same mounts as the live edge, in a throwaway container
 docker run --rm -v "$PWD/edge-new":/etc/nginx/edge:ro -v "$PWD/edge-state":/etc/nginx/state:ro -e EDGE_KEY=x$(printf 'x%.0s' $(seq 63)) -e EDGE_COOKIE=__Host-g3-stump \
   --add-host stump-fork:127.0.0.1 --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-bash $S/deploy/public-edge/verify-edge.sh        # 257 checks, ~5 min, nothing live is touched (it runs the staged copy of this folder)
+bash $S/deploy/public-edge/verify-edge.sh        # 306 checks, ~9 min, nothing live is touched (it runs the staged copy of this folder)
 cp edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-onboarding && cp edge/stump-gate.js edge/stump-gate.js.bak-$(date +%Y%m%d)-before-onboarding
 cp edge-new/nginx.conf edge/nginx.conf && cp edge-new/stump-gate.js edge/stump-gate.js
 docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
@@ -635,6 +635,117 @@ What a rollback keeps on purpose: the accounts the links made (with their permis
 choice, the decision log and the reading-app keys. Two notes: **restoring a snapshot forgets revocations made since** (check
 *Devices*), and **rotating `STUMP_EDGE_KEY` invalidates every pass and every reading-app key at once** (the Reading apps page then
 shows the new address; each e-reader needs it pasted again).
+
+## Public login: the web app's own sign-in screen on the public address
+
+Branch `feat/public-login` (design: `research/2026-11-12-public-spa-login-design.md`, with the squad lead's review applied;
+it builds on `feat/friend-onboarding`). **No migration.** What changes for a visitor:
+
+* Without a pass, `https://g3.tail3e401.ts.net:8443/` is **Stump's own login screen** (the React app, the short version: a
+  username, a password, one line, nothing about invite links) instead of the server-made page. A signup link
+  (`/api/_i/<token>`) opens the app's **join screen** (`/join`; the token travels in the address's fragment and is removed at
+  once). Signing in or up makes the device's pass, as before, and the app is then loaded again as a signed-in one.
+* **The server-made pages stay** (`/api/_i/signin`, `/api/_i/<token>`'s old form) for a rollback and for an older edge; with the
+  new edge `/api/_i/signin` sends a visitor on to `/auth`. They are not a path without JavaScript: the screen needs it.
+* What the edge lets through **without a pass** is exactly this (`nginx.conf` `$edge_open`, decided on the request line as sent,
+  case-sensitive; the same rows are data in `open-paths.json`): GET/HEAD of `/`, `/auth`, `/join`; GET/HEAD of a flat
+  `/assets/<name>.<ext>` (js css woff2 png webp ico, no query: no source map, no compressed twin, no folder); and `POST
+  /api/v2/auth/login`, `POST /api/v2/auth/join` (no query). Three questions the screen asks before anybody is signed in are
+  **answered by the edge itself** (constants: the viewer's 401, "claimed, public", "no identity provider"). Everything else is
+  404 as before; the owner and admins are refused through the edge as before.
+* **To add a path to that list**: a row in `open-paths.json`, the regex in `nginx.conf` (`$edge_open`) and the rule in
+  `middleware/edge.rs` (`is_open_public_request`). `verify-edge.sh` checks the edge column of every row, a Rust test checks the app
+  column. The policy of the shell a stranger gets (hash of each inline script) is made by the **app** from the `index.html` it serves,
+  so a later web build cannot drift from it.
+
+| piece | change |
+|---|---|
+| app (`stump-fork` image) | `sign_in_from_internet` / `join_from_internet` (one core for the server-made page and the JSON sign-in, so the guard, the one bcrypt, the eligibility rule, the device limit, the audit and the warnings are the same code), `POST /api/v2/auth/join`, a pass-less branch of `POST /api/v2/auth/login` that answers fixed bytes with **no cookie** and a 404 **before any work** unless the edge's capability header and the switch are both on, `claim.isPublic`, the policy and `no-store` on the pass-less shell, a revoked pass taken as no pass on the open requests |
+| public edge | `edge/{nginx.conf,stump-gate.js}` (+ `open-paths.json` for the checks): the open list, the three answers, **one budget** for the server-made form and the screen's sign-in (6 a minute per client, 30 for all), zones of their own for a sign-in that holds a pass (so a flood of strangers never makes a friend wait), the capability header `X-Edge-Login: spa`, own header sets for sign-in and signup (no renewal of an older pass after the app's new one) |
+| web app | the login screen's public mode (errors in the form, a redirect only to a path of this site, a full page load after sign-in, no live-events socket before sign-in), the join screen, the browser's language for a visitor nobody knows yet, no `preconnect` to a third party in `index.html` |
+
+### 0. Pre-flight and backups
+
+As in *Friend onboarding* step 0 (a snapshot, `edge/`, the compose file, 0 running jobs, `trust_proxy_headers = true`) and also:
+
+```sh
+cd /mnt/data2/containers/stump-fork; S=/mnt/data2/Code/worktrees/stump/publogin     # the checkout of the revision you deploy
+grep -c 'STUMP_EDGE_REQUIRE_PASS=true' docker-compose.yml     # 1: the app's own pass check stays on while this is live (never turn it off with Funnel on)
+grep -c 'STUMP_EDGE_PUBLIC_SIGNIN=true' docker-compose.yml    # 1
+cp edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-publogin && cp edge/stump-gate.js edge/stump-gate.js.bak-$(date +%Y%m%d)-before-publogin
+```
+
+### 1. The app first (it is backward compatible with the older edge)
+
+New image on the shared `x-stump-image` line (comment: branch, date, no migration, rollback image), recreate **both** containers:
+
+```sh
+docker compose config -q && docker compose up -d --no-build stump-fork stump-intake-probe
+docker logs --since 2m stump-intake-probe 2>&1 | grep -E 'WARN|FAIL|ready'        # 0 WARN/FAIL, then `stump-intake-probe <rev> ready`
+echo "home $(curl -s -o /dev/null -w %{http_code} http://127.0.0.1:10801/api/v2/ping) tailnet $(curl -s -o /dev/null -w %{http_code} https://g3.tail3e401.ts.net:10802/api/v2/ping)"   # 200 200
+curl -s http://127.0.0.1:10803/ | grep -c 'action="/api/_i/signin"'               # 1: the OLD edge still rewrites `/` to the server-made page
+```
+
+Without the edge's header the app behaves exactly as before, so this step changes nothing for anybody.
+
+### 2. The browser check, on a throwaway copy, before the edge goes live
+
+```sh
+cd $S && bash deploy/public-edge/spa-capture.sh stump:fork-<rev>      # ~3 min; nothing live is touched
+```
+
+It stands up the image with the **new** `nginx.conf` as its edge, a scratch config and no library (own network, ports 18380/18381), and
+runs `apps/web/tests/public/public-login.spec.ts` in Chromium: every request a stranger's page makes is one the edge lets
+through, nothing goes to another site, **zero Content-Security-Policy violations**, the short screen, an invite link → the join
+screen with the token gone from the address and every storage, a sign-in on another device (a pass is made), the fourth device
+refused in words, the owner never signing in here, Spanish for a Spanish browser. **If a file the screen needs is refused, the
+spec names the request: add its exact rule to the three places above, never a wildcard. If a vendor library's feature check shows up as a
+policy violation, never add `'unsafe-eval'` to make it go away.** Do not go on until it passes.
+
+### 3. The edge: stage, validate, install (no recreate)
+
+```sh
+mkdir -p edge-new && cp $S/deploy/public-edge/nginx.conf $S/deploy/public-edge/stump-gate.js $S/deploy/public-edge/revoked.map edge-new/
+docker run --rm -v "$PWD/edge-new":/etc/nginx/edge:ro -v "$PWD/edge-state":/etc/nginx/state:ro -e EDGE_KEY=x$(printf 'x%.0s' $(seq 63)) -e EDGE_COOKIE=__Host-g3-stump \
+  --add-host stump-fork:127.0.0.1 --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
+bash $S/deploy/public-edge/verify-edge.sh        # 306 checks, ~9 min, nothing live is touched (it runs the staged copy of this folder)
+cp edge-new/nginx.conf edge/nginx.conf && cp edge-new/stump-gate.js edge/stump-gate.js
+docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+sleep 3; docker logs --since 1m stump-edge 2>&1 | grep -c emerg                    # 0: a zone whose key changed would make the reload fail and keep the OLD config running
+docker exec stump-edge grep -c 'X-Edge-Login' /etc/nginx/edge/nginx.conf           # 2 or more: the new file is the one running
+bash $S/deploy/public-edge/verify-edge.sh --live                                   # the live listener, incl. the policy of the pass-less shell
+```
+
+Check: `home 200`, `tailnet 200`; a pass-less `GET http://127.0.0.1:10803/` is the app's own shell (`id="root"`), and its response has a
+`Content-Security-Policy` and `Cache-Control: no-store`; `GET /api/v2/auth/viewer` with no pass is `401`, with a pass the app's own answer.
+
+### 4. Walk through it once, with a throwaway link and account (before telling anybody)
+
+As in *Friend onboarding* step 4, but in a **browser** (a private window): the signup link opens the join screen → an account is made → the
+app loads signed in; sign out; open the address in **another** browser and sign in (the device is made); try a wrong password (*Wrong username
+or password.*); the fourth device (*You already use 3 devices …*). Clean up the same way (revoke the link with its accounts turned off, delete the
+account, remove the temporary files).
+
+### 5. Tell the owner
+
+Nothing new to do: signup links, the 3-device limit, *My devices*, *Reading apps* and the warnings are as before; friends now see the app's own
+login screen. The server-made sign-in page is gone from view.
+
+### Back out (fastest first)
+
+```sh
+# 1. the EDGE only, one second, no restart: the capability header disappears and the app returns to the server-made pages by itself
+cp edge/nginx.conf.bak-<date>-before-publogin edge/nginx.conf && cp edge/stump-gate.js.bak-<date>-before-publogin edge/stump-gate.js
+docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
+# 2. the app's switch (SET the value, do not delete the line): the new open list closes and `/` shows the "Private site" page
+sed -i 's/STUMP_EDGE_PUBLIC_SIGNIN=true/STUMP_EDGE_PUBLIC_SIGNIN=false/' docker-compose.yml && docker compose up -d --no-build stump-fork stump-intake-probe
+# 3. the IMAGE: back to the previous tag on the shared line, recreate both. Do 1 BEFORE 3: the new edge with an older image has no shell to serve
+# 4. while you work: tailscale funnel --https=8443 off
+```
+
+Known limits: a browser whose service worker holds an **old** build and has no pass cannot update it (`/sw.js` is not served without a pass): if its
+screen looks wrong, open the address in a private window. The shared sign-in budget can still be used by four or more clients to slow *new-device* sign-ins
+for a few minutes (known devices sign in with their pass and are not counted there). A visitor's browser is not told to contact any third party.
 
 ## Operations
 

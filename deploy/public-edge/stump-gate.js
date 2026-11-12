@@ -112,7 +112,9 @@ function renew(r) {                        // a pass in use is renewed once a da
 function signin(r) {                       // 8 sign-in POSTs per device per UTC day (and reset epoch)
   if (r.method !== 'POST') return '1';
   const c = valid(r), s = state();
-  if (!c || !s) return '0';
+  if (!s) return '0';                      // the app's state is not known yet: nothing signs in (fail closed)
+  if (!c) return '1';                      // no valid pass: the web app's own sign-in screen. Its budget is the
+                                           // app's guard and the edge's per-client and global zones, not a device's
   const epoch = (s.g && s.g[c.name]) || 0;
   try { return ngx.shared.edge_signin.incr(`${c.name}:${Math.floor(now() / 86400)}:${epoch}`, 1, 0) <= SIGNIN_CAP ? '1' : '0'; }
   catch (e) { return '0'; }

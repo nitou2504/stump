@@ -1,5 +1,10 @@
 export type ClaimResponse = {
 	isClaimed: boolean
+	/**
+	 * The request came through the public edge (friends sign in here): the sign-in screen shows
+	 * its short version. Absent from an older server
+	 */
+	isPublic?: boolean
 }
 
 export type UploadLibraryBooks = {

@@ -9,6 +9,7 @@ mod invites;
 mod libraries;
 mod opds_keys;
 mod password;
+mod public_login;
 mod public_signin;
 mod retention;
 mod signin;

@@ -19,6 +19,7 @@ const ServerConnectionErrorScene = lazy(
 	() => import('./scenes/error/ServerConnectionErrorScene.tsx'),
 )
 const LoginOrClaimScene = lazy(() => import('./scenes/auth'))
+const JoinScene = lazy(() => import('./scenes/auth/JoinScene.tsx'))
 const BrowseIndexScene = lazy(() => import('./scenes/browse'))
 const IntakeScene = lazy(() => import('./scenes/intake'))
 const ReadingHistoryScene = lazy(() => import('./scenes/readingHistory'))
@@ -62,6 +63,8 @@ export function AppRouter({ basePath }: AppRouterProps = {}) {
 				</Route>
 
 				<Route path="/auth" element={<LoginOrClaimScene />} />
+				{/* outside the signed-in layout, like /auth: nothing here asks who is signed in */}
+				<Route path="/join" element={<JoinScene />} />
 				<Route path="/server-connection-error" element={<ServerConnectionErrorScene />} />
 				<Route path="*" element={<FourOhFour />} />
 			</Routes>

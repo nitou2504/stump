@@ -254,6 +254,26 @@
         "signOut": "Cerrar sesión",
         "error": "No se pudo cambiar la contraseña",
         "success": "Contraseña cambiada"
+      },
+      "public": {
+        "forgot": "¿Olvidaste tu contraseña? Pregunta al administrador.",
+        "wrongCredentials": "Usuario o contraseña incorrectos.",
+        "tooMany": "Demasiados intentos. Espera unos minutos.",
+        "generic": "No se pudo entrar. Inténtalo de nuevo.",
+        "deviceLimit": "Ya usas todos tus dispositivos. Quita uno en Ajustes → Mis dispositivos, o pregunta al administrador."
+      },
+      "join": {
+        "title": "Crea tu cuenta",
+        "username": "Usuario",
+        "password": "Contraseña",
+        "passwordAgain": "Repite la contraseña",
+        "rules": "Usuario: de 3 a 32 caracteres. Contraseña: al menos 10.",
+        "button": "Crear mi cuenta",
+        "mismatch": "Las contraseñas no coinciden",
+        "badLink": "Este enlace no funciona. Pide uno nuevo.",
+        "haveAccount": "¿Ya tienes cuenta? Entra",
+        "accountReady": "Tu cuenta está lista. Entra.",
+        "generic": "No se pudo crear la cuenta. Inténtalo de nuevo."
       }
     },
     "adminLibrarySidebar": {

@@ -1,0 +1,816 @@
+{
+ "_about": "Who may reach what through the public edge WITHOUT a pass (rows decided on the request line exactly as sent). edge: open = reaches the app, stub = the edge answers itself, closed = 404. app: whether the app's own second gate (middleware/edge.rs is_open_public_request) opens it when the SPA sign-in is on (STUMP_EDGE_PUBLIC_SIGNIN and X-Edge-Login: spa). Read by verify-edge.sh (edge column) and by a Rust test (app column). Adding a path means adding a row.",
+ "rows": [
+  {
+   "method": "GET",
+   "path": "/",
+   "edge": "open",
+   "app": true,
+   "note": "the shell"
+  },
+  {
+   "method": "GET",
+   "path": "/auth",
+   "edge": "open",
+   "app": true,
+   "note": "the shell"
+  },
+  {
+   "method": "GET",
+   "path": "/join",
+   "edge": "open",
+   "app": true,
+   "note": "the shell"
+  },
+  {
+   "method": "GET",
+   "path": "/?x=1",
+   "edge": "open",
+   "app": true,
+   "note": "a query is ignored by the shell"
+  },
+  {
+   "method": "GET",
+   "path": "/auth?redirect=%2Fbooks",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "GET",
+   "path": "/join?x",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "HEAD",
+   "path": "/",
+   "edge": "open",
+   "app": true,
+   "note": "the shell"
+  },
+  {
+   "method": "HEAD",
+   "path": "/auth",
+   "edge": "open",
+   "app": true,
+   "note": "the shell"
+  },
+  {
+   "method": "HEAD",
+   "path": "/join",
+   "edge": "open",
+   "app": true,
+   "note": "the shell"
+  },
+  {
+   "method": "HEAD",
+   "path": "/?x=1",
+   "edge": "open",
+   "app": true,
+   "note": "a query is ignored by the shell"
+  },
+  {
+   "method": "HEAD",
+   "path": "/auth?redirect=%2Fbooks",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "HEAD",
+   "path": "/join?x",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "GET",
+   "path": "/auth/",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "//auth",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/%61uth",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/Auth",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/auth/../x",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/join/x",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/join/",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/index.html",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/AUTH",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/auth%2f",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "GET",
+   "path": "/auth%00",
+   "edge": "closed",
+   "app": false,
+   "note": "a lookalike of a shell address"
+  },
+  {
+   "method": "POST",
+   "path": "/",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "POST",
+   "path": "/auth",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "PUT",
+   "path": "/",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "PUT",
+   "path": "/auth",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/auth",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "OPTIONS",
+   "path": "/",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "OPTIONS",
+   "path": "/auth",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/assets/index-Ab12Cd34.js",
+   "edge": "open",
+   "app": true,
+   "note": "a build file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/index-Ab12Cd34.css",
+   "edge": "open",
+   "app": true,
+   "note": "a build file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/index-Ab12Cd34.woff2",
+   "edge": "open",
+   "app": true,
+   "note": "a build file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/index-Ab12Cd34.png",
+   "edge": "open",
+   "app": true,
+   "note": "a build file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/index-Ab12Cd34.webp",
+   "edge": "open",
+   "app": true,
+   "note": "a build file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/index-Ab12Cd34.ico",
+   "edge": "open",
+   "app": true,
+   "note": "a build file"
+  },
+  {
+   "method": "HEAD",
+   "path": "/assets/index-Ab12Cd34.js",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "GET",
+   "path": "/assets/vendor.react-x_y-9.min.js",
+   "edge": "open",
+   "app": true,
+   "note": "dots, dashes and underscores in the name"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js",
+   "edge": "open",
+   "app": true,
+   "note": "a 120-character name"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.JS",
+   "edge": "closed",
+   "app": false,
+   "note": "an upper-case extension"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js?v=1",
+   "edge": "closed",
+   "app": false,
+   "note": "no query on a file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js/",
+   "edge": "closed",
+   "app": false,
+   "note": "a trailing slash"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/%41.js",
+   "edge": "closed",
+   "app": false,
+   "note": "an escaped character"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.svg",
+   "edge": "closed",
+   "app": false,
+   "note": "svg is not served"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js.map",
+   "edge": "closed",
+   "app": false,
+   "note": "a source map"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js.gz",
+   "edge": "closed",
+   "app": false,
+   "note": "a compressed twin"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js.br",
+   "edge": "closed",
+   "app": false,
+   "note": "a compressed twin"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.json",
+   "edge": "closed",
+   "app": false,
+   "note": "not a build extension"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.html",
+   "edge": "closed",
+   "app": false,
+   "note": "not a build extension"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x",
+   "edge": "closed",
+   "app": false,
+   "note": "no extension"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/.js",
+   "edge": "closed",
+   "app": false,
+   "note": "no name"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/.hidden.js",
+   "edge": "closed",
+   "app": false,
+   "note": "starts with a dot"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/-x.js",
+   "edge": "closed",
+   "app": false,
+   "note": "starts with a dash"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/fonts/x.woff2",
+   "edge": "closed",
+   "app": false,
+   "note": "a subfolder"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/owls/x.png",
+   "edge": "closed",
+   "app": false,
+   "note": "a subfolder"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/../x.js",
+   "edge": "closed",
+   "app": false,
+   "note": "dot segments"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/%2e%2e/x.js",
+   "edge": "closed",
+   "app": false,
+   "note": "escaped dot segments"
+  },
+  {
+   "method": "GET",
+   "path": "/assets//x.js",
+   "edge": "closed",
+   "app": false,
+   "note": "a double slash"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js%00",
+   "edge": "closed",
+   "app": false,
+   "note": "a NUL"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js",
+   "edge": "closed",
+   "app": false,
+   "note": "a 121-character name"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x%20y.js",
+   "edge": "closed",
+   "app": false,
+   "note": "an escaped space"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/x.js;a",
+   "edge": "closed",
+   "app": false,
+   "note": "a semicolon"
+  },
+  {
+   "method": "GET",
+   "path": "/assets",
+   "edge": "closed",
+   "app": false,
+   "note": "no file"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/",
+   "edge": "closed",
+   "app": false,
+   "note": "no file"
+  },
+  {
+   "method": "GET",
+   "path": "/Assets/x.js",
+   "edge": "closed",
+   "app": false,
+   "note": "upper-case folder"
+  },
+  {
+   "method": "POST",
+   "path": "/assets/x.js",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "PUT",
+   "path": "/assets/x.js",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/viewer",
+   "edge": "stub",
+   "app": false,
+   "note": "401, the app sends the screen to /auth"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/claim",
+   "edge": "stub",
+   "app": false,
+   "note": "claimed, public"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/oidc/config",
+   "edge": "stub",
+   "app": false,
+   "note": "no identity provider"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/viewer?x=1",
+   "edge": "closed",
+   "app": false,
+   "note": "no query"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/claim/",
+   "edge": "closed",
+   "app": false,
+   "note": "a trailing slash"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/claim?x",
+   "edge": "closed",
+   "app": false,
+   "note": "no query"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/oidc/config?x",
+   "edge": "closed",
+   "app": false,
+   "note": "no query"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/me",
+   "edge": "closed",
+   "app": false,
+   "note": "not asked before sign-in"
+  },
+  {
+   "method": "GET",
+   "path": "/API/v2/claim",
+   "edge": "closed",
+   "app": false,
+   "note": "case"
+  },
+  {
+   "method": "HEAD",
+   "path": "/api/v2/auth/viewer",
+   "edge": "closed",
+   "app": false,
+   "note": "a stub is GET only"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/viewer",
+   "edge": "closed",
+   "app": false,
+   "note": "a stub is GET only"
+  },
+  {
+   "method": "HEAD",
+   "path": "/api/v2/claim",
+   "edge": "closed",
+   "app": false,
+   "note": "a stub is GET only"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/claim",
+   "edge": "closed",
+   "app": false,
+   "note": "a stub is GET only"
+  },
+  {
+   "method": "HEAD",
+   "path": "/api/v2/auth/oidc/config",
+   "edge": "closed",
+   "app": false,
+   "note": "a stub is GET only"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/oidc/config",
+   "edge": "closed",
+   "app": false,
+   "note": "a stub is GET only"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/login",
+   "edge": "open",
+   "app": true,
+   "note": "the sign-in"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/join",
+   "edge": "open",
+   "app": true,
+   "note": "the signup"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/login?generate_token=true",
+   "edge": "closed",
+   "app": false,
+   "note": "no query"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/login/",
+   "edge": "closed",
+   "app": false,
+   "note": "a trailing slash"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth//login",
+   "edge": "closed",
+   "app": false,
+   "note": "a double slash"
+  },
+  {
+   "method": "POST",
+   "path": "/API/v2/auth/login",
+   "edge": "closed",
+   "app": false,
+   "note": "case"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/join?x",
+   "edge": "closed",
+   "app": false,
+   "note": "no query"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/join/",
+   "edge": "closed",
+   "app": false,
+   "note": "a trailing slash"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/login",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/join",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "HEAD",
+   "path": "/api/v2/auth/login",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "HEAD",
+   "path": "/api/v2/auth/join",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "PUT",
+   "path": "/api/v2/auth/login",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "PUT",
+   "path": "/api/v2/auth/join",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "OPTIONS",
+   "path": "/api/v2/auth/login",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "OPTIONS",
+   "path": "/api/v2/auth/join",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/v2/auth/login",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/v2/auth/join",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/_i/abc",
+   "edge": "open",
+   "app": true,
+   "note": "an invite link"
+  },
+  {
+   "method": "POST",
+   "path": "/api/_i/signin",
+   "edge": "open",
+   "app": true,
+   "note": "the server-made sign-in page"
+  },
+  {
+   "method": "POST",
+   "path": "/api/_i/join",
+   "edge": "open",
+   "app": true,
+   "note": "the server-made signup page"
+  },
+  {
+   "method": "GET",
+   "path": "/assets/manifest.webmanifest",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "GET",
+   "path": "/assets/favicon-32x32.png",
+   "edge": "open",
+   "app": true
+  },
+  {
+   "method": "GET",
+   "path": "/api/graphql",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/graphql",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/graphql/ws",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/sw.js",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/favicon.ico",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/settings",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/ping",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/opds/v1.2/catalog",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/logout",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/refresh-token",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/auth/register",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/oidc/authorize",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/auth/oidc/callback",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/media",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/v2/intake/upload",
+   "edge": "closed",
+   "app": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/_i",
+   "edge": "closed",
+   "app": false
+  }
+ ]
+}

@@ -48,7 +48,7 @@ events {}
 http { server { listen 10801;
   client_max_body_size 400m;
   location / { default_type text/plain;
-    return 200 "pub=[$http_x_edge_public] pass=[$http_x_edge_pass] cookie=[$http_cookie] host=[$http_host] xfp=[$http_x_forwarded_proto] xff=[$http_x_forwarded_for] real=[$http_x_real_ip] fwd=[$http_forwarded] fhost=[$http_x_forwarded_host] upg=[$http_upgrade] conn=[$http_connection] uri=$request_uri\n"; } } }
+    return 200 "pub=[$http_x_edge_public] pass=[$http_x_edge_pass] cookie=[$http_cookie] host=[$http_host] xfp=[$http_x_forwarded_proto] xff=[$http_x_forwarded_for] real=[$http_x_real_ip] fwd=[$http_forwarded] fhost=[$http_x_forwarded_host] upg=[$http_upgrade] conn=[$http_connection] login=[$http_x_edge_login] uri=$request_uri\n"; } } }
 EOF
 docker run -d --name $NET-stub --network $NET --network-alias stump-fork -v /tmp/$NET-stub.conf:/etc/nginx/nginx.conf:ro nginx:alpine >/dev/null
 docker run -d --name $NET-edge --network $NET -p 127.0.0.1:$PUB_PORT:8081 -p 127.0.0.1:$HOME_PORT:8080 \
@@ -64,21 +64,24 @@ RKID=kobo-9x2mq; RK="$RKID.$(mac "opds|$RKID")"     # a reading-app key, as the 
 echo "== before the first state file, every pass is refused (fail closed)"
 check 404 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" "a valid pass, no state file yet"
 check 404 "$(code $PUB/opds/$RK/v1.2/catalog)" "a valid reading-app key, no state file yet (fail closed too)"
+check 429 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}')" "a pass-less sign-in, no state file yet (fail closed)"
 
 echo "== once the app has written the state file, passes work"
 write_state 1 '[]' '{}'; sleep 2.5
 check 200 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" "a valid pass"
 check 404 "$(code $PUB/api/v2/ping)" "no pass"
-# the front door: a browser with no pass is shown the sign-in page (the app's: an internal rewrite)
+# the front door: a browser with no pass gets the web app's shell, asked of the app as `/` (no rewrite)
 FD=$(curl -s $PUB/)
-echo "$FD" | grep -q 'uri=/api/_i/signin' && echo "$FD" | grep -q 'pub=\[1\]' && echo "$FD" | grep -q 'pass=\[\]' && ok "no pass, the front page: the app's sign-in page (rewritten, marker, no pass)" || bad "the front door: $FD"
-check 404 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}')" "no pass, a sign-in"
+echo "$FD" | grep -q 'uri=/$' && echo "$FD" | grep -q 'pub=\[1\]' && echo "$FD" | grep -q 'pass=\[\]' && echo "$FD" | grep -q 'login=\[spa\]' && ok "no pass, the front page: the app's own shell (as /, the marker, no pass, the capability header)" || bad "the front door: $FD"
+check 200 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}')" "no pass, a sign-in reaches the app (the web app's own sign-in screen)"
 check 404 "$(code $PUB/api/graphql -H 'Content-Type: application/json' -d '{}')" "no pass, GraphQL"
 check 404 "$(code $PUB/settings/access -H "Cookie: $COOKIE=$P")" "the admin page, even with a pass"
 check 200 "$(code $PUB/api/_i/AAAAAAAAAAAAAAAAAAAAAA)" "the invite page needs no pass"
 check 200 "$(code $PUB/assets/manifest.webmanifest)" "the manifest needs no pass"
 check 200 "$(code $PUB/assets/favicon-32x32.png)" "a favicon needs no pass"
-check 404 "$(code $PUB/assets/index.js)" "other assets do"
+check 200 "$(code $PUB/assets/index-Ab12Cd34.js)" "a build file of the web app needs no pass"
+check 404 "$(code $PUB/assets/index-Ab12Cd34.js.map)" "its source map does"
+check 404 "$(code $PUB/assets/fonts/x.woff2)" "a file in a subfolder does"
 for forged in $(python3 -c "import json;print(' '.join(json.load(open('$HERE/vectors.json'))['forged']))"); do
   check 404 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$forged")" "a forged pass"
 done
@@ -118,17 +121,18 @@ B=$(curl -s $PUB/api/_i/AAAAAAAAAAAAAAAAAAAAAA -H "X-Edge-Pass: planted")
 echo "$B" | grep -q 'pass=\[\]' && ok "a planted pass is not sent" || bad "planted pass on the invite path: $B"
 
 echo "== every forwarding location of the public listener sends the marker (N1), and the home listener never does"
-for path in / /api/v2/ping /api/graphql /api/v2/auth/login /api/v2/auth/refresh-token /api/v2/intake/upload /api/_i/AAAAAAAAAAAAAAAAAAAAAA /assets/manifest.webmanifest /assets/favicon-32x32.png /api/graphql/ws; do
+for path in / /auth /join /api/v2/ping /api/graphql /api/v2/auth/login /api/v2/auth/join /api/v2/auth/viewer /api/v2/claim /api/v2/auth/oidc/config /assets/index-Ab12Cd34.js /api/v2/auth/refresh-token /api/v2/intake/upload /api/_i/AAAAAAAAAAAAAAAAAAAAAA /assets/manifest.webmanifest /assets/favicon-32x32.png /api/graphql/ws; do
   extra=(-H "Cookie: $COOKIE=$P")
+  [ "$path" = /api/v2/auth/join ] && extra+=(-X POST -H 'Content-Type: application/json' -d '{}')
   [ "$path" = /api/graphql ] && extra+=(-X POST -H 'Content-Type: application/json' -d '{}')
   [ "$path" = /api/v2/auth/login ] && extra+=(-X POST -H 'Content-Type: application/json' -d '{}')
   [ "$path" = /api/v2/auth/refresh-token ] && extra+=(-X POST -H 'Content-Type: application/json' -d '{}')
   [ "$path" = /api/v2/intake/upload ] && extra+=(-X POST -H 'Content-Type: multipart/form-data; boundary=x' --data-binary x)
   [ "$path" = /api/graphql/ws ] && extra+=(-H 'Upgrade: websocket' -H 'Connection: Upgrade')
-  R=$(curl -s "$PUB$path" "${extra[@]}")
-  echo "$R" | grep -q 'pub=\[1\]' && echo "$R" | grep -q 'xfp=\[https\]' && ok "public $path: marker, scheme" || bad "public $path: $R"
-  H=$(curl -s "$HOME_$path" "${extra[@]}" -H 'X-Edge-Public: 1' -H 'X-Edge-Pass: planted')
-  echo "$H" | grep -q 'pub=\[\]' && echo "$H" | grep -q 'pass=\[\]' && ok "home   $path: marker and pass empty" || bad "home $path: $H"
+  R=$(curl -s "$PUB$path" "${extra[@]}" -H 'X-Edge-Login: planted')
+  echo "$R" | grep -q 'pub=\[1\]' && echo "$R" | grep -q 'xfp=\[https\]' && echo "$R" | grep -q 'login=\[spa\]' && ok "public $path: marker, scheme, the capability header (a client's own replaced)" || bad "public $path: $R"
+  H=$(curl -s "$HOME_$path" "${extra[@]}" -H 'X-Edge-Public: 1' -H 'X-Edge-Pass: planted' -H 'X-Edge-Login: spa')
+  echo "$H" | grep -q 'pub=\[\]' && echo "$H" | grep -q 'pass=\[\]' && echo "$H" | grep -q 'login=\[\]' && ok "home   $path: marker, pass and capability header empty" || bad "home $path: $H"
 done
 R=$(curl -s $PUB/api/graphql/ws -H "Cookie: $COOKIE=$P" -H 'Upgrade: websocket' -H 'Connection: Upgrade')
 echo "$R" | grep -q 'upg=\[websocket\]' && echo "$R" | grep -q 'conn=\[upgrade\]' && ok "a websocket upgrade goes through" || bad "websocket: $R"
@@ -247,7 +251,7 @@ check 404 "$(code -X POST $PUB/)" "no pass: POST / is 404 (only GET and HEAD of 
 check 404 "$(code -X POST "$PUB/?a=1")" "no pass: POST /?a=1 is 404"
 check 404 "$(code $PUB/index.html)" "no pass: /index.html is 404"
 FD=$(curl -s "$PUB/?a=1")
-echo "$FD" | grep -q 'uri=/api/_i/signin?a=1' && ok "the front door keeps the query" || bad "front door with a query: $FD"
+echo "$FD" | grep -q 'uri=/?a=1$' && ok "the front door keeps the query" || bad "front door with a query: $FD"
 # every way of reaching the sign-in page or the form by a path that is not the exact one needs a pass
 for t in /api/_i/signin/ /api/_i/signin/../x //api/_i/signin /api/_i/%73ignin /Api/_i/signin /api/_i/signin%2f /api/_i/./signin /api//_i/signin \
          /api/_i/join/ /api/_i/%6aoin /api/_i/../_i/join; do
@@ -264,7 +268,7 @@ check 413 "$(code -X POST $PUB/api/_i/signin --data-binary @"$STATE/5k.bin")" "a
 check 413 "$(code -X POST $PUB/api/_i/join --data-binary @"$STATE/5k.bin")" "a signup body over 4 KB is refused before the app"
 # a revoked device is no pass: the front door shows it the sign-in page, and its API calls are 404 with the hint
 write_state 8 '["ana-phone-k3f9x"]' '{}'; sleep 2.5
-R=$(curl -s "$PUB/" -H "Cookie: $COOKIE=$P"); echo "$R" | grep -q 'uri=/api/_i/signin' && echo "$R" | grep -q 'pass=\[\]' && ok "a revoked device at the front door: the sign-in page, and its pass is not passed on" || bad "revoked at the front door: $R"
+R=$(curl -s "$PUB/" -H "Cookie: $COOKIE=$P"); echo "$R" | grep -q 'uri=/$' && echo "$R" | grep -q 'pass=\[\]' && ok "a revoked device at the front door: the shell as no pass, and its pass is not passed on" || bad "revoked at the front door: $R"
 write_state 9 '[]' '{}'; sleep 2.5
 # the 404 of a request with no pass says where to sign in (and tells the web app, by a header)
 H=$(curl -s -D - $PUB/api/v2/ping)
@@ -353,11 +357,112 @@ docker logs $NET-edge 2>&1 | grep -q '/opds/-key-/v1.2/catalog' && ok "the acces
 docker logs $NET-edge 2>&1 | grep -q '"GET /opds/v1.2/catalog' && ok "an address that is not a key is logged as itself" || bad "the keyless address was rewritten in the log"
 if docker logs $NET-edge 2>&1 | grep -q 'username=a'; then bad "a form body is in the logs"; else ok "no form body in the logs"; fi
 
+echo "== public login: the web app's own sign-in screen needs no pass, and exactly what it needs (open-paths.json)"
+sleep 40   # every sign-in zone refills (the floods above)
+P2=$(pass_for dani-laptop-q1z8c); OLD2=$(pass_for dani-laptop-q1z8c $(( $(date +%s) - 2*86400 )))
+# body caps first (before the budget below is used up): a sign-in and a signup are small
+check 413 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' --data-binary @"$STATE/5k.bin")" "a sign-in body over 4 KB is refused before the app"
+check 413 "$(code -X POST $PUB/api/v2/auth/join -H 'Content-Type: application/json' --data-binary @"$STATE/5k.bin")" "a signup body over 4 KB is refused before the app"
+check 405 "$(code $PUB/api/v2/auth/join -H "Cookie: $COOKIE=$P2")" "GET /api/v2/auth/join (with a pass) is 405"
+# every row of the table the app's own list is tested against: the request line as sent, no pass
+python3 - "$HERE/open-paths.json" > "$STATE/open-rows.tsv" <<'EOF'
+import json,sys
+for r in json.load(open(sys.argv[1]))['rows']:
+    print(r['method'], r['path'], r['edge'], sep='\t')
+EOF
+nrows=0; nbad=0
+while IFS=$'\t' read -r m p e; do
+  nrows=$((nrows+1))
+  args=(-s -o "$STATE/row.body" -w '%{http_code}' --path-as-is)
+  if [ "$m" = HEAD ]; then args+=(-I -o /dev/null); else args+=(-X "$m"); fi
+  c=$(curl "${args[@]}" "$PUB$p")
+  case "$e" in
+    closed) want=404 ;;
+    open)   want=200 ;;
+    stub)   case "$p" in /api/v2/auth/viewer) want=401 ;; *) want=200 ;; esac ;;
+  esac
+  got_ok=1
+  if [ "$c" != "$want" ]; then
+    # nginx itself may answer 400 for an escaped NUL: still not served
+    if [ "$e" = closed ] && [ "$c" = 400 ]; then :; else got_ok=0; fi
+  fi
+  if [ "$got_ok" = 1 ] && [ "$m" != HEAD ]; then
+    case "$e" in
+      open) grep -q 'pub=\[1\]' "$STATE/row.body" && grep -q 'login=\[spa\]' "$STATE/row.body" && grep -q 'pass=\[\]' "$STATE/row.body" || got_ok=0 ;;
+      stub) grep -q 'pub=\[' "$STATE/row.body" && got_ok=0 ;;   # a stub is answered here, never forwarded
+    esac
+  fi
+  [ "$got_ok" = 1 ] || { nbad=$((nbad+1)); bad "open-paths.json: $e $m $p -> $c"; }
+  # the shell's pass-less zone refills 30 a minute: pace those rows
+  case "$p" in /|/\?*|/auth|/auth\?*|/join|/join\?*) [ "$m" = GET ] || [ "$m" = HEAD ] && sleep 2.2 ;; esac
+done < "$STATE/open-rows.tsv"
+[ "$nbad" = 0 ] && ok "all $nrows rows of open-paths.json agree with the edge (open, stub, closed)" || bad "$nbad of $nrows rows disagree"
+# the three answers the edge gives itself: exact bytes, no cookie, no hint, no store
+for t in "/api/v2/auth/viewer|401|{\"status\":401,\"message\":\"Unauthorized\"}" \
+         "/api/v2/claim|200|{\"isClaimed\":true,\"isPublic\":true}" \
+         "/api/v2/auth/oidc/config|200|{\"enabled\":false,\"allowRegistration\":false,\"disableLocalAuth\":false}"; do
+  path=${t%%|*}; rest=${t#*|}; status=${rest%%|*}; body=${rest#*|}
+  curl -s -D "$STATE/stub.h" -o "$STATE/stub.b" "$PUB$path"; tr -d '\r' < "$STATE/stub.h" > "$STATE/stub.hh"
+  [ "$(cat "$STATE/stub.b")" = "$body" ] && head -1 "$STATE/stub.hh" | grep -q " $status" && ok "$path with no pass: $status and the exact body, from the edge" || bad "$path: $(head -1 "$STATE/stub.hh") $(cat "$STATE/stub.b")"
+  grep -qi '^content-type: application/json' "$STATE/stub.hh" && grep -qi '^cache-control: no-store' "$STATE/stub.hh" && ok "$path: JSON, no-store" || bad "$path headers: $(cat "$STATE/stub.hh")"
+  grep -qi '^set-cookie' "$STATE/stub.hh" && bad "$path answered with a cookie" || ok "$path: no cookie"
+  grep -qi '^x-edge-sign-in' "$STATE/stub.hh" && bad "$path carries the sign-in hint" || ok "$path: no sign-in hint"
+  R=$(curl -s "$PUB$path" -H "Cookie: $COOKIE=$P2")
+  echo "$R" | grep -q 'pub=\[1\]' && echo "$R" | grep -q "pass=\[$P2\]" && ok "$path with a pass goes to the app" || bad "$path with a pass: $R"
+done
+# no cookie and no hint on what is served to a visitor with no pass; the shell renews a pass in use, the sign-in and signup never do
+for t in /auth /assets/index-Ab12Cd34.js; do
+  curl -s -D - -o /dev/null "$PUB$t" | grep -qiE '^(set-cookie|x-edge-sign-in)' && bad "$t (no pass) carries a cookie or the hint" || ok "$t (no pass): no cookie, no hint"
+done
+curl -s -D - -o /dev/null "$PUB/auth" -H "Cookie: $COOKIE=$OLD2" | grep -qi "^set-cookie: $COOKIE=dani-laptop-q1z8c" && ok "the shell renews an old pass (the edge adds no headers there)" || bad "no renewal on the shell"
+curl -s -D - -o /dev/null -X POST "$PUB/api/v2/auth/login" -H 'Content-Type: application/json' -d '{}' -H "Cookie: $COOKIE=$OLD2" | grep -qi '^set-cookie' && bad "the sign-in got a renewal Set-Cookie (it could put a revoked pass back)" || ok "no renewal Set-Cookie after the sign-in"
+curl -s -D - -o /dev/null -X POST "$PUB/api/v2/auth/join" -H 'Content-Type: application/json' -d '{}' -H "Cookie: $COOKIE=$OLD2" | grep -qi '^set-cookie' && bad "the signup got a renewal Set-Cookie" || ok "no renewal Set-Cookie after the signup"
+# the pass-less sign-in has ONE budget, shared by the server-made form and the web app's own sign-in
+sleep 40
+allowed=0; got429=0
+for i in $(seq 1 12); do
+  if [ $((i%2)) = 0 ]; then c=$(code -X POST $PUB/api/_i/signin -d 'username=a&password=b'); else c=$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}'); fi
+  [ "$c" = 200 ] && allowed=$((allowed+1)); [ "$c" = 429 ] && got429=$((got429+1))
+done
+[ "$allowed" -ge 1 ] && [ "$allowed" -le 6 ] && [ "$got429" -ge 5 ] && ok "the page and the web app's sign-in are one budget ($allowed let through, $got429 limited of 12 alternating)" || bad "shared budget: $allowed let through, $got429 limited of 12"
+check 200 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}' -H "Cookie: $COOKIE=$P2")" "a sign-in with a pass is not refused after pass-less traffic used the budget up"
+check 200 "$(code $PUB/auth -H "Cookie: $COOKIE=$P2")" "and the shell with a pass is not counted against it"
+# pass-less shell loads are counted per client; a pass is not counted, and the files only by the general limit
+sleep 40
+got429=0; for i in $(seq 1 16); do [ "$(code $PUB/auth)" = 429 ] && got429=$((got429+1)); done
+[ "$got429" -ge 3 ] && ok "a flood of pass-less shell loads is limited ($got429 of 16 got a 429)" || bad "shell loads not limited ($got429 of 16)"
+check 200 "$(code $PUB/auth -H "Cookie: $COOKIE=$P2")" "the shell with a pass is never counted there"
+check 200 "$(code $PUB/assets/index-Ab12Cd34.js)" "and the build's files stay under the general limit only"
+# a device the app has revoked is no pass: the stubs answer it as a stranger, the sign-in screen opens for it
+write_state 14 '["dani-laptop-q1z8c"]' '{}'; sleep 2.5
+check 401 "$(code $PUB/api/v2/auth/viewer -H "Cookie: $COOKIE=$P2")" "a revoked pass is a stranger for the viewer question"
+R=$(curl -s $PUB/auth -H "Cookie: $COOKIE=$P2"); echo "$R" | grep -q 'pass=\[\]' && ok "the shell does not pass a revoked pass on" || bad "revoked pass on the shell: $R"
+write_state 15 '[]' '{}'; sleep 2.5
+
 if [ "$LIVE" = 1 ]; then
   echo "== the live edge"
   check 404 "$(code http://127.0.0.1:10803/api/v2/ping)" "no pass"
   check 404 "$(code --path-as-is "http://127.0.0.1:10803/settings/access/../../api/_i/x")" "no pass, a dot-segment invite path"
   check 404 "$(code --path-as-is "http://127.0.0.1:10803/api/v2/ping/..%2F..%2F_i/x")" "no pass, an escaped-slash invite path"
+  L=http://127.0.0.1:10803
+  check 401 "$(code $L/api/v2/auth/viewer)" "live: the viewer with no pass is answered by the edge"
+  check 200 "$(code $L/api/v2/claim)" "live: the claim check"
+  check 200 "$(code $L/api/v2/auth/oidc/config)" "live: the identity-provider check"
+  check 404 "$(code $L/api/graphql)" "live: GraphQL with no pass"
+  check 404 "$(code $L/sw.js)" "live: the service worker with no pass"
+  # the shell a stranger gets carries a policy that allows each of its own inline scripts by hash (the app computes it
+  # from the index.html it serves, so a later build cannot drift), and is never cached
+  curl -s -D "$STATE/live.h" -o "$STATE/live.html" $L/auth
+  python3 - "$STATE/live.html" "$STATE/live.h" <<'EOF' && ok "live: the pass-less shell has a policy that allows each inline script by hash" || bad "live: the pass-less shell's policy (a missing header, or an inline script it does not allow)"
+import sys,re,hashlib,base64
+html=open(sys.argv[1],encoding='utf-8').read()
+hdr=open(sys.argv[2],encoding='utf-8').read()
+csp=' '.join(l for l in hdr.splitlines() if l.lower().startswith('content-security-policy:'))
+bodies=[b for b in re.findall(r'<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>', html, re.S) if b.strip()]
+missing=[b for b in bodies if "'sha256-"+base64.b64encode(hashlib.sha256(b.encode()).digest()).decode()+"'" not in csp]
+sys.exit(1 if (not csp or not bodies or missing or "frame-ancestors 'none'" not in csp) else 0)
+EOF
+  tr -d '\r' < "$STATE/live.h" | grep -qi '^cache-control: no-store' && ok "live: the pass-less shell is not cached" || bad "live: the pass-less shell is cached"
 fi
 
 echo

@@ -2,7 +2,7 @@ use axum::{
 	extract::{Query, Request, State},
 	http::{HeaderMap, Response, StatusCode},
 	middleware,
-	response::IntoResponse,
+	response::{IntoResponse, Response as AxumResponse},
 	routing::{get, post},
 	Extension, Json, Router,
 };
@@ -42,7 +42,10 @@ use crate::{
 	middleware::{
 		auth::auth_middleware, edge::EDGE_PUBLIC_HEADER, ClientIp, HostExtractor,
 	},
-	routers::public_pages::signin::{authenticate_public, PublicVerdict},
+	routers::public_pages::{
+		self,
+		signin::{authenticate_public, PublicVerdict},
+	},
 	utils::{
 		default_true, fetch_session_user, hash_password, verify_dummy_password,
 		verify_password,
@@ -76,6 +79,7 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 					.layer(middleware::from_fn_with_state(app_state, auth_middleware)),
 			)
 			.route("/login", post(login))
+			.route("/join", post(public_pages::json::join))
 			.route("/refresh-token", post(refresh_token))
 			.route("/logout", post(logout))
 			.route("/register", post(register)),
@@ -345,9 +349,62 @@ pub enum LoginResponse {
 	AccessToken(GeneratedToken),
 }
 
+/// The sign-in. A browser behind the public edge that holds **no pass** is the web app's own sign-in
+/// screen on the public address: it never reaches the sign-in below (which counts failures
+/// towards locking an account, so strangers could lock friends out) but goes to the public one
+/// (`public_pages::json::login`), which answers 404 unless the edge serves that screen and the
+/// switch is on. This is the first thing checked, before anything is read from the database.
+/// Everything else (home, the tailnet, a request that holds a pass) is the sign-in below.
+///
+/// A server with no edge settings has no friends and no public sign-in: the older rule of the
+/// sign-in below applies to the marker there (the owner is refused through the edge)
+async fn login(
+	TypedHeader(user_agent): TypedHeader<UserAgent>,
+	ClientIp(client_ip): ClientIp,
+	session: Session,
+	State(state): State<AppState>,
+	HostExtractor(details): HostExtractor,
+	headers: HeaderMap,
+	Extension(edge): Extension<EdgeRequest>,
+	query: Query<AuthenticationOptions>,
+	Json(input): Json<PasswordUserInput>,
+) -> AxumResponse {
+	let via_public = edge.via_public || headers.contains_key(EDGE_PUBLIC_HEADER);
+	if via_public && edge.device.is_none() && state.config.edge.is_some() {
+		return public_pages::json::login(
+			&state,
+			&session,
+			client_ip,
+			&headers,
+			&details,
+			&edge,
+			&user_agent.to_string(),
+			&input.username,
+			input.password,
+		)
+		.await;
+	}
+	match login_with_password(
+		TypedHeader(user_agent),
+		ClientIp(client_ip),
+		session,
+		State(state),
+		HostExtractor(details),
+		headers,
+		Extension(edge),
+		query,
+		Json(input),
+	)
+	.await
+	{
+		Ok(response) => response.into_response(),
+		Err(error) => error.into_response(),
+	}
+}
+
 /// Authenticates the user and returns the user object. If the user is already logged in, returns the
 /// user object from the session.
-async fn login(
+async fn login_with_password(
 	TypedHeader(user_agent): TypedHeader<UserAgent>,
 	ClientIp(client_ip): ClientIp,
 	session: Session,
@@ -632,6 +689,18 @@ async fn login(
 	} else {
 		Ok(Json(LoginResponse::User(auth_user)))
 	}
+}
+
+/// The user a sign-in answers with, as the web app expects it: the avatar's address for the host
+/// the request came to, and whether the owner set their password and they have to choose their
+/// own
+pub(crate) async fn auth_user_of(
+	conn: &DatabaseConnection,
+	login: LoginUser,
+	service: ServiceContext,
+) -> APIResult<AuthUser> {
+	let auth_user = with_password_flag(conn, AuthUser::from(login)).await?;
+	Ok(inject_avatar_url(auth_user, service))
 }
 
 /// The user, with whether the owner set their password and they have to choose their own: the web

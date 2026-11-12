@@ -101,7 +101,8 @@ async fn show(
 			if let (InviteInput::Token(token), true) =
 				(&input, public_signin_on(state, edge))
 			{
-				if let Some(response) = signup::page_for_token(state, words, token).await
+				if let Some(response) =
+					signup::page_for_token(state, words, token, edge.spa_login).await
 				{
 					return response;
 				}

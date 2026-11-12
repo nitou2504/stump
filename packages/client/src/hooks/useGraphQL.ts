@@ -788,6 +788,11 @@ export function useGraphQLSubscriptionCache<TResult, TVariables>(
 export type UseGraphQLSubscriptionParams<TResult, TVariables> = {
 	variables?: TVariables extends Record<string, never> ? never : TVariables
 	/**
+	 * Whether to connect at all (default: yes). A page that is open before anybody is signed in
+	 * (the public sign-in screen) has nothing to subscribe to, and the server refuses the socket
+	 */
+	enabled?: boolean
+	/**
 	 * An optional function that is called when a new message is received
 	 */
 	onMessage?: (payload: TResult) => void
@@ -797,7 +802,12 @@ export type UseGraphQLSubscriptionReturn = [WebSocket | null, () => void]
 
 export function useGraphQLSubscription<TResult, TVariables>(
 	document: TypedDocumentString<TResult, TVariables>,
-	{ variables, onMessage, ...params }: UseGraphQLSubscriptionParams<TResult, TVariables> = {},
+	{
+		variables,
+		onMessage,
+		enabled = true,
+		...params
+	}: UseGraphQLSubscriptionParams<TResult, TVariables> = {},
 ): UseGraphQLSubscriptionReturn {
 	const { sdk } = useSDK()
 	const { onUnauthenticatedResponse, onConnectionWithServerChanged } = useClientContext()
@@ -831,7 +841,7 @@ export function useGraphQLSubscription<TResult, TVariables>(
 	 * the component unmounts or when the socket is closed.
 	 */
 	useEffect(() => {
-		if (socket || didConfigure.current) return
+		if (!enabled || socket || didConfigure.current) return
 
 		didConfigure.current = true
 		const configureSocket = async () => {
@@ -855,7 +865,7 @@ export function useGraphQLSubscription<TResult, TVariables>(
 		return () => {
 			dispose()
 		}
-	}, [socket, sdk, document, variables, events, dispose])
+	}, [enabled, socket, sdk, document, variables, events, dispose])
 
 	return [socket, dispose] as const
 }
