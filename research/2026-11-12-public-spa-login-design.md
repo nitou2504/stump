@@ -414,3 +414,17 @@ person to sign in.
 6. `useGraphQLSubscription` gained an `enabled` option (default on) and `useCoreEvent` passes `!!storeUser` (D11): nothing opens the socket before sign-in.
 7. The login screen's `renderError` now reads `data.message` (the API's error body is an object) instead of casting it to a string.
 8. New strings exist in en-US and es-ES only (other locales fall back to English).
+
+## Appendix B: what the real production build shows (checked without a browser), and what is still open
+
+`vite build` of `apps/web` (38 s, on l5) and a read of `dist/`:
+* `index.html` has exactly **two inline scripts**, with the same hashes as the build the design was written against (`sha256-CmpOl6…`,
+  `sha256-ckz9D9…`): removing the `preconnect`/`dns-prefetch` lines (S4) did not change them. The shell's policy is computed from this file by the app.
+* **No third-party origin** anywhere in `index.html`.
+* The shell references **71 files**, every one inside the open-asset rule (flat, 1 to 120 characters, `js css woff2 png webp ico`); the stylesheets' `url()`
+  references (71) are all flat files of those kinds and **none is an `.svg`**; no file name is longer than 120 characters; the join screen is a flat chunk
+  (`JoinScene-<hash>.js`).
+
+**Not yet verified: the real-browser run** (`deploy/public-edge/spa-capture.sh <image>`, which needs an image of this branch; `DEPLOY.md`, "Public login",
+step 2). It is the authority on the final allowlist and the policy (a request or a policy violation it reports becomes an exact rule or a policy
+change, never a wildcard or `'unsafe-eval'`). The spec and the script were type-checked, linted and read, not run.
