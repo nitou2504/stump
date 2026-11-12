@@ -6116,6 +6116,15 @@ export type Query = {
    */
   removedMedia: Array<Media>;
   scheduledJobs: Array<ScheduledJob>;
+  /**
+   * Authors for a search box: the writers of the books you can see whose name answers
+   * `search` (every word of it starts a word of the name; case and accents don't count), the
+   * best first (the name is the search, starts with it, has a word that starts with it, then
+   * the rest) and, among equals, the one with more books first. Each comes with how many of the
+   * books you can see they wrote: an author whose books are all hidden from you is not in the
+   * answer, and a hidden book is not in a count. At most `limit` (4 by default, 20 at most).
+   */
+  searchAuthors: Array<MetadataValueCount>;
   series: PaginatedSeriesResponse;
   /** Returns the available alphabet for the series the user can see */
   seriesAlphabet: Scalars['JSONObject']['output'];
@@ -6397,6 +6406,7 @@ export type QueryMediaArgs = {
   filter?: MediaFilterInput;
   orderBy?: Array<MediaOrderBy>;
   pagination?: Pagination;
+  relevanceTo?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -6549,6 +6559,12 @@ export type QueryRecentlyAddedSeriesArgs = {
 
 export type QueryRemovedMediaArgs = {
   libraryId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QuerySearchAuthorsArgs = {
+  limit?: Scalars['Int']['input'];
+  search: Scalars['String']['input'];
 };
 
 
@@ -9697,10 +9713,11 @@ export type RemoveBooksFromReadingListMutation = { __typename?: 'Mutation', remo
 export type GlobalSearchQueryVariables = Exact<{
   media: MediaFilterInput;
   series: SeriesFilterInput;
+  term: Scalars['String']['input'];
 }>;
 
 
-export type GlobalSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalItems: number } }, series: { __typename?: 'PaginatedSeriesResponse', nodes: Array<{ __typename?: 'Series', id: string, resolvedName: string, mediaCount: number, thumbnail: { __typename?: 'ImageRef', url: string } }> } };
+export type GlobalSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalItems: number } }, series: { __typename?: 'PaginatedSeriesResponse', nodes: Array<{ __typename?: 'Series', id: string, resolvedName: string, mediaCount: number, thumbnail: { __typename?: 'ImageRef', url: string } }> }, searchAuthors: Array<{ __typename?: 'MetadataValueCount', value: string, count: number }> };
 
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
@@ -9971,9 +9988,17 @@ export type RemoveBookClubMemberMutationVariables = Exact<{
 
 export type RemoveBookClubMemberMutation = { __typename?: 'Mutation', removeBookClubMember: { __typename?: 'BookClubMember', id: string } };
 
+export type BookSearchAuthorsQueryVariables = Exact<{
+  search: Scalars['String']['input'];
+}>;
+
+
+export type BookSearchAuthorsQuery = { __typename?: 'Query', searchAuthors: Array<{ __typename?: 'MetadataValueCount', value: string, count: number }> };
+
 export type BookSearchSceneQueryVariables = Exact<{
   filter: MediaFilterInput;
   orderBy: Array<MediaOrderBy> | MediaOrderBy;
+  relevanceTo?: InputMaybe<Scalars['String']['input']>;
   pagination: Pagination;
 }>;
 
@@ -17599,8 +17624,12 @@ export const RemoveBooksFromReadingListDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<RemoveBooksFromReadingListMutation, RemoveBooksFromReadingListMutationVariables>;
 export const GlobalSearchDocument = new TypedDocumentString(`
-    query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!) {
-  media(filter: $media, pagination: {offset: {page: 1, pageSize: 6}}) {
+    query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!, $term: String!) {
+  media(
+    filter: $media
+    relevanceTo: $term
+    pagination: {offset: {page: 1, pageSize: 6}}
+  ) {
     nodes {
       id
       resolvedName
@@ -17628,6 +17657,10 @@ export const GlobalSearchDocument = new TypedDocumentString(`
         url
       }
     }
+  }
+  searchAuthors(search: $term, limit: 3) {
+    value
+    count
   }
 }
     `) as unknown as TypedDocumentString<GlobalSearchQuery, GlobalSearchQueryVariables>;
@@ -18437,9 +18470,22 @@ export const RemoveBookClubMemberDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<RemoveBookClubMemberMutation, RemoveBookClubMemberMutationVariables>;
+export const BookSearchAuthorsDocument = new TypedDocumentString(`
+    query BookSearchAuthors($search: String!) {
+  searchAuthors(search: $search, limit: 6) {
+    value
+    count
+  }
+}
+    `) as unknown as TypedDocumentString<BookSearchAuthorsQuery, BookSearchAuthorsQueryVariables>;
 export const BookSearchSceneDocument = new TypedDocumentString(`
-    query BookSearchScene($filter: MediaFilterInput!, $orderBy: [MediaOrderBy!]!, $pagination: Pagination!) {
-  media(filter: $filter, orderBy: $orderBy, pagination: $pagination) {
+    query BookSearchScene($filter: MediaFilterInput!, $orderBy: [MediaOrderBy!]!, $relevanceTo: String, $pagination: Pagination!) {
+  media(
+    filter: $filter
+    orderBy: $orderBy
+    relevanceTo: $relevanceTo
+    pagination: $pagination
+  ) {
     nodes {
       id
       ...BookCard

@@ -37,14 +37,17 @@ import { useTranslate } from '@/hooks/useTranslate'
 import { useBooksLayout } from '@/stores/layout'
 
 import BooksAlphabet from '../book/BooksAlphabet'
+import AuthorMatches from './AuthorMatches'
+import { relevanceFor } from './relevance'
 
 const query = graphql(`
 	query BookSearchScene(
 		$filter: MediaFilterInput!
 		$orderBy: [MediaOrderBy!]!
+		$relevanceTo: String
 		$pagination: Pagination!
 	) {
-		media(filter: $filter, orderBy: $orderBy, pagination: $pagination) {
+		media(filter: $filter, orderBy: $orderBy, relevanceTo: $relevanceTo, pagination: $pagination) {
 			nodes {
 				id
 				...BookCard
@@ -69,6 +72,8 @@ export type UsePrefetchBookSearchParams = {
 	pageSize?: number
 	filter: FilterInput[]
 	orderBy: MediaOrderBy[]
+	/** What the books are ranked by (see `relevanceFor`) */
+	relevanceTo?: string
 }
 
 export const usePrefetchBookSearch = () => {
@@ -89,6 +94,7 @@ export const usePrefetchBookSearch = () => {
 					search,
 					params.filter,
 					params.orderBy,
+					params.relevanceTo,
 				),
 				queryFn: async () => {
 					const response = await sdk.execute(query, {
@@ -97,6 +103,7 @@ export const usePrefetchBookSearch = () => {
 							_or: searchFilter,
 						},
 						orderBy: params.orderBy,
+						relevanceTo: params.relevanceTo,
 						pagination: {
 							offset: {
 								...pageParams,
@@ -128,8 +135,9 @@ function getQueryKey(
 	search: string | undefined,
 	filters: FilterInput[],
 	orderBy: MediaOrderBy[],
+	relevanceTo?: string,
 ) {
-	return ['booksSearch', { page, pageSize, search, filters, orderBy }]
+	return ['booksSearch', { page, pageSize, search, filters, orderBy, relevanceTo }]
 }
 
 function BookSearchScene() {
@@ -200,6 +208,7 @@ function BookSearchScene() {
 
 	const pageSize = pageSizeMaybeUndefined || 20 // Fallback to 20 if pageSize is undefined, this should never happen since we set a default in the useFilterScene hook
 	const orderBy = useMediaURLOrderBy(ordering)
+	const relevanceTo = relevanceFor(search, ordering)
 
 	const onPrefetchLetter = useCallback(
 		(letter: string) => {
@@ -216,9 +225,10 @@ function BookSearchScene() {
 					},
 				],
 				orderBy,
+				relevanceTo,
 			})
 		},
-		[prefetch, pageSize, orderBy, filters],
+		[prefetch, pageSize, orderBy, relevanceTo, filters],
 	)
 
 	const {
@@ -226,19 +236,24 @@ function BookSearchScene() {
 			media: { nodes, pageInfo },
 		},
 		isLoading,
-	} = useSuspenseGraphQL(query, getQueryKey(page, pageSize, search, resolvedFilters, orderBy), {
-		filter: {
-			_and: resolvedFilters,
-			_or: searchFilter,
-		},
-		orderBy: orderBy,
-		pagination: {
-			offset: {
-				page,
-				pageSize: pageSize,
+	} = useSuspenseGraphQL(
+		query,
+		getQueryKey(page, pageSize, search, resolvedFilters, orderBy, relevanceTo),
+		{
+			filter: {
+				_and: resolvedFilters,
+				_or: searchFilter,
+			},
+			orderBy: orderBy,
+			relevanceTo,
+			pagination: {
+				offset: {
+					page,
+					pageSize: pageSize,
+				},
 			},
 		},
-	})
+	)
 	if (pageInfo.__typename !== 'OffsetPaginationInfo') {
 		throw new Error('Invalid pagination type, expected OffsetPaginationInfo')
 	}
@@ -270,6 +285,7 @@ function BookSearchScene() {
 							pageSize,
 							filter: resolvedFilters,
 							orderBy,
+							relevanceTo,
 						})
 					}}
 				>
@@ -314,6 +330,7 @@ function BookSearchScene() {
 									pageSize,
 									filter: resolvedFilters,
 									orderBy,
+									relevanceTo,
 								})
 							}}
 							tableControls={
@@ -370,6 +387,11 @@ function BookSearchScene() {
 						onSelectLetter={onSelectLetter}
 						onPrefetchLetter={onPrefetchLetter}
 					/>
+				)}
+
+				{/* the authors the search names, on its first page and while nothing narrows it */}
+				{page === 1 && !startsWith && Object.keys(filters || {}).length === 0 && (
+					<AuthorMatches search={search} />
 				)}
 
 				{renderContent()}

@@ -14,8 +14,8 @@ import { usePaths } from '@/paths'
 import { GLOBAL_SEARCH_SHORTCUT } from './shortcut'
 
 const query = graphql(`
-	query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!) {
-		media(filter: $media, pagination: { offset: { page: 1, pageSize: 6 } }) {
+	query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!, $term: String!) {
+		media(filter: $media, relevanceTo: $term, pagination: { offset: { page: 1, pageSize: 6 } }) {
 			nodes {
 				id
 				resolvedName
@@ -44,6 +44,10 @@ const query = graphql(`
 				}
 			}
 		}
+		searchAuthors(search: $term, limit: 3) {
+			value
+			count
+		}
 	}
 `)
 
@@ -55,7 +59,8 @@ type Props = {
 }
 
 /**
- * The title bar search's palette: books and series as you type (one request, debounced),
+ * The title bar search's palette: books (the best title first), their authors and series as you
+ * type (one request, debounced),
  * Enter on "See all" (or with nothing picked) opens the full results on the books page.
  * Empty, it offers Surprise me and the browse pages.
  */
@@ -74,12 +79,13 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 	const { data, isFetching } = useGraphQL(
 		query,
 		['globalSearch', search],
-		{ media: { search }, series: { search } },
+		{ media: { search }, series: { search }, term: search },
 		{ enabled, placeholderData: (previous) => previous, staleTime: 30_000 },
 	)
 	const hasTerm = trimmed.length >= MIN_LENGTH
 	const books = hasTerm ? (data?.media.nodes ?? []) : []
 	const series = hasTerm ? (data?.series.nodes ?? []) : []
+	const authors = hasTerm ? (data?.searchAuthors ?? []) : []
 	const total =
 		data?.media.pageInfo.__typename === 'OffsetPaginationInfo' ? data.media.pageInfo.totalItems : 0
 	const isWaiting = hasTerm && (isFetching || trimmed !== search)
@@ -88,6 +94,9 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 		onOpenChange(false)
 		navigate(to)
 	}
+	// an author's books are the books page filtered by the writer, as the Browse page links them
+	const authorHref = (name: string) =>
+		paths.bookSearchWithFilter({ metadata: { writers: { hasAnyOf: [name] } } })
 	// The books page reads `search` URL-decoded once more than URLSearchParams does
 	const resultsHref = (value: string) =>
 		`${paths.bookSearch()}?${new URLSearchParams({ search: encodeURIComponent(value) })}`
@@ -168,7 +177,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 							</Command.Group>
 						)}
 
-						{hasTerm && !isWaiting && !books.length && !series.length && (
+						{hasTerm && !isWaiting && !books.length && !authors.length && !series.length && (
 							<p className="py-6 text-sm text-center text-muted-foreground">
 								{t('globalSearch.noMatches', { term: trimmed })}
 							</p>
@@ -208,6 +217,25 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 										</Command.Item>
 									)
 								})}
+							</Command.Group>
+						)}
+
+						{authors.length > 0 && (
+							<Command.Group heading={t('globalSearch.authors')}>
+								{authors.map((author) => (
+									<Command.Item
+										key={author.value}
+										value={`author-${author.value}`}
+										onSelect={() => go(authorHref(author.value))}
+										className="gap-3 py-1.5"
+									>
+										<Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+										<span className="min-w-0 line-clamp-1 flex-1">{author.value}</span>
+										<span className="text-xs font-normal shrink-0 text-muted-foreground">
+											{t('globalSearch.bookCount', { count: author.count })}
+										</span>
+									</Command.Item>
+								))}
 							</Command.Group>
 						)}
 
