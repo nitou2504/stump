@@ -62,7 +62,9 @@ pub struct LibraryMutation;
 
 #[Object]
 impl LibraryMutation {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn analyze_library(
 		&self,
 		ctx: &Context<'_>,
@@ -240,7 +242,9 @@ impl LibraryMutation {
 	/// Create a new library with the provided configuration. If `scan_after_persist` is `true`,
 	/// the library will be scanned immediately after creation.
 	#[tracing::instrument(skip(self, ctx))]
-	#[graphql(guard = "PermissionGuard::one(UserPermission::CreateLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::CreateLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn create_library(
 		&self,
 		ctx: &Context<'_>,
@@ -567,7 +571,9 @@ impl LibraryMutation {
 		Ok(Library::from(updated_library))
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::EditLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::EditLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn patch_library(
 		&self,
 		ctx: &Context<'_>,
@@ -1026,7 +1032,9 @@ impl LibraryMutation {
 		Ok(Library::from(library))
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn generate_library_thumbnails(
 		&self,
 		ctx: &Context<'_>,
@@ -1061,7 +1069,9 @@ impl LibraryMutation {
 		Ok(true)
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn process_library_thumbnails(
 		&self,
 		ctx: &Context<'_>,
@@ -1183,7 +1193,9 @@ impl LibraryMutation {
 	}
 
 	/// Start a job which will search external metadata providers
-	#[graphql(guard = "PermissionGuard::one(UserPermission::MetadataFetchRecordManage).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::MetadataFetchRecordManage).and(NotViaPublicEdgeGuard)"
+	)]
 	#[tracing::instrument(skip(self, ctx))]
 	async fn fetch_library_metadata(
 		&self,
@@ -1332,7 +1344,9 @@ impl LibraryMutation {
 	}
 
 	/// Enqueue a scan job for every library which the authenticated user has access to
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn scan_all_libraries(&self, ctx: &Context<'_>) -> Result<bool> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;
@@ -1357,7 +1371,9 @@ impl LibraryMutation {
 
 	/// Enqueue a scan job for a library. This will index the filesystem from the library's root path
 	/// and update the database accordingly.
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn scan_library(
 		&self,
 		ctx: &Context<'_>,

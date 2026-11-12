@@ -163,7 +163,10 @@ impl MigrationTrait for Migration {
 					.foreign_key(
 						ForeignKey::create()
 							.name("fk-access_library_decisions-user")
-							.from(AccessLibraryDecisions::Table, AccessLibraryDecisions::UserId)
+							.from(
+								AccessLibraryDecisions::Table,
+								AccessLibraryDecisions::UserId,
+							)
 							.to(Users::Table, Users::Id)
 							.on_delete(ForeignKeyAction::Cascade)
 							.on_update(ForeignKeyAction::Cascade),
@@ -222,7 +225,12 @@ impl MigrationTrait for Migration {
 			)
 			.await?;
 		manager
-			.drop_table(Table::drop().table(AccessPeople::Table).if_exists().to_owned())
+			.drop_table(
+				Table::drop()
+					.table(AccessPeople::Table)
+					.if_exists()
+					.to_owned(),
+			)
 			.await?;
 		manager
 			.drop_table(
@@ -452,7 +460,10 @@ mod tests {
 		assert_eq!(schema_of(&db, "access_devices").await, devices_before);
 		assert!(!applied_versions(&db).await.contains(&NAME.to_string()));
 		// the browser stays, the key goes
-		assert_eq!(count(&db, "SELECT COUNT(*) AS n FROM access_devices").await, 1);
+		assert_eq!(
+			count(&db, "SELECT COUNT(*) AS n FROM access_devices").await,
+			1
+		);
 	}
 
 	/// The manual rollback the owner runs for an older image: THIS FILE, run on a database that
@@ -592,7 +603,13 @@ mod tests {
 		db.execute_unprepared("DELETE FROM users WHERE id = 'u1'")
 			.await
 			.expect("should delete the user");
-		assert_eq!(count(&db, "SELECT COUNT(*) AS n FROM access_people").await, 0);
-		assert_eq!(count(&db, "SELECT COUNT(*) AS n FROM access_devices").await, 1);
+		assert_eq!(
+			count(&db, "SELECT COUNT(*) AS n FROM access_people").await,
+			0
+		);
+		assert_eq!(
+			count(&db, "SELECT COUNT(*) AS n FROM access_devices").await,
+			1
+		);
 	}
 }

@@ -22,8 +22,7 @@ use crate::{
 			INVITE_HOURS,
 		},
 		access_signup::{
-			AccessSignupLink, CreateSignupLinkInput, CreatedSignupLink,
-			PersonAccessInput,
+			AccessSignupLink, CreateSignupLinkInput, CreatedSignupLink, PersonAccessInput,
 		},
 	},
 };
@@ -144,7 +143,9 @@ impl AccessMutation {
 			return Err("There is no key to sign passes with (STUMP_EDGE_KEY)".into());
 		}
 		if !edge.is_some_and(|edge| edge.public_signin) {
-			return Err("Public sign-in is switched off (STUMP_EDGE_PUBLIC_SIGNIN)".into());
+			return Err(
+				"Public sign-in is switched off (STUMP_EDGE_PUBLIC_SIGNIN)".into()
+			);
 		}
 
 		let (token, token_hash) = pass::new_invite_token().map_err(|error| {
@@ -182,10 +183,12 @@ impl AccessMutation {
 		let libraries = libraries
 			.into_iter()
 			.filter_map(|id| {
-				names.get(&id).map(|name| crate::object::access_signup::PresetLibrary {
-					id,
-					name: name.clone(),
-				})
+				names
+					.get(&id)
+					.map(|name| crate::object::access_signup::PresetLibrary {
+						id,
+						name: name.clone(),
+					})
 			})
 			.collect();
 		Ok(CreatedSignupLink {

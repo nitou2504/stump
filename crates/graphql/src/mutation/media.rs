@@ -26,7 +26,9 @@ pub struct MediaMutation;
 
 #[Object]
 impl MediaMutation {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn analyze_media(
 		&self,
 		ctx: &Context<'_>,

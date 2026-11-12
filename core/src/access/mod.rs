@@ -7,4 +7,6 @@ pub mod pass;
 pub mod signin;
 pub mod state;
 
-pub use models::services::{access::is_valid_device_id as is_pass_name, access_policy as policy};
+pub use models::services::{
+	access::is_valid_device_id as is_pass_name, access_policy as policy,
+};

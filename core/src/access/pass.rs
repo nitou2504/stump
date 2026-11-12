@@ -423,7 +423,10 @@ mod tests {
 	#[test]
 	fn the_edges_reading_key_vector_verifies_here() {
 		let v = vectors();
-		assert_eq!(mint_reading_key(&v.key, &v.reading_key.id), v.reading_key.value);
+		assert_eq!(
+			mint_reading_key(&v.key, &v.reading_key.id),
+			v.reading_key.value
+		);
 		assert_eq!(
 			verify_reading_key(&v.key, &v.reading_key.value),
 			Some(v.reading_key.id.clone())
@@ -463,7 +466,10 @@ mod tests {
 		let pass = mint_pass(&v.key, id, 1_794_400_000);
 		// the pass's MAC dropped into a key's place
 		let pass_mac = pass.rsplit('.').next().unwrap();
-		assert_eq!(verify_reading_key(&v.key, &format!("{id}.{pass_mac}")), None);
+		assert_eq!(
+			verify_reading_key(&v.key, &format!("{id}.{pass_mac}")),
+			None
+		);
 		// the key's MAC dropped into a pass
 		let key_mac = mint_reading_key(&v.key, id);
 		let key_mac = key_mac.rsplit('.').next().unwrap();

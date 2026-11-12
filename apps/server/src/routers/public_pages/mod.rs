@@ -42,6 +42,9 @@ pub(crate) struct Words {
 	pub invalid: &'static str,
 	pub paste: &'static str,
 	pub open: &'static str,
+	// the front door with public sign-in off
+	pub private_title: &'static str,
+	pub private_text: &'static str,
 	// signing in
 	pub signin_title: &'static str,
 	pub signin_intro: &'static str,
@@ -77,6 +80,8 @@ pub(crate) const ENGLISH: Words = Words {
 	invalid: "It has expired, was used up, or isn't valid. Ask for a new invite link.",
 	paste: "Paste your link here",
 	open: "Open",
+	private_title: "Private site",
+	private_text: "Open your invite link in this browser, or paste it here:",
 	signin_title: "Sign in to Stump",
 	signin_intro: "Use the username and password you chose.",
 	username: "Username",
@@ -112,6 +117,8 @@ pub(crate) const SPANISH: Words = Words {
 	invalid: "Caducó, se agotó o no es válido. Pide un enlace de invitación nuevo.",
 	paste: "Pega tu enlace aquí",
 	open: "Abrir",
+	private_title: "Sitio privado",
+	private_text: "Abre tu enlace de invitación en este navegador, o pégalo aquí:",
 	signin_title: "Entra a Stump",
 	signin_intro: "Usa el usuario y la contraseña que elegiste.",
 	username: "Usuario",
@@ -160,11 +167,15 @@ pub(crate) fn username_problem(words: &Words, problem: UsernameProblem) -> &'sta
 	if words.lang == "es" {
 		match problem {
 			UsernameProblem::TooShort => "El usuario necesita al menos 3 caracteres",
-			UsernameProblem::TooLong => "El usuario puede tener 32 caracteres como máximo",
+			UsernameProblem::TooLong => {
+				"El usuario puede tener 32 caracteres como máximo"
+			},
 			UsernameProblem::BadCharacter => {
 				"Usa solo letras, números, puntos, guiones y guiones bajos en el usuario"
 			},
-			UsernameProblem::BadStart => "El usuario debe empezar con una letra o un número",
+			UsernameProblem::BadStart => {
+				"El usuario debe empezar con una letra o un número"
+			},
 			UsernameProblem::Reserved => "Ese usuario no está disponible",
 		}
 	} else {
@@ -292,6 +303,16 @@ pub(crate) fn invalid_page(words: &Words) -> Response {
 	page(StatusCode::NOT_FOUND, words, &body, &[])
 }
 
+/// What the front door shows while public sign-in is off: the old "private site" page, a box to
+/// paste an invite link into (the sign-in form and the signup form answer 404 until it is on)
+pub(crate) fn private_page(words: &Words) -> Response {
+	let body = format!(
+		"<h1>{}</h1><p>{}</p><form method=\"get\" action=\"/api/_i/\"><input name=\"t\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" aria-label=\"{}\"><button>{}</button></form>",
+		words.private_title, words.private_text, words.paste, words.open
+	);
+	page(StatusCode::OK, words, &body, &[])
+}
+
 /// "Too many attempts": the same page whatever the reason (a client, a name, the whole server)
 pub(crate) fn too_many_page(words: &Words) -> Response {
 	let body = format!("<h1>{}</h1><p>{}</p>", words.too_many_title, words.too_many);
@@ -371,6 +392,8 @@ mod tests {
 			(ENGLISH.invalid, SPANISH.invalid),
 			(ENGLISH.paste, SPANISH.paste),
 			(ENGLISH.open, SPANISH.open),
+			(ENGLISH.private_title, SPANISH.private_title),
+			(ENGLISH.private_text, SPANISH.private_text),
 			(ENGLISH.signin_title, SPANISH.signin_title),
 			(ENGLISH.signin_intro, SPANISH.signin_intro),
 			(ENGLISH.username, SPANISH.username),
@@ -396,7 +419,9 @@ mod tests {
 			assert!(!english.is_empty() && !spanish.is_empty());
 			assert_ne!(english, spanish, "{english}");
 		}
-		assert!(ENGLISH.limit_title.contains("{n}") && SPANISH.limit_title.contains("{n}"));
+		assert!(
+			ENGLISH.limit_title.contains("{n}") && SPANISH.limit_title.contains("{n}")
+		);
 	}
 
 	#[test]

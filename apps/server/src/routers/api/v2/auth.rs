@@ -422,11 +422,8 @@ async fn login(
 	// of a wrong password after the same work (their password IS checked, so the owner can be
 	// told that the right one was typed at an account that is not allowed in), recorded, and
 	// never counted towards a lock
-	let public_signin = via_public
-		&& config
-			.edge
-			.as_ref()
-			.is_some_and(|edge| edge.public_signin);
+	let public_signin =
+		via_public && config.edge.as_ref().is_some_and(|edge| edge.public_signin);
 	let mut eligible_person = None;
 	if public_signin {
 		match access_people::public_eligibility(state.conn.as_ref(), &user.id).await? {
@@ -539,7 +536,10 @@ async fn login(
 	};
 
 	// Check if this is an OIDC-only user (no password set)
-	if !verified_by_the_gates && user.hashed_password.is_empty() && user.oidc_issuer_id.is_some() {
+	if !verified_by_the_gates
+		&& user.hashed_password.is_empty()
+		&& user.oidc_issuer_id.is_some()
+	{
 		return Err(APIError::BadRequest(
 			"This account uses OIDC authentication. Please log in with your identity provider."
 				.to_string(),

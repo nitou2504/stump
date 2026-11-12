@@ -28,7 +28,9 @@ pub struct SeriesMutation;
 
 #[Object]
 impl SeriesMutation {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn analyze_series(
 		&self,
 		ctx: &Context<'_>,
@@ -188,7 +190,9 @@ impl SeriesMutation {
 		Ok(series.into())
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn scan_series(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;

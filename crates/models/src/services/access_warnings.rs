@@ -17,8 +17,8 @@ use sea_orm::{
 
 use crate::{
 	entity::{
-		access_audit, access_device, access_person, access_signin_mark, library,
-		session, user, user_login_activity,
+		access_audit, access_device, access_person, access_signin_mark, library, session,
+		user, user_login_activity,
 	},
 	services::{
 		access::reason,
@@ -229,10 +229,14 @@ where
 	let mut grouped: HashMap<(WarningKind, String), Warning> = HashMap::new();
 	for event in events {
 		let (kind, person) = match event.action.as_str() {
-			"signin.device_limit" => (WarningKind::DeviceLimitHit, Some(event.target.clone())),
+			"signin.device_limit" => {
+				(WarningKind::DeviceLimitHit, Some(event.target.clone()))
+			},
 			"signin.backoff" => (
 				WarningKind::NameBackoff,
-				accounts.contains_key(&event.target).then(|| event.target.clone()),
+				accounts
+					.contains_key(&event.target)
+					.then(|| event.target.clone()),
 			),
 			"signin.global_budget" => (WarningKind::GlobalBudget, None),
 			_ => (WarningKind::SigninFailures, None),
@@ -283,7 +287,9 @@ where
 
 	// the right password of an account that is not allowed in from the internet
 	let tried: Vec<i64> = access_signin_mark::Entity::find()
-		.filter(access_signin_mark::Column::FailureReason.eq(reason::NOT_ALLOWED_PUBLICLY))
+		.filter(
+			access_signin_mark::Column::FailureReason.eq(reason::NOT_ALLOWED_PUBLICLY),
+		)
 		.select_only()
 		.column(access_signin_mark::Column::LoginActivityId)
 		.into_tuple::<i64>()
@@ -322,7 +328,8 @@ where
 			continue;
 		}
 		if let Some(account) = accounts.get(person_id) {
-			let beyond = access_policy::outside_friend_set_of(account.permissions.as_deref());
+			let beyond =
+				access_policy::outside_friend_set_of(account.permissions.as_deref());
 			if !beyond.is_empty() {
 				found.push(Warning {
 					person_id: Some(person_id.clone()),
@@ -357,8 +364,9 @@ where
 				..warn(WarningKind::LinkNearBudget, link.created_at)
 			});
 		}
-		let usable = signup::preset_of(&link)
-			.is_some_and(|preset| preset.library_ids.iter().any(|id| existing.contains(id)));
+		let usable = signup::preset_of(&link).is_some_and(|preset| {
+			preset.library_ids.iter().any(|id| existing.contains(id))
+		});
 		if !usable {
 			found.push(Warning {
 				link_id: Some(link.id.clone()),

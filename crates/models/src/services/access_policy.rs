@@ -160,10 +160,9 @@ pub fn check_username(input: &str) -> Result<String, UsernameProblem> {
 	if name.chars().count() > USERNAME_MAX_CHARS {
 		return Err(UsernameProblem::TooLong);
 	}
-	if !name
-		.bytes()
-		.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-'))
-	{
+	if !name.bytes().all(|b| {
+		b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+	}) {
 		return Err(UsernameProblem::BadCharacter);
 	}
 	if !name
@@ -201,7 +200,9 @@ impl PasswordProblem {
 		match self {
 			Self::TooShort => "The password needs at least 10 characters",
 			Self::TooLong => "The password is too long (72 bytes at most)",
-			Self::TooSimple => "The password repeats the same few characters: use more different ones",
+			Self::TooSimple => {
+				"The password repeats the same few characters: use more different ones"
+			},
 			Self::TooCommon => "That password is too common: choose another one",
 			Self::HasUsername => "The password can't contain the username",
 		}
@@ -347,24 +348,30 @@ pub fn check_password(password: &str, username: &str) -> Result<(), PasswordProb
 /// most 40 characters, and never the user agent itself
 pub fn device_label(user_agent: &str) -> String {
 	let agent = user_agent;
-	let browser = if agent.contains("Edg/") || agent.contains("EdgA/") || agent.contains("EdgiOS/") {
-		"Edge"
-	} else if agent.contains("OPR/") || agent.contains("Opera") {
-		"Opera"
-	} else if agent.contains("SamsungBrowser") {
-		"Samsung Internet"
-	} else if agent.contains("Firefox/") || agent.contains("FxiOS/") {
-		"Firefox"
-	} else if agent.contains("Chrome/") || agent.contains("CriOS/") || agent.contains("Chromium/") {
-		"Chrome"
-	} else if agent.contains("Safari/") && agent.contains("Version/") {
-		"Safari"
-	} else {
-		""
-	};
+	let browser =
+		if agent.contains("Edg/") || agent.contains("EdgA/") || agent.contains("EdgiOS/")
+		{
+			"Edge"
+		} else if agent.contains("OPR/") || agent.contains("Opera") {
+			"Opera"
+		} else if agent.contains("SamsungBrowser") {
+			"Samsung Internet"
+		} else if agent.contains("Firefox/") || agent.contains("FxiOS/") {
+			"Firefox"
+		} else if agent.contains("Chrome/")
+			|| agent.contains("CriOS/")
+			|| agent.contains("Chromium/")
+		{
+			"Chrome"
+		} else if agent.contains("Safari/") && agent.contains("Version/") {
+			"Safari"
+		} else {
+			""
+		};
 	let system = if agent.contains("Android") {
 		"Android"
-	} else if agent.contains("iPhone") || agent.contains("iPad") || agent.contains("iPod") {
+	} else if agent.contains("iPhone") || agent.contains("iPad") || agent.contains("iPod")
+	{
 		"iOS"
 	} else if agent.contains("Windows") {
 		"Windows"
@@ -471,31 +478,61 @@ mod tests {
 	#[test]
 	fn usernames_follow_the_rules() {
 		assert_eq!(check_username("ana"), Ok("ana".to_string()));
-		assert_eq!(check_username("  Ana.Lopez-2_x "), Ok("ana.lopez-2_x".to_string()));
+		assert_eq!(
+			check_username("  Ana.Lopez-2_x "),
+			Ok("ana.lopez-2_x".to_string())
+		);
 		assert_eq!(check_username("a1b"), Ok("a1b".to_string()));
 		assert_eq!(check_username("9lives"), Ok("9lives".to_string()));
 		assert_eq!(check_username("ab"), Err(UsernameProblem::TooShort));
 		assert_eq!(check_username(""), Err(UsernameProblem::TooShort));
 		assert_eq!(check_username(&"a".repeat(32)), Ok("a".repeat(32)));
-		assert_eq!(check_username(&"a".repeat(33)), Err(UsernameProblem::TooLong));
-		assert_eq!(check_username("ana lopez"), Err(UsernameProblem::BadCharacter));
-		assert_eq!(check_username("ana@mail.com"), Err(UsernameProblem::BadCharacter));
-		assert_eq!(check_username("ana/../x"), Err(UsernameProblem::BadCharacter));
-		assert_eq!(check_username("<b>ana</b>"), Err(UsernameProblem::BadCharacter));
+		assert_eq!(
+			check_username(&"a".repeat(33)),
+			Err(UsernameProblem::TooLong)
+		);
+		assert_eq!(
+			check_username("ana lopez"),
+			Err(UsernameProblem::BadCharacter)
+		);
+		assert_eq!(
+			check_username("ana@mail.com"),
+			Err(UsernameProblem::BadCharacter)
+		);
+		assert_eq!(
+			check_username("ana/../x"),
+			Err(UsernameProblem::BadCharacter)
+		);
+		assert_eq!(
+			check_username("<b>ana</b>"),
+			Err(UsernameProblem::BadCharacter)
+		);
 		assert_eq!(check_username("-ana"), Err(UsernameProblem::BadStart));
 		assert_eq!(check_username(".ana"), Err(UsernameProblem::BadStart));
 		assert_eq!(check_username("_ana"), Err(UsernameProblem::BadStart));
 		assert_eq!(check_username("Admin"), Err(UsernameProblem::Reserved));
 		assert_eq!(check_username("root"), Err(UsernameProblem::Reserved));
-		assert_eq!(check_username("book-curator"), Err(UsernameProblem::Reserved));
+		assert_eq!(
+			check_username("book-curator"),
+			Err(UsernameProblem::Reserved)
+		);
 	}
 
 	#[test]
 	fn a_lookalike_from_another_alphabet_is_not_a_username() {
 		// Cyrillic "а" (U+0430) and a Turkish dotted capital i, for "ana" and "ilsa"
-		assert_eq!(check_username("\u{0430}na"), Err(UsernameProblem::BadCharacter));
-		assert_eq!(check_username("\u{0130}lsa"), Err(UsernameProblem::BadCharacter));
-		assert_eq!(check_username("ana\u{200b}"), Err(UsernameProblem::BadCharacter));
+		assert_eq!(
+			check_username("\u{0430}na"),
+			Err(UsernameProblem::BadCharacter)
+		);
+		assert_eq!(
+			check_username("\u{0130}lsa"),
+			Err(UsernameProblem::BadCharacter)
+		);
+		assert_eq!(
+			check_username("ana\u{200b}"),
+			Err(UsernameProblem::BadCharacter)
+		);
 		assert_eq!(check_username("ñandú"), Err(UsernameProblem::BadCharacter));
 		// a name that differs only in case is the same name once stored
 		assert_eq!(check_username("ANA"), check_username("ana"));
@@ -505,7 +542,10 @@ mod tests {
 	fn passwords_follow_the_rules() {
 		assert_eq!(check_password("tulip-Harbor-47", "ana"), Ok(()));
 		// 9 and 10 characters
-		assert_eq!(check_password("abcdefg12", "ana"), Err(PasswordProblem::TooShort));
+		assert_eq!(
+			check_password("abcdefg12", "ana"),
+			Err(PasswordProblem::TooShort)
+		);
 		assert_eq!(check_password("abcdefg12x", "ana"), Ok(()));
 		// 72 and 73 bytes
 		let p72 = format!("{}xy", "abcde".repeat(14));
@@ -521,10 +561,19 @@ mod tests {
 			Err(PasswordProblem::TooLong)
 		);
 		// 4 and 5 different characters
-		assert_eq!(check_password("abababababab", "ana"), Err(PasswordProblem::TooSimple));
-		assert_eq!(check_password("abcdabcdabcd", "ana"), Err(PasswordProblem::TooSimple));
+		assert_eq!(
+			check_password("abababababab", "ana"),
+			Err(PasswordProblem::TooSimple)
+		);
+		assert_eq!(
+			check_password("abcdabcdabcd", "ana"),
+			Err(PasswordProblem::TooSimple)
+		);
 		assert_eq!(check_password("abcdeabcdeabcde", "ana"), Ok(()));
-		assert_eq!(check_password("aaaaaaaaaaaa", "ana"), Err(PasswordProblem::TooSimple));
+		assert_eq!(
+			check_password("aaaaaaaaaaaa", "ana"),
+			Err(PasswordProblem::TooSimple)
+		);
 	}
 
 	#[test]

@@ -1,5 +1,4 @@
 mod access;
-mod my_access;
 mod api_key;
 mod book_club;
 mod book_club_book;
@@ -18,6 +17,7 @@ mod log;
 mod media;
 mod media_metadata;
 mod metadata_provider;
+mod my_access;
 mod notifier;
 mod post_processing;
 mod reading_device;
@@ -38,7 +38,6 @@ pub(crate) mod upload;
 mod user;
 
 use access::AccessMutation;
-use my_access::MyAccessMutation;
 use api_key::APIKeyMutation;
 use book_club::BookClubMutation;
 use book_club_book::BookClubBookMutation;
@@ -57,6 +56,7 @@ use log::LogMutation;
 use media::MediaMutation;
 use media_metadata::MediaMetadataMutation;
 use metadata_provider::MetadataProviderMutation;
+use my_access::MyAccessMutation;
 use notifier::NotifierMutation;
 use post_processing::PostProcessingMutation;
 use reading_device::ReadingDeviceMutation;
@@ -167,7 +167,8 @@ mod guard_coverage {
 	}
 
 	fn functions_of(file: &Path) -> Vec<Function> {
-		let text = std::fs::read_to_string(file).expect("a mutation file should be readable");
+		let text =
+			std::fs::read_to_string(file).expect("a mutation file should be readable");
 		let lines: Vec<&str> = text.lines().collect();
 		let starts: Vec<usize> = lines
 			.iter()
@@ -201,8 +202,7 @@ mod guard_coverage {
 					|| line.starts_with("complexity")
 					|| line.starts_with("deprecation")
 					|| line.starts_with("name")
-					|| line == ")]"
-					|| line == ")";
+					|| line == ")]" || line == ")";
 				if !part_of_attribute {
 					break;
 				}
@@ -224,7 +224,9 @@ mod guard_coverage {
 		let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/mutation");
 		let mut missing = Vec::new();
 		let mut checked = 0;
-		for entry in std::fs::read_dir(&dir).expect("the mutation folder should be readable") {
+		for entry in
+			std::fs::read_dir(&dir).expect("the mutation folder should be readable")
+		{
 			let path = entry.unwrap().path();
 			if path.extension().and_then(|e| e.to_str()) != Some("rs") {
 				continue;

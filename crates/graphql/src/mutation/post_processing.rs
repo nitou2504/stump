@@ -45,7 +45,9 @@ impl PostProcessingMutation {
 
 	/// Run post-processing on the whole library now: the 16-grey step (or its dry-run
 	/// estimate) and/or the PDF steps (queued for the PDF worker)
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn run_post_processing(
 		&self,
 		ctx: &Context<'_>,

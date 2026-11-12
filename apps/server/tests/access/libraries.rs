@@ -21,7 +21,11 @@ async fn a_library_made_by_a_script_is_hidden_by_the_reconcile_exactly_once() {
 	let plain = insert_user(app, "plain", "secret-pass-1", false).await;
 
 	let light_novel = add_library(app, "Light Novel").await;
-	assert_eq!(hidden_libraries_of(app, &ana.id).await.len(), 1, "only Manga is hidden so far");
+	assert_eq!(
+		hidden_libraries_of(app, &ana.id).await.len(),
+		1,
+		"only Manga is hidden so far"
+	);
 
 	assert_eq!(reconcile_libraries(app.conn()).await.unwrap(), 1);
 	let mut expected = vec![shelves.manga.id.clone(), light_novel.id.clone()];
@@ -34,7 +38,10 @@ async fn a_library_made_by_a_script_is_hidden_by_the_reconcile_exactly_once() {
 	// again: nothing is hidden twice
 	assert_eq!(reconcile_libraries(app.conn()).await.unwrap(), 0);
 	assert_eq!(hidden_libraries_of(app, &ana.id).await.len(), 2);
-	assert_eq!(hide_undecided_libraries(app.conn(), &ana.id).await.unwrap(), 0);
+	assert_eq!(
+		hide_undecided_libraries(app.conn(), &ana.id).await.unwrap(),
+		0
+	);
 }
 
 /// What the owner chooses afterwards stays chosen
@@ -57,7 +64,10 @@ async fn an_owner_choice_survives_a_reconcile() {
 		.unwrap();
 	assert_eq!(reconcile_libraries(app.conn()).await.unwrap(), 0);
 	let hidden = hidden_libraries_of(app, &ana.id).await;
-	assert!(!hidden.contains(&shelves.manga.id), "the reconcile hid a library the owner showed");
+	assert!(
+		!hidden.contains(&shelves.manga.id),
+		"the reconcile hid a library the owner showed"
+	);
 	assert_eq!(hidden.len(), 1);
 }
 
@@ -78,8 +88,14 @@ async fn a_library_made_through_the_api_is_hidden_from_people_who_hide_new_libra
 	)
 	.await;
 	assert!(created.get("errors").is_none(), "{created:#}");
-	let id = created["data"]["createLibrary"]["id"].as_str().unwrap().to_string();
-	assert!(hidden_libraries_of(app, &ana.id).await.contains(&id), "the new library is visible to ana");
+	let id = created["data"]["createLibrary"]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	assert!(
+		hidden_libraries_of(app, &ana.id).await.contains(&id),
+		"the new library is visible to ana"
+	);
 	assert!(hidden_libraries_of(app, &plain.id).await.is_empty());
 	assert_eq!(decided_libraries_of(app, &ana.id).await, 3);
 }
@@ -87,7 +103,8 @@ async fn a_library_made_through_the_api_is_hidden_from_people_who_hide_new_libra
 /// Turning public sign-in on for an account that exists leaves what it sees as it is, and decides
 /// every library that exists now; only libraries made afterwards are hidden
 #[tokio::test]
-async fn enabling_an_existing_account_decides_the_current_libraries_without_hiding_them() {
+async fn enabling_an_existing_account_decides_the_current_libraries_without_hiding_them()
+{
 	let env = signin_app().await;
 	let app = &env.app;
 	let shelves = shelves(app).await;
@@ -111,7 +128,10 @@ async fn enabling_an_existing_account_decides_the_current_libraries_without_hidi
 	)
 	.await;
 	assert!(enabled.get("errors").is_none(), "{enabled:#}");
-	assert_eq!(hidden_libraries_of(app, &ben.id).await, vec![shelves.manga.id.clone()]);
+	assert_eq!(
+		hidden_libraries_of(app, &ben.id).await,
+		vec![shelves.manga.id.clone()]
+	);
 	assert_eq!(decided_libraries_of(app, &ben.id).await, 2);
 	// nothing existing is hidden by a reconcile…
 	assert_eq!(reconcile_libraries(app.conn()).await.unwrap(), 0);
@@ -159,8 +179,14 @@ async fn a_new_row_or_hiding_turned_back_on_never_hides_what_the_person_sees() {
 	)
 	.await;
 	let made_while_off = add_library(app, "Guides").await;
-	assert_eq!(reconcile_libraries(app.conn()).await.unwrap(), 2, "ben and cara hide Guides");
-	assert!(!hidden_libraries_of(app, &dan.id).await.contains(&made_while_off.id));
+	assert_eq!(
+		reconcile_libraries(app.conn()).await.unwrap(),
+		2,
+		"ben and cara hide Guides"
+	);
+	assert!(!hidden_libraries_of(app, &dan.id)
+		.await
+		.contains(&made_while_off.id));
 	owner_gql(
 		app,
 		"mutation($i: PersonAccessInput!) { setPersonAccess(input: $i) { newLibrariesHidden } }",
@@ -168,7 +194,10 @@ async fn a_new_row_or_hiding_turned_back_on_never_hides_what_the_person_sees() {
 	)
 	.await;
 	assert_eq!(reconcile_libraries(app.conn()).await.unwrap(), 0);
-	assert!(hidden_libraries_of(app, &dan.id).await.is_empty(), "turning it back on hid libraries dan could see");
+	assert!(
+		hidden_libraries_of(app, &dan.id).await.is_empty(),
+		"turning it back on hid libraries dan could see"
+	);
 	// from now on a new library is hidden from dan too
 	let after = add_library(app, "Comics").await;
 	reconcile_libraries(app.conn()).await.unwrap();
@@ -186,7 +215,11 @@ async fn only_these_libraries_shows_those_and_hides_the_rest() {
 	let ben = insert_user(app, "ben", "secret-pass-1", false).await;
 	crate::common::visibility::hide_library(
 		app,
-		&crate::common::account::TestUser { id: ben.id.clone(), username: "ben".into(), token: String::new() },
+		&crate::common::account::TestUser {
+			id: ben.id.clone(),
+			username: "ben".into(),
+			token: String::new(),
+		},
 		&shelves.biblioteca,
 	)
 	.await;
@@ -198,7 +231,10 @@ async fn only_these_libraries_shows_those_and_hides_the_rest() {
 	)
 	.await;
 	// Biblioteca was hidden by hand and is shown now; Manga is hidden; Guides is shown
-	assert_eq!(hidden_libraries_of(app, &ben.id).await, vec![shelves.manga.id.clone()]);
+	assert_eq!(
+		hidden_libraries_of(app, &ben.id).await,
+		vec![shelves.manga.id.clone()]
+	);
 	// no exclusion is made twice
 	owner_gql(
 		app,

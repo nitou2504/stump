@@ -204,7 +204,11 @@ impl SignupPresetInput {
 	pub fn into_preset(self) -> Preset {
 		Preset {
 			permissions: self.permissions,
-			library_ids: self.library_ids.into_iter().map(|id| id.to_string()).collect(),
+			library_ids: self
+				.library_ids
+				.into_iter()
+				.map(|id| id.to_string())
+				.collect(),
 			age_restriction: self.age_restriction.map(|age| PresetAge {
 				age: age.age,
 				restrict_on_unset: age.restrict_on_unset,

@@ -14,18 +14,15 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use sea_orm::{
-	prelude::*,
-	sea_query::Query,
-	ActiveValue::Set,
-	ColumnTrait, ConnectionTrait, DbBackend, DbErr, EntityTrait, IntoActiveModel,
-	QueryFilter, QueryOrder, QuerySelect, Statement, TransactionSession,
-	TransactionTrait,
+	prelude::*, sea_query::Query, ActiveValue::Set, ColumnTrait, ConnectionTrait,
+	DbBackend, DbErr, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
+	Statement, TransactionSession, TransactionTrait,
 };
 
 use crate::{
 	entity::{
-		access_device, access_library_decision, access_person, library, library_exclusion,
-		session, user,
+		access_device, access_library_decision, access_person, library,
+		library_exclusion, session, user,
 	},
 	services::{
 		access::{audit, clean_text, dormant_cutoff, AccessError},
@@ -99,7 +96,9 @@ pub async fn public_eligibility<C>(
 where
 	C: ConnectionTrait,
 {
-	let Some(account) = user::Entity::find_by_id(user_id.to_string()).one(conn).await?
+	let Some(account) = user::Entity::find_by_id(user_id.to_string())
+		.one(conn)
+		.await?
 	else {
 		return Ok(Err(NotAllowed::Gone));
 	};
@@ -134,7 +133,11 @@ where
 }
 
 /// Hides a library from a person unless it is already hidden
-pub(crate) async fn ensure_exclusion<C>(conn: &C, user_id: &str, library_id: &str) -> Result<(), DbErr>
+pub(crate) async fn ensure_exclusion<C>(
+	conn: &C,
+	user_id: &str,
+	library_id: &str,
+) -> Result<(), DbErr>
 where
 	C: ConnectionTrait,
 {
@@ -237,7 +240,9 @@ where
 		.await?;
 	let known: HashSet<&String> = all.iter().collect();
 	if allowed.iter().any(|id| !known.contains(id)) {
-		return Err(AccessError::Invalid("One of those libraries does not exist"));
+		return Err(AccessError::Invalid(
+			"One of those libraries does not exist",
+		));
 	}
 	for library_id in &all {
 		if allowed.contains(library_id) {
@@ -327,7 +332,9 @@ where
 {
 	if let Some(devices) = change.max_devices {
 		if !(MIN_MAX_DEVICES..=MAX_MAX_DEVICES).contains(&devices) {
-			return Err(AccessError::Invalid("That number of devices is not allowed"));
+			return Err(AccessError::Invalid(
+				"That number of devices is not allowed",
+			));
 		}
 	}
 

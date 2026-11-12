@@ -420,8 +420,18 @@ pub async fn sign_up_friend(
 	ip: &str,
 ) -> Friend {
 	let (_, url) = make_signup_link(app, "SINGLE", 1, library_ids).await;
-	let password = format!("tulip-Harbor-{username}-47");
-	let response = join(app, token_of(&url), username, &password, &password, None, ip).await;
+	// no friend's name is in it (the rules refuse a password that contains the username)
+	let password = "tulip-Harbor-47".to_string();
+	let response = join(
+		app,
+		token_of(&url),
+		username,
+		&password,
+		&password,
+		None,
+		ip,
+	)
+	.await;
 	assert_eq!(response.status_code(), 303, "{}", response.text());
 	let account = user::Entity::find()
 		.filter(user::Column::Username.eq(username.to_lowercase()))
@@ -539,7 +549,10 @@ pub async fn sign_in_log(app: &TestApp) -> Vec<(String, bool, Option<String>)> {
 		.iter()
 		.map(|node| {
 			(
-				node["person"]["username"].as_str().unwrap_or_default().to_string(),
+				node["person"]["username"]
+					.as_str()
+					.unwrap_or_default()
+					.to_string(),
 				node["successful"].as_bool().unwrap(),
 				node["reason"].as_str().map(str::to_string),
 			)
@@ -569,7 +582,10 @@ pub async fn warning_kinds(app: &TestApp) -> Vec<(String, String)> {
 		.map(|warning| {
 			(
 				warning["kind"].as_str().unwrap().to_string(),
-				warning["person"]["username"].as_str().unwrap_or_default().to_string(),
+				warning["person"]["username"]
+					.as_str()
+					.unwrap_or_default()
+					.to_string(),
 			)
 		})
 		.collect()

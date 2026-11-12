@@ -467,7 +467,9 @@ impl UploadMutation {
 	/// Upload a series thumbnail from a base64-encoded image string.
 	/// Note: This was added specifically for Komf, which would have been annyoing to
 	/// implement multipart uploads for
-	#[graphql(guard = "PermissionGuard::one(UserPermission::EditThumbnails).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::EditThumbnails).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn upload_series_thumbnail_base64(
 		&self,
 		ctx: &Context<'_>,
@@ -560,7 +562,9 @@ impl UploadMutation {
 	/// Upload a media thumbnail from a base64-encoded image string.
 	/// Note: This was added specifically for Komf, which would have been annyoing to
 	/// implement multipart uploads for
-	#[graphql(guard = "PermissionGuard::one(UserPermission::EditThumbnails).and(NotViaPublicEdgeGuard)")]
+	#[graphql(
+		guard = "PermissionGuard::one(UserPermission::EditThumbnails).and(NotViaPublicEdgeGuard)"
+	)]
 	async fn upload_media_thumbnail_base64(
 		&self,
 		ctx: &Context<'_>,

@@ -301,7 +301,9 @@ fn sign_in_reason(text: &str) -> Option<AccessSignInReason> {
 		service::reason::LOCKED => Some(AccessSignInReason::Locked),
 		service::reason::OWNER_VIA_EDGE => Some(AccessSignInReason::OwnerViaEdge),
 		service::reason::WRONG_PERSON => Some(AccessSignInReason::WrongPerson),
-		service::reason::NOT_ALLOWED_PUBLICLY => Some(AccessSignInReason::NotAllowedPublicly),
+		service::reason::NOT_ALLOWED_PUBLICLY => {
+			Some(AccessSignInReason::NotAllowedPublicly)
+		},
 		service::reason::DEVICE_LIMIT => Some(AccessSignInReason::DeviceLimit),
 		_ => None,
 	}

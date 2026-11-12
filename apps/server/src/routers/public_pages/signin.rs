@@ -53,8 +53,8 @@ use stump_core::access::{
 use tower_sessions::Session;
 
 use super::{
-	escape_html, page, post_is_same_origin, public_signin_on, too_many_page, words,
-	Words,
+	available, escape_html, page, post_is_same_origin, private_page, public_signin_on,
+	too_many_page, words, Words,
 };
 use crate::{
 	config::{session::SESSION_USER_KEY, state::AppState},
@@ -113,7 +113,12 @@ pub(crate) fn signin_page(
 }
 
 fn failed_page(words: &Words, typed: &str) -> Response {
-	signin_page(StatusCode::UNAUTHORIZED, words, Some(words.signin_failed), typed)
+	signin_page(
+		StatusCode::UNAUTHORIZED,
+		words,
+		Some(words.signin_failed),
+		typed,
+	)
 }
 
 fn limit_page(words: &Words, devices: i32) -> Response {
@@ -131,7 +136,13 @@ async fn show(
 	headers: HeaderMap,
 ) -> Response {
 	if !public_signin_on(&state, &edge) {
-		return StatusCode::NOT_FOUND.into_response();
+		// public sign-in is off: the front door shows the old "private site, paste your invite link" page
+		// (on a server that can make passes at all and only through the edge), and nothing else here answers
+		return if available(&state, &edge) {
+			private_page(words(&headers))
+		} else {
+			StatusCode::NOT_FOUND.into_response()
+		};
 	}
 	signin_page(StatusCode::OK, words(&headers), None, "")
 }
@@ -168,7 +179,10 @@ async fn find_account(
 	}
 	let mut matches = user::Entity::find()
 		.filter(user::Column::DeletedAt.is_null())
-		.filter(Expr::cust_with_values("LOWER(username) = ?", [typed.to_lowercase()]))
+		.filter(Expr::cust_with_values(
+			"LOWER(username) = ?",
+			[typed.to_lowercase()],
+		))
 		.all(conn)
 		.await?;
 	Ok(if matches.len() == 1 {
@@ -212,25 +226,31 @@ pub(crate) async fn authenticate_public(
 	// one bcrypt, always. The owner's password is never checked from the internet, and an
 	// account with no password (an identity provider's) has nothing to check
 	let (password_is_right, is_owner) = match &account {
-		Some(account) if !account.is_server_owner && !account.hashed_password.is_empty() => (
-			verify_password(account.hashed_password.clone(), password)
-				.await
-				.unwrap_or(false),
-			false,
-		),
+		Some(account)
+			if !account.is_server_owner && !account.hashed_password.is_empty() =>
+		{
+			(
+				verify_password(account.hashed_password.clone(), password)
+					.await
+					.unwrap_or(false),
+				false,
+			)
+		},
 		other => {
 			verify_dummy_password(password, &state.config).await;
-			(false, other.as_ref().is_some_and(|account| account.is_server_owner))
+			(
+				false,
+				other
+					.as_ref()
+					.is_some_and(|account| account.is_server_owner),
+			)
 		},
 	};
 
 	// eligibility is only looked at for an account that exists
 	let (eligible, person) = match &account {
 		Some(account) => match access_people::person_row(conn, &account.id).await {
-			Ok(person) => (
-				access_people::eligibility(account, person.as_ref()),
-				person,
-			),
+			Ok(person) => (access_people::eligibility(account, person.as_ref()), person),
 			Err(error) => {
 				tracing::error!(?error, "Public sign-in: could not read the person");
 				return PublicVerdict::Failed;
@@ -260,7 +280,10 @@ pub(crate) async fn authenticate_public(
 	} else {
 		reason::WRONG_PASSWORD
 	};
-	let unknown_flush = account.is_none().then(|| guard.note_unknown_name(now)).flatten();
+	let unknown_flush = account
+		.is_none()
+		.then(|| guard.note_unknown_name(now))
+		.flatten();
 	let state = state.clone();
 	let agent = agent.to_string();
 	tokio::spawn(async move {
@@ -316,13 +339,16 @@ async fn record_failure(
 				.await;
 			},
 			Ok(None) => {},
-			Err(error) => tracing::error!(?error, "Public sign-in: could not record a failure"),
+			Err(error) => {
+				tracing::error!(?error, "Public sign-in: could not record a failure")
+			},
 		}
 	}
 
-	let target = account
-		.as_ref()
-		.map_or_else(|| format!("unknown:{}", name.short()), |account| account.id.clone());
+	let target = account.as_ref().map_or_else(
+		|| format!("unknown:{}", name.short()),
+		|account| account.id.clone(),
+	);
 	let mut rows: Vec<(&str, String, String)> = Vec::new();
 	if outcome.pair_wait_minutes == Some(1) || outcome.name_ceiling_reached {
 		rows.push((
@@ -346,7 +372,9 @@ async fn record_failure(
 		));
 	}
 	for (action, target, detail) in rows {
-		if let Err(error) = service::audit(conn, now, "public", action, &target, &detail).await {
+		if let Err(error) =
+			service::audit(conn, now, "public", action, &target, &detail).await
+		{
 			tracing::error!(?error, "Public sign-in: could not write an audit row");
 		}
 	}
@@ -480,7 +508,9 @@ async fn submit(
 		.await;
 	}
 	if person.new_libraries_hidden {
-		if let Err(error) = access_people::hide_undecided_libraries(conn, &account.id).await {
+		if let Err(error) =
+			access_people::hide_undecided_libraries(conn, &account.id).await
+		{
 			tracing::error!(?error, "Public sign-in: could not hide a new library");
 		}
 	}
@@ -542,7 +572,10 @@ async fn device_limit_reached(
 		"public",
 		"signin.device_limit",
 		&account.id,
-		&format!("{} uses {active} of {} devices", account.username, person.max_devices),
+		&format!(
+			"{} uses {active} of {} devices",
+			account.username, person.max_devices
+		),
 	)
 	.await
 	{

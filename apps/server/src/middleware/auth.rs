@@ -24,9 +24,9 @@ use models::{
 };
 use prefixed_api_key::{PrefixedApiKey, PrefixedApiKeyController};
 use reqwest::Method;
-use stump_core::access::pass;
 use sea_orm::{prelude::*, Condition, DatabaseConnection, ExprTrait};
 use serde::Deserialize;
+use stump_core::access::pass;
 use stump_core::opds::v2_0::{
 	authentication::{
 		OPDSAuthenticationDocumentBuilder, OPDSSupportedAuthFlow,
@@ -247,10 +247,7 @@ fn allowed_while_password_must_change(path: &str) -> bool {
 /// refused. Public sign-in **on**: the account behind the credentials must be one the owner let
 /// in (see `authorize`). The account's own row is read, not what the credential carries: a scoped
 /// API key or a reading-app key carries fewer permissions than the account holds
-async fn may_use_the_internet(
-	ctx: &AppState,
-	auth: &AuthContext,
-) -> Result<bool, DbErr> {
+async fn may_use_the_internet(ctx: &AppState, auth: &AuthContext) -> Result<bool, DbErr> {
 	let conn = ctx.conn.as_ref();
 	let public_signin = ctx
 		.config
@@ -451,7 +448,8 @@ async fn reading_key_auth(
 		.await
 		.map_err(internal)?
 		.filter(|device| {
-			device.kind == access_service::device_kind::OPDS && device.revoked_at.is_none()
+			device.kind == access_service::device_kind::OPDS
+				&& device.revoked_at.is_none()
 		})
 		.ok_or_else(|| APIError::Unauthorized.into_response())?;
 	let person_id = device
@@ -469,8 +467,10 @@ async fn reading_key_auth(
 		return Err(APIError::Unauthorized.into_response());
 	}
 	if account.is_locked {
-		return Err(APIError::Forbidden(api_error_message::LOCKED_ACCOUNT.to_string())
-			.into_response());
+		return Err(
+			APIError::Forbidden(api_error_message::LOCKED_ACCOUNT.to_string())
+				.into_response(),
+		);
 	}
 
 	// "last seen", at most once a minute

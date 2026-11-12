@@ -84,7 +84,8 @@ pub struct NameKey([u8; 16]);
 
 impl NameKey {
 	pub fn of(typed: &str) -> Self {
-		let hash = digest::digest(&digest::SHA256, typed.trim().to_lowercase().as_bytes());
+		let hash =
+			digest::digest(&digest::SHA256, typed.trim().to_lowercase().as_bytes());
 		let mut key = [0u8; 16];
 		key.copy_from_slice(&hash.as_ref()[..16]);
 		Self(key)
@@ -186,7 +187,10 @@ fn wait_minutes(failures: u32, free: u32) -> Option<u64> {
 }
 
 fn drop_old(window: &mut VecDeque<u64>, now: u64, span: u64) {
-	while window.front().is_some_and(|at| now.saturating_sub(*at) >= span) {
+	while window
+		.front()
+		.is_some_and(|at| now.saturating_sub(*at) >= span)
+	{
 		window.pop_front();
 	}
 }
@@ -265,7 +269,8 @@ impl SignInGuard {
 		outcome.global_tripped = inner.global.len() == GLOBAL_FAILURES;
 
 		let pair = inner.pairs.entry((client, name)).or_default();
-		if pair.failures == 0 || now.saturating_sub(pair.first_failure) > NAME_WINDOW_SECS {
+		if pair.failures == 0 || now.saturating_sub(pair.first_failure) > NAME_WINDOW_SECS
+		{
 			*pair = Counted {
 				first_failure: now,
 				..Counted::default()
@@ -279,7 +284,9 @@ impl SignInGuard {
 		}
 
 		let counted = inner.names.entry(name).or_default();
-		if counted.failures == 0 || now.saturating_sub(counted.first_failure) > NAME_WINDOW_SECS {
+		if counted.failures == 0
+			|| now.saturating_sub(counted.first_failure) > NAME_WINDOW_SECS
+		{
 			*counted = Counted {
 				first_failure: now,
 				..Counted::default()
@@ -375,7 +382,8 @@ impl SignInGuard {
 		if map.len() < MAX_ENTRIES {
 			return;
 		}
-		let mut by_age: Vec<(u64, K)> = map.iter().map(|(k, v)| (last(v), k.clone())).collect();
+		let mut by_age: Vec<(u64, K)> =
+			map.iter().map(|(k, v)| (last(v), k.clone())).collect();
 		by_age.sort_by_key(|(at, _)| *at);
 		for (_, key) in by_age.into_iter().take(MAX_ENTRIES / 10) {
 			map.remove(&key);
@@ -462,7 +470,11 @@ mod tests {
 		for typed in ["ana", "nobody-here"] {
 			let (client, who) = (ip(2), name(typed));
 			fail_times(&guard, client, who, 4, 0, 1);
-			assert_eq!(guard.fail(client, who, 5).pair_wait_minutes, Some(1), "{typed}");
+			assert_eq!(
+				guard.fail(client, who, 5).pair_wait_minutes,
+				Some(1),
+				"{typed}"
+			);
 		}
 	}
 
@@ -556,7 +568,10 @@ mod tests {
 				}
 			}
 		}
-		assert!(tripped, "the budget should have tripped exactly once, with its flag");
+		assert!(
+			tripped,
+			"the budget should have tripped exactly once, with its flag"
+		);
 		assert!(guard.stats(220).global_tripped);
 		// while it is tripped everybody is refused, even a client with no failures at all
 		assert_eq!(
@@ -582,7 +597,11 @@ mod tests {
 				if count == NAME_CEILING - 1 {
 					break 'outer;
 				}
-				assert_eq!(guard.check(ip(client), who, now), Verdict::Allowed, "round {round}");
+				assert_eq!(
+					guard.check(ip(client), who, now),
+					Verdict::Allowed,
+					"round {round}"
+				);
 				let outcome = guard.fail(ip(client), who, now);
 				assert!(!outcome.name_ceiling_reached);
 				count += 1;
@@ -596,7 +615,10 @@ mod tests {
 		let outcome = guard.fail(ip(50), who, now);
 		assert!(outcome.name_ceiling_reached);
 		// now everybody waits for this name, a friend on a fresh client included…
-		assert_eq!(guard.check(ip(60), who, now + 1), Verdict::Refused(Refusal::Name));
+		assert_eq!(
+			guard.check(ip(60), who, now + 1),
+			Verdict::Refused(Refusal::Name)
+		);
 		// …but only for this name
 		assert_eq!(guard.check(ip(60), name("ben"), now + 1), Verdict::Allowed);
 		// and the wait is a minute, then it grows, then it ends
@@ -632,7 +654,10 @@ mod tests {
 			ClientKey::from_ip("203.0.113.7".parse().unwrap())
 		);
 		// no IPv4 address is an IPv6 prefix
-		assert_ne!(ClientKey::from_ip("0.0.0.1".parse().unwrap()), ClientKey::from_ip("::1".parse().unwrap()));
+		assert_ne!(
+			ClientKey::from_ip("0.0.0.1".parse().unwrap()),
+			ClientKey::from_ip("::1".parse().unwrap())
+		);
 	}
 
 	#[test]

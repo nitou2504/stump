@@ -34,13 +34,22 @@ async fn a_friend_signs_in_on_a_new_device_and_the_device_gets_a_pass() {
 	assert!(text.contains("autocomplete=\"current-password\""));
 	assert!(text.contains("autocomplete=\"username\""));
 	assert!(!text.contains("<script"), "the page has no script");
-	for (name, value) in [("cache-control", "no-store"), ("referrer-policy", "no-referrer"), ("x-frame-options", "DENY")] {
+	for (name, value) in [
+		("cache-control", "no-store"),
+		("referrer-policy", "no-referrer"),
+		("x-frame-options", "DENY"),
+	] {
 		assert_eq!(page.header(name), value, "{name}");
 	}
 
 	// the name is not case-sensitive for the person typing it
 	let response = page_signin(app, "ANA", &ana.password, None, "198.51.100.7").await;
-	assert_eq!(response.status_code(), StatusCode::SEE_OTHER, "{}", response.text());
+	assert_eq!(
+		response.status_code(),
+		StatusCode::SEE_OTHER,
+		"{}",
+		response.text()
+	);
 	assert_eq!(response.header("location"), "/");
 	let new_pass = cookie_in(&response, COOKIE).expect("the phone gets a pass");
 	let new_session = cookie_in(&response, "stump_session").expect("and a session");
@@ -48,8 +57,12 @@ async fn a_friend_signs_in_on_a_new_device_and_the_device_gets_a_pass() {
 
 	let devices = devices_of(app, &ana.id).await;
 	assert_eq!(devices.len(), 2);
-	let made = pass::verify_pass(KEY, &new_pass, Utc::now().timestamp()).expect("a valid pass");
-	let device = devices.iter().find(|device| device.id == made.id).expect("the pass is for a new device");
+	let made =
+		pass::verify_pass(KEY, &new_pass, Utc::now().timestamp()).expect("a valid pass");
+	let device = devices
+		.iter()
+		.find(|device| device.id == made.id)
+		.expect("the pass is for a new device");
 	assert_eq!(device.kind, "browser");
 	assert_eq!(device.person_id.as_deref(), Some(ana.id.as_str()));
 	assert_eq!(device.last_ip, "198.51.100.7");
@@ -59,10 +72,15 @@ async fn a_friend_signs_in_on_a_new_device_and_the_device_gets_a_pass() {
 	assert_eq!(me.json::<Value>()["data"]["me"]["username"], "ana");
 
 	// the owner's log has the sign-in, with the device it made
-	assert!(eventually(|| async {
-		sign_in_log(app).await.iter().any(|(name, ok, _)| name == "ana" && *ok)
-	})
-	.await);
+	assert!(
+		eventually(|| async {
+			sign_in_log(app)
+				.await
+				.iter()
+				.any(|(name, ok, _)| name == "ana" && *ok)
+		})
+		.await
+	);
 }
 
 /// Three devices and then the page says so after a right password, tells the owner, and makes
@@ -106,16 +124,26 @@ async fn the_fourth_device_is_refused_with_a_clear_message_and_the_owner_is_told
 	assert!(!wrong.text().contains("devices"));
 
 	// the owner is told, and the log says why
-	assert!(audit_actions(app).await.contains(&"signin.device_limit".to_string()));
+	assert!(audit_actions(app)
+		.await
+		.contains(&"signin.device_limit".to_string()));
 	let kinds = warning_kinds(app).await;
-	assert!(kinds.contains(&("DEVICE_LIMIT_HIT".to_string(), "ana".to_string())), "{kinds:?}");
-	assert!(kinds.contains(&("AT_DEVICE_LIMIT".to_string(), "ana".to_string())), "{kinds:?}");
-	assert!(eventually(|| async {
-		sign_in_log(app).await.iter().any(|(name, ok, reason)| {
-			name == "ana" && !*ok && reason.as_deref() == Some("DEVICE_LIMIT")
+	assert!(
+		kinds.contains(&("DEVICE_LIMIT_HIT".to_string(), "ana".to_string())),
+		"{kinds:?}"
+	);
+	assert!(
+		kinds.contains(&("AT_DEVICE_LIMIT".to_string(), "ana".to_string())),
+		"{kinds:?}"
+	);
+	assert!(
+		eventually(|| async {
+			sign_in_log(app).await.iter().any(|(name, ok, reason)| {
+				name == "ana" && !*ok && reason.as_deref() == Some("DEVICE_LIMIT")
+			})
 		})
-	})
-	.await);
+		.await
+	);
 
 	// raising the limit lets the fourth in; lowering it below what they use is a warning, not a
 	// device lost
@@ -125,9 +153,14 @@ async fn the_fourth_device_is_refused_with_a_clear_message_and_the_owner_is_told
 		Some(json!({"i": {"personId": ana.id, "maxDevices": 4}})),
 	)
 	.await;
-	assert_eq!(raised["data"]["setPersonAccess"]["maxDevices"], 4, "{raised:#}");
 	assert_eq!(
-		page_signin(app, "ana", &ana.password, None, "198.51.100.6").await.status_code(),
+		raised["data"]["setPersonAccess"]["maxDevices"], 4,
+		"{raised:#}"
+	);
+	assert_eq!(
+		page_signin(app, "ana", &ana.password, None, "198.51.100.6")
+			.await
+			.status_code(),
 		StatusCode::SEE_OTHER
 	);
 	owner_gql(
@@ -174,18 +207,20 @@ async fn everything_that_is_not_a_sign_in_gets_the_same_answer() {
 	row.update(app.conn()).await.unwrap();
 
 	let attempts: Vec<(&str, String)> = vec![
-		("ana", WRONG.to_string()),                        // wrong password
-		("nobody-here", WRONG.to_string()),                // a name that does not exist
-		("initial-server-admin", "password".to_string()),  // the owner, with the right password
-		("ben", "secret-pass-1".to_string()),              // right password, never enabled
-		("cara", cara.password.clone()),                   // right password, switched off
-		("dora", dora.password.clone()),                   // right password, locked
-		("eve", eve.password.clone()),                     // right password, beyond a friend
-		("fay", fay.password.clone()),                     // nothing to check
+		("ana", WRONG.to_string()),         // wrong password
+		("nobody-here", WRONG.to_string()), // a name that does not exist
+		("initial-server-admin", "password".to_string()), // the owner, with the right password
+		("ben", "secret-pass-1".to_string()), // right password, never enabled
+		("cara", cara.password.clone()),    // right password, switched off
+		("dora", dora.password.clone()),    // right password, locked
+		("eve", eve.password.clone()),      // right password, beyond a friend
+		("fay", fay.password.clone()),      // nothing to check
 	];
 	let mut answers = Vec::new();
 	for (n, (name, password)) in attempts.iter().enumerate() {
-		let response = page_signin(app, name, password, None, &format!("198.51.100.{}", 10 + n)).await;
+		let response =
+			page_signin(app, name, password, None, &format!("198.51.100.{}", 10 + n))
+				.await;
 		assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED, "{name}");
 		assert!(response.headers().get("set-cookie").is_none(), "{name}");
 		answers.push((name.to_string(), normalised(&response.text(), name)));
@@ -194,32 +229,43 @@ async fn everything_that_is_not_a_sign_in_gets_the_same_answer() {
 		answers.windows(2).all(|pair| pair[0].1 == pair[1].1),
 		"the answers differ: {answers:#?}"
 	);
-	assert!(answers[0].1.contains("That username or password isn't right") || answers[0].1.contains("isn&#39;t right"));
+	assert!(
+		answers[0]
+			.1
+			.contains("That username or password isn't right")
+			|| answers[0].1.contains("isn&#39;t right")
+	);
 
 	// none of it locked anything, and nothing was made
 	for name in ["ana", "ben", "cara", "eve", "fay", "initial-server-admin"] {
-		assert!(!user_row(app, name).await.is_locked, "{name} was locked by the page");
+		assert!(
+			!user_row(app, name).await.is_locked,
+			"{name} was locked by the page"
+		);
 	}
 	assert!(user_row(app, "dora").await.is_locked);
 	assert_eq!(devices_of(app, &ana.id).await.len(), 1);
 
 	// the owner can tell the right password at an account that is not allowed from a wrong one,
 	// and that the owner's own password was never checked
-	assert!(eventually(|| async {
-		let log = sign_in_log(app).await;
-		let has = |name: &str, reason: &str| {
-			log.iter()
-				.any(|(who, ok, why)| who == name && !*ok && why.as_deref() == Some(reason))
-		};
-		has("ana", "WRONG_PASSWORD")
-			&& has("initial-server-admin", "OWNER_VIA_EDGE")
-			&& has("ben", "NOT_ALLOWED_PUBLICLY")
-			&& has("cara", "NOT_ALLOWED_PUBLICLY")
-			&& has("dora", "LOCKED")
-			&& has("eve", "NOT_ALLOWED_PUBLICLY")
-			&& has("fay", "WRONG_PASSWORD")
-	})
-	.await);
+	assert!(
+		eventually(|| async {
+			let log = sign_in_log(app).await;
+			let has = |name: &str, reason: &str| {
+				log.iter().any(|(who, ok, why)| {
+					who == name && !*ok && why.as_deref() == Some(reason)
+				})
+			};
+			has("ana", "WRONG_PASSWORD")
+				&& has("initial-server-admin", "OWNER_VIA_EDGE")
+				&& has("ben", "NOT_ALLOWED_PUBLICLY")
+				&& has("cara", "NOT_ALLOWED_PUBLICLY")
+				&& has("dora", "LOCKED")
+				&& has("eve", "NOT_ALLOWED_PUBLICLY")
+				&& has("fay", "WRONG_PASSWORD")
+		})
+		.await
+	);
 	// and the warnings say who tried an account that is not enabled
 	let kinds = warning_kinds(app).await;
 	for name in ["ben", "cara", "eve"] {
@@ -261,8 +307,14 @@ async fn a_hundred_wrong_passwords_never_lock_an_account() {
 		}
 	}
 	assert_eq!(statuses.len(), 100);
-	assert!(statuses.iter().all(|status| *status == StatusCode::UNAUTHORIZED || *status == StatusCode::TOO_MANY_REQUESTS));
-	assert!(statuses.contains(&StatusCode::TOO_MANY_REQUESTS), "the guard never answered");
+	assert!(statuses
+		.iter()
+		.all(|status| *status == StatusCode::UNAUTHORIZED
+			|| *status == StatusCode::TOO_MANY_REQUESTS));
+	assert!(
+		statuses.contains(&StatusCode::TOO_MANY_REQUESTS),
+		"the guard never answered"
+	);
 
 	settled(app).await;
 	let row = user_row(app, "ana").await;
@@ -275,7 +327,10 @@ async fn a_hundred_wrong_passwords_never_lock_an_account() {
 	)
 	.await
 	.unwrap();
-	assert_eq!(counted, 0, "a failure from the page counts towards the lock");
+	assert_eq!(
+		counted, 0,
+		"a failure from the page counts towards the lock"
+	);
 	// their devices go on working: a known device is not asked
 	let me = friend_gql(app, &ana.pass, &ana.session, "{ me { username } }", None).await;
 	assert_eq!(me.json::<Value>()["data"]["me"]["username"], "ana");
@@ -290,8 +345,19 @@ async fn failures_make_one_client_wait_and_nobody_else() {
 	let ana = friend_in_biblioteca(app, "ana", "203.0.113.5").await;
 
 	for attempt in 0..5 {
-		let response = page_signin(app, "ana", &format!("{WRONG}{attempt}"), None, "198.51.100.50").await;
-		assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED, "attempt {attempt}");
+		let response = page_signin(
+			app,
+			"ana",
+			&format!("{WRONG}{attempt}"),
+			None,
+			"198.51.100.50",
+		)
+		.await;
+		assert_eq!(
+			response.status_code(),
+			StatusCode::UNAUTHORIZED,
+			"attempt {attempt}"
+		);
 	}
 	// the sixth, even with the right password, waits
 	let waiting = page_signin(app, "ana", &ana.password, None, "198.51.100.50").await;
@@ -308,10 +374,14 @@ async fn failures_make_one_client_wait_and_nobody_else() {
 	assert_eq!(friend.status_code(), StatusCode::SEE_OTHER);
 
 	// the owner is told once that a name was slowed down
-	assert!(eventually(|| async {
-		audit_actions(app).await.contains(&"signin.backoff".to_string())
-	})
-	.await);
+	assert!(
+		eventually(|| async {
+			audit_actions(app)
+				.await
+				.contains(&"signin.backoff".to_string())
+		})
+		.await
+	);
 	assert!(warning_kinds(app)
 		.await
 		.contains(&("NAME_BACKOFF".to_string(), "ana".to_string())));
@@ -327,10 +397,19 @@ async fn a_flood_trips_the_global_budget_and_the_owner_is_alerted() {
 
 	// one client alone is stopped at its own cap
 	for attempt in 0..30 {
-		page_signin(app, &format!("guess-{attempt}"), WRONG, None, "198.51.100.60").await;
+		page_signin(
+			app,
+			&format!("guess-{attempt}"),
+			WRONG,
+			None,
+			"198.51.100.60",
+		)
+		.await;
 	}
 	assert_eq!(
-		page_signin(app, "ana", &ana.password, None, "198.51.100.99").await.status_code(),
+		page_signin(app, "ana", &ana.password, None, "198.51.100.99")
+			.await
+			.status_code(),
 		StatusCode::SEE_OTHER,
 		"one client brought the page down"
 	);
@@ -338,28 +417,50 @@ async fn a_flood_trips_the_global_budget_and_the_owner_is_alerted() {
 	// four more, ten failures each, do
 	for client in 61..65 {
 		for attempt in 0..10 {
-			page_signin(app, &format!("guess-{client}-{attempt}"), WRONG, None, &format!("198.51.100.{client}")).await;
+			page_signin(
+				app,
+				&format!("guess-{client}-{attempt}"),
+				WRONG,
+				None,
+				&format!("198.51.100.{client}"),
+			)
+			.await;
 		}
 	}
 	let everybody = page_signin(app, "ana", &ana.password, None, "198.51.100.98").await;
 	assert_eq!(everybody.status_code(), StatusCode::TOO_MANY_REQUESTS);
 
-	assert!(eventually(|| async {
-		audit_actions(app).await.contains(&"signin.global_budget".to_string())
-	})
-	.await);
-	let warnings = owner_gql(app, "{ accessWarnings { kind severity } accessWarningCount }", None).await;
+	assert!(
+		eventually(|| async {
+			audit_actions(app)
+				.await
+				.contains(&"signin.global_budget".to_string())
+		})
+		.await
+	);
+	let warnings = owner_gql(
+		app,
+		"{ accessWarnings { kind severity } accessWarningCount }",
+		None,
+	)
+	.await;
 	let found = warnings["data"]["accessWarnings"].as_array().unwrap();
 	assert!(
-		found.iter().any(|w| w["kind"] == "GLOBAL_BUDGET" && w["severity"] == "ALERT"),
+		found
+			.iter()
+			.any(|w| w["kind"] == "GLOBAL_BUDGET" && w["severity"] == "ALERT"),
 		"{warnings:#}"
 	);
 	assert!(warnings["data"]["accessWarningCount"].as_i64().unwrap() >= 1);
 	// failures on names that do not exist are in the audit log too, as one aggregated row
-	assert!(eventually(|| async {
-		audit_actions(app).await.contains(&"signin.unknown_names".to_string())
-	})
-	.await);
+	assert!(
+		eventually(|| async {
+			audit_actions(app)
+				.await
+				.contains(&"signin.unknown_names".to_string())
+		})
+		.await
+	);
 	// and the owner's page shows the counters, numbers only
 	let overview = owner_gql(
 		app,
@@ -368,7 +469,10 @@ async fn a_flood_trips_the_global_budget_and_the_owner_is_alerted() {
 	)
 	.await;
 	assert_eq!(overview["data"]["accessOverview"]["publicSignin"], true);
-	assert_eq!(overview["data"]["accessOverview"]["signinStats"]["globalBudgetTripped"], true);
+	assert_eq!(
+		overview["data"]["accessOverview"]["signinStats"]["globalBudgetTripped"],
+		true
+	);
 }
 
 /// A pass that is already in the browser is never replaced by a sign-in, whoever's it is
@@ -379,10 +483,16 @@ async fn a_sign_in_with_a_pass_makes_no_device_and_replaces_nothing() {
 	let ana = friend_in_biblioteca(app, "ana", "203.0.113.5").await;
 	let ben_pass = pass_for("deploy-old");
 
-	for (pass, ip) in [(ana.pass.as_str(), "198.51.100.70"), (ben_pass.as_str(), "198.51.100.71")] {
+	for (pass, ip) in [
+		(ana.pass.as_str(), "198.51.100.70"),
+		(ben_pass.as_str(), "198.51.100.71"),
+	] {
 		let response = page_signin(app, "ana", &ana.password, Some(pass), ip).await;
 		assert_eq!(response.status_code(), StatusCode::SEE_OTHER);
-		assert!(cookie_in(&response, COOKIE).is_none(), "the pass was replaced");
+		assert!(
+			cookie_in(&response, COOKIE).is_none(),
+			"the pass was replaced"
+		);
 		assert!(cookie_in(&response, "stump_session").is_some());
 	}
 	assert_eq!(devices_of(app, &ana.id).await.len(), 1);
@@ -406,7 +516,12 @@ async fn a_request_from_another_site_or_too_big_gets_the_generic_answer_with_no_
 	assert!(cross.headers().get("set-cookie").is_none());
 
 	let huge = "x".repeat(5_000);
-	for (username, password) in [("ana", huge.as_str()), (huge.as_str(), "x"), ("", "x"), ("ana", "")] {
+	for (username, password) in [
+		("ana", huge.as_str()),
+		(huge.as_str(), "x"),
+		("", "x"),
+		("ana", ""),
+	] {
 		let response = page_signin(app, username, password, None, "198.51.100.80").await;
 		assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED);
 	}
@@ -450,7 +565,12 @@ async fn the_web_apps_sign_in_follows_the_same_rules_with_public_sign_in_on() {
 	// the gates, and no device is made, and nothing is replaced
 	for pass in [&legacy, &cara.pass] {
 		let response = public_login(app, "ana", &ana.password, Some(pass)).await;
-		assert_eq!(response.status_code(), StatusCode::OK, "{}", response.text());
+		assert_eq!(
+			response.status_code(),
+			StatusCode::OK,
+			"{}",
+			response.text()
+		);
 		assert!(cookie_in(&response, COOKIE).is_none());
 	}
 	assert_eq!(devices_of(app, &ana.id).await.len(), 1);
@@ -476,7 +596,8 @@ async fn the_web_apps_sign_in_follows_the_same_rules_with_public_sign_in_on() {
 	assert_eq!(counted, 0);
 
 	// the owner is still refused here, whatever the pass
-	let owner = public_login(app, "initial-server-admin", "password", Some(&ana.pass)).await;
+	let owner =
+		public_login(app, "initial-server-admin", "password", Some(&ana.pass)).await;
 	assert_eq!(owner.status_code(), StatusCode::UNAUTHORIZED);
 }
 
@@ -488,13 +609,22 @@ async fn no_password_is_ever_stored() {
 	let ana = friend_in_biblioteca(app, "ana", "203.0.113.5").await;
 	page_signin(app, "ana", WRONG, None, "198.51.100.90").await;
 	page_signin(app, "ana", &ana.password, None, "198.51.100.91").await;
-	assert!(eventually(|| async {
-		user_login_activity::Entity::find().all(app.conn()).await.unwrap().len() >= 3
-	})
-	.await);
+	assert!(
+		eventually(|| async {
+			user_login_activity::Entity::find()
+				.all(app.conn())
+				.await
+				.unwrap()
+				.len() >= 3
+		})
+		.await
+	);
 	let everything = format!(
 		"{:?}{:?}{:?}",
-		user_login_activity::Entity::find().all(app.conn()).await.unwrap(),
+		user_login_activity::Entity::find()
+			.all(app.conn())
+			.await
+			.unwrap(),
 		access_audit::Entity::find().all(app.conn()).await.unwrap(),
 		devices_of(app, &ana.id).await,
 	);

@@ -17,11 +17,9 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Duration, Utc};
 use sea_orm::{
-	prelude::*,
-	sea_query::Expr,
-	ActiveValue::Set,
-	ColumnTrait, ConnectionTrait, DbErr, EntityTrait, ExprTrait, PaginatorTrait,
-	QueryFilter, QueryOrder, QuerySelect, TransactionSession, TransactionTrait,
+	prelude::*, sea_query::Expr, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr,
+	EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+	TransactionSession, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -37,9 +35,7 @@ use crate::{
 			MAX_AGENT_CHARS,
 		},
 		access_people::{ensure_exclusion, mark_libraries_decided},
-		access_policy::{
-			self, device_label, MAX_MAX_DEVICES, MIN_MAX_DEVICES,
-		},
+		access_policy::{self, device_label, MAX_MAX_DEVICES, MIN_MAX_DEVICES},
 		user::{create_user_with_preferences, NewAgeRestriction},
 	},
 	shared::{enums::UserPermission, permission_set::PermissionSet},
@@ -122,7 +118,9 @@ pub fn validate_preset(preset: &Preset) -> Result<(), AccessError> {
 		return Err(AccessError::Invalid("Too many libraries"));
 	}
 	if !(MIN_MAX_DEVICES..=MAX_MAX_DEVICES).contains(&preset.max_devices) {
-		return Err(AccessError::Invalid("That number of devices is not allowed"));
+		return Err(AccessError::Invalid(
+			"That number of devices is not allowed",
+		));
 	}
 	if let Some(age) = preset.age_restriction {
 		if !(1..=MAX_AGE).contains(&age.age) {
@@ -147,7 +145,10 @@ pub enum SignupStatus {
 	Revoked,
 }
 
-pub fn signup_status(link: &access_signup_link::Model, now: DateTime<Utc>) -> SignupStatus {
+pub fn signup_status(
+	link: &access_signup_link::Model,
+	now: DateTime<Utc>,
+) -> SignupStatus {
 	if link.revoked_at.is_some() {
 		SignupStatus::Revoked
 	} else if link.expires_at <= now {
@@ -212,7 +213,9 @@ where
 		.count(&txn)
 		.await?;
 	if existing as usize != wanted.len() {
-		return Err(AccessError::Invalid("One of those libraries does not exist"));
+		return Err(AccessError::Invalid(
+			"One of those libraries does not exist",
+		));
 	}
 	if access_invite::Entity::find()
 		.filter(access_invite::Column::TokenHash.eq(new.token_hash.clone()))
@@ -496,8 +499,9 @@ where
 			is_server_owner: Set(false),
 			username: Set(signup.username.to_string()),
 			hashed_password: Set(signup.hashed_password),
-			permissions: Set(PermissionSet::new(preset.permissions.clone())
-				.resolve_into_string()),
+			permissions: Set(
+				PermissionSet::new(preset.permissions.clone()).resolve_into_string()
+			),
 			// a session for every device, and some room for a browser that was closed without
 			// signing out
 			max_sessions_allowed: Set(Some(preset.max_devices * 2)),

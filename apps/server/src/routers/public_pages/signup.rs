@@ -244,7 +244,10 @@ pub(crate) async fn submit(
 	if let Err(error) =
 		super::signin::start_session(&state, &session, &created.user.id).await
 	{
-		tracing::error!(?error, "Signup: the account was made but the session was not");
+		tracing::error!(
+			?error,
+			"Signup: the account was made but the session was not"
+		);
 		// the account exists: send them to sign in with it
 		return page(
 			StatusCode::SEE_OTHER,
@@ -264,7 +267,10 @@ pub(crate) async fn submit(
 			agent,
 			ip,
 			true,
-			&SignInMark::counting(created.device.as_ref().map(|device| device.id.clone()), None),
+			&SignInMark::counting(
+				created.device.as_ref().map(|device| device.id.clone()),
+				None,
+			),
 		)
 		.await;
 	}

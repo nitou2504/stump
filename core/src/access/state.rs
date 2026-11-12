@@ -160,11 +160,15 @@ pub const LIBRARY_RECONCILE_INTERVAL: StdDuration = StdDuration::from_secs(10 * 
 pub fn spawn_library_reconcile(conn: Arc<DatabaseConnection>) {
 	tokio::spawn(async move {
 		loop {
-			match models::services::access_people::reconcile_libraries(conn.as_ref()).await
+			match models::services::access_people::reconcile_libraries(conn.as_ref())
+				.await
 			{
 				Ok(0) => {},
 				Ok(hidden) => {
-					tracing::info!(hidden, "Hid new libraries from the people they are hidden from")
+					tracing::info!(
+						hidden,
+						"Hid new libraries from the people they are hidden from"
+					)
 				},
 				Err(error) => {
 					tracing::error!(?error, "Public access: hiding new libraries failed")

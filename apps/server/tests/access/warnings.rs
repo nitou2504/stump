@@ -23,7 +23,9 @@ async fn kinds_of(app: &TestApp) -> Vec<(WarningKind, Option<String>)> {
 /// Devices up to `n`, made the way sign-in makes them, with a limit that never refuses
 async fn give_devices(app: &TestApp, user_id: &str, n: usize) {
 	for index in 0..n {
-		let id = service::unused_device_id(app.conn(), &format!("phone{index}")).await.unwrap();
+		let id = service::unused_device_id(app.conn(), &format!("phone{index}"))
+			.await
+			.unwrap();
 		service::insert_device_within_limit(
 			app.conn(),
 			Utc::now(),
@@ -63,11 +65,20 @@ async fn the_device_warnings_follow_the_limit() {
 	assert!(kinds_of(app).await.is_empty());
 
 	give_devices(app, &ana.id, 2).await;
-	assert!(kinds_of(app).await.is_empty(), "two of three is nothing to say");
+	assert!(
+		kinds_of(app).await.is_empty(),
+		"two of three is nothing to say"
+	);
 	give_devices(app, &ana.id, 1).await;
-	assert_eq!(kinds_of(app).await, vec![(WarningKind::AtDeviceLimit, Some(ana.id.clone()))]);
+	assert_eq!(
+		kinds_of(app).await,
+		vec![(WarningKind::AtDeviceLimit, Some(ana.id.clone()))]
+	);
 	give_devices(app, &ana.id, 1).await;
-	assert_eq!(kinds_of(app).await, vec![(WarningKind::OverDeviceLimit, Some(ana.id.clone()))]);
+	assert_eq!(
+		kinds_of(app).await,
+		vec![(WarningKind::OverDeviceLimit, Some(ana.id.clone()))]
+	);
 
 	// a limit of 6 and four devices: four or more is worth a look whatever the limit
 	owner_gql(
@@ -76,7 +87,10 @@ async fn the_device_warnings_follow_the_limit() {
 		Some(json!({"i": {"personId": ana.id, "maxDevices": 6}})),
 	)
 	.await;
-	assert_eq!(kinds_of(app).await, vec![(WarningKind::ManyDevices, Some(ana.id.clone()))]);
+	assert_eq!(
+		kinds_of(app).await,
+		vec![(WarningKind::ManyDevices, Some(ana.id.clone()))]
+	);
 	// and a device that was not seen for 60 days no longer counts
 	use sea_orm::IntoActiveModel;
 	for device in devices_of(app, &ana.id).await {
@@ -103,7 +117,9 @@ async fn many_sessions_and_bursts_of_failures_are_flagged() {
 		assert_eq!(response.status_code(), StatusCode::OK);
 	}
 	assert_eq!(sessions_of(app, &ana.id).await, 4);
-	assert!(kinds_of(app).await.contains(&(WarningKind::ManySessions, Some(ana.id.clone()))));
+	assert!(kinds_of(app)
+		.await
+		.contains(&(WarningKind::ManySessions, Some(ana.id.clone()))));
 
 	// ten failed sign-ins in the last hour
 	for _ in 0..9 {
@@ -119,7 +135,9 @@ async fn many_sessions_and_bursts_of_failures_are_flagged() {
 		.await
 		.unwrap();
 	}
-	assert!(!kinds_of(app).await.contains(&(WarningKind::SigninFailures, Some(ana.id.clone()))));
+	assert!(!kinds_of(app)
+		.await
+		.contains(&(WarningKind::SigninFailures, Some(ana.id.clone()))));
 	models::entity::user_login_activity::ActiveModel {
 		user_id: Set(ana.id.clone()),
 		ip_address: Set("198.51.100.1".into()),
@@ -131,7 +149,9 @@ async fn many_sessions_and_bursts_of_failures_are_flagged() {
 	.insert(app.conn())
 	.await
 	.unwrap();
-	assert!(kinds_of(app).await.contains(&(WarningKind::SigninFailures, Some(ana.id.clone()))));
+	assert!(kinds_of(app)
+		.await
+		.contains(&(WarningKind::SigninFailures, Some(ana.id.clone()))));
 }
 
 #[tokio::test]
@@ -142,32 +162,107 @@ async fn events_fade_after_three_days_and_the_unknown_names_are_summed() {
 	let now = Utc::now();
 
 	// old events are forgotten; recent ones are kept
-	service::audit(app.conn(), now - Duration::days(4), "public", "signin.device_limit", &ana.id, "old").await.unwrap();
+	service::audit(
+		app.conn(),
+		now - Duration::days(4),
+		"public",
+		"signin.device_limit",
+		&ana.id,
+		"old",
+	)
+	.await
+	.unwrap();
 	assert!(kinds_of(app).await.is_empty());
-	service::audit(app.conn(), now - Duration::days(2), "public", "signin.device_limit", &ana.id, "recent").await.unwrap();
-	service::audit(app.conn(), now - Duration::hours(1), "public", "signin.device_limit", &ana.id, "again").await.unwrap();
+	service::audit(
+		app.conn(),
+		now - Duration::days(2),
+		"public",
+		"signin.device_limit",
+		&ana.id,
+		"recent",
+	)
+	.await
+	.unwrap();
+	service::audit(
+		app.conn(),
+		now - Duration::hours(1),
+		"public",
+		"signin.device_limit",
+		&ana.id,
+		"again",
+	)
+	.await
+	.unwrap();
 	let found = access_warnings::warnings(app.conn(), now).await.unwrap();
 	assert_eq!(found.len(), 1);
 	assert_eq!(found[0].kind, WarningKind::DeviceLimitHit);
 	assert_eq!(found[0].count, 2);
 
 	// a name that was slowed down: the person if the name exists, "an unknown name" if not
-	service::audit(app.conn(), now, "public", "signin.backoff", &ana.id, "slowed").await.unwrap();
-	service::audit(app.conn(), now, "public", "signin.backoff", "unknown:ab12cd34", "slowed").await.unwrap();
+	service::audit(
+		app.conn(),
+		now,
+		"public",
+		"signin.backoff",
+		&ana.id,
+		"slowed",
+	)
+	.await
+	.unwrap();
+	service::audit(
+		app.conn(),
+		now,
+		"public",
+		"signin.backoff",
+		"unknown:ab12cd34",
+		"slowed",
+	)
+	.await
+	.unwrap();
 	// failures on names that do not exist are summed from the aggregated rows
-	service::audit(app.conn(), now, "public", "signin.unknown_names", "unknown", "12 failures on names that do not exist").await.unwrap();
-	service::audit(app.conn(), now, "public", "signin.unknown_names", "unknown", "30 failures on names that do not exist").await.unwrap();
+	service::audit(
+		app.conn(),
+		now,
+		"public",
+		"signin.unknown_names",
+		"unknown",
+		"12 failures on names that do not exist",
+	)
+	.await
+	.unwrap();
+	service::audit(
+		app.conn(),
+		now,
+		"public",
+		"signin.unknown_names",
+		"unknown",
+		"30 failures on names that do not exist",
+	)
+	.await
+	.unwrap();
 	let found = access_warnings::warnings(app.conn(), now).await.unwrap();
 	let unknown = found
 		.iter()
 		.find(|w| w.kind == WarningKind::SigninFailures && w.person_id.is_none())
 		.expect("a warning for names that do not exist");
 	assert_eq!(unknown.count, 42);
-	assert!(found.iter().any(|w| w.kind == WarningKind::NameBackoff && w.person_id.as_deref() == Some(ana.id.as_str())));
-	assert!(found.iter().any(|w| w.kind == WarningKind::NameBackoff && w.person_id.is_none()));
+	assert!(found.iter().any(|w| w.kind == WarningKind::NameBackoff
+		&& w.person_id.as_deref() == Some(ana.id.as_str())));
+	assert!(found
+		.iter()
+		.any(|w| w.kind == WarningKind::NameBackoff && w.person_id.is_none()));
 
 	// the global budget is an alert and comes first
-	service::audit(app.conn(), now, "public", "signin.global_budget", "all", "flood").await.unwrap();
+	service::audit(
+		app.conn(),
+		now,
+		"public",
+		"signin.global_budget",
+		"all",
+		"flood",
+	)
+	.await
+	.unwrap();
 	let found = access_warnings::warnings(app.conn(), now).await.unwrap();
 	assert_eq!(found[0].kind, WarningKind::GlobalBudget);
 	assert_eq!(found[0].severity, access_warnings::Severity::Alert);
@@ -184,24 +279,55 @@ async fn links_near_their_budget_and_links_nobody_can_use_are_flagged() {
 	assert!(kinds_of(app).await.is_empty());
 
 	// an open link of three with two used has one left
-	let (open_id, url) = make_signup_link(app, "OPEN", 3, &[&shelves.biblioteca.id]).await;
+	let (open_id, url) =
+		make_signup_link(app, "OPEN", 3, &[&shelves.biblioteca.id]).await;
 	for name in ["ana", "ben"] {
-		join(app, token_of(&url), name, "tulip-Harbor-47", "tulip-Harbor-47", None, "203.0.113.5").await;
+		join(
+			app,
+			token_of(&url),
+			name,
+			"tulip-Harbor-47",
+			"tulip-Harbor-47",
+			None,
+			"203.0.113.5",
+		)
+		.await;
 	}
-	let found = access_warnings::warnings(app.conn(), Utc::now()).await.unwrap();
-	let near = found.iter().find(|w| w.kind == WarningKind::LinkNearBudget).expect("a link near its budget");
+	let found = access_warnings::warnings(app.conn(), Utc::now())
+		.await
+		.unwrap();
+	let near = found
+		.iter()
+		.find(|w| w.kind == WarningKind::LinkNearBudget)
+		.expect("a link near its budget");
 	assert_eq!(near.link_id.as_deref(), Some(open_id.as_str()));
 	assert_eq!(near.count, 1);
 
 	// a link whose libraries are gone can't be used
 	let (_, _) = make_signup_link(app, "OPEN", 5, &[&shelves.manga.id]).await;
-	library::Entity::delete_by_id(shelves.manga.id.clone()).exec(app.conn()).await.unwrap();
-	let found = access_warnings::warnings(app.conn(), Utc::now()).await.unwrap();
+	library::Entity::delete_by_id(shelves.manga.id.clone())
+		.exec(app.conn())
+		.await
+		.unwrap();
+	let found = access_warnings::warnings(app.conn(), Utc::now())
+		.await
+		.unwrap();
 	assert!(found.iter().any(|w| w.kind == WarningKind::LinkNoLibraries));
 
 	// used up: the warning about the budget goes away with the link
-	join(app, token_of(&url), "cara", "tulip-Harbor-47", "tulip-Harbor-47", None, "203.0.113.5").await;
-	let found = access_warnings::warnings(app.conn(), Utc::now()).await.unwrap();
+	join(
+		app,
+		token_of(&url),
+		"cara",
+		"tulip-Harbor-47",
+		"tulip-Harbor-47",
+		None,
+		"203.0.113.5",
+	)
+	.await;
+	let found = access_warnings::warnings(app.conn(), Utc::now())
+		.await
+		.unwrap();
 	assert!(!found.iter().any(|w| w.kind == WarningKind::LinkNearBudget));
 }
 

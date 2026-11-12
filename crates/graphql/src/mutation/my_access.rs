@@ -21,7 +21,7 @@ pub struct MyAccessMutation;
 fn refuse_the_owner(user: &models::entity::user::AuthUser) -> Result<()> {
 	if user.is_server_owner {
 		return Err(
-			"The server owner reads through the web app, or with an API key".into()
+			"The server owner reads through the web app, or with an API key".into(),
 		);
 	}
 	Ok(())
@@ -44,10 +44,11 @@ impl MyAccessMutation {
 			.and_then(|edge| edge.device.as_ref())
 			.map(|device| device.id.clone());
 
-		let renamed = service::rename_device_of_person(conn, &user.id, id.as_str(), &label)
-			.await
-			.map_err(access_error)?
-			.ok_or("That device was not found")?;
+		let renamed =
+			service::rename_device_of_person(conn, &user.id, id.as_str(), &label)
+				.await
+				.map_err(access_error)?
+				.ok_or("That device was not found")?;
 		Ok(MyDevice::new(renamed, current.as_deref()))
 	}
 
@@ -113,7 +114,11 @@ impl MyAccessMutation {
 
 	/// Replaces a reading-app address with a new one: the old one stops working at once
 	#[graphql(guard = "SameOriginGuard")]
-	async fn replace_reading_app(&self, ctx: &Context<'_>, id: ID) -> Result<MyReadingApp> {
+	async fn replace_reading_app(
+		&self,
+		ctx: &Context<'_>,
+		id: ID,
+	) -> Result<MyReadingApp> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		refuse_the_owner(user)?;
 		ensure_can_read_with_an_app(user)?;
@@ -172,7 +177,8 @@ impl MyAccessMutation {
 fn ensure_can_read_with_an_app(user: &models::entity::user::AuthUser) -> Result<()> {
 	if !user.permissions.contains(&UserPermission::DownloadFile) {
 		return Err(
-			"You can't download books, so a reading app would have nothing to read".into(),
+			"You can't download books, so a reading app would have nothing to read"
+				.into(),
 		);
 	}
 	Ok(())

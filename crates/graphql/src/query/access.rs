@@ -23,7 +23,7 @@ use crate::{
 			AccessPersonRow, AccessSignInPage,
 		},
 		access_signup::{
-			AccessSignupLink, AccessSigninStats, AccessWarning, PresetLibrary,
+			AccessSigninStats, AccessSignupLink, AccessWarning, PresetLibrary,
 			SignupPreset,
 		},
 	},
@@ -72,8 +72,9 @@ impl AccessQuery {
 				names_waiting: stats.names_waiting as u32,
 				global_budget_tripped: stats.global_tripped,
 			},
-			active_signup_links: signup::active_signup_links(conn, Utc::now()).await?.len()
-				as u64,
+			active_signup_links: signup::active_signup_links(conn, Utc::now())
+				.await?
+				.len() as u64,
 			has_key,
 			has_public_url,
 			has_state_dir: state_dir.is_some(),
@@ -204,7 +205,9 @@ impl AccessQuery {
 		let default = names
 			.iter()
 			.find(|(_, name)| {
-				name.eq_ignore_ascii_case(models::services::access_policy::DEFAULT_PRESET_LIBRARY)
+				name.eq_ignore_ascii_case(
+					models::services::access_policy::DEFAULT_PRESET_LIBRARY,
+				)
 			})
 			.map(|(id, name)| PresetLibrary {
 				id: id.clone(),

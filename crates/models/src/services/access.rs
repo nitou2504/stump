@@ -31,8 +31,8 @@ use uuid::Uuid;
 
 use crate::{
 	entity::{
-		access_audit, access_device, access_invite, access_password_reset,
-		access_person, access_signin_mark, access_signup_link, user, user_login_activity,
+		access_audit, access_device, access_invite, access_password_reset, access_person,
+		access_signin_mark, access_signup_link, user, user_login_activity,
 	},
 	services::{
 		access_policy::{self, DORMANT_AFTER_DAYS},
@@ -288,7 +288,8 @@ where
 	if access_policy::is_friend_class(person.permissions.as_deref())
 		&& !person.hashed_password.is_empty()
 	{
-		crate::services::access_people::enable_public_signin(&txn, now, &person.id).await?;
+		crate::services::access_people::enable_public_signin(&txn, now, &person.id)
+			.await?;
 	}
 
 	let invite = access_invite::ActiveModel {
@@ -1059,7 +1060,15 @@ where
 	)
 	.await?;
 	if let Some(device) = &created {
-		audit(&txn, now, username, "opds.key_created", &device.id, &device.label).await?;
+		audit(
+			&txn,
+			now,
+			username,
+			"opds.key_created",
+			&device.id,
+			&device.label,
+		)
+		.await?;
 		txn.commit().await?;
 	}
 	Ok(created)
