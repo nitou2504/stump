@@ -1837,7 +1837,7 @@
         "heading": "Finished",
         "count_one": "{{count}} book",
         "count_other": "{{count}} books",
-        "search": "Search finished books…",
+        "search": "Search books…",
         "years": "Year finished",
         "allYears": "All",
         "empty": "No finished books yet",

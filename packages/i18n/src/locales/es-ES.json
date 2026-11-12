@@ -1471,7 +1471,7 @@
         "heading": "Terminados",
         "count_one": "{{count}} libro",
         "count_other": "{{count}} libros",
-        "search": "Buscar libros terminados…",
+        "search": "Buscar libros…",
         "years": "Año de lectura",
         "allYears": "Todos",
         "empty": "Aún no hay libros terminados",
