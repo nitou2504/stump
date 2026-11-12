@@ -752,8 +752,8 @@ has no *Send anyway*; **F10** with the 4 sandbox books, the phone page is ≤ 2,
 
 ## 11. Taking the *after* screenshots
 
-The *before* set was made with image `stump:fork-71310fb5a` (no image of `43fa3fe50` exists; the commits
-in between touch only the public sign-in pages, the edge docs and one error message, none of these
+The *before* set was made with image `stump:fork-71310fb5a` (the `43fa3fe50` image did not exist yet; the
+commits in between touch only the public sign-in pages, the edge docs and one error message, none of these
 screens). Sandbox: a `sqlite3 -readonly … .backup` copy of the live db in `/tmp/uxbox/config` with a known
 password for the owner, an internal network (`docker network create --internal uxnet`), the library
 folders mounted read-only at the compose paths, `STUMP_EDGE_*` env with a random key and
