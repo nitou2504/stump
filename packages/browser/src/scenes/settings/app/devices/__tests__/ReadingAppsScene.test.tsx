@@ -116,14 +116,14 @@ describe('Reading apps', () => {
 		const card = await screen.findByTestId('reading-app-kobo-9x2mq')
 
 		await user.click(within(card).getByRole('button', { name: K('replace') }))
-		let dialog = await screen.findByRole('dialog')
+		let dialog = await screen.findByRole('alertdialog')
 		expect(within(dialog).getByText(`${K('confirm.replaceDescription')} name=Kobo`)).toBeInTheDocument()
 		await user.click(within(dialog).getByRole('button', { name: K('replace') }))
 		await waitFor(() => expect(sent(execute, 'ReplaceReadingApp')).toEqual([{ id: 'kobo-9x2mq' }]))
-		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+		await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
 
 		await user.click(within(card).getByRole('button', { name: K('remove') }))
-		dialog = await screen.findByRole('dialog')
+		dialog = await screen.findByRole('alertdialog')
 		await user.click(within(dialog).getByRole('button', { name: K('remove') }))
 		await waitFor(() => expect(sent(execute, 'RemoveReadingApp')).toEqual([{ id: 'kobo-9x2mq' }]))
 	})

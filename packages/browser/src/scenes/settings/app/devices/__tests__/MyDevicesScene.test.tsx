@@ -116,7 +116,7 @@ describe('My devices', () => {
 		await user.click(
 			within(await screen.findByTestId('my-device-b')).getByRole('button', { name: K('remove') }),
 		)
-		const dialog = await screen.findByRole('dialog')
+		const dialog = await screen.findByRole('alertdialog')
 		expect(within(dialog).getByText(`${K('confirm.description')} name=Old laptop`)).toBeInTheDocument()
 		await user.click(within(dialog).getByRole('button', { name: K('remove') }))
 
@@ -134,7 +134,7 @@ describe('My devices', () => {
 				name: K('removeAndSignOut'),
 			}),
 		)
-		const dialog = await screen.findByRole('dialog')
+		const dialog = await screen.findByRole('alertdialog')
 		expect(within(dialog).getByText(K('confirm.currentTitle'))).toBeInTheDocument()
 		await user.click(within(dialog).getByRole('button', { name: K('removeAndSignOut') }))
 
@@ -152,7 +152,7 @@ describe('My devices', () => {
 			}),
 		)
 		await user.click(
-			within(await screen.findByRole('dialog')).getByRole('button', { name: K('removeAndSignOut') }),
+			within(await screen.findByRole('alertdialog')).getByRole('button', { name: K('removeAndSignOut') }),
 		)
 
 		await waitFor(() => expect(toast.error).toHaveBeenCalledWith(K('errors.remove')))

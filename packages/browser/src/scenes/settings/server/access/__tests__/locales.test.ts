@@ -72,6 +72,17 @@ const FAMILIES: Record<string, string[]> = {
 		'userPasswordChanged',
 		'userSessionsDeleted',
 		'loginActivityCleared',
+		'signupLinkCreated',
+		'signupLinkRevoked',
+		'signupCreated',
+		'personAccessSet',
+		'signinDeviceLimit',
+		'signinBackoff',
+		'signinGlobalBudget',
+		'signinUnknownNames',
+		'deviceRemovedByPerson',
+		'opdsKeyCreated',
+		'opdsKeyReplaced',
 	],
 }
 
