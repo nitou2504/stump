@@ -1557,6 +1557,7 @@
           },
           "language": {
             "label": "Idioma",
+            "placeholder": "Elige un idioma",
             "contributeIfAble": "¡Por favor considera contribuir a la traducción de Stump si puedes hacerlo!",
             "contribute": "Contribuir",
             "noThanks": "No gracias"

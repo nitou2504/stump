@@ -1,5 +1,5 @@
 import { ComboBox } from '@stump/components'
-import { isLocale, localeNames } from '@stump/i18n'
+import { isLocale, localeNames, resolveLocale } from '@stump/i18n'
 import { useCallback } from 'react'
 
 import { usePreferences } from '@/hooks/usePreferences'
@@ -29,7 +29,8 @@ export default function LocaleSelector() {
 	return (
 		<ComboBox
 			label={t('settingsScene.app/account.sections.language.label')}
-			value={locale}
+			value={resolveLocale(locale)}
+			placeholder={t('settingsScene.app/account.sections.language.placeholder')}
 			options={options}
 			filterable
 			onChange={handleChange}

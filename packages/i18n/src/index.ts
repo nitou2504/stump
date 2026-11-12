@@ -9,6 +9,7 @@ export {
 	initDateFnsLocale,
 } from './dateFnsLocale'
 export { default as LocaleProvider } from './LocaleProvider'
+export { resolveLocale } from './config'
 export type { AllowedLocale }
 export { useCreateTranslate } from './useCreateTranslate'
 

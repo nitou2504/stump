@@ -1924,6 +1924,7 @@
           },
           "language": {
             "label": "Language",
+            "placeholder": "Choose a language",
             "contributeIfAble": "Please consider contributing to Stump's translations if you're able to!",
             "contribute": "Contribute",
             "noThanks": "No Thanks"
