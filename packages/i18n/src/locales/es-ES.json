@@ -1718,6 +1718,23 @@
             "label": "Disposición y arreglo",
             "description": "Personaliza el cómo Sump muestra información y organiza su contenido"
           },
+          "sidebar": {
+            "sidebarStyle": {
+              "label": "Estilo de la barra lateral",
+              "options": {
+                "sidebar": "Normal",
+                "floating": "Flotante",
+                "inset": "Integrada"
+              }
+            },
+            "collapseBehavior": {
+              "label": "Comportamiento al contraer",
+              "options": {
+                "icon": "Mostrar iconos",
+                "offcanvas": "Ocultar por completo"
+              }
+            }
+          },
           "displaySpacing": {
             "label": "Espaciado de visualización",
             "description": "Ajusta el espaciado general entre elementos en la aplicación",
@@ -1769,6 +1786,18 @@
             "saveFailed": "Falló al guardar tus cambios",
             "unsupported": "Configuración inválida",
             "unsupportedDescription": "Por favor reinicia a los valores por defecto e intenta nuevamente"
+          },
+          "lists": {
+            "title": "Listas de libros y series",
+            "description": "Cómo se muestran las listas de libros y series"
+          },
+          "preferredLayout": {
+            "label": "Diseño",
+            "description": "Cuadrícula o tabla, en todas las listas",
+            "options": {
+              "GRID": "Cuadrícula",
+              "TABLE": "Tabla"
+            }
           }
         }
       },
@@ -2219,6 +2248,7 @@
           },
           "validation": {
             "ageRestrictionTooLow": "Restricción por edad no puede ser menor a 0",
+            "maxSessionsAllowedTooLow": "El máximo de sesiones permitidas no puede ser menor que 0",
             "missingUsername": "Un nombre de usuario es requerido",
             "missingPassword": "Una contraseña es requerida",
             "usernameAlreadyExists": "El nombre de usuario ya existe"
@@ -2661,7 +2691,12 @@
             "label": "TLS habilitado"
           },
           "senderSettings": {
-            "heading": "Ajustes de envío"
+            "heading": "Ajustes de envío",
+            "description": "Los ajustes del remitente del correo"
+          },
+          "senderDisplayName": {
+            "label": "Nombre visible del remitente",
+            "description": "El nombre que verán los destinatarios"
           },
           "senderEmail": {
             "description": "La dirección de correo que se mostrará a los receptores",
@@ -2669,24 +2704,36 @@
           },
           "testEmailer": {
             "recipientDescription": "Una dirección de correo para enviar los correos de prueba",
+            "button": "Enviar correo de prueba",
             "recipientLabel": "Receptor",
-            "success": "Mensaje de prueba enviado correctamente"
+            "success": "Mensaje de prueba enviado correctamente",
+            "error": {
+              "title": "No se pudo enviar el correo de prueba",
+              "description": "Revisa los ajustes de SMTP e inténtalo de nuevo"
+            }
           },
           "password": {
             "label": "Contraseña",
             "description": "La contraseña para autentificar con el servidor SMTP. Si estás usando Gmail, puede que necesites generar una contraseña especificamente para la app"
           },
           "additionalSettings": {
-            "heading": "Ajustes adicionales"
+            "heading": "Ajustes adicionales",
+            "description": "Ajustes adicionales del servidor de correo"
           },
           "maxAttachmentSize": {
             "label": "Tamaño máximo de adjuntos",
             "description": "El tamaño máximo, en bytes, que los adjuntos pueden tener"
           },
+          "submit": {
+            "create": "Crear servidor de correo",
+            "update": "Actualizar servidor de correo"
+          },
           "name": {
             "label": "Nombre",
             "description": "Un nombre amigable para identificar de forma única a este servidor de correos"
           },
+          "nameAlreadyExists": "Ya existe un servidor de correo con este nombre",
+          "nameIsForbidden": "Este nombre está reservado",
           "smtpSettings": {
             "heading": "Ajustes de SMTP",
             "description": "Los ajustes de SMTP para este servidor de correo"
@@ -2700,14 +2747,19 @@
             "description": "El nombre del servidor de SMTP"
           },
           "username": {
-            "label": "Nombre de usuario"
+            "label": "Nombre de usuario",
+            "description": "El nombre de usuario para autenticarse con el servidor SMTP. Normalmente es la dirección de correo electrónico"
           }
         },
         "updateEmailer": {
-          "helmet": "Actualizar correo"
+          "helmet": "Actualizar correo",
+          "title": "Actualizar servidor de correo",
+          "description": "Actualiza los detalles de este servidor de correo SMTP"
         },
         "createEmailer": {
-          "title": "Crear gestor de correos"
+          "helmet": "Crear servidor de correo",
+          "title": "Crear gestor de correos",
+          "description": "Crea un nuevo servidor de correo SMTP para tu instancia de Stump"
         },
         "helmet": "Ajustes de correo",
         "description": "Ajustes relacionados a configurar un servidor SMTP para tu instancia del servidor de Stump",
@@ -2833,22 +2885,50 @@
         }
       },
       "server/tags": {
+        "helmet": "Gestión de etiquetas",
+        "title": "Etiquetas",
+        "description": "Crea y gestiona etiquetas para organizar tu contenido",
         "sections": {
           "createTag": {
+            "trigger": "Crear etiqueta",
             "modal": {
+              "heading": "Crear nueva etiqueta",
               "description": "Las etiquetas se pueden asignar a libros, series y bibliotecas",
               "name": {
                 "placeholder": "Ingrese el nombre de la etiqueta"
               }
             }
           },
+          "renameTag": {
+            "modal": {
+              "heading": "Cambiar nombre de la etiqueta",
+              "description": "Cambia el nombre de esta etiqueta en todos los elementos asignados",
+              "name": {
+                "placeholder": "Introduce el nuevo nombre de la etiqueta"
+              }
+            }
+          },
+          "deleteTag": {
+            "title": "Eliminar etiqueta",
+            "description": "Esta etiqueta se quitará de todos los libros, series y bibliotecas. No se puede deshacer."
+          },
           "table": {
+            "title": "Etiquetas",
+            "description": "Todas las etiquetas disponibles en este servidor",
             "empty": {
               "title": "No hay etiquetas",
               "action": "Crea tu primer etiqueta para empezar"
             }
           }
         }
+      },
+      "server/recentlyAdded": {
+        "title": "Añadidos recientemente",
+        "description": "Quién añadió qué y cuándo"
+      },
+      "server/deletedBooks": {
+        "title": "Libros borrados",
+        "description": "Restaura los libros quitados o elimínalos de forma permanente"
       },
       "server/bookApprovals": {
         "title": "Libros por aprobar",
