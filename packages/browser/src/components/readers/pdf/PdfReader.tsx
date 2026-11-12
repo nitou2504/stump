@@ -48,7 +48,7 @@ import { copyText, nextDayNightTheme } from '../shared/readerKeys'
 import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
-import { useReadingProgress } from '../shared/readingProgress'
+import { isCornerNumberShown, useReadingProgress } from '../shared/readingProgress'
 import { atScrollEdge, scrollKeyTarget } from '../shared/scrollKeys'
 import { cancelScrollMove, scrollMoveTo, scrollTarget } from '../shared/scrollMove'
 import { SwitchRow } from '../shared/settingsControls'
@@ -1585,7 +1585,7 @@ function PdfReaderView({ media, layout, isIncognito = false, initialPage, onProg
 			) : (
 				<ReaderPageIndicator
 					text={indicator}
-					shown={readingProgress.display === 'number'}
+					shown={isCornerNumberShown(readingProgress.display, chrome.visible)}
 					onClick={() => setGoToOpen(true)}
 					title={`${translate('shared.pdfReader.goToPage')} (G)`}
 				/>

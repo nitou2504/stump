@@ -2,6 +2,7 @@ import {
 	chapterAround,
 	chapterLabel,
 	chapterPages,
+	isCornerNumberShown,
 	MIN_TICK_GAP,
 	READING_PROGRESS_DEFAULTS,
 	resolveReadingProgress,
@@ -117,5 +118,20 @@ describe("the chapter's name", () => {
 	it('names a top-level chapter by itself, and nothing when it is not in the contents', () => {
 		expect(chapterLabel(tocPath(toc, (item) => item.content === 'b1.xhtml'))).toBe('Book I')
 		expect(chapterLabel(tocPath(toc, () => false))).toBeUndefined()
+	})
+})
+
+describe('the number in the corner', () => {
+	it('shows when it is what the reader picked and the top bar is away', () => {
+		expect(isCornerNumberShown('number', false)).toBe(true)
+	})
+
+	it('hides while the top bar is up, which shows the same position', () => {
+		expect(isCornerNumberShown('number', true)).toBe(false)
+	})
+
+	it('never shows when the reader picked the bar or nothing', () => {
+		expect(isCornerNumberShown('bar', false)).toBe(false)
+		expect(isCornerNumberShown('off', false)).toBe(false)
 	})
 })
