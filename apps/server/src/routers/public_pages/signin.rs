@@ -89,16 +89,15 @@ pub(crate) fn signin_page(
 		.map(|text| format!("<p class=error role=alert>{}</p>", escape_html(text)))
 		.unwrap_or_default();
 	let body = format!(
-		"<h1>{title}</h1><p>{intro}</p>{message}\
+		"<h1 class=sr>{title}</h1>\
 		<form method=\"post\" action=\"/api/_i/signin\">\
 		<label>{username}<input name=\"username\" value=\"{typed}\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"{maxu}\" required autofocus></label>\
 		<label>{password}<input name=\"password\" type=\"password\" autocomplete=\"current-password\" maxlength=\"{maxp}\" required></label>\
-		<button>{button}</button></form>\
+		{message}<button>{button}</button></form>\
 		<details><summary>{have_link}</summary>\
 		<form method=\"get\" action=\"/api/_i/\"><label><input name=\"t\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" aria-label=\"{have_link}\"></label><button>{open}</button></form></details>\
 		<p class=muted>{forgot}</p>",
 		title = words.signin_title,
-		intro = words.signin_intro,
 		username = words.username,
 		password = words.password,
 		button = words.signin_button,

@@ -70,17 +70,16 @@ pub(crate) fn join_page(
 		.map(|text| format!("<p class=error role=alert>{}</p>", escape_html(text)))
 		.unwrap_or_default();
 	let body = format!(
-		"<h1>{title}</h1><p>{intro}</p>{message}\
+		"<h1>{title}</h1>\
 		<form method=\"post\" action=\"/api/_i/join\">\
 		<input type=\"hidden\" name=\"t\" value=\"{token}\">\
 		<label>{username}<input name=\"username\" value=\"{typed}\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" minlength=\"3\" maxlength=\"{maxu}\" required autofocus></label>\
 		<label>{password}<input name=\"password\" type=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"72\" required></label>\
 		<label>{again}<input name=\"password2\" type=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"72\" required></label>\
-		<p class=muted>{rules}</p>\
+		<p class=hint>{rules}</p>{message}\
 		<button>{button}</button></form>\
 		<p class=muted><a href=\"/api/_i/signin\">{have_account}</a></p>",
 		title = words.join_title,
-		intro = words.join_intro,
 		username = words.username,
 		password = words.password,
 		again = words.password_again,

@@ -185,7 +185,7 @@ fn ensure_can_read_with_an_app(user: &models::entity::user::AuthUser) -> Result<
 }
 
 fn device_limit_message() -> async_graphql::Error {
-	"You already use all your devices. Remove one in My devices first, or ask the person who runs this server"
+	"You already use all your devices. Remove one in My devices first, or ask the owner"
 		.into()
 }
 

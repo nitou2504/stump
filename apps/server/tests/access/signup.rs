@@ -419,12 +419,7 @@ async fn the_rules_are_told_to_the_holder_of_a_link_and_nobody_else() {
 		("-ana", PASSWORD, PASSWORD, "start with a letter"),
 		("admin", PASSWORD, PASSWORD, "not available"),
 		("ana", "short", "short", "at least 10 characters"),
-		(
-			"ana",
-			PASSWORD,
-			"another-Harbor-47",
-			"The two passwords are different",
-		),
+		("ana", PASSWORD, "another-Harbor-47", "The passwords don"),
 		("ana", "1234567890", "1234567890", "too common"),
 		(
 			"ana",

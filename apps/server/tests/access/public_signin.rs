@@ -30,7 +30,9 @@ async fn a_friend_signs_in_on_a_new_device_and_the_device_gets_a_pass() {
 		.await;
 	page.assert_status_ok();
 	let text = page.text();
-	assert!(text.contains("Sign in to Stump"), "{text}");
+	assert!(text.contains("action=\"/api/_i/signin\""), "{text}");
+	assert!(text.contains("<span class=brand>Stump</span>"), "{text}");
+	assert!(!text.contains("you chose"), "{text}");
 	assert!(text.contains("autocomplete=\"current-password\""));
 	assert!(text.contains("autocomplete=\"username\""));
 	assert!(!text.contains("<script"), "the page has no script");
@@ -229,12 +231,7 @@ async fn everything_that_is_not_a_sign_in_gets_the_same_answer() {
 		answers.windows(2).all(|pair| pair[0].1 == pair[1].1),
 		"the answers differ: {answers:#?}"
 	);
-	assert!(
-		answers[0]
-			.1
-			.contains("That username or password isn't right")
-			|| answers[0].1.contains("isn&#39;t right")
-	);
+	assert!(answers[0].1.contains("Wrong username or password."));
 
 	// none of it locked anything, and nothing was made
 	for name in ["ana", "ben", "cara", "eve", "fay", "initial-server-admin"] {

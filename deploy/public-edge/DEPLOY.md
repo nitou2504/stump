@@ -561,7 +561,7 @@ Set `STUMP_EDGE_PUBLIC_SIGNIN=true` in `stump-fork`'s environment and recreate *
 
 ```sh
 docker compose config -q && docker compose up -d --no-build stump-fork stump-intake-probe
-curl -s http://127.0.0.1:10803/ | grep -c 'Sign in to Stump'                       # 1: the front door shows the sign-in page
+curl -s http://127.0.0.1:10803/ | grep -c 'action="/api/_i/signin"'              # 1: the front door shows the sign-in page
 curl -s -D- -o /dev/null http://127.0.0.1:10803/api/v2/ping | grep -ci 'x-edge-sign-in: 1'    # 1
 ```
 

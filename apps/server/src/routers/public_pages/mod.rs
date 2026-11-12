@@ -47,7 +47,6 @@ pub(crate) struct Words {
 	pub private_text: &'static str,
 	// signing in
 	pub signin_title: &'static str,
-	pub signin_intro: &'static str,
 	pub username: &'static str,
 	pub password: &'static str,
 	pub signin_button: &'static str,
@@ -61,7 +60,6 @@ pub(crate) struct Words {
 	pub limit_body: &'static str,
 	// signing up
 	pub join_title: &'static str,
-	pub join_intro: &'static str,
 	pub password_again: &'static str,
 	pub rules: &'static str,
 	pub join_button: &'static str,
@@ -73,76 +71,63 @@ pub(crate) struct Words {
 pub(crate) const ENGLISH: Words = Words {
 	lang: "en",
 	title: "Open Stump on this device?",
-	ask:
-		"This link lets this browser open Stump. It works for you and your devices only.",
+	ask: "This link opens Stump in this browser, just for you.",
 	button: "Open Stump",
 	invalid_title: "This link doesn't work",
-	invalid: "It has expired, was used up, or isn't valid. Ask for a new invite link.",
+	invalid: "It expired, was used up, or isn't valid. Ask for a new one.",
 	paste: "Paste your link here",
 	open: "Open",
 	private_title: "Private site",
-	private_text: "Open your invite link in this browser, or paste it here:",
-	signin_title: "Sign in to Stump",
-	signin_intro: "Use the username and password you chose.",
+	private_text: "Paste your invite link:",
+	signin_title: "Sign in",
 	username: "Username",
 	password: "Password",
 	signin_button: "Sign in",
-	signin_failed:
-		"That username or password isn't right. Still stuck? Ask the person who runs this server.",
-	have_link: "Have an invite link? Paste it here",
-	forgot: "Forgot your password? Ask the person who runs this server.",
+	signin_failed: "Wrong username or password.",
+	have_link: "Have an invite link?",
+	forgot: "Forgot your password? Ask the owner.",
 	too_many_title: "Too many attempts",
-	too_many: "Please wait a few minutes and try again.",
+	too_many: "Wait a few minutes and try again.",
 	limit_title: "You already use {n} devices",
-	limit_body:
-		"To sign in here, remove one of your devices in Settings → My devices on a device where you are signed in, or ask the person who runs this server.",
+	limit_body: "Remove one in Settings → My devices, or ask the owner.",
 	join_title: "Create your account",
-	join_intro:
-		"Choose a username and a password. You will sign in with them on every device.",
 	password_again: "Repeat the password",
-	rules:
-		"Username: 3 to 32 letters, numbers, dots, hyphens or underscores. Password: at least 10 characters, and not a common one.",
+	rules: "Username: 3 to 32 characters. Password: at least 10.",
 	join_button: "Create my account",
-	have_account: "Already have an account? Sign in",
-	passwords_differ: "The two passwords are different",
-	name_taken: "That username is taken. Choose another one",
+	have_account: "Have an account? Sign in",
+	passwords_differ: "The passwords don't match",
+	name_taken: "That username is taken",
 };
 
 pub(crate) const SPANISH: Words = Words {
 	lang: "es",
 	title: "¿Abrir Stump en este dispositivo?",
-	ask: "Este enlace permite que este navegador abra Stump. Es solo para ti y tus dispositivos.",
+	ask: "Este enlace abre Stump en este navegador, solo para ti.",
 	button: "Abrir Stump",
 	invalid_title: "Este enlace no funciona",
-	invalid: "Caducó, se agotó o no es válido. Pide un enlace de invitación nuevo.",
+	invalid: "Caducó, se agotó o no es válido. Pide uno nuevo.",
 	paste: "Pega tu enlace aquí",
 	open: "Abrir",
 	private_title: "Sitio privado",
-	private_text: "Abre tu enlace de invitación en este navegador, o pégalo aquí:",
-	signin_title: "Entra a Stump",
-	signin_intro: "Usa el usuario y la contraseña que elegiste.",
+	private_text: "Pega tu enlace de invitación:",
+	signin_title: "Entrar",
 	username: "Usuario",
 	password: "Contraseña",
 	signin_button: "Entrar",
-	signin_failed:
-		"Ese usuario o contraseña no es correcto. ¿Sigues sin poder entrar? Pregunta a quien administra este servidor.",
-	have_link: "¿Tienes un enlace de invitación? Pégalo aquí",
-	forgot: "¿Olvidaste tu contraseña? Pregunta a quien administra este servidor.",
+	signin_failed: "Usuario o contraseña incorrectos.",
+	have_link: "¿Tienes un enlace de invitación?",
+	forgot: "¿Olvidaste tu contraseña? Pregunta al administrador.",
 	too_many_title: "Demasiados intentos",
 	too_many: "Espera unos minutos e inténtalo de nuevo.",
 	limit_title: "Ya usas {n} dispositivos",
-	limit_body:
-		"Para entrar aquí, quita uno de tus dispositivos en Ajustes → Mis dispositivos desde un dispositivo donde ya hayas entrado, o pregunta a quien administra este servidor.",
+	limit_body: "Quita uno en Ajustes → Mis dispositivos, o pregunta al administrador.",
 	join_title: "Crea tu cuenta",
-	join_intro:
-		"Elige un usuario y una contraseña. Los usarás para entrar en cada dispositivo.",
 	password_again: "Repite la contraseña",
-	rules:
-		"Usuario: de 3 a 32 letras, números, puntos, guiones o guiones bajos. Contraseña: al menos 10 caracteres, y que no sea una común.",
+	rules: "Usuario: de 3 a 32 caracteres. Contraseña: al menos 10.",
 	join_button: "Crear mi cuenta",
 	have_account: "¿Ya tienes cuenta? Entra",
-	passwords_differ: "Las dos contraseñas son distintas",
-	name_taken: "Ese usuario ya existe. Elige otro",
+	passwords_differ: "Las contraseñas no coinciden",
+	name_taken: "Ese usuario ya existe",
 };
 
 pub(crate) fn words(headers: &HeaderMap) -> &'static Words {
@@ -215,7 +200,18 @@ pub(crate) fn escape_html(text: &str) -> String {
 	escaped
 }
 
-const STYLE: &str = ":root{color-scheme:light dark}body{font-family:system-ui,sans-serif;max-width:26rem;margin:8vh auto;padding:0 1rem;line-height:1.5}h1{font-size:1.4rem;margin:.2rem 0 .6rem}label{display:block;margin:.8rem 0 .2rem;font-size:.95rem}input,button{font:inherit;font-size:1rem;padding:.7rem .8rem;border-radius:.5rem;box-sizing:border-box;width:100%}input{border:1px solid #8886;background:transparent;color:inherit;margin:.15rem 0}button{cursor:pointer;margin-top:1rem;border:0;background:#2563eb;color:#fff;font-weight:600}.muted{opacity:.75;font-size:.9rem}.error{background:#dc262622;border:1px solid #dc262666;padding:.6rem .8rem;border-radius:.5rem;margin:.8rem 0}details{margin-top:1.2rem}summary{cursor:pointer}a{color:inherit}";
+// The app's own look (the dark and light themes' colours, the brand gradient, the login screen's
+// layout), inline: these pages are served without a pass, so they can't load the app's files
+const STYLE: &str = ":root{color-scheme:dark;--bg:#161719;--fg:#f5f3ef;--muted:#898d94;--border:#292c30;--input:#1b1c1d;--brand:#c48259;--brand-dark:#a9663c;--danger:#e53935}@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#fafafa;--fg:#26272a;--muted:#737373;--border:#e5e5e5;--input:#fff;--danger:#dc2626}}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--fg);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;line-height:1.5}main{width:100%;max-width:22rem;padding:2rem 1.5rem}header{display:flex;align-items:center;justify-content:center;gap:1rem;margin-bottom:2rem}header img{width:80px;height:80px}.brand{font-size:1.875rem;font-weight:700;background:linear-gradient(to right,var(--brand-dark),var(--brand));-webkit-background-clip:text;background-clip:text;color:transparent}h1{font-size:1.125rem;font-weight:600;margin:0 0 .75rem;text-align:center}p{margin:.5rem 0}label{display:block;margin:.9rem 0 .35rem;font-size:.875rem;font-weight:500}input,button{font:inherit;font-size:.95rem;border-radius:.375rem;width:100%}input{height:2.5rem;padding:0 .75rem;border:1px solid var(--border);background:var(--input);color:var(--fg)}input:focus{outline:2px solid var(--brand);outline-offset:1px;border-color:transparent}button{height:2.5rem;cursor:pointer;margin-top:1.25rem;border:0;background:var(--brand);color:#fff;font-weight:500}button:hover{background:var(--brand-dark)}.error{color:var(--danger);font-size:.875rem;margin:.9rem 0 0}.hint{color:var(--muted);font-size:.8rem;margin:.4rem 0 0}.muted{color:var(--muted);font-size:.85rem;text-align:center;margin-top:1.5rem}details{margin-top:1.5rem;font-size:.85rem;color:var(--muted);text-align:center}summary{cursor:pointer}details form{text-align:left}a{color:var(--muted)}a:hover{color:var(--fg)}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}";
+
+/// The app's logo as a `data:` address (the page can't fetch it: see [`STYLE`])
+static LOGO: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+	use base64::{engine::general_purpose::STANDARD, Engine};
+	format!(
+		"data:image/webp;base64,{}",
+		STANDARD.encode(include_bytes!("stump-logo.webp"))
+	)
+});
 
 /// A page: the same headers for all of them (see the module docs). `extra_headers` are appended
 /// (a `Set-Cookie`, a `Location`)
@@ -226,8 +222,9 @@ pub(crate) fn page(
 	extra_headers: &[(header::HeaderName, String)],
 ) -> Response {
 	let html = format!(
-		"<!doctype html><html lang=\"{}\"><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta name=robots content=noindex><title>Stump</title><style>{STYLE}</style><body>{body}</body></html>",
-		words.lang
+		"<!doctype html><html lang=\"{}\"><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta name=robots content=noindex><title>Stump</title><style>{STYLE}</style><body><main><header><img src=\"{logo}\" alt=\"\" width=80 height=80><span class=brand>Stump</span></header>{body}</main></body></html>",
+		words.lang,
+		logo = *LOGO
 	);
 	let mut response = (status, html).into_response();
 	let headers = response.headers_mut();
@@ -249,7 +246,7 @@ pub(crate) fn page(
 	headers.insert(
 		header::CONTENT_SECURITY_POLICY,
 		HeaderValue::from_static(
-			"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+			"default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'",
 		),
 	);
 	for (name, value) in extra_headers {
@@ -395,7 +392,6 @@ mod tests {
 			(ENGLISH.private_title, SPANISH.private_title),
 			(ENGLISH.private_text, SPANISH.private_text),
 			(ENGLISH.signin_title, SPANISH.signin_title),
-			(ENGLISH.signin_intro, SPANISH.signin_intro),
 			(ENGLISH.username, SPANISH.username),
 			(ENGLISH.password, SPANISH.password),
 			(ENGLISH.signin_button, SPANISH.signin_button),
@@ -407,7 +403,6 @@ mod tests {
 			(ENGLISH.limit_title, SPANISH.limit_title),
 			(ENGLISH.limit_body, SPANISH.limit_body),
 			(ENGLISH.join_title, SPANISH.join_title),
-			(ENGLISH.join_intro, SPANISH.join_intro),
 			(ENGLISH.password_again, SPANISH.password_again),
 			(ENGLISH.rules, SPANISH.rules),
 			(ENGLISH.join_button, SPANISH.join_button),
