@@ -117,7 +117,7 @@ install -m 644 $S/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
 cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map          # keep the break-glass revocations
 docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
   -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-# and the real config against a stub (137 checks, ~4 min, nothing live is touched):
+# and the real config against a stub (257 checks, ~5 min, nothing live is touched):
 bash $S/deploy/public-edge/verify-edge.sh
 ```
 
@@ -257,7 +257,7 @@ cd /mnt/data2/containers/stump-fork && : "${S:?set S first, see the top of this 
 && echo "edge switched"
 ```
 
-`verify-edge.sh` ends with `137 checks, 0 failed` (needs docker; about four minutes). If the chain stops, read its last
+`verify-edge.sh` ends with `257 checks, 0 failed` (needs docker; about five minutes). If the chain stops, read its last
 line: before `install -m 644 $N/nginx.conf edge/nginx.conf` nothing live has changed; after it, put the old file back
 (`cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf`, see *Back out*).
 
