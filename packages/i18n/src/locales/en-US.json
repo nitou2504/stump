@@ -383,6 +383,26 @@
         "signOut": "Sign out",
         "error": "The password couldn't be changed",
         "success": "Password changed"
+      },
+      "public": {
+        "forgot": "Forgot your password? Ask the owner.",
+        "wrongCredentials": "Wrong username or password.",
+        "tooMany": "Too many attempts. Wait a few minutes.",
+        "generic": "Couldn't sign in. Try again.",
+        "deviceLimit": "You already use all your devices. Remove one in Settings → My devices, or ask the owner."
+      },
+      "join": {
+        "title": "Create your account",
+        "username": "Username",
+        "password": "Password",
+        "passwordAgain": "Repeat the password",
+        "rules": "Username: 3 to 32 characters. Password: at least 10.",
+        "button": "Create my account",
+        "mismatch": "The passwords don't match",
+        "badLink": "This link doesn't work. Ask for a new one.",
+        "haveAccount": "Have an account? Sign in",
+        "accountReady": "Your account is ready. Sign in.",
+        "generic": "Couldn't create the account. Try again."
       }
     },
     "adminLibrarySidebar": {

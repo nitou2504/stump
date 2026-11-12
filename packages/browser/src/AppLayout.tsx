@@ -154,7 +154,8 @@ export function AppLayout() {
 	// back/forward return to where each page was left; new pages start at the top
 	useMainScrollRestoration(getMainScrollElement, mainElement, { skip: hideAllNavigation })
 
-	useCoreEvent({ liveRefetch, onConnectionWithServerChanged })
+	// nothing to subscribe to before anybody is signed in (the public edge refuses the socket)
+	useCoreEvent({ enabled: !!storeUser, liveRefetch, onConnectionWithServerChanged })
 
 	/**
 	 * A callback to enforce a permission on the currently logged in user.

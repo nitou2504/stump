@@ -57,10 +57,16 @@ const subscription = graphql(`
 type Params = {
 	liveRefetch?: boolean
 	onConnectionWithServerChanged?: (connected: boolean) => void
+	/** Connect only once somebody is signed in (default: yes) */
+	enabled?: boolean
 }
 
 // TODO: Attempt reconnect with re-auth
-export function useCoreEvent({ liveRefetch, onConnectionWithServerChanged }: Params) {
+export function useCoreEvent({
+	liveRefetch,
+	onConnectionWithServerChanged,
+	enabled = true,
+}: Params) {
 	const store = useJobStore(
 		useShallow((state) => ({
 			addJob: state.addJob,
@@ -79,6 +85,7 @@ export function useCoreEvent({ liveRefetch, onConnectionWithServerChanged }: Par
 	)
 
 	const [, dispose] = useGraphQLSubscription(subscription, {
+		enabled,
 		onMessage: (payload) => onPayloadReceived(payload),
 		onConnected: () => {
 			// console.info('Connected to GraphQL subscription')

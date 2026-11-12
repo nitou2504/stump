@@ -54,6 +54,8 @@ export type ApiParams = {
  */
 export const EDGE_SIGN_IN_HEADER = 'x-edge-sign-in'
 export const EDGE_SIGN_IN_PAGE = '/api/_i/signin'
+/** The web app's own sign-in and join screens, which the server's sign-in page sends a visitor to */
+const SIGN_IN_SCREENS = ['/auth', '/join']
 
 function goToSignInWhenTheEdgeAsks(instance: AxiosInstance) {
 	// optional: a test double of axios may have no response interceptors at all
@@ -66,8 +68,11 @@ function goToSignInWhenTheEdgeAsks(instance: AxiosInstance) {
 		if (
 			asked &&
 			location &&
-			// not while already on one of the server's own pages (the sign-in page itself)
-			!location.pathname.startsWith('/api/_i/')
+			// not while already on one of the server's own pages (the sign-in page itself), nor on the
+			// web app's sign-in and join screens: they are where this redirect leads, and going from
+			// them to themselves would loop
+			!location.pathname.startsWith('/api/_i/') &&
+			!SIGN_IN_SCREENS.includes(location.pathname)
 		) {
 			location.assign(EDGE_SIGN_IN_PAGE)
 		}

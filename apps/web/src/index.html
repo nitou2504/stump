@@ -125,8 +125,11 @@
 
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="mobile-web-app-capable" content="yes" />
-		<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-		<link rel="dns-prefetch" href="//cdn.jsdelivr.net" />
+		<!--
+			No preconnect or dns-prefetch to a third party here: this page is also what a visitor with no
+			pass gets, and their browser would contact that site before they have signed in. (It served only
+			the owner's emoji picker, which fetches its data when it opens.)
+		-->
 		<!--
 			Points at the font's source file so the build preloads the same hashed file the bundled
 			font CSS uses; the public /assets/fonts/... copy made browsers download it twice

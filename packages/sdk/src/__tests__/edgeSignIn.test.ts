@@ -69,6 +69,24 @@ describe('the edge asking for a sign-in', () => {
 		expect(assign).not.toHaveBeenCalled()
 	})
 
+	it('does not go round in circles on the web app’s own sign-in and join screens', async () => {
+		for (const pathname of ['/auth', '/join']) {
+			openAt(pathname)
+
+			await expect(
+				apiAnswering(404, { 'x-edge-sign-in': '1' }).axios.get('/anything'),
+			).rejects.toBeTruthy()
+		}
+
+		expect(assign).not.toHaveBeenCalled()
+		// but a page that is not one of them still goes there
+		openAt('/authors')
+		await expect(
+			apiAnswering(404, { 'x-edge-sign-in': '1' }).axios.get('/anything'),
+		).rejects.toBeTruthy()
+		expect(assign).toHaveBeenCalledOnce()
+	})
+
 	it('does not throw where there is a window and no location, as in React Native', async () => {
 		Object.defineProperty(window, 'location', { configurable: true, value: undefined })
 

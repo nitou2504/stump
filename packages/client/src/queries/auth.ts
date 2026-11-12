@@ -33,7 +33,11 @@ export function useAuthQuery({ additionalKeys, ...options }: Params = {}) {
 }
 
 type UseLoginOrRegisterOptions = {
-	onSuccess?: (data?: AuthUser | null | undefined) => void
+	/**
+	 * Called with the signed-in user. `context.isPublic` is true on the public address (through the
+	 * edge), where the screen goes on with a full page load instead of an in-app navigation
+	 */
+	onSuccess?: (data?: AuthUser | null | undefined, context?: { isPublic: boolean }) => void
 	onError?: (data: unknown) => void
 	refetchClaimed?: boolean
 }
@@ -67,6 +71,9 @@ export function useLoginOrRegister({
 		}
 	}, [claimCheck])
 
+	// the request came through the public edge: the sign-in screen shows its short version
+	const isPublic = claimCheck?.data?.isPublic === true
+
 	const {
 		isPending: isLoggingIn,
 		mutateAsync: loginUser,
@@ -81,9 +88,9 @@ export function useLoginOrRegister({
 			if ('forUser' in response && !!onAuthenticated) {
 				const { forUser, ...token } = response
 				await onAuthenticated(forUser, token)
-				onSuccess?.(forUser)
+				onSuccess?.(forUser, { isPublic })
 			} else if (isUser(response)) {
-				onSuccess?.(response)
+				onSuccess?.(response, { isPublic })
 			}
 		},
 	})
@@ -103,6 +110,7 @@ export function useLoginOrRegister({
 		isCheckingClaimed,
 		isClaimed,
 		isLoggingIn,
+		isPublic,
 		isRegistering,
 		loginError,
 		loginUser,

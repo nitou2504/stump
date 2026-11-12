@@ -6,7 +6,6 @@ import {
 	AlertTitle,
 	Button,
 	Form,
-	Heading,
 	Input,
 	PasswordInput,
 } from '@stump/components'
@@ -21,6 +20,9 @@ import { z } from 'zod'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { useAppStore, useUserStore } from '@/stores'
+import { safeRedirect } from '@/utils/safeRedirect'
+
+import AuthLogo from './AuthLogo'
 
 // TODO: redirect away if the user is already logged in
 export default function LoginOrClaimScene() {
@@ -39,23 +41,33 @@ export default function LoginOrClaimScene() {
 	const {
 		isClaimed,
 		isCheckingClaimed,
+		isPublic,
 		loginUser,
 		registerUser,
 		isLoggingIn,
 		isRegistering,
 		loginError,
 	} = useLoginOrRegister({
-		onSuccess: async (user) => {
+		onSuccess: async (user, context) => {
+			// on the public address the page is a visitor's, under a policy that signed-in code must
+			// not run in: go on with a full page load, which takes the pass the sign-in just set and
+			// loads the app as a signed-in one
+			if (context?.isPublic) {
+				window.location.assign(safeRedirect(redirect))
+				return
+			}
 			setUser(user)
 			await queryClient.refetchQueries({
 				queryKey: [sdk.auth.keys.me],
 				exact: false,
 			})
-			if (redirect.includes('/api')) {
+			// only a path of this site is ever followed (`?redirect=` is in the address, so anybody can write it)
+			const target = safeRedirect(redirect)
+			if (target.includes('/api')) {
 				// eslint-disable-next-line react-compiler/react-compiler
-				window.location.href = redirect
+				window.location.href = target
 			} else {
-				navigate(redirect, { replace: true })
+				navigate(target, { replace: true })
 			}
 		},
 		refetchClaimed: !showServers,
@@ -76,11 +88,14 @@ export default function LoginOrClaimScene() {
 			try {
 				await loginUser({ password, username })
 			} catch (error) {
-				console.error('Error logging in:', error)
-				toast.error(t('authScene.toasts.loginFailed'))
+				// on the public screen the reason is shown in the form (see `renderError`)
+				if (!isPublic) {
+					console.error('Error logging in:', error)
+					toast.error(t('authScene.toasts.loginFailed'))
+				}
 			}
 		},
-		[loginUser, t],
+		[isPublic, loginUser, t],
 	)
 
 	const handleSubmit = useCallback(
@@ -108,12 +123,33 @@ export default function LoginOrClaimScene() {
 	const renderError = () => {
 		if (!loginError) return null
 
+		const status = isAxiosError(loginError) ? loginError.response?.status : undefined
+		const message = isAxiosError(loginError) ? messageOf(loginError.response?.data) : undefined
+
+		// The public screen says why, briefly, in the form: nothing is revealed that the server
+		// would not tell anybody (a wrong password and a name that does not exist say the same)
+		if (isPublic) {
+			const text =
+				status === 401
+					? t('authScene.public.wrongCredentials')
+					: status === 429
+						? t('authScene.public.tooMany')
+						: status === 403
+							? message || t('authScene.public.deviceLimit')
+							: t('authScene.public.generic')
+			return (
+				<Alert variant="destructive" className="sm:max-w-md md:max-w-lg" role="alert">
+					<ShieldAlert />
+					<AlertDescription>{text}</AlertDescription>
+				</Alert>
+			)
+		}
+
 		// If the response is a 403, and we are NOT claiming, it is likely because
 		// the account login is disabled (i.e. the account is locked). Additionally,
 		// authentication had to have passed, otherwise we would have gotten a 401. So,
 		// we can safely display the error message from the server.
-		if (isAxiosError(loginError) && loginError.response?.status === 403) {
-			const message = loginError.response?.data as string
+		if (status === 403) {
 			return (
 				<Alert variant="destructive" className="sm:max-w-md md:max-w-lg">
 					<ShieldAlert />
@@ -138,14 +174,9 @@ export default function LoginOrClaimScene() {
 				variants={variants}
 			>
 				<div className="gap-8 p-4 flex h-full w-full flex-col items-center justify-center bg-background">
-					<div className="gap-4 px-2 flex shrink-0 items-center justify-center">
-						<img src="/assets/stump-logo--irregular-256.webp" width="80" height="80" alt="" />
-						<Heading variant="gradient" size="3xl" className="font-bold">
-							Stump
-						</Heading>
-					</div>
+					<AuthLogo />
 
-					{!isClaimed && (
+					{!isPublic && !isClaimed && (
 						<div>
 							<Alert className="sm:w-90" variant="info">
 								<Cake />
@@ -192,7 +223,7 @@ export default function LoginOrClaimScene() {
 							</>
 						)}
 
-						{oidcConfig.enabled && (
+						{!isPublic && oidcConfig.enabled && (
 							<>
 								{!oidcConfig.disableLocalAuth && (
 									<div className="my-1.5 relative">
@@ -218,7 +249,7 @@ export default function LoginOrClaimScene() {
 							</>
 						)}
 
-						{isDesktop && (
+						{!isPublic && isDesktop && (
 							<button
 								className="group p-4 hover:border-opacity-70 flex w-full items-center justify-between border-l border-border transition-colors duration-100 hover:border-border hover:bg-muted/50"
 								type="button"
@@ -230,6 +261,11 @@ export default function LoginOrClaimScene() {
 
 								<ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
 							</button>
+						)}
+						{isPublic && (
+							<p className="text-sm text-center text-muted-foreground">
+								{t('authScene.public.forgot')}
+							</p>
 						)}
 					</Form>
 				</div>
@@ -255,4 +291,17 @@ const variants: Variants = {
 		opacity: 0,
 		scale: 0.8,
 	},
+}
+
+/**
+ * The text of a server's error body. The API's errors are `{status, message}`; an older server (and
+ * some proxies) answer with a bare string
+ */
+function messageOf(data: unknown): string | undefined {
+	if (typeof data === 'string') return data || undefined
+	if (data && typeof data === 'object' && 'message' in data) {
+		const { message } = data as { message?: unknown }
+		return typeof message === 'string' && message ? message : undefined
+	}
+	return undefined
 }
