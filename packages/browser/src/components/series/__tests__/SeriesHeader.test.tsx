@@ -8,10 +8,12 @@ vi.mock('@/hooks/useTranslate', () => ({
 	useTranslate: () => ({ t: (key: string) => key, translate: (key: string) => key }),
 }))
 
-const permissions = vi.hoisted(() => ({ held: new Set<string>() }))
+const permissions = vi.hoisted(() => ({ held: new Set<string>(), isServerOwner: false }))
 vi.mock('@/context', () => ({
 	useAppContext: () => ({
-		checkPermission: (permission: string) => permissions.held.has(permission),
+		isServerOwner: permissions.isServerOwner,
+		checkPermission: (permission: string) =>
+			permissions.isServerOwner || permissions.held.has(permission),
 	}),
 }))
 
@@ -58,8 +60,9 @@ vi.mock('@/components/sharedLayout', () => ({
 	),
 }))
 
-function setup(held: UserPermission[]) {
+function setup(held: UserPermission[], isServerOwner = false) {
 	permissions.held = new Set(held)
+	permissions.isServerOwner = isServerOwner
 	return render(
 		<MemoryRouter>
 			<SeriesHeader />
@@ -68,14 +71,20 @@ function setup(held: UserPermission[]) {
 }
 
 describe('SeriesHeader settings gear', () => {
-	it('is not shown to somebody who cannot edit metadata (the page is only useful with it)', () => {
+	it('is not shown to somebody who is not the server owner (the page is the owner only)', () => {
 		setup([UserPermission.DownloadFile, UserPermission.AddBooks])
 		expect(screen.getByRole('heading', { name: 'Dune' })).toBeInTheDocument()
 		expect(screen.queryByRole('link', { name: 'settings' })).toBeNull()
 	})
 
-	it('is shown to somebody who can edit metadata', () => {
+	it('is not shown to somebody who can edit metadata but is not the owner (the route sends them to /series)', () => {
 		setup([UserPermission.EditMetadata])
+		expect(screen.getByRole('heading', { name: 'Dune' })).toBeInTheDocument()
+		expect(screen.queryByRole('link', { name: 'settings' })).toBeNull()
+	})
+
+	it('is shown to the server owner', () => {
+		setup([], true)
 		expect(screen.getByRole('link', { name: 'settings' })).toHaveAttribute(
 			'href',
 			'/seriesSettings/series',
