@@ -27,13 +27,18 @@ use models::{
 	entity::user::LoginUser,
 	services::{
 		access::{self as service, SignInMark, MAX_AGENT_CHARS},
-		access_policy::{check_password, check_username, USERNAME_MAX_CHARS},
+		access_policy::{
+			check_password, check_username, PasswordProblem, UsernameProblem,
+			USERNAME_MAX_CHARS,
+		},
 		signup::{self, Signup, SignupError},
 	},
 };
 use sea_orm::prelude::*;
 use serde::Deserialize;
+use std::net::IpAddr;
 use stump_core::access::pass::{self, InviteInput};
+use tower_sessions::Session;
 
 use super::{
 	escape_html, invalid_page, page, password_problem, post_is_same_origin,
@@ -100,6 +105,7 @@ pub(crate) async fn page_for_token(
 	state: &AppState,
 	words: &Words,
 	token: &str,
+	spa: bool,
 ) -> Option<Response> {
 	let hash = pass::token_hash(token);
 	let now = Utc::now();
@@ -117,11 +123,176 @@ pub(crate) async fn page_for_token(
 	};
 	let usable = signup::signup_status(&link, now) == signup::SignupStatus::Active
 		&& signup::preset_of(&link).is_some();
-	Some(if usable {
+	Some(if usable && spa {
+		// the web app's own join screen: the token travels in the address's fragment, which no
+		// server ever receives and no Referer carries, and the screen removes it at once
+		page(
+			StatusCode::SEE_OTHER,
+			words,
+			"",
+			&[(header::LOCATION, format!("/join#{token}"))],
+		)
+	} else if usable {
 		join_page(StatusCode::OK, words, token, None, "")
 	} else {
 		invalid_page(words)
 	})
+}
+
+/// What a signup from the internet came to: what the form and the web app's own signup both
+/// answer from
+pub(crate) enum PublicJoin {
+	/// Not a link that can be used (unknown, used up, expired, revoked, or not a link): the same
+	/// answer for all of them
+	Invalid,
+	/// The visitor holds a valid link, so telling them what is wrong reveals nothing to a stranger
+	Username(UsernameProblem),
+	PasswordsDiffer,
+	Password(PasswordProblem),
+	NameTaken,
+	/// The account was made, but its session could not be started: they sign in with it
+	SessionFailed,
+	/// In: the session is started. `pass_cookie` is the whole `Set-Cookie` value of the pass of the
+	/// first device, none when the browser already held a pass (never replaced)
+	Joined {
+		account_id: String,
+		pass_cookie: Option<String>,
+	},
+}
+
+/// The signup itself, behind both doors, from the link on: the link is looked up **before** the
+/// name or the password is looked at, then the rules, the hash (outside the transaction), one
+/// transaction that spends the use and makes the account, its preset and its first device, the
+/// session, the recorded sign-in and the pass. `token` is the link's token (already taken out of
+/// whatever the visitor pasted), `password_again` is what a form's second box held
+pub(crate) async fn join_from_internet(
+	state: &AppState,
+	session: &Session,
+	ip: IpAddr,
+	agent: &str,
+	has_device: bool,
+	token: &str,
+	typed_username: &str,
+	password: &str,
+	password_again: Option<&str>,
+) -> PublicJoin {
+	let Some(settings) = state.config.edge.as_ref() else {
+		return PublicJoin::Invalid;
+	};
+	let Some(key) = settings.usable_key() else {
+		return PublicJoin::Invalid;
+	};
+
+	// 1. the link, before the name or the password is looked at
+	let token_hash = pass::token_hash(token);
+	let now = Utc::now();
+	match signup::peek_signup_link(state.conn.as_ref(), now, &token_hash).await {
+		Ok(Some(_)) => {},
+		Ok(None) => return PublicJoin::Invalid,
+		Err(error) => {
+			tracing::error!(?error, "Signup: could not look the link up");
+			return PublicJoin::Invalid;
+		},
+	}
+
+	// 2. the name and the password
+	let username = match check_username(typed_username) {
+		Ok(username) => username,
+		Err(problem) => return PublicJoin::Username(problem),
+	};
+	if password_again.is_some_and(|again| again != password) {
+		return PublicJoin::PasswordsDiffer;
+	}
+	if let Err(problem) = check_password(password, &username) {
+		return PublicJoin::Password(problem);
+	}
+
+	// 3. the hash, outside the transaction
+	let cost = state.config.password_hash_cost;
+	let password = password.to_string();
+	let hashed_password =
+		match tokio::task::spawn_blocking(move || bcrypt::hash(password, cost)).await {
+			Ok(Ok(hash)) => hash,
+			_ => {
+				tracing::error!("Signup: could not hash the password");
+				return PublicJoin::Invalid;
+			},
+		};
+
+	// 4. the account
+	let ip_text = ip.to_string();
+	let created = match signup::redeem_signup_link(
+		state.conn.as_ref(),
+		now,
+		Signup {
+			token_hash: &token_hash,
+			username: &username,
+			hashed_password,
+			ip: &ip_text,
+			agent: &agent.chars().take(MAX_AGENT_CHARS).collect::<String>(),
+			// a pass that is already in the browser is never replaced
+			make_device: !has_device,
+		},
+	)
+	.await
+	{
+		Ok(created) => created,
+		Err(SignupError::Invalid) => return PublicJoin::Invalid,
+		Err(SignupError::UsernameTaken) => return PublicJoin::NameTaken,
+		Err(SignupError::Db(error)) => {
+			tracing::error!(?error, "Signup: the account could not be made");
+			return PublicJoin::Invalid;
+		},
+	};
+
+	// 5. in: the session, and the pass
+	if let Err(error) =
+		super::signin::start_session(state, session, &created.user.id).await
+	{
+		tracing::error!(
+			?error,
+			"Signup: the account was made but the session was not"
+		);
+		// no pass is sent for the first device, so it would use up one of the person's three for
+		// nothing: it is revoked, as the sign-in page does
+		if let Some(device) = &created.device {
+			let _ = service::revoke_device(
+				state.conn.as_ref(),
+				Utc::now(),
+				&device.id,
+				"system",
+			)
+			.await;
+		}
+		return PublicJoin::SessionFailed;
+	}
+	if let Ok(Some(login)) = LoginUser::find_by_id(created.user.id.clone())
+		.into_model::<LoginUser>()
+		.one(state.conn.as_ref())
+		.await
+	{
+		record_attempt(
+			state.conn.as_ref(),
+			&login,
+			agent.to_string(),
+			ip,
+			true,
+			&SignInMark::counting(
+				created.device.as_ref().map(|device| device.id.clone()),
+				None,
+			),
+		)
+		.await;
+	}
+
+	let pass_cookie = created.device.as_ref().map(|device| {
+		let value = pass::mint_pass(key, &device.id, now.timestamp());
+		pass::pass_cookie_header(&settings.cookie, &value)
+	});
+	PublicJoin::Joined {
+		account_id: created.user.id.clone(),
+		pass_cookie,
+	}
 }
 
 pub(crate) async fn submit(
@@ -140,9 +311,9 @@ pub(crate) async fn submit(
 	let Some(settings) = state.config.edge.as_ref() else {
 		return StatusCode::NOT_FOUND.into_response();
 	};
-	let Some(key) = settings.usable_key() else {
+	if settings.usable_key().is_none() {
 		return StatusCode::NOT_FOUND.into_response();
-	};
+	}
 
 	// 1. the site, the shape and the size of what came: otherwise the generic page
 	let own_origin = host.ok().map(|HostExtractor(details)| details.url());
@@ -159,23 +330,11 @@ pub(crate) async fn submit(
 		return invalid_page(words);
 	}
 
-	// 2. the link, before the name or the password is looked at
+	// 2. what was pasted must be a link's token
 	let Some(InviteInput::Token(token)) = pass::parse_invite_input(&form.t) else {
 		return invalid_page(words);
 	};
-	let token_hash = pass::token_hash(&token);
-	let now = Utc::now();
-	match signup::peek_signup_link(state.conn.as_ref(), now, &token_hash).await {
-		Ok(Some(_)) => {},
-		Ok(None) => return invalid_page(words),
-		Err(error) => {
-			tracing::error!(?error, "Signup: could not look the link up");
-			return invalid_page(words);
-		},
-	}
 
-	// 3. the name and the password: the visitor holds a valid link, so telling them what is wrong
-	// reveals nothing to a stranger
 	let again = |message: &str| {
 		join_page(
 			StatusCode::UNPROCESSABLE_ENTITY,
@@ -185,115 +344,44 @@ pub(crate) async fn submit(
 			&form.username,
 		)
 	};
-	let username = match check_username(&form.username) {
-		Ok(username) => username,
-		Err(problem) => return again(username_problem(words, problem)),
-	};
-	if form.password != form.password2 {
-		return again(words.passwords_differ);
-	}
-	if let Err(problem) = check_password(&form.password, &username) {
-		return again(password_problem(words, problem));
-	}
-
-	// 4. the hash, outside the transaction
-	let cost = state.config.password_hash_cost;
-	let password = form.password.clone();
-	let hashed_password =
-		match tokio::task::spawn_blocking(move || bcrypt::hash(password, cost)).await {
-			Ok(Ok(hash)) => hash,
-			_ => {
-				tracing::error!("Signup: could not hash the password");
-				return invalid_page(words);
-			},
-		};
-
-	// 5. the account
 	let agent = headers
 		.get(header::USER_AGENT)
 		.and_then(|value| value.to_str().ok())
 		.unwrap_or_default()
 		.to_string();
-	let ip_text = ip.to_string();
-	let created = match signup::redeem_signup_link(
-		state.conn.as_ref(),
-		now,
-		Signup {
-			token_hash: &token_hash,
-			username: &username,
-			hashed_password,
-			ip: &ip_text,
-			agent: &agent.chars().take(MAX_AGENT_CHARS).collect::<String>(),
-			// a pass that is already in the browser is never replaced
-			make_device: edge.device.is_none(),
-		},
+	match join_from_internet(
+		&state,
+		&session,
+		ip,
+		&agent,
+		edge.device.is_some(),
+		&token,
+		&form.username,
+		&form.password,
+		Some(&form.password2),
 	)
 	.await
 	{
-		Ok(created) => created,
-		Err(SignupError::Invalid) => return invalid_page(words),
-		Err(SignupError::UsernameTaken) => return again(words.name_taken),
-		Err(SignupError::Db(error)) => {
-			tracing::error!(?error, "Signup: the account could not be made");
-			return invalid_page(words);
-		},
-	};
-
-	// 6. in: the session, and the pass
-	if let Err(error) =
-		super::signin::start_session(&state, &session, &created.user.id).await
-	{
-		tracing::error!(
-			?error,
-			"Signup: the account was made but the session was not"
-		);
-		// no pass is sent for the first device, so it would use up one of the person's three for
-		// nothing: it is revoked, as the sign-in page does
-		if let Some(device) = &created.device {
-			let _ = service::revoke_device(
-				state.conn.as_ref(),
-				Utc::now(),
-				&device.id,
-				"system",
-			)
-			.await;
-		}
+		PublicJoin::Invalid => invalid_page(words),
+		PublicJoin::Username(problem) => again(username_problem(words, problem)),
+		PublicJoin::PasswordsDiffer => again(words.passwords_differ),
+		PublicJoin::Password(problem) => again(password_problem(words, problem)),
+		PublicJoin::NameTaken => again(words.name_taken),
 		// the account exists: send them to sign in with it
-		return page(
+		PublicJoin::SessionFailed => page(
 			StatusCode::SEE_OTHER,
 			words,
 			"",
 			&[(header::LOCATION, "/api/_i/signin".to_string())],
-		);
+		),
+		PublicJoin::Joined { pass_cookie, .. } => {
+			let mut extra = vec![(header::LOCATION, "/".to_string())];
+			if let Some(cookie) = pass_cookie {
+				extra.push((header::SET_COOKIE, cookie));
+			}
+			page(StatusCode::SEE_OTHER, words, "", &extra)
+		},
 	}
-	if let Ok(Some(login)) = LoginUser::find_by_id(created.user.id.clone())
-		.into_model::<LoginUser>()
-		.one(state.conn.as_ref())
-		.await
-	{
-		record_attempt(
-			state.conn.as_ref(),
-			&login,
-			agent,
-			ip,
-			true,
-			&SignInMark::counting(
-				created.device.as_ref().map(|device| device.id.clone()),
-				None,
-			),
-		)
-		.await;
-	}
-
-	let mut extra = vec![(header::LOCATION, "/".to_string())];
-	if let Some(device) = &created.device {
-		let value = pass::mint_pass(key, &device.id, now.timestamp());
-		extra.push((
-			header::SET_COOKIE,
-			pass::pass_cookie_header(&settings.cookie, &value),
-		));
-	}
-	page(StatusCode::SEE_OTHER, words, "", &extra)
 }
 
 #[cfg(test)]

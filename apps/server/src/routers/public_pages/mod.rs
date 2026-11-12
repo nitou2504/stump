@@ -23,6 +23,7 @@ use crate::{
 	middleware::edge::{is_cross_site, origin_of},
 };
 
+pub(crate) mod json;
 pub(crate) mod signin;
 pub(crate) mod signup;
 
@@ -65,6 +66,8 @@ pub(crate) struct Words {
 	pub have_account: &'static str,
 	pub passwords_differ: &'static str,
 	pub name_taken: &'static str,
+	// the account was made but the session could not start (the web app's own join screen)
+	pub account_ready: &'static str,
 }
 
 pub(crate) const ENGLISH: Words = Words {
@@ -95,6 +98,7 @@ pub(crate) const ENGLISH: Words = Words {
 	have_account: "Have an account? Sign in",
 	passwords_differ: "The passwords don't match",
 	name_taken: "That username is taken",
+	account_ready: "Your account is ready. Sign in.",
 };
 
 pub(crate) const SPANISH: Words = Words {
@@ -125,6 +129,7 @@ pub(crate) const SPANISH: Words = Words {
 	have_account: "¿Ya tienes cuenta? Entra",
 	passwords_differ: "Las contraseñas no coinciden",
 	name_taken: "Ese usuario ya existe",
+	account_ready: "Tu cuenta está lista. Entra.",
 };
 
 pub(crate) fn words(headers: &HeaderMap) -> &'static Words {
@@ -405,6 +410,7 @@ mod tests {
 			(ENGLISH.have_account, SPANISH.have_account),
 			(ENGLISH.passwords_differ, SPANISH.passwords_differ),
 			(ENGLISH.name_taken, SPANISH.name_taken),
+			(ENGLISH.account_ready, SPANISH.account_ready),
 		];
 		for (english, spanish) in pairs {
 			assert!(!english.is_empty() && !spanish.is_empty());

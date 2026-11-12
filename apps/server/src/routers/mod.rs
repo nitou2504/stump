@@ -11,7 +11,8 @@ pub(crate) mod public_pages;
 mod spa;
 
 pub(crate) use api::v2::auth::{
-	enforce_max_sessions, record_attempt, track_basic_auth_attempt,
+	auth_user_of, enforce_max_sessions, record_attempt, track_basic_auth_attempt,
+	LoginResponse,
 };
 pub(crate) use spa::relative_favicon_path;
 

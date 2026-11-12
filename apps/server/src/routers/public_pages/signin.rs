@@ -65,8 +65,8 @@ use crate::{
 
 /// The longest username and password the page looks at: more is refused **without hashing**, so a
 /// megabyte "password" costs nothing
-const MAX_USERNAME_CHARS: usize = 64;
-const MAX_PASSWORD_BYTES: usize = 128;
+pub(crate) const MAX_USERNAME_CHARS: usize = 64;
+pub(crate) const MAX_PASSWORD_BYTES: usize = 128;
 
 pub(crate) fn mount(_state: AppState) -> Router<AppState> {
 	Router::new().route("/api/_i/signin", get(show).post(submit))
@@ -138,6 +138,20 @@ async fn show(
 		} else {
 			StatusCode::NOT_FOUND.into_response()
 		};
+	}
+	// the edge serves the web app's own sign-in screen: this address (the one the web app's own
+	// links and an old bookmark point at, and which a cached copy of the app always reaches the
+	// network for) sends the visitor there. The server-made page below is what an older edge, and a
+	// rollback of the edge, show
+	if edge.spa_login {
+		return (
+			StatusCode::SEE_OTHER,
+			[
+				(header::LOCATION, "/auth"),
+				(header::CACHE_CONTROL, "no-store"),
+			],
+		)
+			.into_response();
 	}
 	signin_page(StatusCode::OK, words(&headers), None, "")
 }
