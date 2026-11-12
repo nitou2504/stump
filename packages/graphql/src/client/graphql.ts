@@ -11460,6 +11460,11 @@ export type UpdateUserSceneQueryVariables = Exact<{
 
 export type UpdateUserSceneQuery = { __typename?: 'Query', me: { __typename?: 'User', id: string }, userById?: { __typename?: 'User', id: string, avatarUrl?: string | null, username: string, permissions: Array<UserPermission>, maxSessionsAllowed?: number | null, isServerOwner: boolean, ageRestriction?: { __typename?: 'AgeRestriction', age: number, restrictOnUnset: boolean } | null }, users?: { __typename?: 'PaginatedUserResponse', nodes: Array<{ __typename?: 'User', username: string }> } };
 
+export type UserEditorInternetQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type UserEditorInternetQuery = { __typename?: 'Query', accessPeople: Array<{ __typename?: 'AccessPersonRow', publicSignin: boolean, person: { __typename?: 'AccessPerson', id: string, username: string } }> };
+
 export type ClearLoginActivityConfirmationMutationVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -21518,6 +21523,17 @@ export const UpdateUserSceneDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<UpdateUserSceneQuery, UpdateUserSceneQueryVariables>;
+export const UserEditorInternetDocument = new TypedDocumentString(`
+    query UserEditorInternet {
+  accessPeople {
+    publicSignin
+    person {
+      id
+      username
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<UserEditorInternetQuery, UserEditorInternetQueryVariables>;
 export const ClearLoginActivityConfirmationDocument = new TypedDocumentString(`
     mutation ClearLoginActivityConfirmation {
   deleteLoginActivity

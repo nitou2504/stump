@@ -2207,6 +2207,10 @@
                 "label": "Sincronización con KoReader",
                 "description": "Permite al usuario acceder a la función de sincronización con KoReader"
               }
+            },
+            "internet": {
+              "line": "{{name}} tiene activada la entrada desde internet. Un permiso marcado «No es para internet» se lo impide.",
+              "badge": "No es para internet"
             }
           },
           "validation": {
@@ -3108,6 +3112,14 @@
       },
       "EDIT_METADATA": {
         "label": "Editar metadatos"
+      },
+      "ADD_BOOKS": {
+        "label": "Añadir libros",
+        "description": "Permite subir libros y enviarlos para aprobar (quien gestiona bibliotecas los añade directamente)"
+      },
+      "REMOVE_BOOK": {
+        "label": "Quitar libros",
+        "description": "Permite quitar libros de las bibliotecas"
       }
     },
     "metadataEditor": {

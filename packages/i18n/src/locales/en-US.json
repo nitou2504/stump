@@ -2665,6 +2665,10 @@
                 "label": "Access Smart List Feature",
                 "description": "Allows the user to access smart lists features. Granular permissions are not yet implemented, so this\nincludes permissions to read, create, and update their own lists"
               }
+            },
+            "internet": {
+              "line": "{{name}}'s internet sign-in is on. A permission marked “Not for the internet” keeps them out.",
+              "badge": "Not for the internet"
             }
           },
           "validation": {
@@ -3620,7 +3624,7 @@
       },
       "ADD_BOOKS": {
         "label": "Add Books",
-        "description": "Allows the user to upload books and add them to libraries"
+        "description": "Allows the user to upload books and send them for approval (people who manage libraries add them directly)"
       },
       "SCAN_LIBRARY": {
         "label": "Scan Libraries",

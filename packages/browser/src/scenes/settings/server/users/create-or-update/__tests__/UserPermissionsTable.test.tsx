@@ -20,15 +20,21 @@ vi.mock('@/paths', () => ({
 /** What the form holds, read back by a test */
 let held: UserPermission[] = []
 
-const Subject = () => {
+const Subject = ({
+	internetName,
+	permissions,
+}: {
+	internetName?: string
+	permissions?: UserPermission[]
+}) => {
 	const form = useForm<Pick<CreateOrUpdateUserSchema, 'permissions'>>({
-		defaultValues: formDefaults(),
+		defaultValues: { ...formDefaults(), ...(permissions ? { permissions } : {}) },
 	})
 	held = form.watch('permissions')
 
 	return (
 		<Form form={form} onSubmit={vi.fn()}>
-			<UserPermissionsTable />
+			<UserPermissionsTable internetName={internetName} />
 		</Form>
 	)
 }
@@ -84,5 +90,43 @@ describe('UserPermissionsTable', () => {
 				UserPermission.EditThumbnails,
 			]),
 		)
+	})
+
+	describe('for a person who may sign in from the internet', () => {
+		const LOCALE = 'settingsScene.server/users.createOrUpdateForm.permissions.internet'
+
+		it('marks, on the rows that are ticked, what keeps them off the internet, and says so once above the table', () => {
+			const { container, getAllByText, getByTestId } = render(
+				<Subject
+					internetName="lucia"
+					permissions={[
+						UserPermission.ChangePassword,
+						UserPermission.AddBooks,
+						UserPermission.ManageLibrary,
+					]}
+				/>,
+			)
+
+			expect(getByTestId('permissions-internet-line')).toHaveTextContent(`${LOCALE}.line`)
+			// ManageLibrary (and what it implies) are marked; the friend ones are not
+			const marks = getAllByText(`${LOCALE}.badge`)
+			expect(marks.length).toBeGreaterThanOrEqual(1)
+			const rowOf = (permission: UserPermission) => row(container, permission)?.closest('tr')
+			expect(rowOf(UserPermission.ManageLibrary)).toHaveTextContent(`${LOCALE}.badge`)
+			expect(rowOf(UserPermission.AddBooks)).not.toHaveTextContent(`${LOCALE}.badge`)
+			expect(rowOf(UserPermission.ChangePassword)).not.toHaveTextContent(`${LOCALE}.badge`)
+		})
+
+		it('marks nothing that is not ticked, and nothing at all for a person who is not on the internet', () => {
+			const withInternet = render(
+				<Subject internetName="lucia" permissions={[UserPermission.AddBooks]} />,
+			)
+			expect(withInternet.queryByText(`${LOCALE}.badge`)).toBeNull()
+			withInternet.unmount()
+
+			const without = render(<Subject permissions={[UserPermission.ManageLibrary]} />)
+			expect(without.queryByTestId('permissions-internet-line')).toBeNull()
+			expect(without.queryByText(`${LOCALE}.badge`)).toBeNull()
+		})
 	})
 })

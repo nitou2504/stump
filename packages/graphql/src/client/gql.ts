@@ -460,6 +460,7 @@ type Documents = {
     "\n\tmutation CreateOrUpdateUserFormCreateUser($input: CreateUserInput!) {\n\t\tcreateUser(input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.CreateOrUpdateUserFormCreateUserDocument,
     "\n\tquery CreateUserScene {\n\t\tusers(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.CreateUserSceneDocument,
     "\n\tquery UpdateUserScene($id: ID!, $skip: Boolean!) {\n\t\tme {\n\t\t\tid\n\t\t}\n\t\tuserById(id: $id) @skip(if: $skip) {\n\t\t\tid\n\t\t\tavatarUrl\n\t\t\tusername\n\t\t\tageRestriction {\n\t\t\t\tage\n\t\t\t\trestrictOnUnset\n\t\t\t}\n\t\t\tpermissions\n\t\t\tmaxSessionsAllowed\n\t\t\tisServerOwner\n\t\t}\n\t\tusers(pagination: { none: { unpaginated: true } }) @skip(if: $skip) {\n\t\t\tnodes {\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UpdateUserSceneDocument,
+    "\n\tquery UserEditorInternet {\n\t\taccessPeople {\n\t\t\tpublicSignin\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": typeof types.UserEditorInternetDocument,
     "\n\tmutation ClearLoginActivityConfirmation {\n\t\tdeleteLoginActivity\n\t}\n": typeof types.ClearLoginActivityConfirmationDocument,
     "\n\tquery LoginActivityTable {\n\t\tloginActivity {\n\t\t\tid\n\t\t\tipAddress\n\t\t\tuserAgent\n\t\t\tauthenticationSuccessful\n\t\t\ttimestamp\n\t\t\tuser {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tavatarUrl\n\t\t\t}\n\t\t}\n\t}\n": typeof types.LoginActivityTableDocument,
     "\n\tmutation DeleteUser($id: ID!, $hardDelete: Boolean) {\n\t\tdeleteUser(id: $id, hardDelete: $hardDelete) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.DeleteUserDocument,
@@ -930,6 +931,7 @@ const documents: Documents = {
     "\n\tmutation CreateOrUpdateUserFormCreateUser($input: CreateUserInput!) {\n\t\tcreateUser(input: $input) {\n\t\t\tid\n\t\t}\n\t}\n": types.CreateOrUpdateUserFormCreateUserDocument,
     "\n\tquery CreateUserScene {\n\t\tusers(pagination: { none: { unpaginated: true } }) {\n\t\t\tnodes {\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.CreateUserSceneDocument,
     "\n\tquery UpdateUserScene($id: ID!, $skip: Boolean!) {\n\t\tme {\n\t\t\tid\n\t\t}\n\t\tuserById(id: $id) @skip(if: $skip) {\n\t\t\tid\n\t\t\tavatarUrl\n\t\t\tusername\n\t\t\tageRestriction {\n\t\t\t\tage\n\t\t\t\trestrictOnUnset\n\t\t\t}\n\t\t\tpermissions\n\t\t\tmaxSessionsAllowed\n\t\t\tisServerOwner\n\t\t}\n\t\tusers(pagination: { none: { unpaginated: true } }) @skip(if: $skip) {\n\t\t\tnodes {\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.UpdateUserSceneDocument,
+    "\n\tquery UserEditorInternet {\n\t\taccessPeople {\n\t\t\tpublicSignin\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n": types.UserEditorInternetDocument,
     "\n\tmutation ClearLoginActivityConfirmation {\n\t\tdeleteLoginActivity\n\t}\n": types.ClearLoginActivityConfirmationDocument,
     "\n\tquery LoginActivityTable {\n\t\tloginActivity {\n\t\t\tid\n\t\t\tipAddress\n\t\t\tuserAgent\n\t\t\tauthenticationSuccessful\n\t\t\ttimestamp\n\t\t\tuser {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t\tavatarUrl\n\t\t\t}\n\t\t}\n\t}\n": types.LoginActivityTableDocument,
     "\n\tmutation DeleteUser($id: ID!, $hardDelete: Boolean) {\n\t\tdeleteUser(id: $id, hardDelete: $hardDelete) {\n\t\t\tid\n\t\t}\n\t}\n": types.DeleteUserDocument,
@@ -2735,6 +2737,10 @@ export function graphql(source: "\n\tquery CreateUserScene {\n\t\tusers(paginati
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n\tquery UpdateUserScene($id: ID!, $skip: Boolean!) {\n\t\tme {\n\t\t\tid\n\t\t}\n\t\tuserById(id: $id) @skip(if: $skip) {\n\t\t\tid\n\t\t\tavatarUrl\n\t\t\tusername\n\t\t\tageRestriction {\n\t\t\t\tage\n\t\t\t\trestrictOnUnset\n\t\t\t}\n\t\t\tpermissions\n\t\t\tmaxSessionsAllowed\n\t\t\tisServerOwner\n\t\t}\n\t\tusers(pagination: { none: { unpaginated: true } }) @skip(if: $skip) {\n\t\t\tnodes {\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').UpdateUserSceneDocument;
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n\tquery UserEditorInternet {\n\t\taccessPeople {\n\t\t\tpublicSignin\n\t\t\tperson {\n\t\t\t\tid\n\t\t\t\tusername\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').UserEditorInternetDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
