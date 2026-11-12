@@ -417,10 +417,10 @@
   },
   {
    "method": "GET",
-   "path": "/assets/x y.js",
+   "path": "/assets/x%20y.js",
    "edge": "closed",
    "app": false,
-   "note": "a space"
+   "note": "an escaped space"
   },
   {
    "method": "GET",
