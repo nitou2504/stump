@@ -26,6 +26,13 @@ const query = graphql(`
 
 type Props = EntityOptionProps
 
+/**
+ * Past this many lists the section starts folded, with their number on it (a reader with dozens
+ * of lists would otherwise have the sidebar to themselves): *See all* is then always offered, and
+ * the section is open when the reader is on one of the lists
+ */
+const FOLD_AFTER = 6
+
 export default function SmartListSideBarSection({
 	links = [FilterableArrangementEntityLink.Create],
 }: Props) {
@@ -41,6 +48,8 @@ export default function SmartListSideBarSection({
 	const { prefetch } = usePrefetchSmartList()
 
 	const isCurrentList = (id: string) => location.pathname.startsWith(paths.smartList(id))
+	const isLong = (lists?.length ?? 0) > FOLD_AFTER
+	const isOnAList = (lists ?? []).some(({ id }) => isCurrentList(id))
 
 	const isIconMode = useIsSidebarIconMode()
 	if (isIconMode) {
@@ -95,17 +104,25 @@ export default function SmartListSideBarSection({
 	}
 
 	return (
-		<Accordion type="single" collapsible className="py-1 w-full" defaultValue="smartlists">
+		<Accordion
+			type="single"
+			collapsible
+			className="py-1 w-full"
+			defaultValue={!isLong || isOnAList ? 'smartlists' : undefined}
+		>
 			<Accordion.Item value="smartlists" className="border-none">
 				<Accordion.Trigger
 					noUnderline
 					asLabel
 					className="px-1 py-1 text-sm font-medium tracking-wide text-muted-foreground"
 				>
-					{translate('shared.common.smartLists')}
+					<span>
+						{translate('shared.common.smartLists')}
+						{isLong && <span className="ml-1.5 font-normal opacity-60">{lists?.length}</span>}
+					</span>
 				</Accordion.Trigger>
 				<Accordion.Content containerClassName="flex flex-col space-y-1.5">
-					{links.includes(FilterableArrangementEntityLink.ShowAll) && (
+					{(isLong || links.includes(FilterableArrangementEntityLink.ShowAll)) && (
 						<SideBarButtonLink
 							to={paths.smartLists()}
 							isActive={location.pathname === paths.smartLists()}
