@@ -20,7 +20,6 @@ const myDevicesQuery = graphql(`
 				current
 				createdAt
 				lastSeenAt
-				lastIp
 			}
 		}
 	}
@@ -120,10 +119,8 @@ export function useMyAccessActions() {
 		removeDevice: async (id: string) => (await remove.mutateAsync({ id })).removeMyDevice,
 		createReadingApp: async (label: string) =>
 			(await create.mutateAsync({ label })).createReadingApp,
-		replaceReadingApp: async (id: string) =>
-			(await replace.mutateAsync({ id })).replaceReadingApp,
-		removeReadingApp: async (id: string) =>
-			(await removeApp.mutateAsync({ id })).removeReadingApp,
+		replaceReadingApp: async (id: string) => (await replace.mutateAsync({ id })).replaceReadingApp,
+		removeReadingApp: async (id: string) => (await removeApp.mutateAsync({ id })).removeReadingApp,
 		isPending:
 			rename.isPending ||
 			remove.isPending ||

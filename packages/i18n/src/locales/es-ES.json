@@ -2885,15 +2885,15 @@
           "label": "Nombre del dispositivo",
           "save": "Guardar nombre",
           "cancel": "Cancelar",
-          "start": "Renombrar {{name}}"
+          "start": "Cambiar nombre"
         },
         "remove": "Quitar",
         "removeAndSignOut": "Quitar y cerrar sesión",
         "removed": "{{name}} quitado",
         "count": "Usas {{active}} de {{limit}} dispositivos.",
-        "full": "Usas los {{limit}} dispositivos que puedes. Quita uno para entrar en otro.",
-        "empty": "No hay dispositivos.",
-        "footer": "Puedes usar hasta {{limit}} dispositivos. Las apps de lectura cuentan como dispositivos, e instalar Stump en la pantalla de inicio de un iPhone cuenta como otro.",
+        "full": "Usas tus {{limit}} dispositivos. Para usar otro, quita uno aquí.",
+        "empty": "Aún no hay dispositivos. Entra desde un teléfono, tableta o computadora y aparecerá aquí.",
+        "footer": "Las apps de lectura cuentan como dispositivos. Añadir Stump a la pantalla de inicio del iPhone cuenta como uno más.",
         "confirm": {
           "title": "¿Quitar este dispositivo?",
           "description": "{{name}} dejará de funcionar en unos segundos. Podrás volver a entrar allí si tienes un dispositivo libre.",
@@ -2903,15 +2903,18 @@
         "errors": {
           "rename": "No se pudo cambiar el nombre",
           "remove": "No se pudo quitar el dispositivo"
-        }
+        },
+        "used": "Usado {{when}}",
+        "neverUsed": "Sin usar",
+        "moreActions": "Más acciones de {{name}}"
       },
       "app/readingApps": {
         "helmet": "Apps de lectura",
         "title": "Apps de lectura",
         "description": "Conecta KOReader, un Kobo u otra app de lectura",
-        "intro": "Conecta KOReader, un Kobo o cualquier app de lectura compatible con OPDS. Cada app tiene su propia dirección; la clave va en ella, así que no hay que iniciar sesión allí. Guárdala para ti y reemplázala si se filtra. Cada una cuenta como uno de tus dispositivos.",
+        "intro": "Lee tus libros en KOReader, Kobo u otra app de lectura.",
         "noDownload": "Tu cuenta no puede descargar libros, así que una app de lectura no tendría nada que leer.",
-        "full": "Usas los {{limit}} dispositivos que puedes. Quita uno para añadir una app de lectura.",
+        "full": "Usas tus {{limit}} dispositivos. Quita uno en Mis dispositivos para añadir una app.",
         "name": "Nombre",
         "namePlaceholder": "Mi Kobo",
         "add": "Añadir una app de lectura",
@@ -2924,12 +2927,12 @@
         "lastUsed": "Último uso {{at}}",
         "never": "nunca",
         "steps": {
-          "0": "En KOReader: Buscar → Catálogo OPDS → el botón + y pega la dirección.",
-          "1": "Deja vacíos el usuario y la contraseña.",
-          "2": "Abre el catálogo nuevo para explorar y descargar tus libros."
+          "0": "En la app, añade un catálogo OPDS (KOReader: Buscar → Catálogo OPDS → +).",
+          "1": "Pega esta dirección. Deja usuario y contraseña vacíos.",
+          "2": "Abre el catálogo y descarga tus libros."
         },
         "otherReaders": "En otros lectores, añade un catálogo OPDS con la misma dirección.",
-        "replace": "Reemplazar dirección",
+        "replace": "Nueva dirección",
         "remove": "Quitar",
         "replaced": "{{name}} tiene una dirección nueva; la anterior dejó de funcionar",
         "removed": "{{name}} quitada",
@@ -2942,7 +2945,21 @@
         "errors": {
           "create": "No se pudo añadir la app de lectura",
           "change": "No se pudo cambiar"
-        }
+        },
+        "addTitle": "Añadir una app de lectura",
+        "addressTitle": "Dirección de la app de lectura",
+        "addConfirm": "Añadir",
+        "cancel": "Cancelar",
+        "done": "Listo",
+        "addressFor": "Tu dirección para {{name}}",
+        "showQr": "Ver código QR",
+        "hideQr": "Ocultar código QR",
+        "keepPrivate": "No compartas esta dirección: abre tus libros.",
+        "used": "Usado {{when}}",
+        "neverUsed": "Sin usar",
+        "showAddress": "Ver dirección",
+        "moreActions": "Más acciones de {{name}}",
+        "myDevices": "Mis dispositivos"
       }
     },
     "jobOverlay": {

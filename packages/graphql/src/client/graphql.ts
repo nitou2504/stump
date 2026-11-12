@@ -10661,7 +10661,7 @@ export type DeleteApiKeyConfirmModalMutation = { __typename?: 'Mutation', delete
 export type MyDevicesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MyDevicesQuery = { __typename?: 'Query', myDevices: { __typename?: 'MyDevices', active: number, limit: number, devices: Array<{ __typename?: 'MyDevice', id: string, label: string, kind: AccessDeviceKind, current: boolean, createdAt: any, lastSeenAt?: any | null, lastIp: string }> } };
+export type MyDevicesQuery = { __typename?: 'Query', myDevices: { __typename?: 'MyDevices', active: number, limit: number, devices: Array<{ __typename?: 'MyDevice', id: string, label: string, kind: AccessDeviceKind, current: boolean, createdAt: any, lastSeenAt?: any | null }> } };
 
 export type MyReadingAppsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -20209,7 +20209,6 @@ export const MyDevicesDocument = new TypedDocumentString(`
       current
       createdAt
       lastSeenAt
-      lastIp
     }
   }
 }

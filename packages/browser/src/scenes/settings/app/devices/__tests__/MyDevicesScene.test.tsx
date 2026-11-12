@@ -7,7 +7,10 @@ import { sent, setup } from '@/scenes/settings/server/access/__tests__/support'
 
 import MyDevicesScene from '../MyDevicesScene'
 
-vi.mock('@/hooks/useTranslate', () => import('@/scenes/settings/server/access/__tests__/translations'))
+vi.mock(
+	'@/hooks/useTranslate',
+	() => import('@/scenes/settings/server/access/__tests__/translations'),
+)
 vi.mock('react-helmet', () => ({ Helmet: () => null }))
 vi.mock('@/components/container', () => ({
 	SceneContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -29,7 +32,12 @@ const device = (id: string, label: string, extra: Record<string, unknown> = {}) 
 	...extra,
 })
 
-function renderScene({ devices, active = devices.length, limit = 3, removed = true }: {
+function renderScene({
+	devices,
+	active = devices.length,
+	limit = 3,
+	removed = true,
+}: {
 	devices: ReturnType<typeof device>[]
 	active?: number
 	limit?: number
@@ -47,6 +55,18 @@ function renderScene({ devices, active = devices.length, limit = 3, removed = tr
 	})
 	render(<MyDevicesScene />, { wrapper: app.Wrapper })
 	return app
+}
+
+/** Opens the menu of a device and picks one of its entries */
+async function choose(
+	user: ReturnType<typeof userEvent.setup>,
+	id: string,
+	name: string,
+	entry: string,
+) {
+	const row = await screen.findByTestId(`my-device-${id}`)
+	await user.click(within(row).getByRole('button', { name: `${K('moreActions')} name=${name}` }))
+	await user.click(await screen.findByRole('menuitem', { name: entry }))
 }
 
 describe('My devices', () => {
@@ -76,27 +96,38 @@ describe('My devices', () => {
 		const current = await screen.findByTestId('my-device-a')
 		expect(within(current).getByText(K('thisDevice'))).toBeInTheDocument()
 		expect(within(current).getByText(K('kind.browser'))).toBeInTheDocument()
-		expect(within(current).getByRole('button', { name: K('removeAndSignOut') })).toBeInTheDocument()
+		expect(current.textContent).toContain(`${K('used')} when=`)
 		const kobo = screen.getByTestId('my-device-b')
 		expect(within(kobo).getByText(K('kind.readingApp'))).toBeInTheDocument()
 		expect(within(kobo).queryByText(K('thisDevice'))).toBeNull()
-		expect(kobo.textContent).toContain(`${K('detail')} last=${K('never')} ip=198.51.100.7`)
-		expect(screen.getByTestId('my-devices-count')).toHaveTextContent(`${K('count')} active=2 limit=3`)
+		expect(kobo.textContent).toContain(K('neverUsed'))
+		expect(screen.getByTestId('my-devices-count')).toHaveTextContent(
+			`${K('count')} active=2 limit=3`,
+		)
 		expect(screen.queryByTestId('my-devices-full')).toBeNull()
+		// no address: it means nothing to a person
+		expect(document.body.textContent).not.toContain('198.51.100.7')
+		// each row has one button, the menu
+		expect(within(current).getAllByRole('button')).toHaveLength(1)
 	})
 
 	it('says so when every device is in use', async () => {
-		renderScene({ devices: [device('a', 'One'), device('b', 'Two'), device('c', 'Three')], limit: 3 })
+		renderScene({
+			devices: [device('a', 'One'), device('b', 'Two'), device('c', 'Three')],
+			limit: 3,
+		})
 
 		expect(await screen.findByTestId('my-devices-full')).toHaveTextContent(`${K('full')} limit=3`)
+		// the count is said once: the full line is the count
+		expect(screen.queryByTestId('my-devices-count')).toBeNull()
 	})
 
 	it('renames a device, trimming the name', async () => {
 		const { execute } = renderScene({ devices: [device('a', 'Chrome on Android')] })
 		const user = userEvent.setup()
 
-		const card = await screen.findByTestId('my-device-a')
-		await user.click(within(card).getByRole('button', { name: `${K('rename.start')} name=Chrome on Android` }))
+		await choose(user, 'a', 'Chrome on Android', K('rename.start'))
+		const card = screen.getByTestId('my-device-a')
 		const field = within(card).getByLabelText(K('rename.label'))
 		await user.clear(field)
 		await user.type(field, '  Kitchen tablet ')
@@ -113,11 +144,11 @@ describe('My devices', () => {
 		})
 		const user = userEvent.setup()
 
-		await user.click(
-			within(await screen.findByTestId('my-device-b')).getByRole('button', { name: K('remove') }),
-		)
+		await choose(user, 'b', 'Old laptop', K('remove'))
 		const dialog = await screen.findByRole('alertdialog')
-		expect(within(dialog).getByText(`${K('confirm.description')} name=Old laptop`)).toBeInTheDocument()
+		expect(
+			within(dialog).getByText(`${K('confirm.description')} name=Old laptop`),
+		).toBeInTheDocument()
 		await user.click(within(dialog).getByRole('button', { name: K('remove') }))
 
 		await waitFor(() => expect(sent(execute, 'RemoveMyDevice')).toEqual([{ id: 'b' }]))
@@ -126,14 +157,12 @@ describe('My devices', () => {
 	})
 
 	it('removes the device in use and goes to the sign-in page by address, the session being gone', async () => {
-		const { execute } = renderScene({ devices: [device('a', 'Chrome on Android', { current: true })] })
+		const { execute } = renderScene({
+			devices: [device('a', 'Chrome on Android', { current: true })],
+		})
 		const user = userEvent.setup()
 
-		await user.click(
-			within(await screen.findByTestId('my-device-a')).getByRole('button', {
-				name: K('removeAndSignOut'),
-			}),
-		)
+		await choose(user, 'a', 'Chrome on Android', K('removeAndSignOut'))
 		const dialog = await screen.findByRole('alertdialog')
 		expect(within(dialog).getByText(K('confirm.currentTitle'))).toBeInTheDocument()
 		await user.click(within(dialog).getByRole('button', { name: K('removeAndSignOut') }))
@@ -146,13 +175,11 @@ describe('My devices', () => {
 		renderScene({ devices: [device('a', 'Chrome on Android', { current: true })], removed: false })
 		const user = userEvent.setup()
 
+		await choose(user, 'a', 'Chrome on Android', K('removeAndSignOut'))
 		await user.click(
-			within(await screen.findByTestId('my-device-a')).getByRole('button', {
+			within(await screen.findByRole('alertdialog')).getByRole('button', {
 				name: K('removeAndSignOut'),
 			}),
-		)
-		await user.click(
-			within(await screen.findByRole('alertdialog')).getByRole('button', { name: K('removeAndSignOut') }),
 		)
 
 		await waitFor(() => expect(toast.error).toHaveBeenCalledWith(K('errors.remove')))

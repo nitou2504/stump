@@ -347,7 +347,7 @@ type Documents = {
     "\n\tquery APIKeyTable {\n\t\tapiKeys {\n\t\t\tid\n\t\t\tname\n\t\t\tpermissions {\n\t\t\t\t__typename\n\t\t\t\t... on UserPermissionStruct {\n\t\t\t\t\tvalue\n\t\t\t\t}\n\t\t\t}\n\t\t\tlastUsedAt\n\t\t\texpiresAt\n\t\t\tcreatedAt\n\t\t}\n\t}\n": typeof types.ApiKeyTableDocument,
     "\n\tmutation CreateAPIKeyModal($input: ApikeyInput!) {\n\t\tcreateApiKey(input: $input) {\n\t\t\tapiKey {\n\t\t\t\tid\n\t\t\t}\n\t\t\tsecret\n\t\t}\n\t}\n": typeof types.CreateApiKeyModalDocument,
     "\n\tmutation DeleteAPIKeyConfirmModal($id: Int!) {\n\t\tdeleteApiKey(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": typeof types.DeleteApiKeyConfirmModalDocument,
-    "\n\tquery MyDevices {\n\t\tmyDevices {\n\t\t\tactive\n\t\t\tlimit\n\t\t\tdevices {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tkind\n\t\t\t\tcurrent\n\t\t\t\tcreatedAt\n\t\t\t\tlastSeenAt\n\t\t\t\tlastIp\n\t\t\t}\n\t\t}\n\t}\n": typeof types.MyDevicesDocument,
+    "\n\tquery MyDevices {\n\t\tmyDevices {\n\t\t\tactive\n\t\t\tlimit\n\t\t\tdevices {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tkind\n\t\t\t\tcurrent\n\t\t\t\tcreatedAt\n\t\t\t\tlastSeenAt\n\t\t\t}\n\t\t}\n\t}\n": typeof types.MyDevicesDocument,
     "\n\tquery MyReadingApps {\n\t\tmyReadingApps {\n\t\t\tid\n\t\t\tlabel\n\t\t\turl\n\t\t\tcreatedAt\n\t\t\tlastSeenAt\n\t\t}\n\t}\n": typeof types.MyReadingAppsDocument,
     "\n\tmutation RenameMyDevice($id: ID!, $label: String!) {\n\t\trenameMyDevice(id: $id, label: $label) {\n\t\t\tid\n\t\t\tlabel\n\t\t}\n\t}\n": typeof types.RenameMyDeviceDocument,
     "\n\tmutation RemoveMyDevice($id: ID!) {\n\t\tremoveMyDevice(id: $id)\n\t}\n": typeof types.RemoveMyDeviceDocument,
@@ -817,7 +817,7 @@ const documents: Documents = {
     "\n\tquery APIKeyTable {\n\t\tapiKeys {\n\t\t\tid\n\t\t\tname\n\t\t\tpermissions {\n\t\t\t\t__typename\n\t\t\t\t... on UserPermissionStruct {\n\t\t\t\t\tvalue\n\t\t\t\t}\n\t\t\t}\n\t\t\tlastUsedAt\n\t\t\texpiresAt\n\t\t\tcreatedAt\n\t\t}\n\t}\n": types.ApiKeyTableDocument,
     "\n\tmutation CreateAPIKeyModal($input: ApikeyInput!) {\n\t\tcreateApiKey(input: $input) {\n\t\t\tapiKey {\n\t\t\t\tid\n\t\t\t}\n\t\t\tsecret\n\t\t}\n\t}\n": types.CreateApiKeyModalDocument,
     "\n\tmutation DeleteAPIKeyConfirmModal($id: Int!) {\n\t\tdeleteApiKey(id: $id) {\n\t\t\tid\n\t\t}\n\t}\n": types.DeleteApiKeyConfirmModalDocument,
-    "\n\tquery MyDevices {\n\t\tmyDevices {\n\t\t\tactive\n\t\t\tlimit\n\t\t\tdevices {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tkind\n\t\t\t\tcurrent\n\t\t\t\tcreatedAt\n\t\t\t\tlastSeenAt\n\t\t\t\tlastIp\n\t\t\t}\n\t\t}\n\t}\n": types.MyDevicesDocument,
+    "\n\tquery MyDevices {\n\t\tmyDevices {\n\t\t\tactive\n\t\t\tlimit\n\t\t\tdevices {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tkind\n\t\t\t\tcurrent\n\t\t\t\tcreatedAt\n\t\t\t\tlastSeenAt\n\t\t\t}\n\t\t}\n\t}\n": types.MyDevicesDocument,
     "\n\tquery MyReadingApps {\n\t\tmyReadingApps {\n\t\t\tid\n\t\t\tlabel\n\t\t\turl\n\t\t\tcreatedAt\n\t\t\tlastSeenAt\n\t\t}\n\t}\n": types.MyReadingAppsDocument,
     "\n\tmutation RenameMyDevice($id: ID!, $label: String!) {\n\t\trenameMyDevice(id: $id, label: $label) {\n\t\t\tid\n\t\t\tlabel\n\t\t}\n\t}\n": types.RenameMyDeviceDocument,
     "\n\tmutation RemoveMyDevice($id: ID!) {\n\t\tremoveMyDevice(id: $id)\n\t}\n": types.RemoveMyDeviceDocument,
@@ -2286,7 +2286,7 @@ export function graphql(source: "\n\tmutation DeleteAPIKeyConfirmModal($id: Int!
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n\tquery MyDevices {\n\t\tmyDevices {\n\t\t\tactive\n\t\t\tlimit\n\t\t\tdevices {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tkind\n\t\t\t\tcurrent\n\t\t\t\tcreatedAt\n\t\t\t\tlastSeenAt\n\t\t\t\tlastIp\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').MyDevicesDocument;
+export function graphql(source: "\n\tquery MyDevices {\n\t\tmyDevices {\n\t\t\tactive\n\t\t\tlimit\n\t\t\tdevices {\n\t\t\t\tid\n\t\t\t\tlabel\n\t\t\t\tkind\n\t\t\t\tcurrent\n\t\t\t\tcreatedAt\n\t\t\t\tlastSeenAt\n\t\t\t}\n\t\t}\n\t}\n"): typeof import('./graphql').MyDevicesDocument;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

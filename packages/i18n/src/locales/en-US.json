@@ -3332,15 +3332,15 @@
           "label": "Device name",
           "save": "Save name",
           "cancel": "Cancel",
-          "start": "Rename {{name}}"
+          "start": "Rename"
         },
         "remove": "Remove",
         "removeAndSignOut": "Remove and sign out",
         "removed": "{{name}} removed",
-        "count": "You use {{active}} of {{limit}} devices.",
-        "full": "You use all {{limit}} of your devices. Remove one to sign in on another.",
-        "empty": "No devices.",
-        "footer": "You can use up to {{limit}} devices. Reading apps count as devices, and installing Stump on an iPhone's home screen counts as another one.",
+        "count": "You're using {{active}} of {{limit}} devices.",
+        "full": "You're using all {{limit}} devices. To use a new one, remove one here.",
+        "empty": "No devices yet. Sign in from a phone, tablet or computer and it shows up here.",
+        "footer": "Reading apps count as devices. Adding Stump to an iPhone home screen counts as one more.",
         "confirm": {
           "title": "Remove this device?",
           "description": "{{name}} will stop working within seconds. You can sign in there again if you have a free device.",
@@ -3350,15 +3350,18 @@
         "errors": {
           "rename": "The name could not be changed",
           "remove": "The device could not be removed"
-        }
+        },
+        "used": "Used {{when}}",
+        "neverUsed": "Never used",
+        "moreActions": "More actions for {{name}}"
       },
       "app/readingApps": {
         "helmet": "Reading apps",
         "title": "Reading apps",
         "description": "Connect KOReader, a Kobo or another reading app",
-        "intro": "Connect KOReader, a Kobo or any reading app that supports OPDS. Each app gets its own address; the key is part of it, so you don't sign in there. Keep it to yourself, and replace it if it leaks. Each one counts as one of your devices.",
+        "intro": "Read your books in KOReader, Kobo or another reading app.",
         "noDownload": "Your account can't download books, so a reading app would have nothing to read.",
-        "full": "You use all {{limit}} of your devices. Remove one to add a reading app.",
+        "full": "You're using all {{limit}} devices. Remove one in My devices to add an app.",
         "name": "Name",
         "namePlaceholder": "My Kobo",
         "add": "Add a reading app",
@@ -3371,12 +3374,12 @@
         "lastUsed": "Last used {{at}}",
         "never": "never",
         "steps": {
-          "0": "In KOReader: Search → OPDS catalog → the + button, and paste the address.",
-          "1": "Leave the username and password empty.",
-          "2": "Open the new catalog to browse and download your books."
+          "0": "In the app, add an OPDS catalog (KOReader: Search → OPDS catalog → +).",
+          "1": "Paste this address. Leave user and password empty.",
+          "2": "Open the catalog and download your books."
         },
         "otherReaders": "In other readers, add an OPDS catalog with the same address.",
-        "replace": "Replace address",
+        "replace": "New address",
         "remove": "Remove",
         "replaced": "{{name}} has a new address; the old one stopped working",
         "removed": "{{name}} removed",
@@ -3389,7 +3392,21 @@
         "errors": {
           "create": "The reading app could not be added",
           "change": "That could not be changed"
-        }
+        },
+        "addTitle": "Add a reading app",
+        "addressTitle": "Reading app address",
+        "addConfirm": "Add",
+        "cancel": "Cancel",
+        "done": "Done",
+        "addressFor": "Your address for {{name}}",
+        "showQr": "Show QR code",
+        "hideQr": "Hide QR code",
+        "keepPrivate": "Keep this address to yourself: it opens your books.",
+        "used": "Used {{when}}",
+        "neverUsed": "Never used",
+        "showAddress": "Show address",
+        "moreActions": "More actions for {{name}}",
+        "myDevices": "My devices"
       }
     },
     "jobOverlay": {
