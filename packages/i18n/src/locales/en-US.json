@@ -3401,6 +3401,14 @@
         "signOut": "Sign Out"
       }
     },
+    "pagination": {
+      "page": "Page",
+      "ofPages": "of {{pages}}",
+      "previous": "Previous page",
+      "next": "Next page",
+      "perPage": "per page",
+      "booksPerPage": "Books per page"
+    },
     "globalSearch": {
       "label": "Search the library",
       "title": "Search",

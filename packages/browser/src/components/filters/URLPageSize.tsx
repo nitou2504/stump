@@ -1,9 +1,12 @@
 import { Input, Text } from '@stump/components'
 import { useCallback, useEffect, useState } from 'react'
 
+import { useTranslate } from '@/hooks/useTranslate'
+
 import { useURLPageParams } from './useFilterScene'
 
 export default function URLPageSize() {
+	const { t } = useTranslate()
 	const { pageSize, setPageSize } = useURLPageParams()
 	const [inputPageSize, setInputPageSize] = useState<number | undefined>(pageSize)
 
@@ -32,13 +35,13 @@ export default function URLPageSize() {
 				type="number"
 				size="sm"
 				className="h-7 w-7 p-0 text-xs sm:h-6 sm:w-6 pointer-coarse:size-10 [appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-				aria-label="Books per page"
+				aria-label={t('pagination.booksPerPage')}
 				value={inputPageSize ?? ''}
 				onChange={handleInputChange}
 				min={1}
 			/>
 			<Text size="sm" variant="muted" className="inline-flex shrink-0">
-				per page
+				{t('pagination.perPage')}
 			</Text>
 		</form>
 	)

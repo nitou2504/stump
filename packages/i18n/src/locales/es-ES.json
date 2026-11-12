@@ -2953,6 +2953,14 @@
         "signOut": "Cerrar sesión"
       }
     },
+    "pagination": {
+      "page": "Página",
+      "ofPages": "de {{pages}}",
+      "previous": "Página anterior",
+      "next": "Página siguiente",
+      "perPage": "por página",
+      "booksPerPage": "Libros por página"
+    },
     "globalSearch": {
       "label": "Buscar en la biblioteca",
       "title": "Buscar",
