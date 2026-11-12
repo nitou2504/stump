@@ -17,6 +17,7 @@ import { useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
+import { useTranslate } from '@/hooks/useTranslate'
 
 import AcceptAllSheet from './AcceptAllSheet'
 import { useIntakeActions, useIntakeInbox, useIntakeLimits, useIntakeUploader } from './hooks'
@@ -39,6 +40,7 @@ const FILED_SHOWN = 10
  * note, what needs a look, what is ready, then what is with the approver and what is in.
  */
 export default function IntakeScene() {
+	const { t } = useTranslate()
 	const [params, setParams] = useSearchParams()
 	const { data: librariesData } = useGraphQL(intakeLibrariesQuery, ['intakeLibraries'])
 	const libraries = useMemo(() => librariesData?.intakeLibraries ?? [], [librariesData])
@@ -119,26 +121,31 @@ export default function IntakeScene() {
 	return (
 		<>
 			<Helmet>
-				<title>Stump | Add books</title>
+				<title>Stump | {t('intakeScene.title')}</title>
 			</Helmet>
 
 			<CollectionSceneHeader
-				title="Add books"
+				title={t('intakeScene.title')}
 				stats={[
 					{
 						key: 'review',
 						icon: ClipboardCheck,
 						value: groups.toReview.length,
-						suffix: ' need your details',
+						suffix: ` ${t('intakeScene.statReview')}`,
 					},
-					{ key: 'ready', icon: CheckCircle2, value: groups.ready.length, suffix: ' ready' },
+					{
+						key: 'ready',
+						icon: CheckCircle2,
+						value: groups.ready.length,
+						suffix: ` ${t('intakeScene.statReady')}`,
+					},
 					...(friend && groups.waiting.length
 						? [
 								{
 									key: 'waiting',
 									icon: Hourglass,
 									value: groups.waiting.length,
-									suffix: ' waiting',
+									suffix: ` ${t('intakeScene.statWaiting')}`,
 								},
 							]
 						: []),
@@ -148,17 +155,15 @@ export default function IntakeScene() {
 			<SceneContainer className="gap-6 max-w-5xl mx-auto">
 				<div className="gap-3 flex flex-col">
 					{friend && (
-						<p className="text-sm text-muted-foreground">
-							Whoever runs this library looks over your books before they join it.
-						</p>
+						<p className="text-sm text-muted-foreground">{t('intakeScene.friendIntro')}</p>
 					)}
 					{limits?.quotaApplies && <InboxUsage limits={limits} />}
 					{uploadsClosed && (
 						<Alert variant="warning">
 							<CircleAlert />
-							<AlertTitle>Uploads are closed</AlertTitle>
+							<AlertTitle>{t('intakeScene.closed')}</AlertTitle>
 							<AlertDescription>
-								{limits?.closedReason || 'You can’t add books right now.'}
+								{limits?.closedReason || t('intakeScene.closedNow')}
 							</AlertDescription>
 						</Alert>
 					)}
@@ -183,12 +188,16 @@ export default function IntakeScene() {
 						}
 					/>
 					{!libraryId && !isLoading && (
-						<p className="text-sm text-muted-foreground">You can’t add books to any library yet.</p>
+						<p className="text-sm text-muted-foreground">{t('intakeScene.noLibrary')}</p>
 					)}
 				</div>
 
 				{groups.analysing.length > 0 && (
-					<Section title="Being read" icon={Loader2} count={groups.analysing.length}>
+					<Section
+						title={t('intakeScene.beingRead')}
+						icon={Loader2}
+						count={groups.analysing.length}
+					>
 						<RowList>
 							{groups.analysing.map((item) => (
 								<AnalysingRow key={item.id} item={item} />
@@ -199,10 +208,10 @@ export default function IntakeScene() {
 
 				{mode && groups.sentBack.length > 0 && (
 					<Section
-						title="Sent back"
+						title={t('intakeScene.sentBack')}
 						icon={MessageSquareWarning}
 						count={groups.sentBack.length}
-						description="Change what they ask for, then send them again"
+						description={t('intakeScene.sentBackHelp')}
 					>
 						<div className="gap-4 flex flex-col">
 							{groups.sentBack.map((item) => (
@@ -213,7 +222,11 @@ export default function IntakeScene() {
 				)}
 
 				{mode && groups.toReview.length > 0 && (
-					<Section title="Needs your details" icon={ClipboardCheck} count={groups.toReview.length}>
+					<Section
+						title={t('intakeScene.needsDetails')}
+						icon={ClipboardCheck}
+						count={groups.toReview.length}
+					>
 						<div className="gap-4 flex flex-col">
 							{groups.toReview.map((item) => (
 								<IntakeItemCard key={item.id} item={item} {...cardProps} />
@@ -224,13 +237,14 @@ export default function IntakeScene() {
 
 				{mode && groups.ready.length > 0 && (
 					<Section
-						title={friend ? 'Ready to send' : 'Ready to add'}
+						title={t(friend ? 'intakeScene.readyToSend' : 'intakeScene.readyToAdd')}
 						icon={friend ? Send : CheckCircle2}
 						count={groups.ready.length}
 						action={
 							readyIds.length > 0 && (
 								<Button size="sm" onClick={() => setConfirmingAll(true)} disabled={busy}>
-									{friend ? 'Send all ready' : 'Add all ready'} ({readyIds.length})
+									{t(friend ? 'intakeScene.sendAllReady' : 'intakeScene.addAllReady')} (
+									{readyIds.length})
 								</Button>
 							)
 						}
@@ -245,10 +259,10 @@ export default function IntakeScene() {
 
 				{groups.waiting.length > 0 && (
 					<Section
-						title="Waiting for approval"
+						title={t('intakeScene.waiting')}
 						icon={Hourglass}
 						count={groups.waiting.length}
-						description="You can take a book back to change it until it is approved"
+						description={t('intakeScene.waitingHelp')}
 					>
 						<RowList>
 							{groups.waiting.map((item) => (
@@ -264,7 +278,7 @@ export default function IntakeScene() {
 				)}
 
 				{groups.filing.length > 0 && (
-					<Section title="Being added" icon={Loader2} count={groups.filing.length}>
+					<Section title={t('intakeScene.beingAdded')} icon={Loader2} count={groups.filing.length}>
 						<RowList>
 							{groups.filing.map((item) => (
 								<WaitingRow
@@ -284,7 +298,7 @@ export default function IntakeScene() {
 				)}
 
 				{groups.filed.length > 0 && (
-					<Section title="Added" icon={CheckCircle2} count={groups.filed.length}>
+					<Section title={t('intakeScene.added')} icon={CheckCircle2} count={groups.filed.length}>
 						<RowList>
 							{filed.map((item) => (
 								<FiledRow key={item.id} item={item} now={now} />
@@ -292,7 +306,9 @@ export default function IntakeScene() {
 						</RowList>
 						{groups.filed.length > FILED_SHOWN && (
 							<Button variant="ghost" size="sm" onClick={() => setShowAllFiled((v) => !v)}>
-								{showAllFiled ? 'Show fewer' : `Show all ${groups.filed.length}`}
+								{showAllFiled
+									? t('intakeScene.showFewer')
+									: t('intakeScene.showAll', { count: groups.filed.length })}
 							</Button>
 						)}
 					</Section>
@@ -370,19 +386,20 @@ function useNow() {
 
 /** Nothing in the inbox: what happens to a book, in three steps */
 function EmptyInbox({ friend }: { friend: boolean }) {
+	const { t } = useTranslate()
 	const steps = [
-		{ icon: Upload, label: 'Drop your books' },
-		{ icon: ClipboardCheck, label: 'Check the details' },
+		{ icon: Upload, label: t('intakeScene.stepDrop') },
+		{ icon: ClipboardCheck, label: t('intakeScene.stepCheck') },
 		friend
-			? { icon: Send, label: 'Send them for approval' }
-			: { icon: Library, label: 'Add them to the library' },
+			? { icon: Send, label: t('intakeScene.stepSend') }
+			: { icon: Library, label: t('intakeScene.stepAdd') },
 	]
 	return (
 		<div className="gap-4 py-6 flex flex-col items-center text-center">
-			<p className="text-sm text-muted-foreground">Your inbox is empty.</p>
+			<p className="text-sm text-muted-foreground">{t('intakeScene.empty')}</p>
 			<ol
 				className="gap-x-6 gap-y-3 text-sm sm:flex-row flex flex-col items-center text-muted-foreground"
-				aria-label="How adding books works"
+				aria-label={t('intakeScene.howItWorks')}
 			>
 				{steps.map(({ icon: Icon, label }) => (
 					<li key={label} className="gap-2 flex items-center">
@@ -399,17 +416,30 @@ function EmptyInbox({ friend }: { friend: boolean }) {
 
 /** How much of their inbox somebody who needs approval has used: room, and books */
 function InboxUsage({ limits }: { limits: IntakeLimitsData }) {
+	const { t } = useTranslate()
 	const room =
 		limits.quotaBytes > 0 ? Math.min(100, (limits.usedBytes * 100) / limits.quotaBytes) : 0
 	const full = limits.usedBytes >= limits.quotaBytes || limits.openItems >= limits.maxItems
+	// nothing to say until the inbox is nearly full: the numbers are not what the person came for
+	const almost = room >= 80 || (limits.maxItems > 0 && limits.openItems >= limits.maxItems * 0.8)
+	if (!almost) return null
 	return (
-		<div className="gap-1.5 text-xs flex flex-col text-muted-foreground" aria-label="Your inbox">
+		<div
+			className="gap-1.5 text-xs flex flex-col text-muted-foreground"
+			aria-label={t('intakeScene.inboxAlmostFull', {
+				used: formatBytes(limits.usedBytes),
+				total: formatBytes(limits.quotaBytes),
+			})}
+		>
 			<div className="gap-x-3 flex flex-wrap justify-between">
 				<span>
-					Your inbox: {formatBytes(limits.usedBytes)} of {formatBytes(limits.quotaBytes)}
+					{t('intakeScene.inboxAlmostFull', {
+						used: formatBytes(limits.usedBytes),
+						total: formatBytes(limits.quotaBytes),
+					})}
 				</span>
 				<span className={cn(full && 'text-warning')}>
-					{limits.openItems} of {limits.maxItems} books
+					{t('intakeScene.inboxBooks', { open: limits.openItems, max: limits.maxItems })}
 				</span>
 			</div>
 			<ProgressBar value={Math.round(room)} size="sm" />

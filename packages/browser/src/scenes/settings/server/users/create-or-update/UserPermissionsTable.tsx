@@ -1,4 +1,4 @@
-import { CheckBox, Heading, Link, Text } from '@stump/components'
+import { Badge, CheckBox, Heading, Link, Text } from '@stump/components'
 import { UserPermission } from '@stump/graphql'
 import { createColumnHelper, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { useCallback, useEffect, useMemo } from 'react'
@@ -6,10 +6,19 @@ import { useFormContext, useWatch } from 'react-hook-form'
 
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
+import { FRIEND_PERMISSIONS } from '@/scenes/settings/server/access/permissions'
 
 import { CreateOrUpdateUserSchema } from './schema'
 
-export default function UserPermissionsTable() {
+type Props = {
+	/**
+	 * The username, when this person may sign in from the internet (Public access). A permission a
+	 * friend may not have keeps them out, so those are marked and the table says so
+	 */
+	internetName?: string
+}
+
+export default function UserPermissionsTable({ internetName }: Props) {
 	const paths = usePaths()
 	const { t } = useTranslate()
 
@@ -109,6 +118,11 @@ export default function UserPermissionsTable() {
 				<Text size="sm" variant="muted" className="mt-1">
 					{renderDescription()}
 				</Text>
+				{internetName && (
+					<Text size="sm" className="mt-2" data-testid="permissions-internet-line">
+						{t(getLocaleKey('internet.line'), { name: internetName })}
+					</Text>
+				)}
 			</div>
 			{/*relative position fixes a really old bug which drives the screen to be super duper long*/}
 			<div className="h-96 relative overflow-auto rounded-lg border border-border">
@@ -153,7 +167,18 @@ export default function UserPermissionsTable() {
 										className="border-b border-border transition-colors hover:bg-muted/50"
 									>
 										<td className="px-4 py-3 pl-8 text-sm">
-											<Text>{permissionData.label}</Text>
+											<span className="gap-2 flex flex-wrap items-center">
+												<Text>{permissionData.label}</Text>
+												{internetName &&
+													selectedPermissions?.includes(permissionData.permission) &&
+													!(FRIEND_PERMISSIONS as readonly UserPermission[]).includes(
+														permissionData.permission,
+													) && (
+														<Badge size="xs" variant="warning">
+															{t(getLocaleKey('internet.badge'))}
+														</Badge>
+													)}
+											</span>
 											<Text variant="muted" size="sm">
 												{permissionData.description}
 											</Text>

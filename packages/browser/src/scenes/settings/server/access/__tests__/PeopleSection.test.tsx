@@ -3,237 +3,262 @@ import '@/__mocks__/resizeObserver'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { PASSWORD_ALPHABET } from '../password'
 import PeopleSection from '../PeopleSection'
+import { device, invite, K, overview, row, serverOf, signupLink } from './fixtures'
 import { sent, setup } from './support'
 
 vi.mock('@/hooks/useTranslate', () => import('./translations'))
-vi.mock('@/paths', () => ({
-	usePaths: () => ({ updateUser: (id: string) => `/settings/users/${id}/manage` }),
-}))
-vi.mock('../copy', () => ({ copyText: vi.fn().mockResolvedValue(true) }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
-
-import { toast } from 'sonner'
-
-import { copyText } from '../copy'
-
-const K = (key: string) => `settingsScene.server/access.${key}`
-
-const row = (
-	id: string,
-	username: string,
-	extra: Record<string, unknown> = {},
-	rest: Record<string, unknown> = {},
-) => ({
-	person: { id, username, locked: false, removed: false, isServerOwner: false, ...extra },
-	lastSignInAt: null,
-	mustChangePassword: false,
-	publicSignin: false,
-	maxDevices: 3,
-	activeDevices: 0,
-	sessions: 0,
-	newLibrariesHidden: true,
-	signupLinkId: null,
-	beyondFriendSet: [],
-	hiddenLibraries: 0,
-	...rest,
-})
+vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
 
 const PEOPLE = [
-	row('o', 'g3', { isServerOwner: true }, { lastSignInAt: '2026-11-10T12:00:00Z' }),
-	row('ana', 'ana'),
-	row('ben', 'ben', { locked: true }),
-	row('cy', 'cy', {}, { mustChangePassword: true }),
+	row('o', 'g3', { publicSignin: false }, { isServerOwner: true }),
+	row('ana', 'ana', { publicSignin: true, activeDevices: 3, lastSignInAt: '2026-11-11T09:00:00Z' }),
+	row(
+		'ben',
+		'ben',
+		{ publicSignin: true, lastSignInAt: '2026-11-11T11:00:00Z', mustChangePassword: true },
+		{ locked: true },
+	),
+	row('cy', 'cy', { publicSignin: true, beyondFriendSet: ['MANAGE_USERS'] }),
+	row('dee', 'dee', { publicSignin: false }),
+	row('gone', 'gone', { publicSignin: true }, { removed: true }),
 ]
 
-function renderSection(
-	setPassword: (variables: Record<string, unknown> | undefined) => unknown = () => ({
-		setUserPassword: true,
-	}),
+function renderPeople(
+	data: Parameters<typeof serverOf>[0] = {},
+	answers: (query: string, variables: Record<string, unknown> | undefined) => unknown = () =>
+		undefined,
 ) {
+	const server = serverOf({ people: PEOPLE, ...data })
 	const app = setup({
 		answers: (query, variables) => {
-			if (query.includes('query PublicAccessPeople')) return { accessPeople: PEOPLE }
-			if (query.includes('mutation PublicAccessSetPassword')) return setPassword(variables)
-			if (query.includes('mutation PublicAccessUnblock')) return { unblockUser: true }
-			throw new Error(`Unexpected query ${query}`)
+			const own = answers(query, variables)
+			return own === undefined ? server(query, variables) : own
 		},
 	})
-	render(<PeopleSection />, { wrapper: app.Wrapper })
-	return app
+	const props = { onInvite: vi.fn(), onOpenPerson: vi.fn() }
+	render(<PeopleSection {...props} />, { wrapper: app.Wrapper })
+	return { app, ...props }
 }
 
-const passwordField = () => screen.getByLabelText(K('people.password.label')) as HTMLInputElement
-
 describe('People', () => {
-	beforeEach(() => {
-		vi.clearAllMocks()
+	it('lists who can sign in from the internet, the newest sign-in first, and leaves out the owner and anybody removed', async () => {
+		renderPeople()
+
+		const group = await screen.findByTestId('access-people-internet')
+		const names = within(group)
+			.getAllByTestId(/^access-person-/)
+			.map((element) => element.getAttribute('data-testid'))
+		expect(names).toEqual(['access-person-ben', 'access-person-ana', 'access-person-cy'])
+		expect(group).toHaveTextContent(`${K('people.groups.internet')} count=3`)
+		expect(screen.queryByTestId('access-person-o')).toBeNull()
+		expect(screen.queryByTestId('access-person-gone')).toBeNull()
 	})
 
-	it('shows each account with what is wrong with it', async () => {
-		renderSection()
+	it('says how each one stands in a sentence, and what is wrong in a badge', async () => {
+		renderPeople()
 
-		const owner = await screen.findByTestId('access-people-o')
-		expect(within(owner).getByText(K('people.owner'))).toBeInTheDocument()
+		const ana = await screen.findByTestId('access-person-ana')
+		expect(ana).toHaveTextContent(`${K('people.devicesLine')} active=3 limit=3`)
+		const ben = screen.getByTestId('access-person-ben')
+		expect(within(ben).getByText(K('people.badges.locked'))).toBeInTheDocument()
+		expect(within(ben).getByText(K('people.badges.mustChange'))).toBeInTheDocument()
+		// the extras that keep somebody off the internet are a badge too
 		expect(
-			within(screen.getByTestId('access-people-ben')).getByText(K('people.locked')),
+			within(screen.getByTestId('access-person-cy')).getByText(K('people.badges.extras')),
 		).toBeInTheDocument()
-		expect(
-			within(screen.getByTestId('access-people-cy')).getByText(K('people.mustChange')),
-		).toBeInTheDocument()
-		expect(
-			within(screen.getByTestId('access-people-ana')).getByText(
-				`${K('people.lastSignIn')} at=${K('people.never')}`,
-			),
-		).toBeInTheDocument()
+		// somebody who never signed in says so
+		expect(screen.getByTestId('access-person-cy')).toHaveTextContent(K('people.devicesLineNever'))
 	})
 
-	it('never offers a password for the owner, since it is never used from the internet', async () => {
-		renderSection()
-
-		const owner = await screen.findByTestId('access-people-o')
-		expect(within(owner).queryByRole('button', { name: K('people.setPassword') })).toBeNull()
-		expect(
-			within(screen.getByTestId('access-people-ana')).getByRole('button', {
-				name: K('people.setPassword'),
-			}),
-		).toBeInTheDocument()
-	})
-
-	it("offers unblock only to a locked account, and links to the account's page", async () => {
-		const { execute } = renderSection()
+	it('has no control in a row: the whole row opens the person', async () => {
+		const { onOpenPerson } = renderPeople()
 		const user = userEvent.setup()
 
-		const ben = await screen.findByTestId('access-people-ben')
-		expect(
-			within(screen.getByTestId('access-people-ana')).queryByRole('button', {
-				name: K('signIns.unblock'),
-			}),
-		).toBeNull()
-		expect(within(ben).getByRole('link', { name: K('people.manage') })).toHaveAttribute(
-			'href',
-			'/settings/users/ben/manage',
-		)
+		const ana = await screen.findByTestId('access-person-ana')
+		expect(within(ana).queryAllByRole('button')).toHaveLength(0)
+		expect(ana.tagName).toBe('BUTTON')
+		await user.click(ana)
 
-		await user.click(within(ben).getByRole('button', { name: K('signIns.unblock') }))
-		await waitFor(() => expect(sent(execute, 'PublicAccessUnblock')).toEqual([{ id: 'ben' }]))
+		expect(onOpenPerson).toHaveBeenCalledWith('ana')
 	})
 
-	describe('setting a password', () => {
-		const open = async (user: ReturnType<typeof userEvent.setup>, id = 'ana') => {
-			await user.click(
-				within(await screen.findByTestId(`access-people-${id}`)).getByRole('button', {
-					name: K('people.setPassword'),
+	it('keeps the people who cannot sign in behind a button', async () => {
+		renderPeople()
+		const user = userEvent.setup()
+
+		const button = await screen.findByRole('button', { name: `${K('people.groups.home')} count=1` })
+		expect(screen.queryByTestId('access-person-dee')).toBeNull()
+		await user.click(button)
+		expect(screen.getByTestId('access-person-dee')).toBeInTheDocument()
+	})
+
+	it('has the one big button, and it asks to invite somebody', async () => {
+		const { onInvite } = renderPeople()
+		const user = userEvent.setup()
+
+		const invite = await screen.findByRole('button', { name: K('people.invite') })
+		await user.click(invite)
+
+		expect(onInvite).toHaveBeenCalledOnce()
+	})
+
+	it('cannot invite anybody until public access is set up, and says why', async () => {
+		renderPeople({ overview: overview({ configured: false }) })
+
+		const invite = await screen.findByRole('button', { name: K('people.invite') })
+		expect(invite).toBeDisabled()
+		expect(invite).toHaveAttribute('title', K('people.inviteNeedsSetup'))
+	})
+
+	it('shows what was invited and has not come in yet, soonest to end first', async () => {
+		renderPeople({
+			links: [
+				signupLink('club', 'Club de lectura', {
+					kind: 'OPEN',
+					maxUses: 5,
+					uses: 2,
+					expiresAt: '2099-01-01T00:00:00Z',
 				}),
-			)
-			await screen.findByRole('dialog')
-		}
-
-		it('starts with a password made for the owner: 20 characters, none that look alike', async () => {
-			renderSection()
-			const user = userEvent.setup()
-			await open(user)
-
-			const password = passwordField().value
-			expect(password).toHaveLength(20)
-			expect([...password].every((char) => PASSWORD_ALPHABET.includes(char))).toBe(true)
-			// the person has to choose their own, unless the owner says otherwise
-			expect(screen.getByRole('switch', { name: K('people.password.requireChange') })).toBeChecked()
+				signupLink('rosa', 'Tía Rosa', { expiresAt: '2098-01-01T00:00:00Z' }),
+			],
+			invites: [invite('phone', 'Ana’s phone', { expiresAt: '2097-01-01T00:00:00Z' })],
 		})
 
-		it('can make another, and takes one that is typed', async () => {
-			renderSection()
-			const user = userEvent.setup()
-			await open(user)
+		const group = await screen.findByTestId('access-people-invited')
+		const ids = within(group)
+			.getAllByTestId(/^access-invited-/)
+			.map((element) => element.getAttribute('data-testid'))
+		expect(ids).toEqual(['access-invited-phone', 'access-invited-rosa', 'access-invited-club'])
+		expect(screen.getByTestId('access-invited-rosa')).toHaveTextContent(K('people.invitedOne'))
+		expect(screen.getByTestId('access-invited-club')).toHaveTextContent(
+			`${K('people.invitedOpen')} used=2 max=5`,
+		)
+		expect(screen.getByTestId('access-invited-phone')).toHaveTextContent(
+			`${K('people.invitedDevice')} name=ana`,
+		)
+	})
 
-			const first = passwordField().value
-			await user.click(screen.getByRole('button', { name: K('people.password.generate') }))
-			expect(passwordField().value).not.toBe(first)
+	it('revokes an invitation after asking, and a signup link may take its accounts with it', async () => {
+		const { app } = renderPeople(
+			{
+				links: [
+					signupLink('club', 'Club de lectura', {
+						kind: 'OPEN',
+						maxUses: 5,
+						uses: 2,
+						people: [{ id: 'ana', username: 'ana', removed: false }],
+					}),
+				],
+			},
+			(query) =>
+				query.includes('mutation PublicAccessRevokeSignupLink')
+					? { revokeAccessSignupLink: 1 }
+					: undefined,
+		)
+		const user = userEvent.setup()
 
-			await user.clear(passwordField())
-			await user.type(passwordField(), 'short')
-			expect(screen.getByText(`${K('people.password.length')} min=8 max=128`)).toBeInTheDocument()
-			expect(screen.getByRole('button', { name: K('people.password.set') })).toBeDisabled()
+		const line = await screen.findByTestId('access-invited-club')
+		await user.click(within(line).getByRole('button', { name: K('people.moreActions') }))
+		await user.click(await screen.findByRole('menuitem', { name: K('people.revoke') }))
+		const dialog = await screen.findByTestId('access-revoke-link')
+		expect(sent(app.execute, 'PublicAccessRevokeSignupLink')).toEqual([])
+		await user.click(within(dialog).getByRole('checkbox'))
+		await user.click(within(dialog).getByRole('button', { name: K('revoke.confirm') }))
 
-			await user.type(passwordField(), 'er-and-longer')
-			expect(screen.getByRole('button', { name: K('people.password.set') })).toBeEnabled()
+		await waitFor(() =>
+			expect(sent(app.execute, 'PublicAccessRevokeSignupLink')).toEqual([
+				{ id: 'club', disableAccounts: true },
+			]),
+		)
+	})
+
+	it('revokes a device link too', async () => {
+		const { app } = renderPeople({ invites: [invite('phone', 'Ana’s phone')] }, (query) =>
+			query.includes('mutation PublicAccessRevokeInvite')
+				? { revokeAccessInvite: true }
+				: undefined,
+		)
+		const user = userEvent.setup()
+
+		const line = await screen.findByTestId('access-invited-phone')
+		await user.click(within(line).getByRole('button', { name: K('people.moreActions') }))
+		await user.click(await screen.findByRole('menuitem', { name: K('people.revoke') }))
+		await user.click(
+			within(await screen.findByTestId('access-revoke-link')).getByRole('button', {
+				name: K('revoke.confirm'),
+			}),
+		)
+
+		await waitFor(() =>
+			expect(sent(app.execute, 'PublicAccessRevokeInvite')).toEqual([{ id: 'phone' }]),
+		)
+	})
+
+	it('hides what ended until asked: links that were used up, and passes revoked long ago', async () => {
+		renderPeople({
+			links: [
+				signupLink('old', 'Old link', { status: 'EXPIRED' }),
+				signupLink('open', 'Open link'),
+			],
+			devices: [
+				device('deploy-old', {
+					legacy: true,
+					person: null,
+					status: 'REVOKED',
+					revokedAt: '2026-11-12T00:00:00Z',
+				}),
+				device('ana-phone', { status: 'ACTIVE' }),
+			],
 		})
+		const user = userEvent.setup()
 
-		it('sets it with the requirement that they choose their own, then shows it once, to copy', async () => {
-			const { execute } = renderSection()
-			const user = userEvent.setup()
-			await open(user)
-			const typed = passwordField().value
+		const show = await screen.findByTestId('access-show-ended')
+		expect(show).toHaveTextContent(`${K('people.showEnded')} count=2`)
+		expect(screen.queryByText('Old link')).toBeNull()
+		expect(screen.queryByText('deploy-old')).toBeNull()
+		expect(screen.getByText('Open link')).toBeInTheDocument()
 
-			await user.click(screen.getByRole('button', { name: K('people.password.set') }))
+		await user.click(show)
+		const ended = await screen.findByTestId('access-ended')
+		expect(within(ended).getByText('Old link')).toBeInTheDocument()
+		expect(within(ended).getByText('deploy-old')).toBeInTheDocument()
+		// an active device of somebody is theirs to show, not here
+		expect(within(ended).queryByText('ana-phone')).toBeNull()
+		expect(screen.getByTestId('access-show-ended')).toHaveTextContent(K('people.hideEnded'))
+	})
 
-			await waitFor(() =>
-				expect(sent(execute, 'PublicAccessSetPassword')).toEqual([
-					{ id: 'ana', password: typed, requireChange: true },
-				]),
-			)
-			const done = await screen.findByTestId('access-password-done')
-			expect(within(done).getByLabelText(K('people.password.label'))).toHaveValue(typed)
-			expect(within(done).getByText(K('people.password.doneMustChange'))).toBeInTheDocument()
+	it('brings back a revoked pass', async () => {
+		const { app } = renderPeople(
+			{
+				devices: [
+					device('deploy-old', {
+						legacy: true,
+						person: null,
+						status: 'REVOKED',
+						revokedAt: '2026-11-12T00:00:00Z',
+					}),
+				],
+			},
+			(query) =>
+				query.includes('mutation PublicAccessRestoreDevice')
+					? { restoreAccessDevice: true }
+					: undefined,
+		)
+		const user = userEvent.setup()
 
-			await user.click(within(done).getByRole('button', { name: K('people.password.copy') }))
-			expect(copyText).toHaveBeenCalledWith(typed)
-		})
+		await user.click(await screen.findByTestId('access-show-ended'))
+		const ended = await screen.findByTestId('access-ended')
+		await user.click(within(ended).getByRole('button', { name: K('person.restore') }))
 
-		it('can leave them with the password that was set', async () => {
-			const { execute } = renderSection()
-			const user = userEvent.setup()
-			await open(user)
+		await waitFor(() =>
+			expect(sent(app.execute, 'PublicAccessRestoreDevice')).toEqual([{ id: 'deploy-old' }]),
+		)
+	})
 
-			await user.click(screen.getByRole('switch', { name: K('people.password.requireChange') }))
-			await user.click(screen.getByRole('button', { name: K('people.password.set') }))
+	it('says there is nobody when there is nobody', async () => {
+		renderPeople({ people: [row('o', 'g3', {}, { isServerOwner: true })] })
 
-			await waitFor(() =>
-				expect(sent(execute, 'PublicAccessSetPassword')[0]).toMatchObject({ requireChange: false }),
-			)
-			expect(await screen.findByText(K('people.password.doneKept'))).toBeInTheDocument()
-		})
-
-		it('says what the server says when it refuses (a person who may not change their password, say), and sets nothing', async () => {
-			renderSection(() => {
-				throw new Error('That person may not change their password')
-			})
-			const user = userEvent.setup()
-			await open(user)
-
-			await user.click(screen.getByRole('button', { name: K('people.password.set') }))
-
-			expect(
-				await screen.findByText('That person may not change their password'),
-			).toBeInTheDocument()
-			expect(screen.queryByTestId('access-password-done')).not.toBeInTheDocument()
-			// still the form: it can be tried again
-			expect(screen.getByRole('button', { name: K('people.password.set') })).toBeInTheDocument()
-		})
-
-		it('keeps nothing of the password when it is closed: a new one is made the next time', async () => {
-			renderSection()
-			const user = userEvent.setup()
-			await open(user)
-			const first = passwordField().value
-
-			await user.click(screen.getByRole('button', { name: 'shared.common.cancel' }))
-			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-
-			await open(user, 'cy')
-			expect(passwordField().value).not.toBe(first)
-			expect(passwordField().value).toHaveLength(20)
-		})
-
-		it('warns that it signs them out everywhere', async () => {
-			renderSection()
-			const user = userEvent.setup()
-			await open(user)
-
-			expect(screen.getByText(K('people.password.signsOut'))).toBeInTheDocument()
-			// and a toast is not where the password goes
-			expect(toast.success).not.toHaveBeenCalled()
-		})
+		expect(await screen.findByText(K('people.empty'))).toBeInTheDocument()
 	})
 })

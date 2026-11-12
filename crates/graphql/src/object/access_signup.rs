@@ -259,6 +259,13 @@ pub enum AccessWarningKind {
 	NotFriendClass,
 	LinkNearBudget,
 	LinkNoLibraries,
+	/// An account locked after too many wrong passwords
+	AccountLocked,
+	/// Devices that still work but are leftovers (terminal passes, people who are gone, unused for
+	/// two months)
+	LeftoverDevices,
+	/// Books that wait for the owner's approval
+	BooksWaiting,
 }
 
 impl From<WarningKind> for AccessWarningKind {
@@ -276,6 +283,9 @@ impl From<WarningKind> for AccessWarningKind {
 			WarningKind::NotFriendClass => Self::NotFriendClass,
 			WarningKind::LinkNearBudget => Self::LinkNearBudget,
 			WarningKind::LinkNoLibraries => Self::LinkNoLibraries,
+			WarningKind::AccountLocked => Self::AccountLocked,
+			WarningKind::LeftoverDevices => Self::LeftoverDevices,
+			WarningKind::BooksWaiting => Self::BooksWaiting,
 		}
 	}
 }
@@ -307,8 +317,13 @@ pub struct AccessWarning {
 	/// How many times, or how many devices
 	pub count: i64,
 	pub since: DateTime<Utc>,
+	/// The time of the newest fact behind it. A dismissed warning comes back when this, or the
+	/// count, goes up
+	pub last_at: DateTime<Utc>,
 	/// A short plain-text detail (a username, a note, the permissions)
 	pub detail: Option<String>,
+	/// When the owner marked it as seen, if it is still hidden (only with `includeDismissed`)
+	pub dismissed_at: Option<DateTime<Utc>>,
 }
 
 impl AccessWarning {
@@ -321,7 +336,9 @@ impl AccessWarning {
 			link_id: warning.link_id,
 			count: warning.count,
 			since: warning.since,
+			last_at: warning.last_at,
 			detail: warning.detail,
+			dismissed_at: warning.dismissed_at,
 		}
 	}
 }

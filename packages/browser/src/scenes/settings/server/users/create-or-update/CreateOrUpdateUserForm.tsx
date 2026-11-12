@@ -7,12 +7,14 @@ import { useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 
+import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import AccountDetails from './AccountDetails'
 import MaxSessionsAllowed from './MaxSessionsAllowed'
 import { buildSchema, CreateOrUpdateUserSchema, formDefaults } from './schema'
+import { useInternetPerson } from './useInternetPerson'
 import UserPermissionsTable from './UserPermissionsTable'
 import UserRestrictionsForm from './UserRestrictionsForm'
 
@@ -70,6 +72,8 @@ export default function CreateOrUpdateUserForm({ user, existingUsernames }: Prop
 	})
 
 	const client = useQueryClient()
+	const { isServerOwner } = useAppContext()
+	const internetName = useInternetPerson(user?.id, isServerOwner)
 
 	const { mutate: createUser, error: createError } = useGraphQLMutation(createMutation, {
 		onSuccess: async () => {
@@ -166,7 +170,7 @@ export default function CreateOrUpdateUserForm({ user, existingUsernames }: Prop
 
 				{!user?.isServerOwner && (
 					<>
-						<UserPermissionsTable />
+						<UserPermissionsTable internetName={internetName} />
 						<UserRestrictionsForm />
 						<MaxSessionsAllowed />
 					</>

@@ -7,6 +7,8 @@ import type { IntakeItemData } from '@/scenes/intake/queries'
 
 import BookApprovalsRoute from '../index'
 
+vi.mock('@/hooks/useTranslate', () => import('@/scenes/intake/__tests__/english'))
+
 const flags = vi.hoisted(() => ({ available: true }))
 // read when the route renders, so a test can turn the page off
 vi.mock('../availability', () => ({
@@ -168,7 +170,7 @@ describe('Book approvals', () => {
 		renderPage()
 
 		expect(
-			screen.getByText('2 books are waiting. They join the library when you approve them.'),
+			screen.getByText('2 books wait. They join the library when you approve them.'),
 		).toBeInTheDocument()
 		expect(screen.getByRole('article', { name: 'Dune' })).toBeInTheDocument()
 		expect(screen.getByRole('article', { name: 'Emma' })).toBeInTheDocument()
@@ -224,7 +226,7 @@ describe('Book approvals', () => {
 		queue.totalCount = 3
 		renderPage()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Approve all (2)' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Approve all ready (2)' }))
 		const dialog = within(screen.getByRole('dialog'))
 		expect(dialog.getByRole('heading', { name: 'Approve 2 books' })).toBeInTheDocument()
 		expect(dialog.getByText('Dune')).toBeInTheDocument()
@@ -260,7 +262,7 @@ describe('Book approvals', () => {
 		queue.totalCount = 4
 		renderPage()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Approve all (2)' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Approve all ready (2)' }))
 		const dialog = within(screen.getByRole('dialog'))
 
 		expect(dialog.getByText('Dune')).toBeInTheDocument()
@@ -293,7 +295,7 @@ describe('Book approvals', () => {
 		queue.totalCount = 2
 		renderPage()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Approve all (2)' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Approve all ready (2)' }))
 		const dialog = within(screen.getByRole('dialog'))
 		// the fixture's tag is a weak guess, so it is there but not ticked
 		const tags = dialog.getAllByRole('button', { name: 'Historical Fiction' })

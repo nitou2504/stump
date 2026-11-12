@@ -1,5 +1,6 @@
 import { UserPermission } from '@stump/graphql'
 import { render, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 
 import { AppContext, IAppContext } from '@/context'
 
@@ -19,13 +20,20 @@ vi.mock('@/scenes/settings/server/bookApprovals/availability', () => ({
 	},
 }))
 
-function renderBadge(permissions: UserPermission[]) {
+function renderBadge(
+	permissions: UserPermission[],
+	{
+		isServerOwner = false,
+		...props
+	}: { isServerOwner?: boolean } & ComponentProps<typeof ApprovalsBadge> = {},
+) {
 	const app = {
+		isServerOwner,
 		checkPermission: (permission: UserPermission) => permissions.includes(permission),
 	} as unknown as IAppContext
 	return render(
 		<AppContext.Provider value={app}>
-			<ApprovalsBadge />
+			<ApprovalsBadge {...props} />
 		</AppContext.Provider>,
 	)
 }
@@ -78,5 +86,27 @@ describe('ApprovalsBadge', () => {
 
 		expect(pending.asked).toHaveBeenCalledWith(false)
 		expect(container).toBeEmptyDOMElement()
+	})
+
+	it('is not on the settings button of the owner, whose one badge is Needs your attention', () => {
+		pending.count = 3
+
+		const { container } = renderBadge([UserPermission.ManageLibrary], { isServerOwner: true })
+
+		expect(container).toBeEmptyDOMElement()
+	})
+
+	it('is beside Book approvals for the owner too, as a pill after the label', () => {
+		pending.count = 3
+
+		renderBadge([UserPermission.ManageLibrary], {
+			isServerOwner: true,
+			variant: 'inline',
+			forOwner: true,
+		})
+
+		const pill = screen.getByText('3')
+		expect(pill).toHaveClass('inline-block')
+		expect(pill).not.toHaveClass('absolute')
 	})
 })

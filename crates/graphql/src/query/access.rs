@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use async_graphql::{Context, Object, Result};
+use async_graphql::{Context, Object, Result, ID};
 use chrono::Utc;
 use models::{
 	entity::{library, user},
@@ -18,9 +18,9 @@ use crate::{
 	guard::{NotViaPublicEdgeGuard, ServerOwnerGuard},
 	object::{
 		access::{
-			page_of, AccessAuditPage, AccessBlockedUser, AccessDevicePage, AccessInvite,
-			AccessInvitePage, AccessOverview, AccessPaginationValidator, AccessPerson,
-			AccessPersonRow, AccessSignInPage,
+			page_of, AccessAuditEntry, AccessAuditPage, AccessBlockedUser,
+			AccessDevicePage, AccessInvite, AccessInvitePage, AccessOverview,
+			AccessPaginationValidator, AccessPerson, AccessPersonRow, AccessSignInPage,
 		},
 		access_signup::{
 			AccessSigninStats, AccessSignupLink, AccessWarning, PresetLibrary,
@@ -95,6 +95,11 @@ impl AccessQuery {
 	async fn access_invites(
 		&self,
 		ctx: &Context<'_>,
+		#[graphql(
+			default = true,
+			desc = "false: only the open ones (not revoked, not expired, a use left)"
+		)]
+		include_ended: bool,
 		#[graphql(default, validator(custom = "AccessPaginationValidator"))]
 		pagination: OffsetPagination,
 	) -> Result<AccessInvitePage> {
@@ -102,7 +107,8 @@ impl AccessQuery {
 		let (page, size) = page_of(&pagination);
 
 		let now = Utc::now();
-		let (rows, total) = service::list_invites(conn, page, size).await?;
+		let (rows, total) =
+			service::list_invites(conn, now, include_ended, page, size).await?;
 		Ok(AccessInvitePage {
 			nodes: rows
 				.into_iter()
@@ -120,13 +126,23 @@ impl AccessQuery {
 	async fn access_devices(
 		&self,
 		ctx: &Context<'_>,
+		#[graphql(desc = "Only this person's devices")] person_id: Option<ID>,
+		#[graphql(default = true, desc = "false: leave out the revoked devices")]
+		include_ended: bool,
 		#[graphql(default, validator(custom = "AccessPaginationValidator"))]
 		pagination: OffsetPagination,
 	) -> Result<AccessDevicePage> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
 		let (page, size) = page_of(&pagination);
 
-		let (rows, total) = service::list_devices(conn, page, size).await?;
+		let (rows, total) = service::list_devices(
+			conn,
+			person_id.as_ref().map(|id| id.as_str()),
+			include_ended,
+			page,
+			size,
+		)
+		.await?;
 		Ok(AccessDevicePage {
 			nodes: rows.into_iter().map(Into::into).collect(),
 			page_info: OffsetPaginationInfo::new(pagination, total),
@@ -143,6 +159,11 @@ impl AccessQuery {
 		&self,
 		ctx: &Context<'_>,
 		#[graphql(default)] failures_only: bool,
+		#[graphql(
+			default,
+			desc = "true: leave out the server owner's successful sign-ins (failures on their name stay)"
+		)]
+		others_only: bool,
 		#[graphql(default, validator(custom = "AccessPaginationValidator"))]
 		pagination: OffsetPagination,
 	) -> Result<AccessSignInPage> {
@@ -150,7 +171,7 @@ impl AccessQuery {
 		let (page, size) = page_of(&pagination);
 
 		let (rows, total) =
-			service::list_sign_ins(conn, failures_only, page, size).await?;
+			service::list_sign_ins(conn, failures_only, others_only, page, size).await?;
 		Ok(AccessSignInPage {
 			nodes: rows.into_iter().map(Into::into).collect(),
 			page_info: OffsetPaginationInfo::new(pagination, total),
@@ -225,6 +246,11 @@ impl AccessQuery {
 	async fn access_signup_links(
 		&self,
 		ctx: &Context<'_>,
+		#[graphql(
+			default = true,
+			desc = "false: only the open ones (not revoked, not expired, a use left)"
+		)]
+		include_ended: bool,
 		#[graphql(default, validator(custom = "AccessPaginationValidator"))]
 		pagination: OffsetPagination,
 	) -> Result<crate::object::access_signup::AccessSignupLinkPage> {
@@ -232,7 +258,8 @@ impl AccessQuery {
 		let (page, size) = page_of(&pagination);
 		let now = Utc::now();
 
-		let (rows, total) = signup::list_signup_links(conn, page, size).await?;
+		let (rows, total) =
+			signup::list_signup_links(conn, now, include_ended, page, size).await?;
 		let names = library_names(conn).await?;
 		let ids: Vec<String> = rows.iter().map(|link| link.id.clone()).collect();
 		let mut made = people_of_links(conn, &ids).await?;
@@ -268,14 +295,25 @@ impl AccessQuery {
 	}
 
 	/// What the owner should look at: people at or over their device limit, four or more
-	/// sessions, bursts of failed sign-ins, links near their budget. The alerts come first
+	/// sessions, bursts of failed sign-ins, links near their budget, locked accounts, leftover
+	/// devices, books waiting. The alerts come first. What the owner marked as seen is left out
+	/// unless `includeDismissed`
 	#[graphql(
 		guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)",
 		complexity = "crate::complexity::UNPAGINATED_LIST as usize * child_complexity"
 	)]
-	async fn access_warnings(&self, ctx: &Context<'_>) -> Result<Vec<AccessWarning>> {
+	async fn access_warnings(
+		&self,
+		ctx: &Context<'_>,
+		#[graphql(default, desc = "true: also the ones marked as seen")]
+		include_dismissed: bool,
+	) -> Result<Vec<AccessWarning>> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
-		let found = access_warnings::warnings(conn, Utc::now()).await?;
+		let found = if include_dismissed {
+			access_warnings::warnings(conn, Utc::now()).await?
+		} else {
+			access_warnings::visible_warnings(conn, Utc::now()).await?
+		};
 		let ids: Vec<String> = found
 			.iter()
 			.filter_map(|warning| warning.person_id.clone())
@@ -303,7 +341,8 @@ impl AccessQuery {
 			.collect())
 	}
 
-	/// How many warnings there are: what the badge in the sidebar shows. The owner at home only
+	/// How many warnings are visible (not marked as seen): what the badge in the sidebar shows.
+	/// The owner at home only
 	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard)")]
 	async fn access_warning_count(&self, ctx: &Context<'_>) -> Result<u32> {
 		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
@@ -325,8 +364,16 @@ impl AccessQuery {
 		let (page, size) = page_of(&pagination);
 
 		let (rows, total) = service::list_audit(conn, page, size).await?;
+		let targets: Vec<String> = rows.iter().map(|row| row.target.clone()).collect();
+		let labels = service::audit_target_labels(conn, &targets).await?;
 		Ok(AccessAuditPage {
-			nodes: rows.into_iter().map(Into::into).collect(),
+			nodes: rows
+				.into_iter()
+				.map(|row| {
+					let label = labels.get(&row.target).cloned();
+					AccessAuditEntry::new(row, label)
+				})
+				.collect(),
 			page_info: OffsetPaginationInfo::new(pagination, total),
 		})
 	}

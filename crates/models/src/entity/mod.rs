@@ -6,6 +6,7 @@ pub mod access_password_reset;
 pub mod access_person;
 pub mod access_signin_mark;
 pub mod access_signup_link;
+pub mod access_warning_review;
 pub mod age_restriction;
 pub mod api_key;
 pub mod book_club;

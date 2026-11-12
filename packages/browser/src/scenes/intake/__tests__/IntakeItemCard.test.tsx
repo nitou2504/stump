@@ -6,6 +6,8 @@ import IntakeItemCard, { primaryLabel } from '../IntakeItemCard'
 import type { IntakeItemData } from '../queries'
 import { item } from './fixtures'
 
+vi.mock('@/hooks/useTranslate', () => import('./english'))
+
 // the pickers ask the server for folders and tags: not what is tested here
 vi.mock('../FolderPicker', () => ({ default: () => <div>Folder picker</div> }))
 vi.mock('../TagPicker', () => ({ default: () => <div>Tag picker</div> }))
@@ -232,6 +234,70 @@ describe('IntakeItemCard for somebody who needs approval', () => {
 		expect(alert.getByText('Already in the library?')).toBeInTheDocument()
 		expect(alert.getByText('El nombre de la rosa')).toBeInTheDocument()
 		expect(alert.queryByRole('link')).not.toBeInTheDocument()
+	})
+
+	const withProposal = (change: Record<string, unknown>) => {
+		const base = item()
+		return base.proposal ? { ...base.proposal, ...change } : null
+	}
+	const duplicate = (reason: string) => ({
+		fileName: 'rosa.epub',
+		mediaId: 'm1',
+		path: '',
+		reason,
+		title: 'El nombre de la rosa',
+	})
+
+	it('has nothing to send for a book that is the same file as one in the library, and says so', () => {
+		const onDiscard = vi.fn()
+		friendCard({ proposal: withProposal({ duplicates: [duplicate('SAME_FILE')] }) }, { onDiscard })
+
+		expect(screen.getByTestId('intake-same-file')).toHaveTextContent('Already in the library.')
+		// the server refuses it: there is no button that sends it, anyway or otherwise
+		expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Remove from my list' }))
+		expect(onDiscard).toHaveBeenCalledWith([expect.any(String)])
+	})
+
+	it('leaves the owner’s own filing alone: the same file can still be added, as the server allows it', () => {
+		renderCard({ proposal: withProposal({ duplicates: [duplicate('SAME_FILE')] }) })
+
+		expect(screen.queryByTestId('intake-same-file')).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /^Add/ })).toBeEnabled()
+	})
+
+	it('still lets a book with a similar title be sent anyway', () => {
+		friendCard({ proposal: withProposal({ duplicates: [duplicate('SAME_TITLE')] }) })
+
+		expect(screen.queryByTestId('intake-same-file')).not.toBeInTheDocument()
+		expect(screen.getByRole('button', { name: /Send/ })).toBeEnabled()
+	})
+
+	it('folds the places that could not be asked into one line for an approver, with the list on request', () => {
+		renderCard(
+			{
+				proposal: withProposal({
+					warnings: ['Open Library: unreachable', 'Google Books: no answer in time', 'Add a cover'],
+				}),
+			},
+			{ mode: 'file' },
+		)
+
+		const line = screen.getByTestId('intake-source-failures')
+		expect(line).toHaveTextContent("Couldn't check online (2 sources).")
+		expect(line).not.toHaveTextContent('Open Library')
+		// what is not about a place that could not be asked stays as it was
+		expect(screen.getByText('Add a cover')).toBeInTheDocument()
+		fireEvent.click(within(line).getByRole('button', { name: 'Details' }))
+		expect(line).toHaveTextContent('Open Library: unreachable')
+		expect(line).toHaveTextContent('Google Books: no answer in time')
+	})
+
+	it('says nothing of the places that could not be asked to the person who sent the book', () => {
+		friendCard({ proposal: withProposal({ warnings: ['Open Library: unreachable'] }) })
+
+		expect(screen.queryByTestId('intake-source-failures')).not.toBeInTheDocument()
+		expect(screen.queryByText(/Open Library/)).not.toBeInTheDocument()
 	})
 
 	it('shows the note of an approver who sent the book back, and sends it again', () => {

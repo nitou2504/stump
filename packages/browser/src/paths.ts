@@ -28,6 +28,8 @@ type SettingsPage =
 	| 'recently-added'
 	| 'deleted-books'
 	| 'book-approvals'
+	| 'devices'
+	| 'reading-apps'
 type DocTopic = 'access-control' | 'features/book-clubs'
 type BookClubTab = 'overview' | 'members' | 'discussion' | 'settings'
 export type BrowseIndex = 'genres' | 'authors'

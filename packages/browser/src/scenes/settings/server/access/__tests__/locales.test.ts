@@ -6,6 +6,12 @@ import es from '../../../../../../../i18n/src/locales/es-ES.json'
 
 const PAGE = join(__dirname, '..')
 
+/** Whether the locale has the key: as a string, or as the `_one` and `_other` of a plural */
+const has = (locale: unknown, key: string): boolean =>
+	typeof lookup(locale, key) === 'string' ||
+	(typeof lookup(locale, `${key}_one`) === 'string' &&
+		typeof lookup(locale, `${key}_other`) === 'string')
+
 /** The value at a dotted path of a locale's settings scene, if there is one */
 const lookup = (locale: unknown, path: string): unknown =>
 	path
@@ -52,10 +58,61 @@ const literalKeys = () =>
 
 /** The keys made by a template string: each family and the values it takes */
 const FAMILIES: Record<string, string[]> = {
-	'invites.validity.h': ['1', '24', '72', '168', '720'],
-	'invites.status.': ['unused', 'used', 'usedUp', 'expired', 'revoked'],
-	'signIns.lockedBy.': ['failures', 'owner', 'unknown'],
-	'signIns.reason.': ['wrongPassword', 'locked', 'ownerViaEdge', 'wrongPerson'],
+	'invite.validity.h': ['1', '24', '72', '168', '336', '720'],
+	'ended.status.': ['USED_UP', 'EXPIRED', 'REVOKED'],
+	'person.kind.': ['browser', 'readingApp', 'terminal'],
+	'history.result.': [
+		'ok',
+		'wrongPassword',
+		'locked',
+		'ownerViaEdge',
+		'wrongPerson',
+		'notAllowed',
+		'deviceLimit',
+		'failed',
+	],
+	'attention.actions.': [
+		'raiseLimit',
+		'seeDevices',
+		'signOutAll',
+		'setPassword',
+		'seeAttempts',
+		'letIn',
+		'fix',
+		'newLink',
+		'revokeLink',
+		'unblock',
+		'removeLeftovers',
+		'review',
+	],
+	'attention.kinds.': [
+		'atDeviceLimit',
+		'overDeviceLimit',
+		'manyDevices',
+		'deviceLimitHit',
+		'manySessions',
+		'signinFailures',
+		'signinFailuresUnknown',
+		'signinFailuresUnknownSlowed',
+		'nameBackoff',
+		'globalBudget',
+		'notEnabledTried',
+		'notFriendClass',
+		'linkNearBudget',
+		'linkNoLibraries',
+		'accountLocked',
+		'accountLockedNoCount',
+		'leftoverDevices',
+		'booksWaiting',
+	],
+	'signups.permission.': [
+		'changePassword',
+		'changeUsername',
+		'changeAvatar',
+		'downloadFile',
+		'addBooks',
+		'accessSmartList',
+	],
 	'activity.actions.': [
 		'inviteCreate',
 		'inviteRevoke',
@@ -83,6 +140,8 @@ const FAMILIES: Record<string, string[]> = {
 		'deviceRemovedByPerson',
 		'opdsKeyCreated',
 		'opdsKeyReplaced',
+		'warningDismiss',
+		'warningRestore',
 	],
 }
 
@@ -92,8 +151,8 @@ describe.each([
 ])('the words of Public access in %s', (_name, locale) => {
 	it('has every key the page asks for', () => {
 		const keys = literalKeys()
-		expect(keys.length).toBeGreaterThan(80)
-		const missing = keys.filter((key) => typeof lookup(locale, key) !== 'string')
+		expect(keys.length).toBeGreaterThan(150)
+		const missing = keys.filter((key) => !has(locale, key))
 		expect(missing).toEqual([])
 	})
 
@@ -105,16 +164,14 @@ describe.each([
 		}
 
 		const missing = Object.entries(FAMILIES).flatMap(([prefix, values]) =>
-			values
-				.map((value) => `${prefix}${value}`)
-				.filter((key) => typeof lookup(locale, key) !== 'string'),
+			values.map((value) => `${prefix}${value}`).filter((key) => !has(locale, key)),
 		)
 		expect(missing).toEqual([])
 	})
 
 	it('has a label for every action the server writes in the log', () => {
 		// the page's own map of actions (the server's names) to keys
-		const source = readFileSync(join(PAGE, 'ActivitySection.tsx'), 'utf8')
+		const source = readFileSync(join(PAGE, 'HistorySection.tsx'), 'utf8')
 		const mapped = [...source.matchAll(/'([a-z_.]+)': '([A-Za-z]+)'/g)]
 		expect(mapped.length).toBe(FAMILIES['activity.actions.']?.length)
 		for (const entry of mapped) {

@@ -1900,7 +1900,8 @@
           "label": "Management",
           "recently added": "Recently added",
           "deleted books": "Deleted books",
-          "public access": "Public access"
+          "public access": "Public access",
+          "book approvals": "Book approvals"
         }
       },
       "app/account": {
@@ -2684,6 +2685,10 @@
                 "label": "Access Smart List Feature",
                 "description": "Allows the user to access smart lists features. Granular permissions are not yet implemented, so this\nincludes permissions to read, create, and update their own lists"
               }
+            },
+            "internet": {
+              "line": "{{name}}'s internet sign-in is on. A permission marked “Not for the internet” keeps them out.",
+              "badge": "Not for the internet"
             }
           },
           "validation": {
@@ -2705,6 +2710,7 @@
         }
       },
       "server/access": {
+        "close": "Close",
         "helmet": "Public access",
         "title": "Public access",
         "description": "Let people in from the internet and keep it safe",
@@ -2715,155 +2721,82 @@
           "next": "Next"
         },
         "person": {
-          "removed": "Removed"
+          "removed": "Removed",
+          "internet": "Sign in from the internet",
+          "internetHelp": "With their password, on up to {{limit}} devices.",
+          "turnOff": "Turn off",
+          "devices": "Devices ({{active}} of {{limit}})",
+          "noDevices": "No devices yet.",
+          "used": "Used {{when}}",
+          "firstSeen": "First seen {{when}}",
+          "kind": {
+            "browser": "Browser",
+            "readingApp": "Reading app",
+            "terminal": "Terminal pass"
+          },
+          "allowMoreTries": "Allow more tries",
+          "triesAllowed": "They can try again on that device.",
+          "removeDevice": "Remove",
+          "removeDeviceConfirm": "Remove {{label}}? It stops working within seconds.",
+          "limit": "Device limit",
+          "devicesCount_one": "{{count}} device",
+          "devicesCount_other": "{{count}} devices",
+          "addDeviceLink": "Add a device with a link",
+          "deviceName": "Device name",
+          "deviceNamePlaceholder": "Ana's phone",
+          "deviceNameMissing": "Write a name for the device.",
+          "canBeOpened": "Can be opened",
+          "times_one": "once",
+          "times_other": "{{count}} times",
+          "deviceLinkError": "The link couldn't be made.",
+          "showRemoved": "Show removed devices ({{count}})",
+          "restore": "Restore",
+          "passwordTitle": "Password and sign-in",
+          "setPassword": "Set a new password",
+          "signOutAll": "Sign out everywhere",
+          "signOutAllConfirm": "{{name}} will have to sign in again everywhere.",
+          "locked_one": "Locked after {{count}} wrong password.",
+          "locked_other": "Locked after {{count}} wrong passwords.",
+          "lockedPlain": "This account is locked.",
+          "unblock": "Unblock",
+          "librariesTitle": "Libraries",
+          "sees": "Sees: {{libraries}}",
+          "seesEverything": "Sees everything",
+          "seesNothing": "Sees nothing",
+          "change": "Change",
+          "hideNew": "Hide new libraries",
+          "uploadLimits": "Upload limits",
+          "editAccount": "Edit account",
+          "open": "Open",
+          "removeAll": "Remove all devices",
+          "removeAllConfirm": "All of {{name}}'s devices stop working within seconds.",
+          "lastIn": "Last sign-in {{when}}",
+          "neverIn": "Never signed in",
+          "error": "That didn't work.",
+          "allowMoreTriesHelp": "After too many wrong passwords on this device.",
+          "lastInFrom": "Last sign-in {{when}} from {{device}}"
         },
         "status": {
-          "ready": "Ready",
-          "notReady": "Not set up",
           "notConfigured": {
-            "title": "Public access isn't set up yet",
-            "description": "Missing: {{missing}}. Invite links can't be made until these are set (see the deploy notes): the entry proxy and Stump must share the key and the state folder."
+            "title": "Public access isn't set up",
+            "description": "The server is missing {{missing}}. The deploy notes explain how to set it."
           },
-          "publicUrl": "Public address",
-          "missing": "Not set",
-          "requirePass": "Pass required",
-          "yes": "Yes",
-          "notYet": "Not yet",
-          "stateWritten": "Proxy last told",
-          "never": "Never",
-          "activeDevices": "Devices",
-          "openInvites": "Open invites",
-          "requirePassHint": "Stump doesn't insist yet that visitors from the internet hold a pass. Turn on STUMP_EDGE_REQUIRE_PASS once the proxy sends it.",
-          "publicSignin": "Public sign-in",
-          "on": "On",
-          "off": "Off",
-          "activeSignupLinks": "Open signup links",
-          "failedLately": "Failed attempts (10 min)",
-          "namesWaiting": "Names waiting",
-          "publicSigninOffHint": "Public sign-in is off: nobody can sign in from the internet, make an account or use a reading-app address. Set STUMP_EDGE_PUBLIC_SIGNIN=true to turn it on.",
-          "budgetTripped": {
-            "title": "Sign-in is refusing everybody for a few minutes",
-            "description": "Too many failed attempts from too many places. The page recovers by itself; a friend who is locked out only has to wait."
-          }
-        },
-        "invites": {
-          "title": "Invite links",
-          "description": "Make a link for one person and one device. They open it once on that device, then sign in as usual.",
-          "form": {
-            "person": "Person",
-            "choosePerson": "Choose a person",
-            "label": "Device name",
-            "labelPlaceholder": "Ana's phone",
-            "validFor": "Valid for",
-            "uses": "Times it can be opened",
-            "create": "Create link",
-            "noPeople": "There is nobody to invite yet: create their account first, in Users."
-          },
-          "validity": {
-            "h1": "1 hour",
-            "h24": "24 hours",
-            "h72": "3 days",
-            "h168": "7 days",
-            "h720": "30 days"
-          },
-          "created": {
-            "title": "Link for {{person}} ({{label}})",
-            "linkLabel": "Invite link",
-            "copy": "Copy",
-            "copied": "Link copied",
-            "copyFailed": "Couldn't copy: the link is selected, copy it by hand",
-            "once": "This link is shown only now. Stump keeps no copy of it: if you lose it, make another.",
-            "dismiss": "Done, hide the link"
-          },
-          "status": {
-            "unused": "Unused",
-            "used": "Used",
-            "usedUp": "Used up",
-            "expired": "Expired",
-            "revoked": "Revoked"
-          },
-          "detail": "Made {{created}} · expires {{expires}} · opened {{uses}} of {{max}}",
-          "empty": "No invite links yet.",
-          "revoke": "Revoke",
-          "revoked": "Invite for {{label}} revoked",
-          "errors": {
-            "create": "The link couldn't be made",
-            "revoke": "The invite couldn't be revoked"
-          }
-        },
-        "devices": {
-          "title": "Devices with a pass",
-          "description": "Each browser that opened an invite. A revoked device stops working within a couple of seconds.",
-          "empty": "No device holds a pass yet.",
-          "terminalGroup": "Made in the terminal",
-          "legacy": "Terminal pass",
-          "revoked": "Revoked",
-          "detail": "First seen {{first}} · last seen {{last}} · from {{ip}}",
-          "revoke": "Revoke",
-          "restore": "Restore",
-          "resetBudget": "Reset sign-in budget",
-          "revokeAll": "Revoke all of {{name}}",
-          "confirmTitle": "Revoke this device?",
-          "confirmDescription": "“{{label}}” will lose access within a couple of seconds. You can restore it from here.",
-          "confirmPersonTitle": "Revoke every device of this person?",
-          "confirmPersonDescription": "Every device of {{name}} will lose access, their open invites are revoked and they are signed out everywhere.",
-          "confirmRevoke": "Revoke",
-          "revokedDevice": "“{{label}}” revoked",
-          "revokedPerson": "{{name}} was cut off",
-          "revokedCount": "{{count}} devices revoked",
-          "restoredDevice": "“{{label}}” restored",
-          "budgetReset": "“{{label}}” can try to sign in again today",
-          "errors": {
-            "revoke": "Couldn't revoke it",
-            "restore": "Couldn't restore it",
-            "budget": "Couldn't reset it"
-          },
-          "readingApp": "Reading app"
-        },
-        "signIns": {
-          "title": "Sign-in protection",
-          "description": "Who is locked out, and every attempt to sign in. Passwords are never kept.",
-          "blockedTitle": "Locked right now",
-          "nobodyBlocked": "Nobody is locked out.",
-          "lockedBy": {
-            "failures": "Too many wrong passwords",
-            "owner": "Locked by you",
-            "unknown": "Locked"
-          },
-          "blockedDetail": "{{count}} failed in the last 24 hours · last {{last}}",
-          "unblock": "Unblock",
-          "unblocked": "{{name}} can sign in again",
-          "edgeLimitNote": "The entry proxy also slows down a client that tries too often. That clears by itself within a minute.",
-          "recentTitle": "Recent sign-ins",
-          "failuresOnly": "Failures only",
-          "empty": "No sign-ins to show.",
-          "ok": "OK",
-          "failed": "Failed",
-          "cleared": "Cleared",
-          "reason": {
-            "wrongPassword": "Wrong password",
-            "locked": "Account locked",
-            "ownerViaEdge": "Owner's password from the internet (refused)",
-            "wrongPerson": "Another person's device (refused)",
-            "notAllowedPublicly": "Right password, not allowed from the internet",
-            "deviceLimit": "Right password, but all their devices are in use"
-          },
-          "detail": "{{at}} · from {{ip}} · device {{device}}",
-          "errors": {
-            "unblock": "Couldn't unblock it"
+          "open": "Open to the internet at {{host}}.",
+          "people_one": "{{count}} person can sign in.",
+          "people_other": "{{count}} people can sign in.",
+          "linksOnly": "Open at {{host}} with device links only.",
+          "refusing": "Letting nobody sign in for a few minutes.",
+          "details": "Details",
+          "missingNames": {
+            "key": "the key",
+            "publicUrl": "the public address",
+            "stateDir": "the state folder"
           }
         },
         "people": {
           "title": "People",
-          "description": "Set a password for someone who can't get in, or let a locked account back in.",
-          "empty": "No accounts.",
-          "owner": "Owner",
-          "locked": "Locked",
-          "mustChange": "Must choose a password",
-          "lastSignIn": "Last sign-in: {{at}}",
-          "never": "never",
-          "setPassword": "Set a password",
-          "manage": "Manage",
+          "description": "Who can sign in from the internet.",
+          "empty": "Nobody here yet. Invite someone to start.",
           "password": {
             "title": "New password for {{name}}",
             "label": "Password",
@@ -2881,40 +2814,31 @@
             "copyFailed": "Couldn't copy: select it and copy it by hand",
             "error": "The password couldn't be set"
           },
-          "publicSignin": {
-            "label": "Public sign-in",
-            "badge": "On the internet",
-            "turnedOn": "{{name}} can sign in from the internet",
-            "turnedOff": "{{name}} can no longer sign in from the internet",
-            "error": "That could not be changed",
-            "onTitle": "Let {{name}} in from the internet?",
-            "offTitle": "Turn off public sign-in for {{name}}?",
-            "beyond": "{{name}} holds permissions that are not for the internet: {{permissions}}. Remove them first, then try again.",
-            "onDescription": "{{name}} will be able to sign in from any device, read what they can see, download books and add books for your approval. They can't manage anything.",
-            "offDescription": "{{name}} will no longer be able to use Stump from the internet. They stay signed in at home. Their devices stay unless you remove them.",
-            "libraries": "Libraries",
-            "onlyLibrary": "Only {{name}}",
-            "leaveLibraries": "Leave what they see as it is",
-            "newPassword": "Set a new password now",
-            "newPasswordHint": "Recommended for an account that existed before: choose one only they know.",
-            "removeDevices": "Also remove their {{count}} devices",
-            "turnOn": "Turn on",
-            "turnOff": "Turn off"
+          "invite": "Invite someone",
+          "inviteNeedsSetup": "Set up public access first.",
+          "groups": {
+            "internet": "Can sign in from the internet ({{count}})",
+            "invited": "Invited, not in yet ({{count}})",
+            "home": "Can't sign in from the internet ({{count}})"
           },
-          "devices": {
-            "label": "Devices allowed",
-            "fewer": "Fewer devices",
-            "more": "More devices",
-            "error": "The number of devices could not be changed"
+          "showEnded": "Show ended ({{count}})",
+          "hideEnded": "Hide ended",
+          "devicesLine": "{{active}} of {{limit}} devices · last sign-in {{when}}",
+          "devicesLineNever": "{{active}} of {{limit}} devices · never signed in",
+          "nobody": "Nobody can sign in from the internet yet.",
+          "homeOnly": "Can't sign in from the internet",
+          "badges": {
+            "locked": "Locked",
+            "extras": "Extra permissions",
+            "mustChange": "Must change password"
           },
-          "numbers": "Devices {{active}} of {{max}} · {{sessions}} sessions · {{hidden}} libraries hidden",
-          "beyond": "Holds more than a friend may:"
+          "moreActions": "More actions",
+          "revoke": "Revoke",
+          "invitedOne": "One person · expires {{when}}",
+          "invitedOpen": "Several people · {{used}} of {{max}} joined · expires {{when}}",
+          "invitedDevice": "Device link for {{name}} · expires {{when}}"
         },
         "activity": {
-          "title": "Activity",
-          "description": "What was done here, and when. It never holds a link or a password.",
-          "empty": "Nothing yet.",
-          "when": "{{actor}} · {{at}}",
           "actions": {
             "inviteCreate": "Invite made",
             "inviteRevoke": "Invite revoked",
@@ -2941,34 +2865,16 @@
             "signinUnknownNames": "Failed sign-ins on names that don't exist",
             "deviceRemovedByPerson": "Device removed by its person",
             "opdsKeyCreated": "Reading-app address made",
-            "opdsKeyReplaced": "Reading-app address replaced"
+            "opdsKeyReplaced": "Reading-app address replaced",
+            "warningDismiss": "Marked as seen",
+            "warningRestore": "Shown again"
           }
         },
         "signups": {
-          "title": "Signup links",
-          "description": "Send a link and they make their own account: they choose a username and a password, and are in. You decide what the account can do and which libraries it sees.",
-          "off": "Public sign-in is switched off (STUMP_EDGE_PUBLIC_SIGNIN), so a link can't be made yet.",
           "form": {
-            "label": "Note",
-            "labelPlaceholder": "Book club",
-            "kind": "Link for",
-            "validFor": "Valid for",
-            "uses": "Accounts allowed",
             "whatTheyGet": "What they get",
             "change": "Change…",
-            "done": "Done",
-            "create": "Create link"
-          },
-          "kind": {
-            "single": "One person",
-            "open": "Open link"
-          },
-          "validity": {
-            "h24": "1 day",
-            "h72": "3 days",
-            "h168": "7 days",
-            "h336": "14 days",
-            "h720": "30 days"
+            "done": "Done"
           },
           "summary": {
             "can": "Can:",
@@ -2996,66 +2902,197 @@
             "agePlaceholder": "None",
             "ageInvalid": "Use a number from 1 to 120, or leave it empty."
           },
-          "openAddBooks": "This open link lets anyone who gets it add books for your approval. Share it only with people you trust, and keep the budget and the days low.",
-          "created": {
-            "title": "Link for “{{label}}”",
-            "linkLabel": "Signup link",
-            "copy": "Copy",
-            "copied": "Link copied",
-            "copyFailed": "Couldn't copy: select the link and copy it by hand",
-            "share": "Share",
-            "once": "This is the only time the link is shown: Stump keeps no copy. If you lose it, make another.",
-            "dismiss": "Done"
-          },
-          "status": {
-            "active": "Open",
-            "usedUp": "Used up",
-            "expired": "Expired",
-            "revoked": "Revoked"
-          },
-          "detail": "Made {{created}} · expires {{expires}} · accounts {{uses}} of {{max}}",
-          "madeAccounts": "Accounts:",
-          "empty": "No signup links yet.",
-          "revoke": "Revoke",
-          "turnOffAccounts": "Turn off its accounts",
-          "revoked": "Link “{{label}}” revoked",
-          "revokedAccounts": "{{count}} accounts turned off",
-          "confirm": {
-            "title": "Revoke this link?",
-            "description": "Nobody can make an account with “{{label}}” any more. The accounts it already made stay.",
-            "alsoAccounts": "Also turn off the {{count}} accounts it made",
-            "alsoAccountsHint": "Their public sign-in goes off, their devices are removed and they are signed out. You can turn it back on for each person.",
-            "revoke": "Revoke"
-          },
-          "errors": {
-            "create": "The link could not be made",
-            "revoke": "The link could not be revoked"
-          }
-        },
-        "warnings": {
-          "title": "Needs a look ({{count}})",
-          "since": "Since {{at}}",
-          "review": "Review",
-          "badge": "{{count}} things to look at in Public access",
-          "kinds": {
-            "atDeviceLimit": "{{name}} uses all their devices ({{count}}).",
-            "overDeviceLimit": "{{name}} has {{count}} devices, more than their limit.",
-            "manyDevices": "{{name}} has {{count}} devices.",
-            "deviceLimitHit": "{{name}} was refused a new device {{count}} times because they use all they may.",
-            "manySessions": "{{name}} is signed in {{count}} times.",
-            "signinFailures": "{{count}} failed sign-ins for {{name}} in the last hour.",
-            "signinFailuresUnknown": "{{count}} failed sign-ins on names that don't exist.",
-            "nameBackoff": "Somebody kept guessing at {{name}}'s password and was slowed down.",
-            "nameBackoffUnknown": "Somebody kept guessing at a name that doesn't exist and was slowed down.",
-            "globalBudget": "Public sign-in refused everybody for a few minutes after a flood of failed attempts.",
-            "notEnabledTried": "{{name}} tried to sign in from the internet but isn't allowed there. Turn it on in People?",
-            "notFriendClass": "{{name}} can't use the internet while they hold: {{detail}}.",
-            "linkNearBudget": "The link “{{detail}}” has one account left.",
-            "linkNoLibraries": "The link “{{detail}}” can't be used: its libraries are gone."
-          }
+          "openAddBooks": "This open link lets anyone who gets it add books for your approval. Share it only with people you trust, and keep the budget and the days low."
         },
         "qr": {
           "label": "QR code of the address"
+        },
+        "details": {
+          "title": "Public access details",
+          "address": "Public address",
+          "pass": "Devices need a pass",
+          "signin": "Public sign-in",
+          "edge": "Edge updated",
+          "failures": "Failed sign-ins in the last 10 min",
+          "slowed": "Names slowed down now",
+          "edgeNote": "The edge also slows down a client that tries too often; it clears by itself within a minute.",
+          "yes": "Yes",
+          "no": "No",
+          "signinOn": "On, set on the server",
+          "signinOff": "Off, set on the server",
+          "never": "Never",
+          "none": "Not set"
+        },
+        "attention": {
+          "title": "Needs your attention ({{count}})",
+          "clearAll": "Clear all",
+          "dismiss": "Dismiss",
+          "dismissed": "Marked as seen. It comes back if something changes.",
+          "cleared_one": "{{count}} marked as seen. History keeps it.",
+          "cleared_other": "{{count}} marked as seen. History keeps them.",
+          "undo": "Undo",
+          "allGood": "All good. Nothing needs your attention.",
+          "showAll": "Show all ({{count}})",
+          "showFewer": "Show fewer",
+          "raised": "{{name}} can now use {{count}} devices.",
+          "unblocked": "{{name}} can sign in again.",
+          "error": "That didn't work.",
+          "badge": "{{count}} things need your attention",
+          "revokeLinkConfirm": "The link “{{note}}” stops working.",
+          "leftoversConfirm_one": "This device stops working within seconds.",
+          "leftoversConfirm_other": "These {{count}} devices stop working within seconds.",
+          "leftoversRemoved_one": "{{count}} device removed.",
+          "leftoversRemoved_other": "{{count}} devices removed.",
+          "actions": {
+            "raiseLimit": "Raise limit",
+            "seeDevices": "See devices",
+            "signOutAll": "Sign out everywhere",
+            "setPassword": "Set password",
+            "seeAttempts": "See attempts",
+            "letIn": "Let in",
+            "fix": "Fix",
+            "newLink": "New link",
+            "revokeLink": "Revoke",
+            "unblock": "Unblock",
+            "removeLeftovers": "Remove them",
+            "review": "Review"
+          },
+          "kinds": {
+            "atDeviceLimit_one": "{{name}} is using their only device.",
+            "atDeviceLimit_other": "{{name}} is using all {{count}} devices.",
+            "overDeviceLimit_one": "{{name}} has {{count}} device; the limit is {{limit}}.",
+            "overDeviceLimit_other": "{{name}} has {{count}} devices; the limit is {{limit}}.",
+            "manyDevices_one": "{{name}} has {{count}} device.",
+            "manyDevices_other": "{{name}} has {{count}} devices.",
+            "deviceLimitHit_one": "{{name}} couldn't add a device: limit reached.",
+            "deviceLimitHit_other": "{{name}} couldn't add a device: limit reached ({{count}}×).",
+            "manySessions_one": "{{name}} is signed in once.",
+            "manySessions_other": "{{name}} is signed in {{count}} times.",
+            "signinFailures_one": "{{count}} wrong password for {{name}} in the last hour.",
+            "signinFailures_other": "{{count}} wrong passwords for {{name}} in the last hour.",
+            "signinFailuresUnknown_one": "{{count}} sign-in attempt with a name that doesn't exist.",
+            "signinFailuresUnknown_other": "{{count}} sign-in attempts with names that don't exist.",
+            "signinFailuresUnknownSlowed_one": "{{count}} sign-in attempt with a name that doesn't exist. Stump slowed it down.",
+            "signinFailuresUnknownSlowed_other": "{{count}} sign-in attempts with names that don't exist. Stump slowed them down.",
+            "nameBackoff": "Someone kept guessing {{name}}'s password. Stump slowed them down.",
+            "globalBudget": "Too many failed sign-ins: Stump let nobody in for a few minutes.",
+            "notEnabledTried": "{{name}} tried to sign in from the internet but isn't allowed.",
+            "notFriendClass_one": "{{name}} may sign in from the internet, but {{extras}} keeps them out.",
+            "notFriendClass_other": "{{name}} may sign in from the internet, but {{extras}} keep them out.",
+            "linkNearBudget_one": "The link “{{note}}” has 1 account left.",
+            "linkNearBudget_other": "The link “{{note}}” has {{count}} accounts left.",
+            "linkNoLibraries": "The link “{{note}}” gives no library: nobody can use it.",
+            "accountLocked_one": "{{name}} is locked out after {{count}} wrong password.",
+            "accountLocked_other": "{{name}} is locked out after {{count}} wrong passwords.",
+            "accountLockedNoCount": "{{name}} is locked out.",
+            "leftoverDevices_one": "{{count}} old device still works (unused 2+ months, terminal or removed people).",
+            "leftoverDevices_other": "{{count}} old devices still work (unused 2+ months, terminal or removed people).",
+            "booksWaiting_one": "{{count}} book waits for your approval.",
+            "booksWaiting_other": "{{count}} books wait for your approval."
+          }
+        },
+        "invite": {
+          "title": "Invite someone",
+          "who": "Who is it for?",
+          "whoPlaceholder": "e.g. {{name}}",
+          "whoHelp": "Only you see this.",
+          "whoMissing": "Write who it's for.",
+          "linkFor": "Link for",
+          "one": "One person",
+          "several": "Several people",
+          "howMany": "How many accounts",
+          "worksFor": "Works for",
+          "validity": {
+            "h1": "1 hour",
+            "h24": "1 day",
+            "h72": "3 days",
+            "h168": "7 days",
+            "h336": "14 days",
+            "h720": "30 days"
+          },
+          "create": "Create link",
+          "cancel": "Cancel",
+          "done": "Done",
+          "sendTo": "Send this link to {{note}}",
+          "linkLabel": "Link",
+          "copy": "Copy",
+          "copied": "Link copied.",
+          "copyFailed": "Select the link and copy it by hand.",
+          "share": "Share",
+          "showQr": "Show QR code",
+          "hideQr": "Hide QR code",
+          "onlyNow": "You'll only see it now. If it gets lost, make a new one.",
+          "error": "The link couldn't be made.",
+          "signinOff": "New accounts need public sign-in, which is off on the server. You can still add a device for someone who has an account: open their name."
+        },
+        "letIn": {
+          "title": "Let {{name}} in from the internet?",
+          "body": "They'll sign in with their password on up to {{limit}} devices.",
+          "can": "They can: {{can}}.",
+          "sees": "They see: {{libraries}}.",
+          "everything": "everything",
+          "nothing": "nothing",
+          "some_one": "{{count}} library",
+          "some_other": "{{count}} libraries",
+          "extras": "{{name}} also has: {{extras}}. These aren't for the internet.",
+          "removeAndLetIn": "Remove them and let in",
+          "letIn": "Let in",
+          "libraries": "Libraries",
+          "keepLibraries": "Leave as they are",
+          "onlyDefault": "Only {{name}}",
+          "setPassword": "Set a new password now (recommended for accounts made before)",
+          "turnOff": "{{name}} won't be able to come in from the internet on any device.",
+          "done": "{{name}} can now sign in from the internet.",
+          "error": "That didn't work."
+        },
+        "ended": {
+          "status": {
+            "USED_UP": "Used up",
+            "EXPIRED": "Expired",
+            "REVOKED": "Revoked"
+          },
+          "deviceRemoved": "Removed",
+          "deviceOfRemoved": "Removed person",
+          "oldPasses": "Old passes that still work",
+          "restored": "{{label}} works again.",
+          "error": "That didn't work.",
+          "turnOffAccounts": "Turn off the accounts it made"
+        },
+        "revoke": {
+          "title": "Revoke “{{label}}”?",
+          "body": "It can't be opened any more.",
+          "disableAccounts_one": "Also turn off the account it made",
+          "disableAccounts_other": "Also turn off the {{count}} accounts it made",
+          "confirm": "Revoke",
+          "turnOffTitle": "Turn off the accounts “{{label}}” made?",
+          "turnOffBody": "Their devices stop working and they are signed out. The accounts are not deleted.",
+          "turnOffConfirm": "Turn off",
+          "turnOffDone": "The accounts “{{label}}” made are off.",
+          "done": "“{{label}}” was revoked.",
+          "error": "That didn't work."
+        },
+        "history": {
+          "title": "History",
+          "show": "Show history",
+          "hide": "Hide history",
+          "signIns": "Sign-ins",
+          "changes": "Changes",
+          "failuresOnly": "Failures only",
+          "allSignIns": "Every sign-in, also at home, is in {{users}} → Authentication history.",
+          "fromInternet": "From the internet",
+          "system": "Stump",
+          "noSignIns": "No sign-ins to show.",
+          "noChanges": "No changes yet.",
+          "result": {
+            "ok": "Signed in",
+            "wrongPassword": "Wrong password",
+            "locked": "Locked",
+            "ownerViaEdge": "Owner, refused from the internet",
+            "wrongPerson": "Someone else's device",
+            "notAllowed": "Not allowed from the internet",
+            "deviceLimit": "Device limit",
+            "failed": "Failed"
+          }
         }
       },
       "server/email": {
@@ -3310,7 +3347,42 @@
       },
       "server/bookApprovals": {
         "title": "Book approvals",
-        "description": "Review the books other people added before they join the library"
+        "description": "Review the books other people added before they join the library",
+        "waiting_one": "{{count}} book waits. It joins the library when you approve it.",
+        "waiting_other": "{{count}} books wait. They join the library when you approve them.",
+        "emptyHelp": "Books other people add wait here until you approve them.",
+        "empty": "Nothing is waiting for approval.",
+        "sectionLabel": "Books waiting for approval",
+        "filter": "Filter by library",
+        "allLibraries": "All libraries",
+        "approveAll": "Approve all ready ({{count}})",
+        "acceptAll": {
+          "description": "Untick any genre that doesn’t fit. Each book is added to the library the way the page shows it.",
+          "skipped_one": "{{count}} book is left out: it has something to fix, may already be in the library, or failed. It stays here for you to open.",
+          "skipped_other": "{{count}} books are left out: they have something to fix, may already be in the library, or failed. They stay here for you to open."
+        },
+        "limits": {
+          "title": "Upload limits per person",
+          "help": "Leave a box empty to use the server’s limit.",
+          "choose": "Choose a person",
+          "person": "Person",
+          "nobody": "Nobody else can add books yet: give somebody “{{permission}}” in {{path}}.",
+          "maxFileMb": "Biggest file",
+          "maxFilesPerRequest": "Files per upload",
+          "quotaMb": "Inbox space",
+          "maxItems": "Books at once",
+          "hint": {
+            "mb": "MB",
+            "files": "files",
+            "books": "books"
+          },
+          "invalid": "A whole number above zero, or empty",
+          "now": "Now: files up to {{file}} MB, {{files}} files in one upload, {{quota}} MB waiting and {{items}} books open at once.",
+          "save": "Save",
+          "useServer": "Use the server’s limits",
+          "saved": "Limits saved",
+          "saveError": "Could not save the limits"
+        }
       },
       "app/devices": {
         "helmet": "My devices",
@@ -3321,21 +3393,19 @@
           "browser": "Browser",
           "readingApp": "Reading app"
         },
-        "detail": "Last used {{last}} · from {{ip}}",
-        "never": "never",
         "rename": {
           "label": "Device name",
           "save": "Save name",
           "cancel": "Cancel",
-          "start": "Rename {{name}}"
+          "start": "Rename"
         },
         "remove": "Remove",
         "removeAndSignOut": "Remove and sign out",
         "removed": "{{name}} removed",
-        "count": "You use {{active}} of {{limit}} devices.",
-        "full": "You use all {{limit}} of your devices. Remove one to sign in on another.",
-        "empty": "No devices.",
-        "footer": "You can use up to {{limit}} devices. Reading apps count as devices, and installing Stump on an iPhone's home screen counts as another one.",
+        "count": "You're using {{active}} of {{limit}} devices.",
+        "full": "You're using all {{limit}} devices. To use a new one, remove one here.",
+        "empty": "No devices yet. Sign in from a phone, tablet or computer and it shows up here.",
+        "footer": "Reading apps count as devices. Adding Stump to an iPhone home screen counts as one more.",
         "confirm": {
           "title": "Remove this device?",
           "description": "{{name}} will stop working within seconds. You can sign in there again if you have a free device.",
@@ -3345,15 +3415,18 @@
         "errors": {
           "rename": "The name could not be changed",
           "remove": "The device could not be removed"
-        }
+        },
+        "used": "Used {{when}}",
+        "neverUsed": "Never used",
+        "moreActions": "More actions for {{name}}"
       },
       "app/readingApps": {
         "helmet": "Reading apps",
         "title": "Reading apps",
         "description": "Connect KOReader, a Kobo or another reading app",
-        "intro": "Connect KOReader, a Kobo or any reading app that supports OPDS. Each app gets its own address; the key is part of it, so you don't sign in there. Keep it to yourself, and replace it if it leaks. Each one counts as one of your devices.",
+        "intro": "Read your books in KOReader, Kobo or another reading app.",
         "noDownload": "Your account can't download books, so a reading app would have nothing to read.",
-        "full": "You use all {{limit}} of your devices. Remove one to add a reading app.",
+        "full": "You're using all {{limit}} devices. Remove one in {{page}} to add an app.",
         "name": "Name",
         "namePlaceholder": "My Kobo",
         "add": "Add a reading app",
@@ -3362,16 +3435,12 @@
         "copy": "Copy",
         "copied": "Address copied",
         "copyFailed": "Couldn't copy: select the address and copy it by hand",
-        "qr": "QR code",
-        "lastUsed": "Last used {{at}}",
-        "never": "never",
         "steps": {
-          "0": "In KOReader: Search → OPDS catalog → the + button, and paste the address.",
-          "1": "Leave the username and password empty.",
-          "2": "Open the new catalog to browse and download your books."
+          "0": "In the app, add an OPDS catalog (KOReader: Search → OPDS catalog → +).",
+          "1": "Paste this address. Leave user and password empty.",
+          "2": "Open the catalog and download your books."
         },
-        "otherReaders": "In other readers, add an OPDS catalog with the same address.",
-        "replace": "Replace address",
+        "replace": "New address",
         "remove": "Remove",
         "replaced": "{{name}} has a new address; the old one stopped working",
         "removed": "{{name}} removed",
@@ -3384,7 +3453,21 @@
         "errors": {
           "create": "The reading app could not be added",
           "change": "That could not be changed"
-        }
+        },
+        "addTitle": "Add a reading app",
+        "addressTitle": "Reading app address",
+        "addConfirm": "Add",
+        "cancel": "Cancel",
+        "done": "Done",
+        "addressFor": "Your address for {{name}}",
+        "showQr": "Show QR code",
+        "hideQr": "Hide QR code",
+        "keepPrivate": "Keep this address to yourself: it opens your books.",
+        "used": "Used {{when}}",
+        "neverUsed": "Never used",
+        "showAddress": "Show address",
+        "moreActions": "More actions for {{name}}",
+        "myDevices": "My devices"
       }
     },
     "jobOverlay": {
@@ -3426,7 +3509,8 @@
         "noSmartlists": "No Smart Lists",
         "createSmartlist": "Create Smart List",
         "myReading": "My reading",
-        "seeAll": "See All"
+        "seeAll": "See All",
+        "addBooks": "Add books"
       },
       "libraryOptions": {
         "manageLibrary": "Settings",
@@ -3598,7 +3682,7 @@
       },
       "ADD_BOOKS": {
         "label": "Add Books",
-        "description": "Allows the user to upload books and add them to libraries"
+        "description": "Allows the user to upload books and send them for approval (people who manage libraries add them directly)"
       },
       "SCAN_LIBRARY": {
         "label": "Scan Libraries",
@@ -3640,6 +3724,43 @@
         "label": "Manage Metadata Matches",
         "description": "Allows the user to search external providers for a book and accept or reject candidate matches"
       }
+    },
+    "intakeScene": {
+      "inboxAlmostFull": "Your inbox is almost full ({{used}} of {{total}}).",
+      "inboxBooks": "{{open}} of {{max}} books",
+      "alreadyInLibrary": "Already in the library.",
+      "removeFromList": "Remove from my list",
+      "sourceFailures_one": "Couldn't check online ({{count}} source).",
+      "sourceFailures_other": "Couldn't check online ({{count}} sources).",
+      "sourceDetails": "Details",
+      "title": "Add books",
+      "statReview": "need your details",
+      "statReady": "ready",
+      "statWaiting": "waiting",
+      "friendIntro": "Send books to the library. They’re added once approved.",
+      "closed": "Uploads are closed",
+      "closedNow": "You can’t add books right now.",
+      "noLibrary": "You can’t add books to any library yet.",
+      "beingRead": "Being read",
+      "sentBack": "Sent back",
+      "sentBackHelp": "Change what they ask for, then send them again",
+      "needsDetails": "Needs your details",
+      "readyToSend": "Ready to send",
+      "readyToAdd": "Ready to add",
+      "sendAllReady": "Send all ready",
+      "addAllReady": "Add all ready",
+      "waiting": "Waiting for approval",
+      "waitingHelp": "You can take a book back to change it until it is approved",
+      "beingAdded": "Being added",
+      "added": "Added",
+      "showFewer": "Show fewer",
+      "showAll": "Show all {{count}}",
+      "stepDrop": "Drop your books",
+      "stepCheck": "Check the details",
+      "stepSend": "Send them for approval",
+      "stepAdd": "Add them to the library",
+      "empty": "Your inbox is empty.",
+      "howItWorks": "How adding books works"
     }
   },
   "shared": {

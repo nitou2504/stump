@@ -10,7 +10,9 @@ const lookup = (locale: unknown, scene: string, path: string): unknown =>
 		.reduce<unknown>(
 			(node, part) =>
 				node && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined,
-			(locale as { webApp: { settingsScene: Record<string, unknown> } }).webApp.settingsScene[scene],
+			(locale as { webApp: { settingsScene: Record<string, unknown> } }).webApp.settingsScene[
+				scene
+			],
 		)
 
 /** Every key a scene asks for: the quoted names inside its `key(...)` calls (a choice between two counts as both) */
@@ -49,9 +51,12 @@ describe.each([
 	})
 
 	it('have the same placeholders in both languages', () => {
-		const placeholders = (text: unknown) => [...String(text).matchAll(/{{(\w+)}}/g)].map((m) => m[1]).sort()
+		const placeholders = (text: unknown) =>
+			[...String(text).matchAll(/{{(\w+)}}/g)].map((m) => m[1]).sort()
 		for (const key of keys) {
-			expect(placeholders(lookup(es, scene, key)), key).toEqual(placeholders(lookup(en, scene, key)))
+			expect(placeholders(lookup(es, scene, key)), key).toEqual(
+				placeholders(lookup(en, scene, key)),
+			)
 		}
 	})
 })
@@ -59,7 +64,9 @@ describe.each([
 describe('the settings sidebar', () => {
 	it.each(['en-US', 'es-ES'])('names the two personal pages in %s', (name) => {
 		const sidebar = (
-			(name === 'en-US' ? en : es) as { webApp: { settingsScene: { sidebar: { personal: Record<string, string> } } } }
+			(name === 'en-US' ? en : es) as {
+				webApp: { settingsScene: { sidebar: { personal: Record<string, string> } } }
+			}
 		).webApp.settingsScene.sidebar.personal
 		expect(sidebar['my devices']).toBeTruthy()
 		expect(sidebar['reading apps']).toBeTruthy()

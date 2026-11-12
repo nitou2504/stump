@@ -263,13 +263,26 @@ where
 /// A page of signup links, the latest first, and how many there are
 pub async fn list_signup_links<C>(
 	conn: &C,
+	now: DateTime<Utc>,
+	include_ended: bool,
 	page: u64,
 	page_size: u64,
 ) -> Result<(Vec<access_signup_link::Model>, u64), DbErr>
 where
 	C: ConnectionTrait,
 {
-	let paginator = access_signup_link::Entity::find()
+	let mut select = access_signup_link::Entity::find();
+	if !include_ended {
+		// open: not revoked, not expired, a use left
+		select = select
+			.filter(access_signup_link::Column::RevokedAt.is_null())
+			.filter(access_signup_link::Column::ExpiresAt.gt(now))
+			.filter(
+				Expr::col(access_signup_link::Column::Uses)
+					.lt(Expr::col(access_signup_link::Column::MaxUses)),
+			);
+	}
+	let paginator = select
 		.order_by_desc(access_signup_link::Column::CreatedAt)
 		.paginate(conn, std::cmp::max(page_size, 1));
 	let total = paginator.num_items().await?;
