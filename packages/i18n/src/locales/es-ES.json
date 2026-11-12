@@ -2953,6 +2953,12 @@
         "signOut": "Cerrar sesión"
       }
     },
+    "seriesSettingsScene": {
+      "metadata": {
+        "title": "Metadatos",
+        "description": "Información adicional sobre tu serie"
+      }
+    },
     "pagination": {
       "page": "Página",
       "ofPages": "de {{pages}}",

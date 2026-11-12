@@ -3401,6 +3401,12 @@
         "signOut": "Sign Out"
       }
     },
+    "seriesSettingsScene": {
+      "metadata": {
+        "title": "Metadata",
+        "description": "Extra information about your series"
+      }
+    },
     "pagination": {
       "page": "Page",
       "ofPages": "of {{pages}}",
