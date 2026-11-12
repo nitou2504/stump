@@ -3531,14 +3531,18 @@
       "issue": "Edición",
       "downloadedAt": "Descargado",
       "ageRating": "Clasificación de edad",
+      "rating": "Valoración",
       "characters": "Personajes",
       "format": "Formato",
       "genres": "Géneros",
+      "genre": "Género",
       "language": "Idioma",
       "publisher": "Editoriales",
+      "published": "Publicado",
       "volume": "Volumen",
       "writers": "Escritores",
       "colorists": "Coloristas",
+      "colorist": "Colorista",
       "inkers": "entintadores",
       "letterers": "rotuladores",
       "coverArtists": "Artistas de portada",
@@ -3550,7 +3554,19 @@
     "readerSettings": {
       "title": "Reader Settings",
       "overrideGlobalSettings": "Sobreescribir ajustes globales",
+      "sections": {
+        "mode": "Modo",
+        "imageOptions": "Opciones de imagen",
+        "controls": "Controles"
+      },
       "volumeButtonsNavigate": "Navegar con los botones de volumen",
+      "footerControls": {
+        "label": "Pie de página",
+        "options": {
+          "images": "Galería de imágenes",
+          "slider": "Control deslizante"
+        }
+      },
       "readingTimer": {
         "confirmation": {
           "action": {
@@ -3565,6 +3581,8 @@
       "allSettings": "Todos los ajustes",
       "readingMode": {
         "options": {
+          "CONTINUOUS_HORIZONTAL": "Desplazamiento (horizontal)",
+          "CONTINUOUS_VERTICAL": "Desplazamiento (vertical)",
           "PAGED": "Paginado"
         },
         "label": "Flujo"
@@ -3580,8 +3598,10 @@
       "doublePageBehavior": {
         "options": {
           "auto": "Automático",
+          "always": "Siempre",
           "off": "Apagado"
-        }
+        },
+        "label": "Doble página"
       },
       "imageScaling": {
         "label": "Escalado",
@@ -3592,7 +3612,10 @@
           "AUTO": "Automático"
         }
       },
-      "separateSecondPage": "Separar segunda página"
+      "allowDownscaling": "Reducción de escala",
+      "separateSecondPage": "Separar segunda página",
+      "tapSidesToNavigate": "Toca los lados para navegar",
+      "panZoomWithoutCtrl": "Mover y hacer zoom sin Ctrl / Cmd"
     },
     "homeSections": {
       "onDeck": {
@@ -3842,6 +3865,10 @@
       "more": "Más",
       "markAsUnread": "Marcar como no leído",
       "fileInfo": "Información del archivo",
+      "analyze": "Analizar",
+      "readFromBeginning": "Leer desde el principio",
+      "readIncognito": "Leer en modo incógnito",
+      "openNativePdf": "Abrir en el visor de PDF nativo",
       "markAsRead": {
         "label": "Marcar como Leído",
         "failure": "No se pudo marcar el libro como leído",
@@ -3849,15 +3876,18 @@
       },
       "clearProgress": {
         "label": "Borrar progreso",
+        "confirmation": "¿Seguro que quieres borrar tu progreso de {{bookTitle}}?",
         "failure": "Error al eliminar el progreso actual"
       },
       "deleteReadHistory": {
         "label": "Borrar historial de lectura",
         "confirmation": "¿Seguro que quieres borrar tu historial de lectura para {{bookTitle}}?",
+        "disclaimer": "Tu historial de lecturas completadas no se puede recuperar una vez eliminado",
         "failure": "No se pudo eliminar el historial de lectura"
       },
       "deleteBook": {
-        "label": "Eliminar libro"
+        "label": "Eliminar libro",
+        "confirmation": "¿Seguro que quieres eliminar {{bookTitle}}?"
       },
       "deleteDownload": {
         "label": "Eliminar descarga",
@@ -3868,7 +3898,8 @@
       "goToLibrary": "Ir a Biblioteca"
     },
     "libraryActions": {
-      "scan": "Escanear"
+      "scan": "Escanear",
+      "scanAll": "Escanear todo"
     },
     "sorting": {
       "label": "Ordenar por",
@@ -4062,12 +4093,19 @@
       }
     },
     "imageReader": {
+      "header": {
+        "goToMediaOverview": "Ir al resumen del libro"
+      },
       "timerMenu": {
         "start": "Iniciar temporizador",
         "stop": "Detener temporizador"
       },
+      "footer": {
+        "readingTime": "Tiempo de lectura: {{time}}"
+      },
       "goToPage": {
-        "label": "Ir a página"
+        "label": "Ir a página",
+        "submit": "Ir"
       },
       "nextInSeries": {
         "title": "A continuación:"
