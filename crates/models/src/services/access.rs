@@ -192,6 +192,51 @@ where
 	Ok(())
 }
 
+/// The names behind the targets of audit rows: a device's label, a signup link's or an invite's
+/// note, an account's username. A target that is none of those (or is gone) has no entry
+pub async fn audit_target_labels<C>(
+	conn: &C,
+	targets: &[String],
+) -> Result<HashMap<String, String>, DbErr>
+where
+	C: ConnectionTrait,
+{
+	let mut labels = HashMap::new();
+	if targets.is_empty() {
+		return Ok(labels);
+	}
+	let ids = targets.to_vec();
+	for device in access_device::Entity::find()
+		.filter(access_device::Column::Id.is_in(ids.clone()))
+		.all(conn)
+		.await?
+	{
+		labels.insert(device.id, device.label);
+	}
+	for link in access_signup_link::Entity::find()
+		.filter(access_signup_link::Column::Id.is_in(ids.clone()))
+		.all(conn)
+		.await?
+	{
+		labels.insert(link.id, link.label);
+	}
+	for invite in access_invite::Entity::find()
+		.filter(access_invite::Column::Id.is_in(ids.clone()))
+		.all(conn)
+		.await?
+	{
+		labels.insert(invite.id, invite.label);
+	}
+	for account in user::Entity::find()
+		.filter(user::Column::Id.is_in(ids))
+		.all(conn)
+		.await?
+	{
+		labels.insert(account.id, account.username);
+	}
+	Ok(labels)
+}
+
 /// A page of the audit log, the latest first, and how many rows there are
 pub async fn list_audit<C>(
 	conn: &C,
@@ -324,13 +369,26 @@ where
 /// A page of invites, the latest first, and how many there are
 pub async fn list_invites<C>(
 	conn: &C,
+	now: DateTime<Utc>,
+	include_ended: bool,
 	page: u64,
 	page_size: u64,
 ) -> Result<(Vec<access_invite::Model>, u64), DbErr>
 where
 	C: ConnectionTrait,
 {
-	let paginator = access_invite::Entity::find()
+	let mut select = access_invite::Entity::find();
+	if !include_ended {
+		// open: not revoked, not expired, a use left
+		select = select
+			.filter(access_invite::Column::RevokedAt.is_null())
+			.filter(access_invite::Column::ExpiresAt.gt(now))
+			.filter(
+				Expr::col(access_invite::Column::Uses)
+					.lt(Expr::col(access_invite::Column::MaxUses)),
+			);
+	}
+	let paginator = select
 		.order_by_desc(access_invite::Column::CreatedAt)
 		.paginate(conn, std::cmp::max(page_size, 1));
 	let total = paginator.num_items().await?;
@@ -606,13 +664,22 @@ where
 /// A page of devices, the latest made first, and how many there are
 pub async fn list_devices<C>(
 	conn: &C,
+	person_id: Option<&str>,
+	include_ended: bool,
 	page: u64,
 	page_size: u64,
 ) -> Result<(Vec<access_device::Model>, u64), DbErr>
 where
 	C: ConnectionTrait,
 {
-	let paginator = access_device::Entity::find()
+	let mut select = access_device::Entity::find();
+	if let Some(person_id) = person_id {
+		select = select.filter(access_device::Column::PersonId.eq(person_id));
+	}
+	if !include_ended {
+		select = select.filter(access_device::Column::RevokedAt.is_null());
+	}
+	let paginator = select
 		.order_by_desc(access_device::Column::CreatedAt)
 		.paginate(conn, std::cmp::max(page_size, 1));
 	let total = paginator.num_items().await?;
@@ -1350,6 +1417,7 @@ pub struct SignInRow {
 pub async fn list_sign_ins<C>(
 	conn: &C,
 	failures_only: bool,
+	others_only: bool,
 	page: u64,
 	page_size: u64,
 ) -> Result<(Vec<SignInRow>, u64), DbErr>
@@ -1360,6 +1428,19 @@ where
 	if failures_only {
 		select = select
 			.filter(user_login_activity::Column::AuthenticationSuccessful.eq(false));
+	}
+	if others_only {
+		// the server owner's successful sign-ins are left out (failures on their name stay)
+		let owners = Query::select()
+			.column(user::Column::Id)
+			.from(user::Entity)
+			.and_where(Expr::col(user::Column::IsServerOwner).eq(true))
+			.to_owned();
+		select = select.filter(
+			Condition::any()
+				.add(user_login_activity::Column::AuthenticationSuccessful.eq(false))
+				.add(user_login_activity::Column::UserId.not_in_subquery(owners)),
+		);
 	}
 	let paginator = select
 		.order_by_desc(user_login_activity::Column::Timestamp)

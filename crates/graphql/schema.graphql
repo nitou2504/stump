@@ -11,6 +11,11 @@ type AccessAuditEntry {
 	action: String!
 	"An invite id, a device id or a user id"
 	target: String!
+	"""
+	The name behind the target when it is a device (its label), a signup link or an invite
+	(its note) or an account (its username), if it still exists
+	"""
+	targetLabel: String
 	detail: String!
 }
 
@@ -200,6 +205,8 @@ type AccessSignIn {
 	at: DateTime!
 	ip: String!
 	userAgent: String!
+	"The browser and system in words, like \"Chrome on Linux\""
+	agentLabel: String!
 	successful: Boolean!
 	"The pass the sign-in came with, when it came through the public edge"
 	deviceId: String
@@ -283,8 +290,15 @@ type AccessWarning {
 	"How many times, or how many devices"
 	count: Int!
 	since: DateTime!
+	"""
+	The time of the newest fact behind it. A dismissed warning comes back when this, or the
+	count, goes up
+	"""
+	lastAt: DateTime!
 	"A short plain-text detail (a username, a note, the permissions)"
 	detail: String
+	"When the owner marked it as seen, if it is still hidden (only with `includeDismissed`)"
+	dismissedAt: DateTime
 }
 
 enum AccessWarningKind {
@@ -300,6 +314,15 @@ enum AccessWarningKind {
 	NOT_FRIEND_CLASS
 	LINK_NEAR_BUDGET
 	LINK_NO_LIBRARIES
+	"An account locked after too many wrong passwords"
+	ACCOUNT_LOCKED
+	"""
+	Devices that still work but are leftovers (terminal passes, people who are gone, unused for
+	two months)
+	"""
+	LEFTOVER_DEVICES
+	"Books that wait for the owner's approval"
+	BOOKS_WAITING
 }
 
 enum AccessWarningSeverity {
@@ -3591,6 +3614,14 @@ type Mutation {
 	"""
 	setPersonAccess(input: PersonAccessInput!): AccessPersonRow!
 	"""
+	Marks warnings as seen: they leave *Needs your attention* and the badge until something new
+	or worse happens. Without `ids`: every warning shown now (*Clear all*). Nothing is deleted:
+	the sign-ins and the audit log stay. Returns how many it marked
+	"""
+	dismissAccessWarnings(ids: [ID!]): Int!
+	"Shows warnings that were marked as seen again (*Undo*). Returns how many were shown again"
+	restoreAccessWarnings(ids: [ID!]!): Int!
+	"""
 	Revokes an invite: it can't be opened any more. The devices that were made from it keep
 	their pass (revoke those one by one)
 	"""
@@ -4680,14 +4711,25 @@ type Query {
 	"What is set up for public access, and what is missing"
 	accessOverview: AccessOverview!
 	"The invite links that were made, the latest first. The links themselves are not kept"
-	accessInvites(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessInvitePage!
+	accessInvites(
+		"false: only the open ones (not revoked, not expired, a use left)"
+		includeEnded: Boolean! = true,		pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}
+	): AccessInvitePage!
 	"The devices that hold a pass, the latest made first"
-	accessDevices(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessDevicePage!
+	accessDevices(
+		"Only this person's devices"
+		personId: ID,
+		"false: leave out the revoked devices"
+		includeEnded: Boolean! = true,		pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}
+	): AccessDevicePage!
 	"""
 	The sign-in attempts, the latest first: the account's login activity with the pass each
 	came with and why a failure failed. A password is never stored
 	"""
-	accessSignIns(failuresOnly: Boolean! = false, pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessSignInPage!
+	accessSignIns(		failuresOnly: Boolean! = false,
+		"true: leave out the server owner's successful sign-ins (failures on their name stay)"
+		othersOnly: Boolean! = false,		pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}
+	): AccessSignInPage!
 	"The accounts that are locked right now, with who locked them"
 	accessBlockedUsers: [AccessBlockedUser!]!
 	"The accounts of the server and how each stands, for setting a password or unblocking"
@@ -4701,13 +4743,24 @@ type Query {
 	The signup links that were made, the latest first, with the accounts each one made. The
 	links themselves are not kept
 	"""
-	accessSignupLinks(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessSignupLinkPage!
+	accessSignupLinks(
+		"false: only the open ones (not revoked, not expired, a use left)"
+		includeEnded: Boolean! = true,		pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}
+	): AccessSignupLinkPage!
 	"""
 	What the owner should look at: people at or over their device limit, four or more
-	sessions, bursts of failed sign-ins, links near their budget. The alerts come first
+	sessions, bursts of failed sign-ins, links near their budget, locked accounts, leftover
+	devices, books waiting. The alerts come first. What the owner marked as seen is left out
+	unless `includeDismissed`
 	"""
-	accessWarnings: [AccessWarning!]!
-	"How many warnings there are: what the badge in the sidebar shows. The owner at home only"
+	accessWarnings(
+		"true: also the ones marked as seen"
+		includeDismissed: Boolean! = false
+	): [AccessWarning!]!
+	"""
+	How many warnings are visible (not marked as seen): what the badge in the sidebar shows.
+	The owner at home only
+	"""
 	accessWarningCount: Int!
 	"What the owner did on this page, the latest first"
 	accessAudit(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessAuditPage!

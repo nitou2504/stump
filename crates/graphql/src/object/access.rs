@@ -21,6 +21,7 @@ use models::{
 			self as service, BlockedUser, InviteStatus, LockedBy, Person, SignInRow,
 		},
 		access_people::PersonAccess,
+		access_policy,
 	},
 	shared::enums::UserPermission,
 };
@@ -317,6 +318,8 @@ pub struct AccessSignIn {
 	pub at: DateTime<Utc>,
 	pub ip: String,
 	pub user_agent: String,
+	/// The browser and system in words, like "Chrome on Linux"
+	pub agent_label: String,
 	pub successful: bool,
 	/// The pass the sign-in came with, when it came through the public edge
 	pub device_id: Option<String>,
@@ -353,6 +356,7 @@ impl From<SignInRow> for AccessSignIn {
 			id: row.activity.id,
 			at: utc(row.activity.timestamp),
 			ip: row.activity.ip_address,
+			agent_label: access_policy::device_label(&row.activity.user_agent),
 			user_agent: row.activity.user_agent,
 			successful: row.activity.authentication_successful,
 			device_id: row.mark.as_ref().and_then(|mark| mark.device_id.clone()),
@@ -481,19 +485,29 @@ pub struct AccessAuditEntry {
 	pub action: String,
 	/// An invite id, a device id or a user id
 	pub target: String,
+	/// The name behind the target when it is a device (its label), a signup link or an invite
+	/// (its note) or an account (its username), if it still exists
+	pub target_label: Option<String>,
 	pub detail: String,
 }
 
-impl From<access_audit::Model> for AccessAuditEntry {
-	fn from(model: access_audit::Model) -> Self {
+impl AccessAuditEntry {
+	pub fn new(model: access_audit::Model, target_label: Option<String>) -> Self {
 		Self {
 			id: model.id,
 			at: model.at,
 			actor: model.actor,
 			action: model.action,
 			target: model.target,
+			target_label,
 			detail: model.detail,
 		}
+	}
+}
+
+impl From<access_audit::Model> for AccessAuditEntry {
+	fn from(model: access_audit::Model) -> Self {
+		Self::new(model, None)
 	}
 }
 

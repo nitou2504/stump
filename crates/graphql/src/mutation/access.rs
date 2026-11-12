@@ -5,6 +5,7 @@ use models::{
 	services::{
 		access::{self as service, AccessError},
 		access_people::{self, PersonAccessChange},
+		access_warnings,
 		signup::{self, NewSignupLink},
 		user::revoke_user_sessions,
 	},
@@ -35,6 +36,28 @@ const EDGE_NOT_TOLD: &str = "Done, and Stump refuses it at once, but the edge co
 const MIN_PASSWORD_CHARS: usize = 8;
 /// The longest (bcrypt only reads the first 72 bytes of one anyway)
 const MAX_PASSWORD_CHARS: usize = 128;
+
+/// The most warning ids one call may name (there are never that many warnings)
+const MAX_WARNING_IDS: usize = 200;
+
+/// The ids of a call, as text, and refused when there are far more than there can be warnings
+fn warning_ids(ids: Option<Vec<ID>>) -> Result<Option<Vec<String>>> {
+	let Some(ids) = ids else {
+		return Ok(None);
+	};
+	if ids.len() > MAX_WARNING_IDS {
+		return Err(async_graphql::Error::new("Too many warnings in one call"));
+	}
+	Ok(Some(ids.into_iter().map(|id| id.to_string()).collect()))
+}
+
+/// What an audit row of a warning call points at: the id when there is exactly one, else `all`
+fn audit_target_of(ids: Option<&[String]>) -> String {
+	match ids {
+		Some([one]) => one.clone(),
+		_ => "all".to_string(),
+	}
+}
 
 /// The mutations of the *Public access* page. Every one is for the server owner only, refused on
 /// a request that came through the public edge, and refused when another site may have made the
@@ -263,6 +286,62 @@ impl AccessMutation {
 			.await?
 			.remove(&person.user.id);
 		Ok(AccessPersonRow::new(person, summary))
+	}
+
+	/// Marks warnings as seen: they leave *Needs your attention* and the badge until something new
+	/// or worse happens. Without `ids`: every warning shown now (*Clear all*). Nothing is deleted:
+	/// the sign-ins and the audit log stay. Returns how many it marked
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn dismiss_access_warnings(
+		&self,
+		ctx: &Context<'_>,
+		ids: Option<Vec<ID>>,
+	) -> Result<u32> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let ids = warning_ids(ids)?;
+
+		let now = Utc::now();
+		let changed = access_warnings::dismiss(conn, now, &user.id, ids.as_deref()).await?;
+		if changed > 0 {
+			service::audit(
+				conn,
+				now,
+				&user.username,
+				"warning.dismiss",
+				&audit_target_of(ids.as_deref()),
+				&format!("{changed} items"),
+			)
+			.await?;
+		}
+		Ok(changed as u32)
+	}
+
+	/// Shows warnings that were marked as seen again (*Undo*). Returns how many were shown again
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn restore_access_warnings(
+		&self,
+		ctx: &Context<'_>,
+		ids: Vec<ID>,
+	) -> Result<u32> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let ids = warning_ids(Some(ids))?.unwrap_or_default();
+
+		let now = Utc::now();
+		let changed = access_warnings::restore(conn, &ids).await?;
+		if changed > 0 {
+			service::audit(
+				conn,
+				now,
+				&user.username,
+				"warning.restore",
+				&audit_target_of(Some(&ids)),
+				&format!("{changed} items"),
+			)
+			.await?;
+		}
+		Ok(changed as u32)
 	}
 
 	/// Revokes an invite: it can't be opened any more. The devices that were made from it keep

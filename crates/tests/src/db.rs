@@ -2,6 +2,7 @@ use models::catalog_revision;
 use models::entity::{
 	access_audit, access_device, access_invite, access_library_decision,
 	access_password_reset, access_person, access_signin_mark, access_signup_link,
+	access_warning_review,
 	age_restriction, api_key, book_club, book_club_book, book_club_member, bookmark,
 	custom_emoji, held_file, intake_item, job, kobo_sync_session, last_library_visit,
 	library, library_config, library_exclusion, library_intake_settings,
@@ -70,6 +71,7 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 		schema.create_table_from_entity(access_signup_link::Entity),
 		schema.create_table_from_entity(access_person::Entity),
 		schema.create_table_from_entity(access_library_decision::Entity),
+		schema.create_table_from_entity(access_warning_review::Entity),
 		schema.create_table_from_entity(user_intake_limits::Entity),
 		schema.create_table_from_entity(server_config::Entity),
 		schema.create_table_from_entity(refresh_token::Entity),

@@ -59,6 +59,7 @@ mod m20261111_000000_smart_list_members;
 mod m20261113_000000_public_access;
 mod m20261114_000000_intake_approval;
 mod m20261115_000000_friend_onboarding;
+mod m20261116_000000_access_warning_reviews;
 
 pub struct Migrator;
 
@@ -124,6 +125,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261113_000000_public_access::Migration),
 			Box::new(m20261114_000000_intake_approval::Migration),
 			Box::new(m20261115_000000_friend_onboarding::Migration),
+			Box::new(m20261116_000000_access_warning_reviews::Migration),
 		]
 	}
 }
