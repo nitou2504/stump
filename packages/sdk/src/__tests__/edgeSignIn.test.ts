@@ -69,6 +69,16 @@ describe('the edge asking for a sign-in', () => {
 		expect(assign).not.toHaveBeenCalled()
 	})
 
+	it('does not throw where there is a window and no location, as in React Native', async () => {
+		Object.defineProperty(window, 'location', { configurable: true, value: undefined })
+
+		await expect(
+			apiAnswering(404, { 'x-edge-sign-in': '1' }).axios.get('/anything'),
+		).rejects.toMatchObject({ response: { status: 404 } })
+
+		expect(assign).not.toHaveBeenCalled()
+	})
+
 	it('still hands the error to the caller', async () => {
 		const api = apiAnswering(404, { 'x-edge-sign-in': '1' })
 

@@ -61,13 +61,15 @@ function goToSignInWhenTheEdgeAsks(instance: AxiosInstance) {
 		const headers = (error as { response?: { headers?: Record<string, unknown> } })?.response
 			?.headers
 		const asked = headers?.[EDGE_SIGN_IN_HEADER] === '1'
+		// a page in a browser only: React Native has a `window` and no `window.location`
+		const location = typeof window !== 'undefined' ? window.location : undefined
 		if (
 			asked &&
-			typeof window !== 'undefined' &&
+			location &&
 			// not while already on one of the server's own pages (the sign-in page itself)
-			!window.location.pathname.startsWith('/api/_i/')
+			!location.pathname.startsWith('/api/_i/')
 		) {
-			window.location.assign(EDGE_SIGN_IN_PAGE)
+			location.assign(EDGE_SIGN_IN_PAGE)
 		}
 		return Promise.reject(error)
 	})
