@@ -344,5 +344,25 @@ describe('GlobalSearch', () => {
 			expect(options()[0]).toHaveTextContent('Surprise me')
 			expect(options()[0]).toHaveAttribute('aria-selected', 'true')
 		})
+
+		it('lists "See all" right after the books, before the authors, so it is not buried', async () => {
+			const user = userEvent.setup()
+			const { Wrapper } = setup('en-US', {
+				answer: () => ({ books: [ROSE, WINDS, GARDEN], authors: [ECO] }),
+			})
+			render(<GlobalSearch />, { wrapper: Wrapper })
+			await user.click(screen.getByRole('button', { name: 'Search the library' }))
+			await user.type(await screen.findByPlaceholderText('Search books, authors, series…'), 'rose')
+			await screen.findByText('Umberto Eco')
+
+			const labels = options().map((option) => option.textContent ?? '')
+			expect(labels).toHaveLength(5)
+			expect(labels[0]).toContain('The Name of the Rose')
+			expect(labels[2]).toContain('Rose Garden Mysteries')
+			expect(labels[3]).toBe('See all 9 books')
+			expect(labels[4]).toContain('Umberto Eco')
+			// Enter still opens the best book
+			expect(options()[0]).toHaveAttribute('aria-selected', 'true')
+		})
 	})
 })

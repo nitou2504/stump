@@ -248,6 +248,18 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 										</Command.Item>
 									)
 								})}
+								{/* last of the books, so it is next to them and not after every author and series;
+								Enter still opens the first book */}
+								<Command.Item
+									value="all-results"
+									onSelect={() => go(resultsHref(trimmed))}
+									className="mt-1 text-muted-foreground"
+								>
+									<ArrowRight className="mr-2 h-4 w-4" />
+									{total > books.length
+										? t('globalSearch.seeAll', { total })
+										: t('globalSearch.openInExplore')}
+								</Command.Item>
 							</Command.Group>
 						)}
 
@@ -292,19 +304,6 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 									</Command.Item>
 								))}
 							</Command.Group>
-						)}
-
-						{hasTerm && books.length > 0 && (
-							<Command.Item
-								value="all-results"
-								onSelect={() => go(resultsHref(trimmed))}
-								className="mt-1 text-muted-foreground"
-							>
-								<ArrowRight className="mr-2 h-4 w-4" />
-								{total > books.length
-									? t('globalSearch.seeAll', { total })
-									: t('globalSearch.openInExplore')}
-							</Command.Item>
 						)}
 					</Command.List>
 
