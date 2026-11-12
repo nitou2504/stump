@@ -19,7 +19,7 @@ use models::{
 		user_discover_rules, user_login_activity, user_preferences, user_reader_settings,
 	},
 	services::{
-		access as access_service,
+		access as access_service, access_people, access_policy,
 		user::{
 			create_user_with_preferences, revoke_user_api_keys, revoke_user_sessions,
 			NewAgeRestriction,
@@ -33,8 +33,8 @@ use models::{
 	},
 };
 use sea_orm::{
-	prelude::*, ActiveValue::NotSet, ColumnTrait, DatabaseTransaction, IntoActiveModel,
-	Set, TransactionTrait, TryIntoModel,
+	prelude::*, sea_query::Expr, ActiveValue::NotSet, ColumnTrait, DatabaseTransaction,
+	IntoActiveModel, Set, TransactionTrait, TryIntoModel,
 };
 
 use stump_core::{
@@ -749,9 +749,39 @@ async fn update_user(
 		ensure_can_grant(by_user, &input.permissions)?;
 	}
 
+	// A person who comes in from the internet follows the same rules for their own name and password
+	// as the ones the signup form applied (3 to 32 letters, numbers, `.` `_` `-`, stored lowercase and
+	// unique whatever the case; a password of 10 to 72 bytes that is not a common one and does not
+	// contain the name): otherwise changing them would be a way round the rules
+	let mut new_username = input.username.clone();
+	if is_self_update {
+		let on_the_internet = access_people::person_row(conn, &for_user_id)
+			.await?
+			.is_some_and(|row| row.public_signin);
+		if on_the_internet {
+			if is_different_username {
+				new_username =
+					access_policy::check_username(&input.username).map_err(|problem| problem.message())?;
+				let taken = user::Entity::find()
+					.filter(Expr::cust_with_values("LOWER(username) = ?", [new_username.clone()]))
+					.filter(user::Column::Id.ne(for_user_id.clone()))
+					.count(conn)
+					.await?
+					> 0;
+				if taken {
+					return Err("That username is taken. Choose another one".into());
+				}
+			}
+			if let Some(password) = input.password.as_deref() {
+				access_policy::check_password(password, &new_username)
+					.map_err(|problem| problem.message())?;
+			}
+		}
+	}
+
 	let mut update_user = user::ActiveModel {
 		id: Set(for_user_id.clone()),
-		username: Set(input.username.clone()),
+		username: Set(new_username),
 		..Default::default()
 	};
 
