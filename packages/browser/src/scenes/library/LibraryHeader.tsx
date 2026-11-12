@@ -146,7 +146,11 @@ export default function LibraryHeader() {
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
 				endActions={
 					canAddBooks ? (
-						<HeaderIconButton label="Add books" icon={BookPlus} to={paths.addBooks(id)} />
+						<HeaderIconButton
+							label={t('sidebar.buttons.addBooks')}
+							icon={BookPlus}
+							to={paths.addBooks(id)}
+						/>
 					) : undefined
 				}
 			/>

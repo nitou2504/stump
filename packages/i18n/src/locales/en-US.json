@@ -3408,7 +3408,10 @@
         "noSmartlists": "No Smart Lists",
         "createSmartlist": "Create Smart List",
         "myReading": "My reading",
-        "seeAll": "See All"
+        "seeAll": "See All",
+        "authors": "Authors",
+        "genres": "Genres",
+        "addBooks": "Add books"
       },
       "libraryOptions": {
         "manageLibrary": "Settings",

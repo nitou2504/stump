@@ -133,14 +133,14 @@ export default function AppSidebar() {
 							icon={Users}
 							isActive={location.pathname === paths.browseIndex('authors')}
 						>
-							Authors
+							{t('sidebar.buttons.authors')}
 						</SideBarButtonLink>
 						<SideBarButtonLink
 							to={paths.browseIndex('genres')}
 							icon={Tags}
 							isActive={location.pathname === paths.browseIndex('genres')}
 						>
-							Genres
+							{t('sidebar.buttons.genres')}
 						</SideBarButtonLink>
 						<SideBarButtonLink
 							to={paths.readingLists()}
@@ -164,7 +164,7 @@ export default function AppSidebar() {
 								icon={BookPlus}
 								isActive={location.pathname === paths.addBooks()}
 							>
-								Add books
+								{t('sidebar.buttons.addBooks')}
 							</SideBarButtonLink>
 						)}
 					</Fragment>

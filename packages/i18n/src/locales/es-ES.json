@@ -2959,7 +2959,10 @@
         "noSmartlists": "Sin listas inteligentes",
         "createSmartlist": "Crear lista inteligente",
         "myReading": "Mi lectura",
-        "seeAll": "Ver todo"
+        "seeAll": "Ver todo",
+        "authors": "Autores",
+        "genres": "Géneros",
+        "addBooks": "Añadir libros"
       },
       "libraryOptions": {
         "manageLibrary": "Administrar",

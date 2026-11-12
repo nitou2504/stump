@@ -157,4 +157,17 @@ describe('AppSidebar', () => {
 			unmount()
 		}
 	})
+
+	it('names Authors, Genres and Add books through the translations (not in English)', async () => {
+		const { Wrapper } = setup()
+		render(<AppSidebar />, { wrapper: Wrapper })
+
+		for (const name of [
+			'sidebar.buttons.authors',
+			'sidebar.buttons.genres',
+			'sidebar.buttons.addBooks',
+		]) {
+			expect(await screen.findByRole('link', { name })).toBeInTheDocument()
+		}
+	})
 })

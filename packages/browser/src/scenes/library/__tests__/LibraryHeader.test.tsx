@@ -1,5 +1,6 @@
 import { UserPermission } from '@stump/graphql'
 import { render, screen } from '@testing-library/react'
+import { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router'
 
 import { LibraryContext } from '../context'
@@ -30,13 +31,22 @@ vi.mock('../LibraryOverviewSheet', () => ({ LibraryOverviewSheet: () => null }))
 
 // the header is shown as its name and the link to the library's settings: what the page decides
 vi.mock('@/components/sharedLayout', () => ({
-	EntityHeader: ({ name, settingsLink }: { name: string; settingsLink?: string }) => (
+	EntityHeader: ({
+		name,
+		settingsLink,
+		endActions,
+	}: {
+		name: string
+		settingsLink?: string
+		endActions?: ReactNode
+	}) => (
 		<header>
 			<h1>{name}</h1>
 			{settingsLink && <a href={settingsLink}>settings</a>}
+			{endActions}
 		</header>
 	),
-	HeaderIconButton: () => null,
+	HeaderIconButton: ({ label }: { label: string }) => <a href="/add">{label}</a>,
 }))
 
 const library = {
@@ -71,5 +81,10 @@ describe('LibraryHeader settings gear', () => {
 			'href',
 			'/libraryManage/lib',
 		)
+	})
+
+	it('names the Add books button through the translations (not in English)', () => {
+		setup([UserPermission.AddBooks])
+		expect(screen.getByRole('link', { name: 'sidebar.buttons.addBooks' })).toBeInTheDocument()
 	})
 })
