@@ -3556,6 +3556,35 @@
         "updateFailed": "Falló actualizar anotación",
         "deleteFailed": "Falló en eliminar anotación"
       },
+      "search": {
+        "placeholder": "Escribe una consulta y pulsa Intro para buscar",
+        "failed": "La búsqueda falló. Inténtalo de nuevo.",
+        "noResults": "No se encontraron resultados",
+        "section": "Sección {{position}}",
+        "loadingMore": "Cargando más…",
+        "loadMore": "Cargar más resultados"
+      },
+      "controls": {
+        "columnCount_one": "{{count}} columna",
+        "columnCount_other": "{{count}} columnas",
+        "continuous": "Continuo",
+        "previousPage": "Página anterior",
+        "nextPage": "Página siguiente",
+        "toggleControls": "Mostrar u ocultar los controles del lector"
+      },
+      "errors": {
+        "openFailed": "No se pudo abrir el EPUB con Readium.",
+        "navigateFailed": "No se pudo ir a la ubicación",
+        "linkUnavailable": "Este enlace apunta a un lugar que no se puede abrir"
+      },
+      "links": {
+        "note": "Nota",
+        "goToNote": "Ir a la nota",
+        "close": "Cerrar",
+        "return": "Volver",
+        "returnTitle": "Volver al lugar desde donde seguiste el enlace",
+        "hideReturn": "Ocultar"
+      },
       "reading": "Leyendo",
       "themeAndOptions": "Tema y opciones",
       "locationManager": "Gestor de ubicaciones",
@@ -3615,6 +3644,11 @@
       "typeface": {
         "label": "Tipografía",
         "options": {
+          "system": "Sistema",
+          "opendyslexic": "OpenDyslexic",
+          "literata": "Literata",
+          "atkinsonHyperlegible": "Atkinson Hyperlegible",
+          "charisSIL": "Charis SIL",
           "bitter": "Amargo"
         },
         "description": "La fuente usada en el lector"
@@ -3623,6 +3657,7 @@
         "label": "Peso de Fuente",
         "options": {
           "light": "Ligero",
+          "normal": "Normal",
           "medium": "Medio",
           "bold": "Negrita"
         }
