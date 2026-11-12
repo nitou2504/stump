@@ -33,3 +33,24 @@ Rollback: the previous image (the new table is ignored), or the manual-down SQL 
 
 * *Add books* and the cards of *Book approvals*: the words **inside** a book's card (the review form, tags, folders, the "send back" dialog, the drop zone) are still English only; the page-level words, the sidebar label and the new lines are translated. Compact rows with one action each were not built.
 * The *Share* button is shown first on phones only where the browser can share (as the spec says), but the QR/Share layout was not measured on a real phone.
+
+## Review round 2 (the lead's nine required changes, and seven recommended)
+
+Screenshots refreshed in `ux-2026-11-12/after` (same names; new ones: `owner-access-person-sheet-confirm`, `owner-access-preset-editor-short`,
+`owner-access-leftovers-confirm`, `owner-access-ended`, `owner-access-see-attempts`). Web only: no Rust, API, migration or deploy step changes.
+
+* **Required**: (1) the invite dialog has a maximum height and scrolls; (2) the person sheet is padded on wide screens and the device limit has a fixed-width
+  select; (3) a confirmation appears beside the button that asked (and is scrolled into view); (4) *See attempts* scrolls to the history once its list is in;
+  (5) *Set a new password* and *Sign out everywhere* are real buttons; (6) KOReader, Kobo, iPhone, iOS, QR and MB keep their capitals, a name after an arrow
+  starts with one, and the example name and page names are `{{…}}` values; (7) the leftover confirmation has a tick per device, and *Show ended* lists the old
+  passes that still work with *Remove* and *Allow more tries*; (8) the owner's own *Add books* keeps *Add anyway* for the same file (only friends are refused it);
+  (9) *Fix* starts on *Leave as they are* for somebody who is already in.
+* **Recommended done**: *Clear all* sends the ids it showed; permission names come from `userPermissions.<P>.label` (lower-cased inside a sentence, acronyms kept);
+  "This account is locked." for an account locked by hand; attention rows say how long ago, with the exact time on hover; the reason *Invite someone* is
+  disabled is on screen and phone drawers have a close button; six unused locale keys removed; the *Turn off the accounts it made* dialog says what it does
+  (the checkbox was unticked, so its button did nothing new).
+* **Not done**: F8/BA1/F10 (English inside the Add books cards, the friend's Add books length) stay as the lead's P3 follow-up; *Show ended* and the lists in the
+  sheet still read the first 50 rows.
+* **Tests**: access + approvals + devices + intake + navigation: 30 files, 412 tests, `tsc -b` clean, Prettier and ESLint clean on the changed files. The jsdom
+  "uncaught error" from the drawer library (it reads a computed `transform` jsdom does not have; 65 of them, already there before this round) is shimmed in the access
+  tests' `support.tsx`.
