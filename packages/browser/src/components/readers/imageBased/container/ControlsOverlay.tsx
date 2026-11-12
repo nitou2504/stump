@@ -22,7 +22,11 @@ import ReaderPageIndicator from '../../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../../shared/ReaderTopBar'
 import ReadingBar, { useClockText } from '../../shared/ReadingBar'
-import { type ReadingBarItem, useReadingProgress } from '../../shared/readingProgress'
+import {
+	isCornerNumberShown,
+	type ReadingBarItem,
+	useReadingProgress,
+} from '../../shared/readingProgress'
 import {
 	DirectionRow,
 	FitGlyph,
@@ -223,7 +227,7 @@ export default function ControlsOverlay() {
 			) : (
 				<ReaderPageIndicator
 					text={indicator}
-					shown={readingProgress.display === 'number'}
+					shown={isCornerNumberShown(readingProgress.display, chrome.visible)}
 					className="fixed"
 					onClick={() => openPages(true)}
 					title={`${translate('shared.reader.goToPage')} (G)`}

@@ -11,7 +11,7 @@ import ReaderPageIndicator from '../shared/ReaderPageIndicator'
 import ReaderSettingsDialog from '../shared/ReaderSettingsDialog'
 import ReaderTopBar from '../shared/ReaderTopBar'
 import ReadingBar, { useClockText } from '../shared/ReadingBar'
-import { chapterLabel, useReadingProgress } from '../shared/readingProgress'
+import { chapterLabel, isCornerNumberShown, useReadingProgress } from '../shared/readingProgress'
 import { useDocumentFullscreen, useReaderChrome } from '../shared/useReaderChrome'
 import {
 	type EpubReaderChapterMeta,
@@ -210,7 +210,7 @@ function EpubProgress({
 			<EpubReadingBar onClick={onClick} chromeVisible={chromeVisible} settingsOpen={settingsOpen} />
 		)
 	}
-	return <EpubPageIndicator onClick={onClick} shown={display === 'number'} />
+	return <EpubPageIndicator onClick={onClick} shown={isCornerNumberShown(display, chromeVisible)} />
 }
 
 /** Phones: below Tailwind's `sm`, where the settings are a sheet over the page's foot */

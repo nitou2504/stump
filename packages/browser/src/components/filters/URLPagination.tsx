@@ -2,6 +2,8 @@ import { IconButton, Input, Text, ToolTip } from '@stump/components'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
+import { useTranslate } from '@/hooks/useTranslate'
+
 type Props = {
 	pages: number
 	currentPage: number
@@ -10,6 +12,7 @@ type Props = {
 }
 
 export default function URLPagination({ pages, currentPage, onChangePage, onPrefetchPage }: Props) {
+	const { t } = useTranslate()
 	const [inputPage, setInputPage] = useState<number | undefined>(currentPage)
 
 	const handleNextPage = useCallback(() => {
@@ -69,7 +72,7 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 					size="sm"
 					className="h-7 w-7 p-0 text-xs sm:h-6 sm:w-6 pointer-coarse:size-10 [appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 					disabled={pages <= 1}
-					aria-label="Page"
+					aria-label={t('pagination.page')}
 					value={inputPage ?? ''}
 					onChange={handleInputChange}
 					onBlur={handleInputBlur}
@@ -77,11 +80,11 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 					min={1}
 				/>
 				<Text size="sm" variant="muted" className="inline-flex shrink-0">
-					of {pages}
+					{t('pagination.ofPages', { pages })}
 				</Text>
 			</form>
 			<div className="gap-x-1 flex items-center">
-				<ToolTip content="Previous page" size="sm" align="end">
+				<ToolTip content={t('pagination.previous')} size="sm" align="end">
 					<IconButton
 						size="xs"
 						variant="ghost"
@@ -89,13 +92,13 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 						disabled={currentPage <= 1}
 						onClick={handlePreviousPage}
 						onMouseEnter={handlePrefetchPreviousPage}
-						aria-label="Previous page"
+						aria-label={t('pagination.previous')}
 					>
 						<ChevronLeft className="h-4 w-4" />
 					</IconButton>
 				</ToolTip>
 
-				<ToolTip content="Next page" size="sm" align="end">
+				<ToolTip content={t('pagination.next')} size="sm" align="end">
 					<IconButton
 						size="xs"
 						variant="ghost"
@@ -103,7 +106,7 @@ export default function URLPagination({ pages, currentPage, onChangePage, onPref
 						disabled={currentPage >= pages}
 						onClick={handleNextPage}
 						onMouseEnter={handlePrefetchNextPage}
-						aria-label="Next page"
+						aria-label={t('pagination.next')}
 					>
 						<ChevronRight className="h-4 w-4" />
 					</IconButton>

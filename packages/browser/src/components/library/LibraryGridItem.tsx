@@ -2,6 +2,7 @@ import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { Book, Rows3 } from 'lucide-react'
 
 import { CollectionGridItem } from '@/components/collection'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { usePaths } from '@/paths'
 
 const fragment = graphql(`
@@ -35,6 +36,7 @@ type Props = {
 
 export function LibraryGridItem({ data, getLayoutNumber }: Props) {
 	const paths = usePaths()
+	const labels = useStatLabels()
 	const { id, name, series, stats } = useFragment(fragment, data)
 
 	const layoutNumber = getLayoutNumber(id, series.length)
@@ -49,8 +51,20 @@ export function LibraryGridItem({ data, getLayoutNumber }: Props) {
 			}))}
 			layoutNumber={layoutNumber}
 			stats={[
-				{ key: 'series', icon: Rows3, value: stats.seriesCount, label: 'Series' },
-				{ key: 'books', icon: Book, value: stats.bookCount, label: 'Books' },
+				{
+					key: 'series',
+					icon: Rows3,
+					value: labels.number(stats.seriesCount),
+					unit: labels.word('series', stats.seriesCount),
+					label: labels.count('series', stats.seriesCount),
+				},
+				{
+					key: 'books',
+					icon: Book,
+					value: labels.number(stats.bookCount),
+					unit: labels.word('books', stats.bookCount),
+					label: labels.count('books', stats.bookCount),
+				},
 			]}
 		/>
 	)

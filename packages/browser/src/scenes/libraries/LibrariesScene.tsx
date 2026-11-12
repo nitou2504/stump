@@ -2,12 +2,14 @@ import { useGraphQL, useGraphQLMutation, useSDK } from '@stump/client'
 import { graphql, UserPermission } from '@stump/graphql'
 import { Book, Library, Rows3, ScanLine } from 'lucide-react'
 import { useCallback, useRef } from 'react'
+import { Helmet } from 'react-helmet'
 
 import { SceneContainer } from '@/components/container'
 import GenericEmptyState from '@/components/GenericEmptyState'
 import { LibraryGridItem } from '@/components/library'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 
 const query = graphql(`
@@ -35,6 +37,7 @@ export default function LibrariesScene() {
 	const { sdk } = useSDK()
 	const { checkPermission } = useAppContext()
 	const { translate } = useTranslate()
+	const labels = useStatLabels()
 	const { data, isLoading } = useGraphQL(query, [sdk.cacheKeys.libraries, 'scene'])
 	const { mutate: scanAllLibraries } = useGraphQLMutation(mutation)
 
@@ -89,8 +92,11 @@ export default function LibrariesScene() {
 
 	return (
 		<>
+			<Helmet>
+				<title>Stump | {translate('shared.common.libraries')}</title>
+			</Helmet>
 			<CollectionSceneHeader
-				title="Libraries"
+				title={translate('shared.common.libraries')}
 				docsLink="https://stumpapp.dev/docs/guides/fundamentals/libraries"
 				actions={
 					canScan
@@ -111,16 +117,23 @@ export default function LibrariesScene() {
 				stats={
 					data
 						? [
-								{ key: 'libraries', icon: Library, value: libraries.length },
+								{
+									key: 'libraries',
+									icon: Library,
+									value: labels.number(libraries.length),
+									suffix: labels.word('libraries', libraries.length),
+								},
 								{
 									key: 'series',
 									icon: Rows3,
-									value: data.librariesStats.seriesCount,
+									value: labels.number(data.librariesStats.seriesCount),
+									suffix: labels.word('series', data.librariesStats.seriesCount),
 								},
 								{
 									key: 'books',
 									icon: Book,
-									value: data.librariesStats.bookCount,
+									value: labels.number(data.librariesStats.bookCount),
+									suffix: labels.word('books', data.librariesStats.bookCount),
 								},
 							]
 						: undefined

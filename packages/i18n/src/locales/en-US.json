@@ -466,7 +466,13 @@
         }
       },
       "booksInSeries": "Books in This Series",
-      "nextInSeries": "Next in Series"
+      "nextInSeries": "Next in Series",
+      "by": "by",
+      "moreBy": "More by {{author}}",
+      "credits": {
+        "story": "Story",
+        "art": "Art"
+      }
     },
     "createOrUpdateBookClubForm": {
       "fields": {
@@ -1851,7 +1857,7 @@
         "heading": "Finished",
         "count_one": "{{count}} book",
         "count_other": "{{count}} books",
-        "search": "Search finished books…",
+        "search": "Search books…",
         "years": "Year finished",
         "allYears": "All",
         "empty": "No finished books yet",
@@ -1944,6 +1950,7 @@
           },
           "language": {
             "label": "Language",
+            "placeholder": "Choose a language",
             "contributeIfAble": "Please consider contributing to Stump's translations if you're able to!",
             "contribute": "Contribute",
             "noThanks": "No Thanks"
@@ -3496,6 +3503,66 @@
         "signOut": "Sign Out"
       }
     },
+    "seriesSettingsScene": {
+      "metadata": {
+        "title": "Metadata",
+        "description": "Extra information about your series"
+      }
+    },
+    "pagination": {
+      "page": "Page",
+      "ofPages": "of {{pages}}",
+      "previous": "Previous page",
+      "next": "Next page",
+      "perPage": "per page",
+      "booksPerPage": "Books per page"
+    },
+    "globalSearch": {
+      "label": "Search the library",
+      "title": "Search",
+      "placeholder": "Search books, authors, series…",
+      "discover": "Discover",
+      "surpriseMe": "Surprise me",
+      "surpriseMeHint": "a random unread book",
+      "allBooks": "All books",
+      "authors": "Authors",
+      "genres": "Genres",
+      "books": "Books",
+      "series": "Series",
+      "noMatches": "Nothing matches “{{term}}”",
+      "seeAll": "See all {{total}} books",
+      "openInExplore": "Open in Explore",
+      "toMove": "↑↓ to move",
+      "toOpen": "↵ to open",
+      "anywhere": "{{shortcut}} anywhere",
+      "bookCount_one": "{{count}} book",
+      "bookCount_other": "{{count}} books"
+    },
+    "statChips": {
+      "books_one": "book",
+      "books_other": "books",
+      "series_one": "series",
+      "series_other": "series",
+      "libraries_one": "library",
+      "libraries_other": "libraries",
+      "lists_one": "list",
+      "lists_other": "lists",
+      "authors_one": "author",
+      "authors_other": "authors",
+      "genres_one": "genre",
+      "genres_other": "genres",
+      "read_one": "read",
+      "read_other": "read"
+    },
+    "seriesContinue": {
+      "start": "Start reading",
+      "continueWith": "Continue with {{title}}",
+      "startWith": "Start with {{title}}"
+    },
+    "homeNothingYet": {
+      "title": "Nothing in progress yet",
+      "message": "Start any book and it will show up here."
+    },
     "sidebar": {
       "buttons": {
         "books": "Explore",
@@ -3510,6 +3577,8 @@
         "createSmartlist": "Create Smart List",
         "myReading": "My reading",
         "seeAll": "See All",
+        "authors": "Authors",
+        "genres": "Genres",
         "addBooks": "Add books"
       },
       "libraryOptions": {

@@ -23,14 +23,25 @@ const prefetch = vi.hoisted(() => ({
 	series: vi.fn(),
 }))
 
-vi.mock('../ContinueReading', () => ({
-	default: () => <h2>Reading section</h2>,
-	usePrefetchContinueReading: () => prefetch.reading,
-}))
-vi.mock('../OnDeck', () => ({
-	default: () => <h2>Deck section</h2>,
-	usePrefetchOnDeck: () => prefetch.deck,
-}))
+// whether each of the sections that hide themselves when empty has nothing to show
+const emptiness = vi.hoisted(() => ({ reading: false, deck: false }))
+
+vi.mock('../ContinueReading', async () => {
+	const { useReportEmptySection } = await import('../emptySections')
+	function ReadingSection() {
+		useReportEmptySection('continueReading', emptiness.reading)
+		return emptiness.reading ? null : <h2>Reading section</h2>
+	}
+	return { default: ReadingSection, usePrefetchContinueReading: () => prefetch.reading }
+})
+vi.mock('../OnDeck', async () => {
+	const { useReportEmptySection } = await import('../emptySections')
+	function DeckSection() {
+		useReportEmptySection('onDeck', emptiness.deck)
+		return emptiness.deck ? null : <h2>Deck section</h2>
+	}
+	return { default: DeckSection, usePrefetchOnDeck: () => prefetch.deck }
+})
 vi.mock('../DiscoverBooks', () => ({
 	default: () => <h2>Discover section</h2>,
 	usePrefetchDiscoverBooks: () => prefetch.discover,
@@ -104,7 +115,11 @@ function setup(initial = original, libraries = 1) {
 	return { sdk, client, execute, Wrapper, saved }
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+	vi.clearAllMocks()
+	emptiness.reading = false
+	emptiness.deck = false
+})
 
 describe('HomeScene arrangement', () => {
 	it('renders saved order and never mounts hidden sections', async () => {
@@ -205,5 +220,55 @@ describe('HomeScene arrangement', () => {
 		finishRead(response(original))
 		await pendingRead
 		expect(client.getQueryData(key)).toEqual(response(saved))
+	})
+})
+
+describe('HomeScene with nothing in progress', () => {
+	const noteName = 'Nothing in progress yet'
+
+	it('says so once, not with a box per empty section', async () => {
+		emptiness.reading = true
+		emptiness.deck = true
+		const { Wrapper } = setup()
+		render(<HomeScene />, { wrapper: Wrapper })
+
+		expect(await screen.findByRole('status')).toHaveTextContent(noteName)
+		expect(screen.getAllByRole('status')).toHaveLength(1)
+		expect(screen.queryByText('Reading section')).toBeNull()
+		expect(screen.queryByText('Deck section')).toBeNull()
+		// the sections with something in them are where they were
+		expect(screen.getByText('Discover section')).toBeInTheDocument()
+		expect(screen.getByText('Books section')).toBeInTheDocument()
+	})
+
+	it('says nothing when one of the sections has something (the other just is not drawn)', async () => {
+		emptiness.reading = false
+		emptiness.deck = true
+		const { Wrapper } = setup()
+		render(<HomeScene />, { wrapper: Wrapper })
+
+		expect(await screen.findByText('Reading section')).toBeInTheDocument()
+		expect(screen.queryByText('Deck section')).toBeNull()
+		expect(screen.queryByRole('status')).toBeNull()
+	})
+
+	it('says nothing when the sections that could be empty are turned off', async () => {
+		emptiness.reading = true
+		emptiness.deck = true
+		const { Wrapper } = setup([original[2]!, original[3]!, original[4]!])
+		render(<HomeScene />, { wrapper: Wrapper })
+
+		expect(await screen.findByText('Books section')).toBeInTheDocument()
+		expect(screen.queryByRole('status')).toBeNull()
+	})
+
+	it('judges only the sections that are turned on', async () => {
+		// continue reading is off; the one that is on, on deck, is empty: that is nothing yet
+		emptiness.reading = true
+		emptiness.deck = true
+		const { Wrapper } = setup([original[1]!, original[2]!])
+		render(<HomeScene />, { wrapper: Wrapper })
+
+		expect(await screen.findByRole('status')).toHaveTextContent(noteName)
 	})
 })

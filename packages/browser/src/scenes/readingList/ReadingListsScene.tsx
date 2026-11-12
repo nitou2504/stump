@@ -10,6 +10,7 @@ import GenericEmptyState from '@/components/GenericEmptyState'
 import { byName, READING_LISTS_KEY } from '@/components/readingList/queries'
 import { CollectionSceneHeader, HeaderIconButton } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import ReadingListFormDialog from './ReadingListFormDialog'
@@ -44,6 +45,7 @@ const compareNames = (a: string, b: string) =>
  */
 export default function ReadingListsScene() {
 	const { t } = useTranslate()
+	const labels = useStatLabels()
 	const { user } = useAppContext()
 	const { data, isLoading, error } = useGraphQL(query, [READING_LISTS_KEY, 'scene'])
 
@@ -184,7 +186,18 @@ export default function ReadingListsScene() {
 
 			<CollectionSceneHeader
 				title={title}
-				stats={data ? [{ key: 'lists', icon: BookMarked, value: total }] : undefined}
+				stats={
+					data
+						? [
+								{
+									key: 'lists',
+									icon: BookMarked,
+									value: labels.number(total),
+									suffix: labels.word('lists', total),
+								},
+							]
+						: undefined
+				}
 				endActions={
 					!!total && (
 						<HeaderIconButton label={newList} icon={Plus} onClick={() => setIsCreating(true)} />

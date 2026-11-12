@@ -59,7 +59,7 @@ const variants = [
 	SystemArrangement.BookClubs,
 ]
 
-function setup() {
+function setup(route = '/') {
 	const sdk = new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' })
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -92,7 +92,7 @@ function setup() {
 				<StumpClientContext.Provider value={{}}>
 					<QueryClientProvider client={client}>
 						<AppContext.Provider value={app}>
-							<MemoryRouter>
+							<MemoryRouter initialEntries={[route]}>
 								<Suspense fallback={<p>Loading</p>}>{children}</Suspense>
 							</MemoryRouter>
 						</AppContext.Provider>
@@ -132,5 +132,49 @@ describe('AppSidebar', () => {
 		const link = await screen.findByRole('link', { name: 'sidebar.buttons.myReading' })
 		expect(link).toHaveAttribute('href', '/reading')
 		expect(screen.queryByText('Book clubs section')).not.toBeInTheDocument()
+	})
+
+	// the entry the page is on has the highlight (the link sits in a box that carries it)
+	const isHighlighted = (link: HTMLElement) =>
+		link.parentElement?.classList.contains('bg-sidebar-accent')
+
+	it('lights up only the page you are on: Reading lists is not My reading', async () => {
+		flags.myReading = true
+		const { Wrapper } = setup('/reading-lists')
+		render(<AppSidebar />, { wrapper: Wrapper })
+
+		expect(isHighlighted(await screen.findByRole('link', { name: 'readingLists.title' }))).toBe(
+			true,
+		)
+		expect(isHighlighted(screen.getByRole('link', { name: 'sidebar.buttons.myReading' }))).toBe(
+			false,
+		)
+	})
+
+	it('lights up My reading on its own pages and on the ones below it', async () => {
+		flags.myReading = true
+		for (const route of ['/reading', '/reading/someone']) {
+			const { Wrapper } = setup(route)
+			const { unmount } = render(<AppSidebar />, { wrapper: Wrapper })
+
+			expect(
+				isHighlighted(await screen.findByRole('link', { name: 'sidebar.buttons.myReading' })),
+			).toBe(true)
+			expect(isHighlighted(screen.getByRole('link', { name: 'readingLists.title' }))).toBe(false)
+			unmount()
+		}
+	})
+
+	it('names Authors, Genres and Add books through the translations (not in English)', async () => {
+		const { Wrapper } = setup()
+		render(<AppSidebar />, { wrapper: Wrapper })
+
+		for (const name of [
+			'sidebar.buttons.authors',
+			'sidebar.buttons.genres',
+			'sidebar.buttons.addBooks',
+		]) {
+			expect(await screen.findByRole('link', { name })).toBeInTheDocument()
+		}
 	})
 })

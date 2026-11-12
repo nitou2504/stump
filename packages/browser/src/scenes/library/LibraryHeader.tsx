@@ -1,13 +1,13 @@
 import { formatBytesSeparate, usePrefetchFiles } from '@stump/client'
 import { UserPermission } from '@stump/graphql'
-import { formatHumanDurationSeparate } from '@stump/i18n'
-import { BookCheck, BookOpen, BookPlus, Clock, HardDrive, Layers } from 'lucide-react'
+import { Book, BookPlus, HardDrive, Layers } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation } from 'react-router'
 
 import { DEFAULT_SERIES_ORDER_BY } from '@/components/filters/useFilterScene'
 import { EntityHeader, HeaderIconButton } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -19,6 +19,7 @@ import { usePrefetchLibrarySeries } from './tabs/series/queries'
 export default function LibraryHeader() {
 	const location = useLocation()
 	const { t, translate } = useTranslate()
+	const labels = useStatLabels()
 	const {
 		library: { id, name, path, stats, config },
 	} = useLibraryContext()
@@ -38,13 +39,11 @@ export default function LibraryHeader() {
 
 	const canAccessFiles = checkPermission(UserPermission.FileExplorer)
 	const canAddBooks = checkPermission(UserPermission.AddBooks)
+	const canManageLibrary = checkPermission(UserPermission.ManageLibrary)
 	const hideSeriesView = config?.hideSeriesView ?? false
 	const showOneshots = !!config?.oneshotsDirectory
 
 	const formattedSize = stats?.totalBytes ? formatBytesSeparate(stats.totalBytes) : null
-	const formattedTime = stats?.totalReadingTimeSeconds
-		? formatHumanDurationSeparate(stats.totalReadingTimeSeconds)
-		: null
 
 	const tabs = [
 		...(!hideSeriesView
@@ -89,6 +88,8 @@ export default function LibraryHeader() {
 			: []),
 	]
 
+	// What the library is, in words: the numbers about the reader's own progress and time are in the
+	// info sheet (the (i) button), labelled there
 	const resolvedStats = stats
 		? [
 				...(!hideSeriesView
@@ -96,31 +97,19 @@ export default function LibraryHeader() {
 							{
 								key: 'seriesCount',
 								icon: Layers,
-								value: stats.seriesCount,
+								value: labels.number(stats.seriesCount),
+								suffix: labels.word('series', stats.seriesCount),
+								title: labels.count('series', stats.seriesCount),
 							},
 						]
 					: []),
 				{
-					key: 'inProgressBooks',
-					icon: BookOpen,
-					value: stats.inProgressBooks,
+					key: 'bookCount',
+					icon: Book,
+					value: labels.number(stats.bookCount),
+					suffix: labels.word('books', stats.bookCount),
+					title: labels.count('books', stats.bookCount),
 				},
-				{
-					key: 'completedBooks',
-					icon: BookCheck,
-					value: stats.completedBooks,
-					suffix: ` / ${stats.bookCount}`,
-				},
-				...(formattedTime
-					? [
-							{
-								key: 'totalReadingTimeSeconds',
-								icon: Clock,
-								value: formattedTime[0]?.value ?? '??',
-								suffix: formattedTime[0]?.unit ?? undefined,
-							},
-						]
-					: []),
 				...(formattedSize
 					? [
 							{
@@ -128,6 +117,7 @@ export default function LibraryHeader() {
 								icon: HardDrive,
 								value: formattedSize.value,
 								suffix: formattedSize.unit,
+								title: translate('shared.common.infoSheetStats.size'),
 							},
 						]
 					: []),
@@ -141,11 +131,15 @@ export default function LibraryHeader() {
 				parents={[{ label: translate('shared.common.libraries'), to: paths.libraries() }]}
 				tabs={tabs}
 				stats={resolvedStats}
-				settingsLink={paths.libraryManage(id)}
+				settingsLink={canManageLibrary ? paths.libraryManage(id) : undefined}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
 				endActions={
 					canAddBooks ? (
-						<HeaderIconButton label="Add books" icon={BookPlus} to={paths.addBooks(id)} />
+						<HeaderIconButton
+							label={t('sidebar.buttons.addBooks')}
+							icon={BookPlus}
+							to={paths.addBooks(id)}
+						/>
 					) : undefined
 				}
 			/>

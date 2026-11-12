@@ -11,6 +11,7 @@ import { SeriesMetadataEditor } from '@/components/series/metadata'
 import SeriesTagEditor from '@/components/series/SeriesTagEditor'
 import { SettingsSection } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 import { invalidateThumbnailQueries } from '@/utils/query'
 
@@ -38,6 +39,7 @@ const resetMetadataMutation = graphql(`
 `)
 
 export default function SeriesSettingsScene() {
+	const { t } = useTranslate()
 	const { sdk } = useSDK()
 	const { series } = useSeriesContext()
 	const { checkPermission } = useAppContext()
@@ -90,8 +92,8 @@ export default function SeriesSettingsScene() {
 			)}
 
 			<SettingsSection
-				title="Metadata"
-				description="Extra information about your series"
+				title={t('seriesSettingsScene.metadata.title')}
+				description={t('seriesSettingsScene.metadata.description')}
 				actions={
 					checkPermission(UserPermission.EditMetadata) && (
 						<ResetMetadata

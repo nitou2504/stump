@@ -13,6 +13,7 @@ import GenericEmptyState from '@/components/GenericEmptyState'
 import { READING_LISTS_KEY, useReadingListActions } from '@/components/readingList/queries'
 import { CollectionSceneHeader, EntityHeader } from '@/components/sharedLayout'
 import { useAppContext, useNavigate } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -37,6 +38,7 @@ export default function ReadingListScene() {
 	const navigate = useNavigate()
 	const { sdk } = useSDK()
 	const { t } = useTranslate()
+	const labels = useStatLabels()
 	const { user } = useAppContext()
 	const {
 		data,
@@ -213,7 +215,14 @@ export default function ReadingListScene() {
 				name={list.name}
 				parents={[{ label: title, to: paths.readingLists() }]}
 				tabs={[]}
-				stats={[{ key: 'books', icon: Book, value: list.bookCount }]}
+				stats={[
+					{
+						key: 'books',
+						icon: Book,
+						value: labels.number(list.bookCount),
+						suffix: labels.word('books', list.bookCount),
+					},
+				]}
 				actions={actions}
 				endActions={
 					!canEdit && (

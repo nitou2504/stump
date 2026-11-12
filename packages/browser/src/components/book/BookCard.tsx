@@ -1,5 +1,4 @@
 import { getThumbnailTintColor } from '@stump/client'
-import { formatBytes } from '@stump/client'
 import { cn, ProgressBar, Text } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { useLocaleContext } from '@stump/i18n'
@@ -15,6 +14,7 @@ import { bookLanguage } from '@/utils/language'
 import { isEbookExtension, isEbookReadProgress, readProgressPercent } from '@/utils/readingProgress'
 
 import { ThumbnailImage } from '../thumbnail/ThumbnailImage'
+import { bookCardDetail } from './bookCardDetail'
 import { usePrefetchBook } from './useBookOverview'
 
 export const BookCardFragment = graphql(`
@@ -59,6 +59,7 @@ export const BookCardFragment = graphql(`
 			rating
 			ageRating
 			language
+			writers
 		}
 	}
 `)
@@ -204,10 +205,12 @@ const BookCard = memo(function BookCard({
 			)
 		}
 
+		// not started: who wrote it (its size when nobody is named; the size is on the book's page)
+		const detail = bookCardDetail(data.metadata?.writers, data.size.valueOf())
 		return (
 			<div className="gap-1 flex items-center justify-between">
-				<Text size="xs" variant="muted">
-					{formatBytes(data.size.valueOf())}
+				<Text size="xs" variant="muted" className="min-w-0 truncate" title={detail.title}>
+					{detail.text}
 				</Text>
 				{ratingLabel}
 			</div>

@@ -9231,7 +9231,7 @@ export type BookHeaderAnalyzeMutationVariables = Exact<{
 
 export type BookHeaderAnalyzeMutation = { __typename?: 'Mutation', analyzeMedia: boolean };
 
-export type BookCardFragment = { __typename?: 'Media', id: string, resolvedName: string, extension: string, pages: number, size: number, status: FileStatus, createdAt: any, thumbnail: { __typename?: 'ImageRef', url: string, height?: number | null, width?: number | null, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null }, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null, page?: number | null, updatedAt?: any | null, locator?: { __typename?: 'ReadiumLocator', href: string } | null } | null, readHistory: Array<{ __typename: 'ReadthroughRecord', completedAt: any }>, libraryConfig: { __typename?: 'LibraryConfig', skipBookOverview: boolean }, metadata?: { __typename?: 'MediaMetadata', number?: any | null, rating?: any | null, ageRating?: number | null, language?: string | null } | null } & { ' $fragmentName'?: 'BookCardFragment' };
+export type BookCardFragment = { __typename?: 'Media', id: string, resolvedName: string, extension: string, pages: number, size: number, status: FileStatus, createdAt: any, thumbnail: { __typename?: 'ImageRef', url: string, height?: number | null, width?: number | null, metadata?: { __typename?: 'ImageMetadata', averageColor?: string | null, thumbhash?: string | null, colors: Array<{ __typename?: 'ImageColor', color: string, percentage: any }> } | null }, readProgress?: { __typename?: 'ResumeReadingCursor', percentageCompleted?: any | null, page?: number | null, updatedAt?: any | null, locator?: { __typename?: 'ReadiumLocator', href: string } | null } | null, readHistory: Array<{ __typename: 'ReadthroughRecord', completedAt: any }>, libraryConfig: { __typename?: 'LibraryConfig', skipBookOverview: boolean }, metadata?: { __typename?: 'MediaMetadata', number?: any | null, rating?: any | null, ageRating?: number | null, language?: string | null, writers: Array<string> } | null } & { ' $fragmentName'?: 'BookCardFragment' };
 
 export type BookHeaderFragment = { __typename?: 'Media', id: string, resolvedName: string, series?: { __typename?: 'Series', id: string, resolvedName: string } | null, library: { __typename?: 'Library', id: string, name: string } } & { ' $fragmentName'?: 'BookHeaderFragment' };
 
@@ -9757,6 +9757,21 @@ export type GlobalSearchQueryVariables = Exact<{
 
 
 export type GlobalSearchQuery = { __typename?: 'Query', media: { __typename?: 'PaginatedMediaResponse', nodes: Array<{ __typename?: 'Media', id: string, resolvedName: string, thumbnail: { __typename?: 'ImageRef', url: string }, metadata?: { __typename?: 'MediaMetadata', writers: Array<string>, rating?: any | null } | null }>, pageInfo: { __typename: 'CursorPaginationInfo' } | { __typename: 'OffsetPaginationInfo', totalItems: number } }, series: { __typename?: 'PaginatedSeriesResponse', nodes: Array<{ __typename?: 'Series', id: string, resolvedName: string, mediaCount: number, thumbnail: { __typename?: 'ImageRef', url: string } }> } };
+
+export type SeriesContinueQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+  inProgress: MediaFilterInput;
+  orderBy: Array<MediaOrderBy> | MediaOrderBy;
+}>;
+
+
+export type SeriesContinueQuery = { __typename?: 'Query', seriesById?: { __typename?: 'Series', id: string, percentageCompleted: number, upNext: Array<(
+      { __typename?: 'Media', id: string, resolvedName: string }
+      & { ' $fragmentRefs'?: { 'BookReadingActionsFragment': BookReadingActionsFragment } }
+    )> } | null, media: { __typename?: 'PaginatedMediaResponse', nodes: Array<(
+      { __typename?: 'Media', id: string, resolvedName: string }
+      & { ' $fragmentRefs'?: { 'BookReadingActionsFragment': BookReadingActionsFragment } }
+    )> } };
 
 export type SeriesBookGridQueryVariables = Exact<{
   id: Scalars['String']['input'];
@@ -12668,6 +12683,7 @@ export const BookCardFragmentDoc = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }
     `, {"fragmentName":"BookCard"}) as unknown as TypedDocumentString<BookCardFragment, unknown>;
@@ -16250,6 +16266,7 @@ export const BookSearchOverlayDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }
 fragment BookSearchSelection on Media {
@@ -17733,6 +17750,42 @@ export const GlobalSearchDocument = new TypedDocumentString(`
   }
 }
     `) as unknown as TypedDocumentString<GlobalSearchQuery, GlobalSearchQueryVariables>;
+export const SeriesContinueDocument = new TypedDocumentString(`
+    query SeriesContinue($id: ID!, $inProgress: MediaFilterInput!, $orderBy: [MediaOrderBy!]!) {
+  seriesById(id: $id) {
+    id
+    percentageCompleted
+    upNext(take: 1) {
+      id
+      resolvedName
+      ...BookReadingActions
+    }
+  }
+  media(
+    filter: $inProgress
+    orderBy: $orderBy
+    pagination: {offset: {page: 1, pageSize: 1}}
+  ) {
+    nodes {
+      id
+      resolvedName
+      ...BookReadingActions
+    }
+  }
+}
+    fragment BookReadingActions on Media {
+  id
+  extension
+  readProgress {
+    page
+    locator {
+      href
+    }
+  }
+  readHistory {
+    __typename
+  }
+}`) as unknown as TypedDocumentString<SeriesContinueQuery, SeriesContinueQueryVariables>;
 export const SeriesBookGridDocument = new TypedDocumentString(`
     query SeriesBookGrid($id: String!, $pagination: Pagination) {
   media(filter: {seriesId: {eq: $id}}, pagination: $pagination) {
@@ -17929,6 +17982,7 @@ export const SeriesBooksSceneDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }
 fragment BookMetadata on Media {
@@ -18111,6 +18165,7 @@ export const BooksInSeriesDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }`) as unknown as TypedDocumentString<BooksInSeriesQuery, BooksInSeriesQueryVariables>;
 export const MoreByAuthorQueryDocument = new TypedDocumentString(`
@@ -18164,6 +18219,7 @@ export const MoreByAuthorQueryDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }`) as unknown as TypedDocumentString<MoreByAuthorQueryQuery, MoreByAuthorQueryQueryVariables>;
 export const BookReaderSceneDocument = new TypedDocumentString(`
@@ -18600,6 +18656,7 @@ export const BookSearchSceneDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }
 fragment BookMetadata on Media {
@@ -19566,6 +19623,7 @@ export const LibraryBooksSceneDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }
 fragment BookMetadata on Media {
@@ -20108,6 +20166,7 @@ export const ReadingListBooksDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }`) as unknown as TypedDocumentString<ReadingListBooksQuery, ReadingListBooksQueryVariables>;
 export const ReadingListBookIdsDocument = new TypedDocumentString(`
@@ -21786,6 +21845,7 @@ export const SmartListItemsDocument = new TypedDocumentString(`
     rating
     ageRating
     language
+    writers
   }
 }
 fragment BookMetadata on Media {

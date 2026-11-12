@@ -1,8 +1,9 @@
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
-import { Book, Globe, Library, Lock, Rows3, UserRound } from 'lucide-react'
+import { Book, Globe, Library, Rows3, UserRound } from 'lucide-react'
 
 import { CollectionGridItem } from '@/components/collection'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -48,44 +49,43 @@ type Props = {
 }
 
 /**
- * A smart list's card: its first covers, stacked, with its name and what it matches. A list of the
- * user's own says who sees it (*Shared* with everyone on the server, or *Private*); a list of
- * someone else says who made it (*by Ana*): the lists others share are for everyone to read.
+ * A smart list's card: its first covers, stacked, with its name and what it matches, in words
+ * ("344 books", "89 series"; the libraries only when it spans more than one). A list of someone
+ * else says who made it (*by Ana*), and a list of the user's own that everyone sees says it is
+ * *Shared*: a private list of the user's own, the usual case, says nothing, so the badge means
+ * something when it is there.
  */
 export default function SmartListGridItem({ data, getLayoutNumber }: Props) {
 	const paths = usePaths()
 	const { user } = useAppContext()
-	const { t, translate } = useTranslate()
+	const { t } = useTranslate()
+	const labels = useStatLabels()
 	const { prefetch } = usePrefetchSmartList()
 	const { id, name, creatorId, visibility, creator, books, meta } = useFragment(fragment, data)
 
 	const layoutNumber = getLayoutNumber(id, books.length)
 
 	const isMine = creatorId === user.id
-	const badge = isMine
-		? visibility === 'PUBLIC'
+	const badge =
+		isMine && visibility === 'PUBLIC'
 			? {
 					key: 'visibility',
 					icon: Globe,
 					value: t(withLocaleKey('shared')),
 					label: t(withLocaleKey('sharedHint')),
 				}
-			: {
-					key: 'visibility',
-					icon: Lock,
-					value: t(withLocaleKey('private')),
-					label: t(withLocaleKey('privateHint')),
-				}
-		: {
-				key: 'creator',
-				icon: UserRound,
-				value: creator
-					? t(withLocaleKey('by'), { name: creator.username })
-					: t(withLocaleKey('shared')),
-				label: creator
-					? t(withLocaleKey('byHint'), { name: creator.username })
-					: t(withLocaleKey('sharedHint')),
-			}
+			: !isMine
+				? {
+						key: 'creator',
+						icon: UserRound,
+						value: creator
+							? t(withLocaleKey('by'), { name: creator.username })
+							: t(withLocaleKey('shared')),
+						label: creator
+							? t(withLocaleKey('byHint'), { name: creator.username })
+							: t(withLocaleKey('sharedHint')),
+					}
+				: undefined
 
 	return (
 		<CollectionGridItem
@@ -99,24 +99,31 @@ export default function SmartListGridItem({ data, getLayoutNumber }: Props) {
 			layoutNumber={layoutNumber}
 			stats={[
 				{
-					key: 'libraries',
-					icon: Library,
-					value: meta.matchedLibraries,
-					label: translate('shared.common.libraries', { count: meta.matchedLibraries }),
+					key: 'books',
+					icon: Book,
+					value: labels.number(meta.matchedBooks),
+					unit: labels.word('books', meta.matchedBooks),
+					label: labels.count('books', meta.matchedBooks),
 				},
 				{
 					key: 'series',
 					icon: Rows3,
-					value: meta.matchedSeries,
-					label: translate('shared.common.series', { count: meta.matchedSeries }),
+					value: labels.number(meta.matchedSeries),
+					unit: labels.word('series', meta.matchedSeries),
+					label: labels.count('series', meta.matchedSeries),
 				},
-				{
-					key: 'books',
-					icon: Book,
-					value: meta.matchedBooks,
-					label: translate('shared.common.book', { count: meta.matchedBooks }),
-				},
-				badge,
+				...(meta.matchedLibraries > 1
+					? [
+							{
+								key: 'libraries',
+								icon: Library,
+								value: labels.number(meta.matchedLibraries),
+								unit: labels.word('libraries', meta.matchedLibraries),
+								label: labels.count('libraries', meta.matchedLibraries),
+							},
+						]
+					: []),
+				...(badge ? [badge] : []),
 			]}
 		/>
 	)

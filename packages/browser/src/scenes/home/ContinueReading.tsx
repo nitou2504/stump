@@ -1,10 +1,10 @@
 import { PREFETCH_STALE_TIME, useInfiniteSuspenseGraphQL, useSDK } from '@stump/client'
-import { DropdownMenu, Heading, IconButton, ProgressBar, Text } from '@stump/components'
+import { DropdownMenu, IconButton, ProgressBar, Text } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { Api } from '@stump/sdk'
 import { QueryClient, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
-import { BookMarked, BookMinus, BookOpen, BookOpenCheck, Info, MoreHorizontal } from 'lucide-react'
+import { BookMinus, BookOpen, BookOpenCheck, Info, MoreHorizontal } from 'lucide-react'
 import { memo, Suspense, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { useMediaMatch } from 'rooks'
@@ -18,6 +18,8 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 import { isEbookExtension, isEbookReadProgress, readProgressPercent } from '@/utils/readingProgress'
+
+import { useReportEmptySection } from './emptySections'
 
 const IMAGE_WIDTH_MOBILE = 200
 const IMAGE_WIDTH_TABLET = 220
@@ -124,6 +126,7 @@ function ContinueReading() {
 	)
 
 	const nodes = useMemo(() => data.pages.flatMap((page) => page.keepReading.nodes), [data])
+	useReportEmptySection('continueReading', nodes.length === 0)
 
 	const imageWidth = isAtLeastMedium ? IMAGE_WIDTH_TABLET : IMAGE_WIDTH_MOBILE
 	const listHeight = imageWidth / thumbnailRatio + 17 // +17 for scrollbar
@@ -134,24 +137,8 @@ function ContinueReading() {
 		}
 	}, [fetchNextPage, hasNextPage, isFetchingNextPage])
 
-	if (!nodes.length) {
-		return (
-			<div className="space-y-2 flex flex-col">
-				<Heading size="sm">{translate('shared.homeSections.continueReading.label')}</Heading>
-				<div className="space-x-3 px-4 py-4 flex items-start justify-start rounded-lg border border-dashed border-border">
-					<span className="p-2 rounded-lg border border-border bg-muted">
-						<BookMarked className="h-8 w-8 text-muted-foreground" />
-					</span>
-					<div>
-						<Text>{translate('shared.homeSections.continueReading.emptyText')}</Text>
-						<Text size="sm" variant="muted">
-							{translate('shared.homeSections.continueReading.emptyMessage')}
-						</Text>
-					</div>
-				</div>
-			</div>
-		)
-	}
+	// nothing in progress: no box (the page says so once, if the other sections are empty too)
+	if (!nodes.length) return null
 
 	const cards = nodes.map((node) => <ContinueReadingCard key={node.id} fragment={node} />)
 

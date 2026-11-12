@@ -2,13 +2,11 @@ import { useGraphQLMutation, usePrefetchFiles } from '@stump/client'
 import { formatBytesSeparate } from '@stump/client'
 import { DropdownItemGroup } from '@stump/components/dropdown/DropdownMenu'
 import { extractErrorMessage, graphql, UserPermission } from '@stump/graphql'
-import { formatHumanDurationSeparate } from '@stump/i18n'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+	Book,
 	BookCheck,
-	BookOpen,
 	BookOpenCheck,
-	Clock,
 	FileSearch,
 	HardDrive,
 	Image,
@@ -21,11 +19,13 @@ import { toast } from 'sonner'
 
 import { EntityHeader } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import { CompleteSeriesConfirmation } from './CompleteSeriesConfirmation'
 import { useSeriesContext } from './context'
+import { ContinueSeriesButton } from './ContinueSeriesButton'
 import { usePrefetchSeriesBooks } from './queries'
 import { SeriesOverviewSheet } from './SeriesOverviewSheet'
 import { useSeriesThumbnailActions } from './useSeriesThumbnailActions'
@@ -43,7 +43,7 @@ const analyzeMutation = graphql(`
 `)
 
 export function SeriesHeader() {
-	const { checkPermission } = useAppContext()
+	const { checkPermission, isServerOwner } = useAppContext()
 	const {
 		series: {
 			id,
@@ -54,13 +54,11 @@ export function SeriesHeader() {
 		},
 	} = useSeriesContext()
 	const { t, translate } = useTranslate()
+	const labels = useStatLabels()
 
 	const location = useLocation()
 
 	const paths = usePaths()
-	const formattedTime = stats.totalReadingTimeSeconds
-		? formatHumanDurationSeparate(stats.totalReadingTimeSeconds)
-		: null
 	const formattedSize = stats.totalBytes ? formatBytesSeparate(stats.totalBytes) : null
 
 	const [showCompleteSeriesConfirmation, setShowCompleteSeriesConfirmation] = useState(false)
@@ -175,29 +173,24 @@ export function SeriesHeader() {
 			: []),
 	]
 
+	// The books and how many are read, in words; the in-progress count and the reading time are in the
+	// info sheet (the (i) button), labelled there
 	const resolvedStats = stats
 		? [
 				{
-					key: 'inProgressBooks',
-					icon: BookOpen,
-					value: stats.inProgressBooks,
+					key: 'bookCount',
+					icon: Book,
+					value: labels.number(stats.bookCount),
+					suffix: labels.word('books', stats.bookCount),
+					title: labels.count('books', stats.bookCount),
 				},
 				{
 					key: 'completedBooks',
 					icon: BookCheck,
-					value: stats.completedBooks,
-					suffix: ` / ${stats.bookCount}`,
+					value: labels.number(stats.completedBooks),
+					suffix: labels.read(stats.completedBooks),
+					title: translate('shared.common.infoSheetStats.completedBooks'),
 				},
-				...(formattedTime
-					? [
-							{
-								key: 'totalReadingTimeSeconds',
-								icon: Clock,
-								value: formattedTime[0]?.value ?? '??',
-								suffix: formattedTime[0]?.unit ?? undefined,
-							},
-						]
-					: []),
 				...(formattedSize
 					? [
 							{
@@ -205,6 +198,7 @@ export function SeriesHeader() {
 								icon: HardDrive,
 								value: formattedSize.value,
 								suffix: formattedSize.unit,
+								title: translate('shared.common.infoSheetStats.size'),
 							},
 						]
 					: []),
@@ -231,8 +225,10 @@ export function SeriesHeader() {
 				tabs={tabs}
 				actions={actions}
 				stats={resolvedStats}
-				settingsLink={paths.seriesSettings(id)}
+				// the series settings page is the owner's (its route sends everybody else away)
+				settingsLink={isServerOwner ? paths.seriesSettings(id) : undefined}
 				onInfoClick={() => setIsOverviewSheetOpen(true)}
+				endActions={<ContinueSeriesButton seriesId={id} placement="header" />}
 			/>
 
 			{canEditThumbnail && thumbnail.dialogs}

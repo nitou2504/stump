@@ -47,6 +47,14 @@ export function resolveReadingProgress(
 	}
 }
 
+/**
+ * Whether the small number in the corner shows: when the reader's progress is set to it, and not
+ * while the top bar is up, which already shows the same position (it would be there twice)
+ */
+export function isCornerNumberShown(display: ReadingProgressDisplay, topBarVisible: boolean) {
+	return display === 'number' && !topBarVisible
+}
+
 /** A reader's reading progress, and a setter that keeps the other readers' as they are */
 export function useReadingProgress(kind: ReaderKind) {
 	const stored = useReaderStore((state) => state.settings.readingProgress?.[kind])

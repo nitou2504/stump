@@ -13,6 +13,7 @@ import { FilterHeader, Search } from '@/components/filters'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { Link } from '@/context'
 import { useScrollElement } from '@/hooks/useScrollElement'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { BrowseIndex, usePaths } from '@/paths'
 import { sortKey } from '@/utils/sortKey'
 import { matchesSearch } from '@/utils/textSearch'
@@ -131,6 +132,7 @@ export default function BrowseIndexScene() {
 }
 
 function BrowseIndexContent({ index }: { index: BrowseIndex }) {
+	const labels = useStatLabels()
 	const paths = usePaths()
 	const { field, title, noun } = CONFIG[index]
 
@@ -232,7 +234,15 @@ function BrowseIndexContent({ index }: { index: BrowseIndex }) {
 			<CollectionSceneHeader
 				title={title}
 				stats={[
-					{ key: noun, icon: index === 'genres' ? Tags : Users, value: metadataValueCounts.length },
+					{
+						key: noun,
+						icon: index === 'genres' ? Tags : Users,
+						value: labels.number(metadataValueCounts.length),
+						suffix: labels.word(
+							index === 'genres' ? 'genres' : 'authors',
+							metadataValueCounts.length,
+						),
+					},
 				]}
 			/>
 

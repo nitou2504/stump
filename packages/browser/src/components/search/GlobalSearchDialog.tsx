@@ -8,6 +8,7 @@ import { useDebouncedValue } from 'rooks'
 
 import { ThumbnailImage } from '@/components/thumbnail/ThumbnailImage'
 import { useSurpriseMe } from '@/hooks/useSurpriseMe'
+import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import { GLOBAL_SEARCH_SHORTCUT } from './shortcut'
@@ -59,6 +60,7 @@ type Props = {
  * Empty, it offers Surprise me and the browse pages.
  */
 export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
+	const { t } = useTranslate()
 	const paths = usePaths()
 	const navigate = useNavigate()
 	const { surprise } = useSurpriseMe()
@@ -103,7 +105,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 				className="p-0 shadow-2xl translate-y-0 gap-0 top-[12vh] overflow-hidden"
 				aria-describedby={undefined}
 			>
-				<Dialog.Title className="sr-only">Search the library</Dialog.Title>
+				<Dialog.Title className="sr-only">{t('globalSearch.label')}</Dialog.Title>
 				<Command
 					shouldFilter={false}
 					loop
@@ -124,7 +126,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 						<Command.Input
 							value={term}
 							onValueChange={setTerm}
-							placeholder="Search books, authors, series…"
+							placeholder={t('globalSearch.placeholder')}
 							wrapperClassName="min-w-0 flex-1 rounded-none border-0"
 							iconClassName="opacity-100"
 							className="h-12 text-base sm:text-sm"
@@ -137,7 +139,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 
 					<Command.List className="p-1 max-h-[min(60vh,28rem)]">
 						{!hasTerm && (
-							<Command.Group heading="Discover">
+							<Command.Group heading={t('globalSearch.discover')}>
 								<Command.Item
 									value="surprise"
 									onSelect={() => {
@@ -146,34 +148,34 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 									}}
 								>
 									<Dices className="mr-2 h-4 w-4 text-muted-foreground" />
-									Surprise me
+									{t('globalSearch.surpriseMe')}
 									<span className="text-xs ml-auto text-muted-foreground">
-										a random unread book
+										{t('globalSearch.surpriseMeHint')}
 									</span>
 								</Command.Item>
 								<Command.Item value="books" onSelect={() => go(paths.bookSearch())}>
 									<Library className="mr-2 h-4 w-4 text-muted-foreground" />
-									All books
+									{t('globalSearch.allBooks')}
 								</Command.Item>
 								<Command.Item value="authors" onSelect={() => go(paths.browseIndex('authors'))}>
 									<Users className="mr-2 h-4 w-4 text-muted-foreground" />
-									Authors
+									{t('globalSearch.authors')}
 								</Command.Item>
 								<Command.Item value="genres" onSelect={() => go(paths.browseIndex('genres'))}>
 									<Tags className="mr-2 h-4 w-4 text-muted-foreground" />
-									Genres
+									{t('globalSearch.genres')}
 								</Command.Item>
 							</Command.Group>
 						)}
 
 						{hasTerm && !isWaiting && !books.length && !series.length && (
 							<p className="py-6 text-sm text-center text-muted-foreground">
-								Nothing matches “{trimmed}”
+								{t('globalSearch.noMatches', { term: trimmed })}
 							</p>
 						)}
 
 						{books.length > 0 && (
-							<Command.Group heading="Books">
+							<Command.Group heading={t('globalSearch.books')}>
 								{books.map((book) => {
 									const rating = book.metadata?.rating != null ? Number(book.metadata.rating) : null
 									const detail = [
@@ -210,7 +212,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 						)}
 
 						{series.length > 0 && (
-							<Command.Group heading="Series">
+							<Command.Group heading={t('globalSearch.series')}>
 								{series.map((item) => (
 									<Command.Item
 										key={item.id}
@@ -226,7 +228,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 										/>
 										<span className="min-w-0 line-clamp-1 flex-1">{item.resolvedName}</span>
 										<span className="text-xs font-normal shrink-0 text-muted-foreground">
-											{item.mediaCount} {item.mediaCount === 1 ? 'book' : 'books'}
+											{t('globalSearch.bookCount', { count: item.mediaCount })}
 										</span>
 									</Command.Item>
 								))}
@@ -240,15 +242,19 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 								className="mt-1 text-muted-foreground"
 							>
 								<ArrowRight className="mr-2 h-4 w-4" />
-								{total > books.length ? `See all ${total} books` : 'Open in Explore'}
+								{total > books.length
+									? t('globalSearch.seeAll', { total })
+									: t('globalSearch.openInExplore')}
 							</Command.Item>
 						)}
 					</Command.List>
 
 					<div className="px-3 py-2 gap-3 sm:flex hidden items-center border-t border-border text-[11px] text-muted-foreground">
-						<span>↑↓ to move</span>
-						<span>↵ to open</span>
-						<span className="ml-auto">{GLOBAL_SEARCH_SHORTCUT} anywhere</span>
+						<span>{t('globalSearch.toMove')}</span>
+						<span>{t('globalSearch.toOpen')}</span>
+						<span className="ml-auto">
+							{t('globalSearch.anywhere', { shortcut: GLOBAL_SEARCH_SHORTCUT })}
+						</span>
 					</div>
 				</Command>
 			</Dialog.Content>

@@ -2,6 +2,8 @@ import { cn, IconButton } from '@stump/components'
 import { SearchIcon } from 'lucide-react'
 import { lazy, Suspense, useEffect, useState } from 'react'
 
+import { useTranslate } from '@/hooks/useTranslate'
+
 import { GLOBAL_SEARCH_SHORTCUT, isApple } from './shortcut'
 
 // the dialog (and cmdk) load on first use or on hover, not with every page
@@ -31,6 +33,7 @@ const mounted: symbol[] = []
  * keep their own search in the toolbar, which filters only that list.
  */
 export default function GlobalSearch({ className }: { className?: string }) {
+	const { t } = useTranslate()
 	const [open, setOpen] = useState(false)
 	const [hasOpened, setHasOpened] = useState(false)
 
@@ -69,9 +72,9 @@ export default function GlobalSearch({ className }: { className?: string }) {
 				onClick={show}
 				onPointerEnter={loadDialog}
 				onFocus={loadDialog}
-				aria-label="Search the library"
+				aria-label={t('globalSearch.label')}
 				aria-keyshortcuts={isApple ? 'Meta+K' : 'Control+K'}
-				title={`Search · ${GLOBAL_SEARCH_SHORTCUT}`}
+				title={`${t('globalSearch.title')} · ${GLOBAL_SEARCH_SHORTCUT}`}
 			>
 				<SearchIcon className="h-4 w-4" />
 			</IconButton>

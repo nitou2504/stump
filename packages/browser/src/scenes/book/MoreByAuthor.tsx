@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import BookCard from '@/components/book/BookCard'
 import HorizontalCardList from '@/components/HorizontalCardList'
+import { useTranslate } from '@/hooks/useTranslate'
 import { noop } from '@/utils/misc'
 
 const query = graphql(`
@@ -31,6 +32,7 @@ type Props = {
  * list the rest of an author's folder.
  */
 export default function MoreByAuthor({ bookId, seriesId, author }: Props) {
+	const { t } = useTranslate()
 	const filter = useMemo<MediaFilterInput>(
 		() => ({
 			id: { neq: bookId },
@@ -52,7 +54,7 @@ export default function MoreByAuthor({ bookId, seriesId, author }: Props) {
 
 	return (
 		<HorizontalCardList
-			title={`More by ${author}`}
+			title={t('bookOverviewScene.moreBy', { author })}
 			restoreKey="more-by-author"
 			items={nodes.map((node) => (
 				<BookCard key={node.id} fragment={node} fullWidth={false} />
