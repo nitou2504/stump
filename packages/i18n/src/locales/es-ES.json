@@ -3576,6 +3576,40 @@
         }
       }
     },
+    "pdfReader": {
+      "openFailed": "No se pudo abrir este PDF.",
+      "retry": "Reintentar",
+      "pageFailed": "La página {{page}} no se cargó. Toca para reintentar.",
+      "openAs": "Otras formas de abrirlo",
+      "openAsPages": "Ver como páginas",
+      "openAsText": "Abrir en el lector de PDF",
+      "openInBrowser": "Abrir en el navegador",
+      "theme": "Tema",
+      "invertPages": "Invertir páginas en temas oscuros",
+      "invertPagesHint": "Desactívalo en libros ilustrados para mantener las imágenes tal cual",
+      "trimMargins": "Recortar márgenes",
+      "trimMarginsHint": "Oculta los márgenes en blanco alrededor de cada página",
+      "fit": {
+        "label": "Ajuste",
+        "width": "Ajustar a lo ancho",
+        "page": "Ajustar a la página"
+      },
+      "zoom": "Zoom",
+      "zoomIn": "Acercar",
+      "zoomOut": "Alejar",
+      "zoomReset": "Restablecer",
+      "fullscreen": "Pantalla completa",
+      "goToPage": "Ir a página",
+      "go": "Ir",
+      "noSuchPage": "No existe esa página",
+      "noOutline": "Sin tabla de contenidos",
+      "noTextHint": "Este PDF no tiene texto: solo marcadores.",
+      "bookmarksDisabledInIncognito": "Los marcadores están deshabilitados en modo incógnito",
+      "shortcuts": {
+        "zoom": "Acercar / alejar / restablecer",
+        "fit": "Ajustar a lo ancho / a la página"
+      }
+    },
     "epubSettings": {
       "title": "Configuración del lector de Epub",
       "typeface": {
