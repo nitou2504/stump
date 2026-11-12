@@ -36,7 +36,13 @@ describe('the Public access badge', () => {
 		render(<AccessWarningsBadge />)
 
 		expect(await screen.findByTestId('access-warnings-badge')).toHaveTextContent('4')
-		expect(screen.getByText(/access.warnings.badge/)).toHaveClass('sr-only')
+		expect(screen.getByText(/access.attention.badge/)).toHaveClass('sr-only')
+		// it sits on the top right of the button, where the approvals badge sits
+		expect(screen.getByTestId('access-warnings-badge')).toHaveClass(
+			'-top-1',
+			'-right-1',
+			'absolute',
+		)
 	})
 
 	it('shows nothing when there is nothing to look at', async () => {
@@ -68,5 +74,30 @@ describe('the Public access badge', () => {
 		expect(badge).toHaveTextContent('99+')
 		expect(badge).toHaveClass('inline-block')
 		expect(badge).not.toHaveClass('absolute')
+	})
+
+	it('is a dot with no number where there is no room, and says the count to a screen reader', async () => {
+		asOwner(true)
+		count.answer = 3
+
+		render(<AccessWarningsBadge variant="dot" />)
+
+		const dot = await screen.findByTestId('access-warnings-dot')
+		expect(dot).toHaveTextContent('')
+		expect(dot).toHaveClass('bg-amber-500')
+		expect(screen.getByText(/access.attention.badge/)).toHaveClass('sr-only')
+		expect(screen.queryByTestId('access-warnings-badge')).toBeNull()
+	})
+
+	it('goes away at once when the count goes to nothing (after Clear all)', async () => {
+		asOwner(true)
+		count.answer = 2
+		const { rerender } = render(<AccessWarningsBadge />)
+		expect(await screen.findByTestId('access-warnings-badge')).toBeInTheDocument()
+
+		count.answer = 0
+		rerender(<AccessWarningsBadge />)
+
+		expect(screen.queryByTestId('access-warnings-badge')).toBeNull()
 	})
 })

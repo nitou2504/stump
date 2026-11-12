@@ -1,4 +1,4 @@
-import { useGraphQLMutation, useSuspenseGraphQL } from '@stump/client'
+import { useGraphQLMutation, useSDK, useSuspenseGraphQL } from '@stump/client'
 import {
 	graphql,
 	type SignupLinkKind,
@@ -70,8 +70,8 @@ const peopleQuery = graphql(`
 `)
 
 const invitesQuery = graphql(`
-	query PublicAccessInvites($page: Int!, $pageSize: Int!) {
-		accessInvites(pagination: { page: $page, pageSize: $pageSize }) {
+	query PublicAccessInvites($includeEnded: Boolean!, $page: Int!, $pageSize: Int!) {
+		accessInvites(includeEnded: $includeEnded, pagination: { page: $page, pageSize: $pageSize }) {
 			nodes {
 				id
 				label
@@ -97,8 +97,12 @@ const invitesQuery = graphql(`
 `)
 
 const devicesQuery = graphql(`
-	query PublicAccessDevices($page: Int!, $pageSize: Int!) {
-		accessDevices(pagination: { page: $page, pageSize: $pageSize }) {
+	query PublicAccessDevices($personId: ID, $includeEnded: Boolean!, $page: Int!, $pageSize: Int!) {
+		accessDevices(
+			personId: $personId
+			includeEnded: $includeEnded
+			pagination: { page: $page, pageSize: $pageSize }
+		) {
 			nodes {
 				id
 				label
@@ -142,13 +146,23 @@ const blockedQuery = graphql(`
 `)
 
 const signInsQuery = graphql(`
-	query PublicAccessSignIns($failuresOnly: Boolean!, $page: Int!, $pageSize: Int!) {
-		accessSignIns(failuresOnly: $failuresOnly, pagination: { page: $page, pageSize: $pageSize }) {
+	query PublicAccessSignIns(
+		$failuresOnly: Boolean!
+		$othersOnly: Boolean!
+		$page: Int!
+		$pageSize: Int!
+	) {
+		accessSignIns(
+			failuresOnly: $failuresOnly
+			othersOnly: $othersOnly
+			pagination: { page: $page, pageSize: $pageSize }
+		) {
 			nodes {
 				id
 				at
 				ip
 				userAgent
+				agentLabel
 				successful
 				deviceId
 				deviceLabel
@@ -178,6 +192,7 @@ const auditQuery = graphql(`
 				actor
 				action
 				target
+				targetLabel
 				detail
 			}
 			pageInfo {
@@ -190,8 +205,11 @@ const auditQuery = graphql(`
 `)
 
 const signupLinksQuery = graphql(`
-	query PublicAccessSignupLinks($page: Int!, $pageSize: Int!) {
-		accessSignupLinks(pagination: { page: $page, pageSize: $pageSize }) {
+	query PublicAccessSignupLinks($includeEnded: Boolean!, $page: Int!, $pageSize: Int!) {
+		accessSignupLinks(
+			includeEnded: $includeEnded
+			pagination: { page: $page, pageSize: $pageSize }
+		) {
 			nodes {
 				id
 				label
@@ -249,6 +267,9 @@ const librariesQuery = graphql(`
 			nodes {
 				id
 				name
+				excludedUsers {
+					id
+				}
 			}
 		}
 	}
@@ -262,6 +283,7 @@ const warningsQuery = graphql(`
 			severity
 			count
 			since
+			lastAt
 			detail
 			linkId
 			person {
@@ -303,27 +325,42 @@ export function useAccessPeople() {
 	return useSuspenseGraphQL(peopleQuery, [PUBLIC_ACCESS_KEY, 'people']).data.accessPeople
 }
 
-export function useAccessInvites(page: number) {
-	return useSuspenseGraphQL(invitesQuery, [PUBLIC_ACCESS_KEY, 'invites', page], {
+/** The device links: only the open ones, or every one that was made (the ended ones too) */
+export function useAccessInvites(includeEnded: boolean, page = 1) {
+	return useSuspenseGraphQL(invitesQuery, [PUBLIC_ACCESS_KEY, 'invites', includeEnded, page], {
+		includeEnded,
 		page,
 		pageSize: PAGE_SIZE,
 	}).data.accessInvites
 }
 
-export function useAccessDevices(page: number) {
-	return useSuspenseGraphQL(devicesQuery, [PUBLIC_ACCESS_KEY, 'devices', page], {
-		page,
-		pageSize: PAGE_SIZE,
-	}).data.accessDevices
+/**
+ * The devices of one person, or of everybody when `personId` is `null`: the ones that work, or
+ * every one that ever was (the revoked ones too)
+ */
+export function useAccessDevices(personId: string | null, includeEnded: boolean, page = 1) {
+	return useSuspenseGraphQL(
+		devicesQuery,
+		[PUBLIC_ACCESS_KEY, 'devices', personId ?? 'all', includeEnded, page],
+		{ personId: personId ?? undefined, includeEnded, page, pageSize: PAGE_SIZE },
+	).data.accessDevices
 }
 
+/** Every device that works, whoever's it is (for what needs cleaning up) */
+export function useAllAccessDevices() {
+	return useAccessDevices(null, false)
+}
+
+/** The accounts that are locked right now, with their failures */
 export function useAccessBlocked() {
 	return useSuspenseGraphQL(blockedQuery, [PUBLIC_ACCESS_KEY, 'blocked']).data.accessBlockedUsers
 }
 
+/** The other people's sign-ins (the owner's own successful ones are left out) */
 export function useAccessSignIns(failuresOnly: boolean, page: number) {
 	return useSuspenseGraphQL(signInsQuery, [PUBLIC_ACCESS_KEY, 'signIns', failuresOnly, page], {
 		failuresOnly,
+		othersOnly: true,
 		page,
 		pageSize: PAGE_SIZE,
 	}).data.accessSignIns
@@ -336,11 +373,13 @@ export function useAccessAudit(page: number) {
 	}).data.accessAudit
 }
 
-export function useAccessSignupLinks(page: number) {
-	return useSuspenseGraphQL(signupLinksQuery, [PUBLIC_ACCESS_KEY, 'signupLinks', page], {
-		page,
-		pageSize: PAGE_SIZE,
-	}).data.accessSignupLinks
+/** The signup links: only the open ones, or every one that was made (the ended ones too) */
+export function useAccessSignupLinks(includeEnded: boolean, page = 1) {
+	return useSuspenseGraphQL(
+		signupLinksQuery,
+		[PUBLIC_ACCESS_KEY, 'signupLinks', includeEnded, page],
+		{ includeEnded, page, pageSize: PAGE_SIZE },
+	).data.accessSignupLinks
 }
 
 export function usePresetDefaults() {
@@ -348,9 +387,21 @@ export function usePresetDefaults() {
 		.signupPresetDefaults
 }
 
-/** Every library, for the checklist of what a link's accounts see */
+/** Every library and who is kept out of it, for the checklists of what people see */
 export function useLibraryChoices() {
 	return useSuspenseGraphQL(librariesQuery, [PUBLIC_ACCESS_KEY, 'libraries']).data.libraries.nodes
+}
+
+/** The account whose permissions the owner may take some off: what `updateUser` needs to hear back */
+export type UserToEdit = ResultOf<typeof userToEditQuery>['userById']
+
+/** Reads the account to edit, once, when the owner asks for it (not part of the page's queries) */
+export function useUserLoader() {
+	const { sdk } = useSDK()
+	return useCallback(
+		async (id: string) => (await sdk.execute(userToEditQuery, { id })).userById,
+		[sdk],
+	)
 }
 
 export function useAccessWarnings() {
@@ -427,6 +478,48 @@ const revokeSignupLinkMutation = graphql(`
 	}
 `)
 
+const dismissWarningsMutation = graphql(`
+	mutation PublicAccessDismissWarnings($ids: [ID!]) {
+		dismissAccessWarnings(ids: $ids)
+	}
+`)
+
+const restoreWarningsMutation = graphql(`
+	mutation PublicAccessRestoreWarnings($ids: [ID!]!) {
+		restoreAccessWarnings(ids: $ids)
+	}
+`)
+
+const userToEditQuery = graphql(`
+	query PublicAccessUserToEdit($id: ID!) {
+		userById(id: $id) {
+			id
+			username
+			permissions
+			maxSessionsAllowed
+			ageRestriction {
+				age
+				restrictOnUnset
+			}
+		}
+	}
+`)
+
+const updateUserMutation = graphql(`
+	mutation PublicAccessUpdateUser($id: ID!, $input: UpdateUserInput!) {
+		updateUser(id: $id, input: $input) {
+			id
+			permissions
+		}
+	}
+`)
+
+const signOutEverywhereMutation = graphql(`
+	mutation PublicAccessSignOutEverywhere($id: ID!) {
+		deleteUserSessions(id: $id)
+	}
+`)
+
 const setPersonAccessMutation = graphql(`
 	mutation PublicAccessSetPersonAccess($input: PersonAccessInput!) {
 		setPersonAccess(input: $input) {
@@ -498,6 +591,21 @@ export function useAccessActions() {
 	const resetBudget = useGraphQLMutation(resetBudgetMutation, options)
 	const unblock = useGraphQLMutation(unblockMutation, options)
 	const setPassword = useGraphQLMutation(setPasswordMutation, options)
+	const dismissWarnings = useGraphQLMutation(dismissWarningsMutation, {
+		onSuccess: () => {
+			// the page and the badge show what is left at once
+			void refresh()
+			void client.invalidateQueries({ queryKey: [PUBLIC_ACCESS_KEY, 'warningCount'] })
+		},
+	})
+	const restoreWarnings = useGraphQLMutation(restoreWarningsMutation, {
+		onSuccess: () => {
+			void refresh()
+			void client.invalidateQueries({ queryKey: [PUBLIC_ACCESS_KEY, 'warningCount'] })
+		},
+	})
+	const updateUser = useGraphQLMutation(updateUserMutation, options)
+	const signOutEverywhere = useGraphQLMutation(signOutEverywhereMutation, options)
 
 	return {
 		/** Makes an invite and gives back the link to send, which exists only in this answer */
@@ -530,7 +638,43 @@ export function useAccessActions() {
 		unblock: (id: string) => unblock.mutateAsync({ id }),
 		setPassword: (id: string, password: string, requireChange: boolean) =>
 			setPassword.mutateAsync({ id, password, requireChange }),
+		/** Marks warnings as seen (all the visible ones without ids); says how many */
+		dismissWarnings: async (ids?: string[]) => {
+			const { dismissAccessWarnings } = await dismissWarnings.mutateAsync({ ids })
+			return dismissAccessWarnings
+		},
+		/** Shows warnings that were marked as seen again (Undo); says how many */
+		restoreWarnings: async (ids: string[]) => {
+			const { restoreAccessWarnings } = await restoreWarnings.mutateAsync({ ids })
+			return restoreAccessWarnings
+		},
+		/** Takes `remove` off an account's permissions, keeping the rest of the account as it is */
+		removePermissions: async (user: UserToEdit, remove: readonly UserPermission[]) => {
+			await updateUser.mutateAsync({
+				id: user.id,
+				input: {
+					username: user.username,
+					permissions: user.permissions.filter((permission) => !remove.includes(permission)),
+					maxSessionsAllowed: user.maxSessionsAllowed,
+					ageRestriction: user.ageRestriction
+						? {
+								age: user.ageRestriction.age,
+								restrictOnUnset: user.ageRestriction.restrictOnUnset,
+							}
+						: null,
+				},
+			})
+		},
+		/** Ends every session of the account; says how many */
+		signOutEverywhere: async (id: string) => {
+			const { deleteUserSessions } = await signOutEverywhere.mutateAsync({ id })
+			return deleteUserSessions
+		},
 		isPending:
+			updateUser.isPending ||
+			signOutEverywhere.isPending ||
+			dismissWarnings.isPending ||
+			restoreWarnings.isPending ||
 			create.isPending ||
 			createSignup.isPending ||
 			revokeSignup.isPending ||

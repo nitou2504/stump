@@ -1,4 +1,5 @@
 import AccessWarningsBadge from '@/components/navigation/sidebar/AccessWarningsBadge'
+import ApprovalsBadge from '@/scenes/intake/ApprovalsBadge'
 import { SecondarySidebar } from '@/components/sharedLayout'
 import { useRouterContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
@@ -42,6 +43,7 @@ export default function SettingsSideBar() {
 							>
 								{t(`settingsScene.sidebar.${groupKey}.${label.toLowerCase()}`)}
 								{to === '/settings/access' && <AccessWarningsBadge variant="inline" />}
+								{to === '/settings/book-approvals' && <ApprovalsBadge variant="inline" forOwner />}
 							</SecondarySidebar.Item>
 						))}
 					</SecondarySidebar.Group>

@@ -54,6 +54,11 @@ export type AccessAuditEntry = {
   id: Scalars['Int']['output'];
   /** An invite id, a device id or a user id */
   target: Scalars['String']['output'];
+  /**
+   * The name behind the target when it is a device (its label), a signup link or an invite
+   * (its note) or an account (its username), if it still exists
+   */
+  targetLabel?: Maybe<Scalars['String']['output']>;
 };
 
 export type AccessAuditPage = {
@@ -248,6 +253,8 @@ export enum AccessRole {
 /** One sign-in attempt of the account's login activity, with what is known of how it came */
 export type AccessSignIn = {
   __typename?: 'AccessSignIn';
+  /** The browser and system in words, like "Chrome on Linux" */
+  agentLabel: Scalars['String']['output'];
   at: Scalars['DateTime']['output'];
   /**
    * A failure the owner forgave when they unblocked the account: it no longer counts towards
@@ -335,9 +342,16 @@ export type AccessWarning = {
   count: Scalars['Int']['output'];
   /** A short plain-text detail (a username, a note, the permissions) */
   detail?: Maybe<Scalars['String']['output']>;
+  /** When the owner marked it as seen, if it is still hidden (only with `includeDismissed`) */
+  dismissedAt?: Maybe<Scalars['DateTime']['output']>;
   /** The same warning has the same id every time */
   id: Scalars['String']['output'];
   kind: AccessWarningKind;
+  /**
+   * The time of the newest fact behind it. A dismissed warning comes back when this, or the
+   * count, goes up
+   */
+  lastAt: Scalars['DateTime']['output'];
   linkId?: Maybe<Scalars['String']['output']>;
   person?: Maybe<AccessPerson>;
   severity: AccessWarningSeverity;
@@ -345,9 +359,18 @@ export type AccessWarning = {
 };
 
 export enum AccessWarningKind {
+  /** An account locked after too many wrong passwords */
+  AccountLocked = 'ACCOUNT_LOCKED',
   AtDeviceLimit = 'AT_DEVICE_LIMIT',
+  /** Books that wait for the owner's approval */
+  BooksWaiting = 'BOOKS_WAITING',
   DeviceLimitHit = 'DEVICE_LIMIT_HIT',
   GlobalBudget = 'GLOBAL_BUDGET',
+  /**
+   * Devices that still work but are leftovers (terminal passes, people who are gone, unused for
+   * two months)
+   */
+  LeftoverDevices = 'LEFTOVER_DEVICES',
   LinkNearBudget = 'LINK_NEAR_BUDGET',
   LinkNoLibraries = 'LINK_NO_LIBRARIES',
   ManyDevices = 'MANY_DEVICES',
@@ -3644,6 +3667,12 @@ export type Mutation = {
   deleteUserAvatar: User;
   deleteUserSessions: Scalars['Int']['output'];
   /**
+   * Marks warnings as seen: they leave *Needs your attention* and the badge until something new
+   * or worse happens. Without `ids`: every warning shown now (*Clear all*). Nothing is deleted:
+   * the sign-ins and the audit log stay. Returns how many it marked
+   */
+  dismissAccessWarnings: Scalars['Int']['output'];
+  /**
    * Save a book's metadata and write the changes into the book file (EPUB, PDF and CBZ
    * files carry title, authors, series, genres, summary, rating and more): the edited copy
    * is read back before it replaces the book, so a failed write leaves the file untouched
@@ -3822,6 +3851,8 @@ export type Mutation = {
   respondToBookClubInvitation: BookClubInvitation;
   /** Brings a revoked device back. Its invite stays revoked. Returns whether it changed */
   restoreAccessDevice: Scalars['Boolean']['output'];
+  /** Shows warnings that were marked as seen again (*Undo*). Returns how many were shown again */
+  restoreAccessWarnings: Scalars['Int']['output'];
   /**
    * Brings books in *Deleted books* back to their library exactly as they were (reading
    * progress, annotations, bookmarks, tags and smart lists never left). Returns how many came
@@ -4471,6 +4502,11 @@ export type MutationDeleteUserSessionsArgs = {
 };
 
 
+export type MutationDismissAccessWarningsArgs = {
+  ids?: InputMaybe<Array<Scalars['ID']['input']>>;
+};
+
+
 export type MutationEditMediaMetadataArgs = {
   id: Scalars['ID']['input'];
   input: MediaMetadataInput;
@@ -4756,6 +4792,11 @@ export type MutationRespondToBookClubInvitationArgs = {
 
 export type MutationRestoreAccessDeviceArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationRestoreAccessWarningsArgs = {
+  ids: Array<Scalars['ID']['input']>;
 };
 
 
@@ -5827,11 +5868,16 @@ export type Query = {
    * links themselves are not kept
    */
   accessSignupLinks: AccessSignupLinkPage;
-  /** How many warnings there are: what the badge in the sidebar shows. The owner at home only */
+  /**
+   * How many warnings are visible (not marked as seen): what the badge in the sidebar shows.
+   * The owner at home only
+   */
   accessWarningCount: Scalars['Int']['output'];
   /**
    * What the owner should look at: people at or over their device limit, four or more
-   * sessions, bursts of failed sign-ins, links near their budget. The alerts come first
+   * sessions, bursts of failed sign-ins, links near their budget, locked accounts, leftover
+   * devices, books waiting. The alerts come first. What the owner marked as seen is left out
+   * unless `includeDismissed`
    */
   accessWarnings: Array<AccessWarning>;
   activeReadingSessionCount: Scalars['Int']['output'];
@@ -6153,23 +6199,33 @@ export type QueryAccessAuditArgs = {
 
 
 export type QueryAccessDevicesArgs = {
+  includeEnded?: Scalars['Boolean']['input'];
   pagination?: OffsetPagination;
+  personId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
 export type QueryAccessInvitesArgs = {
+  includeEnded?: Scalars['Boolean']['input'];
   pagination?: OffsetPagination;
 };
 
 
 export type QueryAccessSignInsArgs = {
   failuresOnly?: Scalars['Boolean']['input'];
+  othersOnly?: Scalars['Boolean']['input'];
   pagination?: OffsetPagination;
 };
 
 
 export type QueryAccessSignupLinksArgs = {
+  includeEnded?: Scalars['Boolean']['input'];
   pagination?: OffsetPagination;
+};
+
+
+export type QueryAccessWarningsArgs = {
+  includeDismissed?: Scalars['Boolean']['input'];
 };
 
 
@@ -10723,6 +10779,7 @@ export type PublicAccessPeopleQueryVariables = Exact<{ [key: string]: never; }>;
 export type PublicAccessPeopleQuery = { __typename?: 'Query', accessPeople: Array<{ __typename?: 'AccessPersonRow', lastSignInAt?: any | null, mustChangePassword: boolean, publicSignin: boolean, maxDevices: number, activeDevices: number, sessions: number, newLibrariesHidden: boolean, signupLinkId?: string | null, beyondFriendSet: Array<UserPermission>, hiddenLibraries: number, person: { __typename?: 'AccessPerson', id: string, username: string, locked: boolean, removed: boolean, isServerOwner: boolean } }> };
 
 export type PublicAccessInvitesQueryVariables = Exact<{
+  includeEnded: Scalars['Boolean']['input'];
   page: Scalars['Int']['input'];
   pageSize: Scalars['Int']['input'];
 }>;
@@ -10731,6 +10788,8 @@ export type PublicAccessInvitesQueryVariables = Exact<{
 export type PublicAccessInvitesQuery = { __typename?: 'Query', accessInvites: { __typename?: 'AccessInvitePage', nodes: Array<{ __typename?: 'AccessInvite', id: string, label: string, createdAt: any, createdBy: string, expiresAt: any, maxUses: number, uses: number, status: AccessInviteStatus, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
 
 export type PublicAccessDevicesQueryVariables = Exact<{
+  personId?: InputMaybe<Scalars['ID']['input']>;
+  includeEnded: Scalars['Boolean']['input'];
   page: Scalars['Int']['input'];
   pageSize: Scalars['Int']['input'];
 }>;
@@ -10745,12 +10804,13 @@ export type PublicAccessBlockedQuery = { __typename?: 'Query', accessBlockedUser
 
 export type PublicAccessSignInsQueryVariables = Exact<{
   failuresOnly: Scalars['Boolean']['input'];
+  othersOnly: Scalars['Boolean']['input'];
   page: Scalars['Int']['input'];
   pageSize: Scalars['Int']['input'];
 }>;
 
 
-export type PublicAccessSignInsQuery = { __typename?: 'Query', accessSignIns: { __typename?: 'AccessSignInPage', nodes: Array<{ __typename?: 'AccessSignIn', id: number, at: any, ip: string, userAgent: string, successful: boolean, deviceId?: string | null, deviceLabel?: string | null, reason?: AccessSignInReason | null, cleared: boolean, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
+export type PublicAccessSignInsQuery = { __typename?: 'Query', accessSignIns: { __typename?: 'AccessSignInPage', nodes: Array<{ __typename?: 'AccessSignIn', id: number, at: any, ip: string, userAgent: string, agentLabel: string, successful: boolean, deviceId?: string | null, deviceLabel?: string | null, reason?: AccessSignInReason | null, cleared: boolean, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
 
 export type PublicAccessAuditQueryVariables = Exact<{
   page: Scalars['Int']['input'];
@@ -10758,9 +10818,10 @@ export type PublicAccessAuditQueryVariables = Exact<{
 }>;
 
 
-export type PublicAccessAuditQuery = { __typename?: 'Query', accessAudit: { __typename?: 'AccessAuditPage', nodes: Array<{ __typename?: 'AccessAuditEntry', id: number, at: any, actor: string, action: string, target: string, detail: string }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
+export type PublicAccessAuditQuery = { __typename?: 'Query', accessAudit: { __typename?: 'AccessAuditPage', nodes: Array<{ __typename?: 'AccessAuditEntry', id: number, at: any, actor: string, action: string, target: string, targetLabel?: string | null, detail: string }>, pageInfo: { __typename?: 'OffsetPaginationInfo', totalPages: number, totalItems: number, currentPage: number } } };
 
 export type PublicAccessSignupLinksQueryVariables = Exact<{
+  includeEnded: Scalars['Boolean']['input'];
   page: Scalars['Int']['input'];
   pageSize: Scalars['Int']['input'];
 }>;
@@ -10776,12 +10837,12 @@ export type PublicAccessPresetDefaultsQuery = { __typename?: 'Query', signupPres
 export type PublicAccessLibrariesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type PublicAccessLibrariesQuery = { __typename?: 'Query', libraries: { __typename?: 'PaginatedLibraryResponse', nodes: Array<{ __typename?: 'Library', id: string, name: string }> } };
+export type PublicAccessLibrariesQuery = { __typename?: 'Query', libraries: { __typename?: 'PaginatedLibraryResponse', nodes: Array<{ __typename?: 'Library', id: string, name: string, excludedUsers: Array<{ __typename?: 'User', id: string }> }> } };
 
 export type PublicAccessWarningsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type PublicAccessWarningsQuery = { __typename?: 'Query', accessWarnings: Array<{ __typename?: 'AccessWarning', id: string, kind: AccessWarningKind, severity: AccessWarningSeverity, count: number, since: any, detail?: string | null, linkId?: string | null, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }> };
+export type PublicAccessWarningsQuery = { __typename?: 'Query', accessWarnings: Array<{ __typename?: 'AccessWarning', id: string, kind: AccessWarningKind, severity: AccessWarningSeverity, count: number, since: any, lastAt: any, detail?: string | null, linkId?: string | null, person?: { __typename?: 'AccessPerson', id: string, username: string, removed: boolean } | null }> };
 
 export type PublicAccessWarningCountQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -10860,6 +10921,42 @@ export type PublicAccessRevokeSignupLinkMutationVariables = Exact<{
 
 
 export type PublicAccessRevokeSignupLinkMutation = { __typename?: 'Mutation', revokeAccessSignupLink: number };
+
+export type PublicAccessDismissWarningsMutationVariables = Exact<{
+  ids?: InputMaybe<Array<Scalars['ID']['input']> | Scalars['ID']['input']>;
+}>;
+
+
+export type PublicAccessDismissWarningsMutation = { __typename?: 'Mutation', dismissAccessWarnings: number };
+
+export type PublicAccessRestoreWarningsMutationVariables = Exact<{
+  ids: Array<Scalars['ID']['input']> | Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessRestoreWarningsMutation = { __typename?: 'Mutation', restoreAccessWarnings: number };
+
+export type PublicAccessUserToEditQueryVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessUserToEditQuery = { __typename?: 'Query', userById: { __typename?: 'User', id: string, username: string, permissions: Array<UserPermission>, maxSessionsAllowed?: number | null, ageRestriction?: { __typename?: 'AgeRestriction', age: number, restrictOnUnset: boolean } | null } };
+
+export type PublicAccessUpdateUserMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+  input: UpdateUserInput;
+}>;
+
+
+export type PublicAccessUpdateUserMutation = { __typename?: 'Mutation', updateUser: { __typename?: 'User', id: string, permissions: Array<UserPermission> } };
+
+export type PublicAccessSignOutEverywhereMutationVariables = Exact<{
+  id: Scalars['ID']['input'];
+}>;
+
+
+export type PublicAccessSignOutEverywhereMutation = { __typename?: 'Mutation', deleteUserSessions: number };
 
 export type PublicAccessSetPersonAccessMutationVariables = Exact<{
   input: PersonAccessInput;
@@ -20324,8 +20421,11 @@ export const PublicAccessPeopleDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<PublicAccessPeopleQuery, PublicAccessPeopleQueryVariables>;
 export const PublicAccessInvitesDocument = new TypedDocumentString(`
-    query PublicAccessInvites($page: Int!, $pageSize: Int!) {
-  accessInvites(pagination: {page: $page, pageSize: $pageSize}) {
+    query PublicAccessInvites($includeEnded: Boolean!, $page: Int!, $pageSize: Int!) {
+  accessInvites(
+    includeEnded: $includeEnded
+    pagination: {page: $page, pageSize: $pageSize}
+  ) {
     nodes {
       id
       label
@@ -20350,8 +20450,12 @@ export const PublicAccessInvitesDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<PublicAccessInvitesQuery, PublicAccessInvitesQueryVariables>;
 export const PublicAccessDevicesDocument = new TypedDocumentString(`
-    query PublicAccessDevices($page: Int!, $pageSize: Int!) {
-  accessDevices(pagination: {page: $page, pageSize: $pageSize}) {
+    query PublicAccessDevices($personId: ID, $includeEnded: Boolean!, $page: Int!, $pageSize: Int!) {
+  accessDevices(
+    personId: $personId
+    includeEnded: $includeEnded
+    pagination: {page: $page, pageSize: $pageSize}
+  ) {
     nodes {
       id
       label
@@ -20393,9 +20497,10 @@ export const PublicAccessBlockedDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<PublicAccessBlockedQuery, PublicAccessBlockedQueryVariables>;
 export const PublicAccessSignInsDocument = new TypedDocumentString(`
-    query PublicAccessSignIns($failuresOnly: Boolean!, $page: Int!, $pageSize: Int!) {
+    query PublicAccessSignIns($failuresOnly: Boolean!, $othersOnly: Boolean!, $page: Int!, $pageSize: Int!) {
   accessSignIns(
     failuresOnly: $failuresOnly
+    othersOnly: $othersOnly
     pagination: {page: $page, pageSize: $pageSize}
   ) {
     nodes {
@@ -20403,6 +20508,7 @@ export const PublicAccessSignInsDocument = new TypedDocumentString(`
       at
       ip
       userAgent
+      agentLabel
       successful
       deviceId
       deviceLabel
@@ -20431,6 +20537,7 @@ export const PublicAccessAuditDocument = new TypedDocumentString(`
       actor
       action
       target
+      targetLabel
       detail
     }
     pageInfo {
@@ -20442,8 +20549,11 @@ export const PublicAccessAuditDocument = new TypedDocumentString(`
 }
     `) as unknown as TypedDocumentString<PublicAccessAuditQuery, PublicAccessAuditQueryVariables>;
 export const PublicAccessSignupLinksDocument = new TypedDocumentString(`
-    query PublicAccessSignupLinks($page: Int!, $pageSize: Int!) {
-  accessSignupLinks(pagination: {page: $page, pageSize: $pageSize}) {
+    query PublicAccessSignupLinks($includeEnded: Boolean!, $page: Int!, $pageSize: Int!) {
+  accessSignupLinks(
+    includeEnded: $includeEnded
+    pagination: {page: $page, pageSize: $pageSize}
+  ) {
     nodes {
       id
       label
@@ -20499,6 +20609,9 @@ export const PublicAccessLibrariesDocument = new TypedDocumentString(`
     nodes {
       id
       name
+      excludedUsers {
+        id
+      }
     }
   }
 }
@@ -20511,6 +20624,7 @@ export const PublicAccessWarningsDocument = new TypedDocumentString(`
     severity
     count
     since
+    lastAt
     detail
     linkId
     person {
@@ -20586,6 +20700,43 @@ export const PublicAccessRevokeSignupLinkDocument = new TypedDocumentString(`
   revokeAccessSignupLink(id: $id, disableAccounts: $disableAccounts)
 }
     `) as unknown as TypedDocumentString<PublicAccessRevokeSignupLinkMutation, PublicAccessRevokeSignupLinkMutationVariables>;
+export const PublicAccessDismissWarningsDocument = new TypedDocumentString(`
+    mutation PublicAccessDismissWarnings($ids: [ID!]) {
+  dismissAccessWarnings(ids: $ids)
+}
+    `) as unknown as TypedDocumentString<PublicAccessDismissWarningsMutation, PublicAccessDismissWarningsMutationVariables>;
+export const PublicAccessRestoreWarningsDocument = new TypedDocumentString(`
+    mutation PublicAccessRestoreWarnings($ids: [ID!]!) {
+  restoreAccessWarnings(ids: $ids)
+}
+    `) as unknown as TypedDocumentString<PublicAccessRestoreWarningsMutation, PublicAccessRestoreWarningsMutationVariables>;
+export const PublicAccessUserToEditDocument = new TypedDocumentString(`
+    query PublicAccessUserToEdit($id: ID!) {
+  userById(id: $id) {
+    id
+    username
+    permissions
+    maxSessionsAllowed
+    ageRestriction {
+      age
+      restrictOnUnset
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessUserToEditQuery, PublicAccessUserToEditQueryVariables>;
+export const PublicAccessUpdateUserDocument = new TypedDocumentString(`
+    mutation PublicAccessUpdateUser($id: ID!, $input: UpdateUserInput!) {
+  updateUser(id: $id, input: $input) {
+    id
+    permissions
+  }
+}
+    `) as unknown as TypedDocumentString<PublicAccessUpdateUserMutation, PublicAccessUpdateUserMutationVariables>;
+export const PublicAccessSignOutEverywhereDocument = new TypedDocumentString(`
+    mutation PublicAccessSignOutEverywhere($id: ID!) {
+  deleteUserSessions(id: $id)
+}
+    `) as unknown as TypedDocumentString<PublicAccessSignOutEverywhereMutation, PublicAccessSignOutEverywhereMutationVariables>;
 export const PublicAccessSetPersonAccessDocument = new TypedDocumentString(`
     mutation PublicAccessSetPersonAccess($input: PersonAccessInput!) {
   setPersonAccess(input: $input) {

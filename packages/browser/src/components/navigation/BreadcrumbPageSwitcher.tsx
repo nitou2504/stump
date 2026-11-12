@@ -1,6 +1,6 @@
 import { Breadcrumb, cn, Drawer } from '@stump/components'
 import { ChevronsUpDown, LucideIcon } from 'lucide-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { Link } from 'react-router'
 import { useMediaMatch } from 'rooks'
 
@@ -10,6 +10,8 @@ export type PageSwitcherItem = {
 	icon?: LucideIcon
 	disabled?: boolean
 	isActive: boolean
+	/** What goes after the label: a count, for the pages that have something to look at */
+	badge?: ReactNode
 }
 
 export type PageSwitcherGroup = {
@@ -71,7 +73,7 @@ export function BreadcrumbPageSwitcher({ title, groups, to }: Props) {
 									</span>
 								)}
 
-								{group.items.map(({ to, label, icon: Icon, disabled, isActive }) => (
+								{group.items.map(({ to, label, icon: Icon, disabled, isActive, badge }) => (
 									<Link
 										key={to}
 										to={to}
@@ -86,6 +88,7 @@ export function BreadcrumbPageSwitcher({ title, groups, to }: Props) {
 									>
 										{Icon && <Icon className="size-4 shrink-0" />}
 										<span className="line-clamp-1">{label}</span>
+										{badge}
 									</Link>
 								))}
 							</div>

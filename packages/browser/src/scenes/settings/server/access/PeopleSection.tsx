@@ -1,405 +1,335 @@
-import {
-	Alert,
-	AlertDescription,
-	Badge,
-	Button,
-	ButtonOrLink,
-	CheckBox,
-	Dialog,
-	NativeSelect,
-	Switch,
-	Text,
-} from '@stump/components'
-import { Minus, Plus } from 'lucide-react'
-import { Suspense, useState } from 'react'
-import { toast } from 'sonner'
+import { Badge, Button, DropdownMenu, NewCard, Text } from '@stump/components'
+import { SignupLinkKind } from '@stump/graphql'
+import { ChevronRight, MoreHorizontal, UserPlus } from 'lucide-react'
+import { useState } from 'react'
 
 import { useTranslate } from '@/hooks/useTranslate'
-import { usePaths } from '@/paths'
 
-import { formatWhen } from './format'
+import EndedList, { useEndedCount } from './EndedList'
+import { formatAgo, formatWhen } from './format'
 import {
+	type AccessInvite,
 	type AccessPersonRow,
-	useAccessActions,
+	type AccessSignupLink,
+	useAccessInvites,
+	useAccessOverview,
 	useAccessPeople,
-	usePresetDefaults,
+	useAccessSignupLinks,
 } from './graphql'
 import { accessKey } from './keys'
-import Section, { Empty, Row, RowList } from './Section'
-import SetPasswordDialog from './SetPasswordDialog'
+import RevokeLinkDialog, { type Revoking } from './RevokeLinkDialog'
 
-const errorMessage = (error: unknown) =>
-	error instanceof Error && error.message ? error.message : undefined
+type Props = {
+	onInvite: () => void
+	onOpenPerson: (personId: string) => void
+}
 
-/** The fewest and most devices a person may have (the server holds them to it too) */
-export const MIN_DEVICES = 1
-export const MAX_DEVICES = 10
+/** The newest sign-in first; people who never signed in last */
+const byLastSignIn = (a: AccessPersonRow, b: AccessPersonRow) =>
+	new Date(b.lastSignInAt ?? 0).getTime() - new Date(a.lastSignInAt ?? 0).getTime()
 
-/** `SCAN_LIBRARY` as the owner reads it: "Scan library" */
-export const permissionWords = (permission: string) =>
-	permission.toLowerCase().replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase())
-
-type Choice = { person: AccessPersonRow; mode: 'on' | 'off' }
-
-/**
- * Turning public sign-in on for somebody, or off. On: an account that holds permissions a friend
- * may not have is refused with the names of the permissions to remove first; otherwise the owner
- * says whether to leave what the person sees as it is or to narrow it to the default library, and
- * may go straight on to setting a new password (recommended for an account that existed before).
- * Off: the person can no longer use Stump from the internet; their devices stay unless the owner
- * says to remove them
- */
-function PublicSigninDialog({
-	choice,
-	onClose,
-	onSetPassword,
-}: {
-	choice: Choice | null
-	onClose: () => void
-	onSetPassword: (person: AccessPersonRow['person']) => void
-}) {
-	const { t, translate } = useTranslate()
-	const paths = usePaths()
-	const defaults = usePresetDefaults()
-	const actions = useAccessActions()
-	const [narrow, setNarrow] = useState(true)
-	const [removeDevices, setRemoveDevices] = useState(false)
-	const [newPassword, setNewPassword] = useState(true)
-
-	const person = choice?.person.person
-	const beyond = choice?.person.beyondFriendSet ?? []
-	const defaultLibrary = defaults.libraries[0]
-
-	const close = () => {
-		setNarrow(true)
-		setRemoveDevices(false)
-		setNewPassword(true)
-		onClose()
-	}
-
-	const confirm = async () => {
-		if (!choice || !person) return
-		try {
-			if (choice.mode === 'on') {
-				await actions.setPersonAccess({
-					personId: person.id,
-					publicSignin: true,
-					onlyLibraryIds: narrow && defaultLibrary ? [defaultLibrary.id] : undefined,
-				})
-				toast.success(t(accessKey('people.publicSignin.turnedOn'), { name: person.username }))
-				if (newPassword) onSetPassword(person)
-			} else {
-				await actions.setPersonAccess({ personId: person.id, publicSignin: false })
-				if (removeDevices) await actions.revokePerson(person.id)
-				toast.success(t(accessKey('people.publicSignin.turnedOff'), { name: person.username }))
-			}
-			close()
-		} catch (error) {
-			toast.error(t(accessKey('people.publicSignin.error')), { description: errorMessage(error) })
-		}
-	}
-
+/** A person's first letter in a circle, since the page has no photo of them */
+function Initial({ name }: { name: string }) {
 	return (
-		<Dialog open={!!choice} onOpenChange={(open) => !open && close()}>
-			<Dialog.Content size="sm">
-				<Dialog.Header>
-					<Dialog.Title>
-						{t(
-							accessKey(
-								choice?.mode === 'off'
-									? 'people.publicSignin.offTitle'
-									: 'people.publicSignin.onTitle',
-							),
-							{ name: person?.username ?? '' },
-						)}
-					</Dialog.Title>
-					<Dialog.Close onClick={close} />
-				</Dialog.Header>
-
-				{choice?.mode === 'on' && beyond.length > 0 && (
-					<Alert variant="warning" data-testid="access-beyond">
-						<AlertDescription>
-							{t(accessKey('people.publicSignin.beyond'), {
-								name: person?.username ?? '',
-								permissions: beyond.map(permissionWords).join(', '),
-							})}
-						</AlertDescription>
-					</Alert>
-				)}
-
-				{choice?.mode === 'on' && beyond.length === 0 && (
-					<div className="gap-4 flex flex-col">
-						<Text size="sm">
-							{t(accessKey('people.publicSignin.onDescription'), { name: person?.username ?? '' })}
-						</Text>
-						{defaultLibrary && (
-							<NativeSelect
-								aria-label={t(accessKey('people.publicSignin.libraries'))}
-								value={narrow ? 'only' : 'leave'}
-								onChange={(event) => setNarrow(event.target.value === 'only')}
-								options={[
-									{
-										label: t(accessKey('people.publicSignin.onlyLibrary'), {
-											name: defaultLibrary.name,
-										}),
-										value: 'only',
-									},
-									{ label: t(accessKey('people.publicSignin.leaveLibraries')), value: 'leave' },
-								]}
-							/>
-						)}
-						<CheckBox
-							id="access-publicsignin-password"
-							label={t(accessKey('people.publicSignin.newPassword'))}
-							description={t(accessKey('people.publicSignin.newPasswordHint'))}
-							checked={newPassword}
-							onCheckedChange={(checked) => setNewPassword(checked === true)}
-						/>
-					</div>
-				)}
-
-				{choice?.mode === 'off' && (
-					<div className="gap-4 flex flex-col">
-						<Text size="sm">
-							{t(accessKey('people.publicSignin.offDescription'), { name: person?.username ?? '' })}
-						</Text>
-						{choice.person.activeDevices > 0 && (
-							<Switch
-								id="access-publicsignin-devices"
-								label={t(accessKey('people.publicSignin.removeDevices'), {
-									count: choice.person.activeDevices,
-								})}
-								checked={removeDevices}
-								onCheckedChange={setRemoveDevices}
-							/>
-						)}
-					</div>
-				)}
-
-				<Dialog.Footer>
-					<Button variant="outline" onClick={close}>
-						{translate('shared.common.cancel')}
-					</Button>
-					{choice?.mode === 'on' && beyond.length > 0 ? (
-						<ButtonOrLink href={person ? paths.updateUser(person.id) : '#'}>
-							{t(accessKey('people.manage'))}
-						</ButtonOrLink>
-					) : (
-						<Button onClick={confirm} isLoading={actions.isPending}>
-							{t(
-								accessKey(
-									choice?.mode === 'off'
-										? 'people.publicSignin.turnOff'
-										: 'people.publicSignin.turnOn',
-								),
-							)}
-						</Button>
-					)}
-				</Dialog.Footer>
-			</Dialog.Content>
-		</Dialog>
+		<span
+			aria-hidden
+			className="h-8 w-8 text-sm font-medium flex shrink-0 items-center justify-center rounded-full bg-muted uppercase"
+		>
+			{name.slice(0, 1)}
+		</span>
 	)
 }
 
-function PeopleList() {
+/** One person: who they are, how they stand, and a click opens everything about them */
+function PersonRow({ row, onOpen }: { row: AccessPersonRow; onOpen: () => void }) {
 	const { t } = useTranslate()
-	const paths = usePaths()
-	const people = useAccessPeople()
-	const actions = useAccessActions()
-	const [settingFor, setSettingFor] = useState<AccessPersonRow['person'] | null>(null)
-	const [choice, setChoice] = useState<Choice | null>(null)
+	const { person } = row
 
-	const unblock = async (id: string, name: string) => {
-		try {
-			await actions.unblock(id)
-			toast.success(t(accessKey('signIns.unblocked'), { name }))
-		} catch (error) {
-			toast.error(t(accessKey('signIns.errors.unblock')), { description: errorMessage(error) })
-		}
-	}
-
-	const changeDevices = async (row: AccessPersonRow, by: number) => {
-		const next = Math.min(MAX_DEVICES, Math.max(MIN_DEVICES, row.maxDevices + by))
-		if (next === row.maxDevices) return
-		try {
-			await actions.setPersonAccess({ personId: row.person.id, maxDevices: next })
-		} catch (error) {
-			toast.error(t(accessKey('people.devices.error')), { description: errorMessage(error) })
-		}
-	}
+	const line = row.lastSignInAt
+		? t(accessKey('people.devicesLine'), {
+				active: row.activeDevices,
+				limit: row.maxDevices,
+				when: formatAgo(row.lastSignInAt),
+			})
+		: t(accessKey('people.devicesLineNever'), {
+				active: row.activeDevices,
+				limit: row.maxDevices,
+			})
 
 	return (
-		<>
-			<RowList data-testid="access-people-list">
-				{people.length === 0 && <Empty>{t(accessKey('people.empty'))}</Empty>}
-				{people.map((row) => {
-					const { person, lastSignInAt, mustChangePassword } = row
-					const isFriend = !person.isServerOwner && !person.removed
-					return (
-						<Row key={person.id} data-testid={`access-people-${person.id}`}>
-							<div className="min-w-0">
-								<div className="gap-2 flex flex-wrap items-center">
-									<Text size="sm" className="font-medium">
-										{person.username}
-									</Text>
-									{person.isServerOwner && (
-										<Badge size="xs" variant="primary">
-											{t(accessKey('people.owner'))}
-										</Badge>
-									)}
-									{person.locked && (
-										<Badge size="xs" variant="warning">
-											{t(accessKey('people.locked'))}
-										</Badge>
-									)}
-									{mustChangePassword && (
-										<Badge size="xs" variant="secondary">
-											{t(accessKey('people.mustChange'))}
-										</Badge>
-									)}
-									{isFriend && row.publicSignin && (
-										<Badge size="xs" variant="success">
-											{t(accessKey('people.publicSignin.badge'))}
-										</Badge>
+		<button
+			type="button"
+			data-testid={`access-person-${person.id}`}
+			onClick={onOpen}
+			title={row.lastSignInAt ? formatWhen(row.lastSignInAt) : undefined}
+			className="gap-3 px-4 py-3 flex w-full items-center text-left hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+		>
+			<Initial name={person.username} />
+			<span className="min-w-0 flex-1">
+				<span className="gap-2 flex flex-wrap items-center">
+					<Text size="sm" className="font-medium">
+						{person.username}
+					</Text>
+					{person.locked && (
+						<Badge size="xs" variant="error">
+							{t(accessKey('people.badges.locked'))}
+						</Badge>
+					)}
+					{row.beyondFriendSet.length > 0 && (
+						<Badge size="xs" variant="warning">
+							{t(accessKey('people.badges.extras'))}
+						</Badge>
+					)}
+					{row.mustChangePassword && (
+						<Badge size="xs" variant="secondary">
+							{t(accessKey('people.badges.mustChange'))}
+						</Badge>
+					)}
+				</span>
+				<Text size="xs" variant="muted">
+					{row.publicSignin ? line : t(accessKey('people.homeOnly'))}
+				</Text>
+			</span>
+			<ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" />
+		</button>
+	)
+}
+
+/** A link that was made and hasn't been used up: its note, what it is and when it ends */
+function InvitedRow({
+	title,
+	line,
+	onRevoke,
+	testId,
+}: {
+	title: string
+	line: string
+	onRevoke: () => void
+	testId: string
+}) {
+	const { t } = useTranslate()
+	return (
+		<div data-testid={testId} className="gap-3 px-4 py-3 flex items-center">
+			<span className="min-w-0 flex-1">
+				<Text size="sm" className="font-medium">
+					{title}
+				</Text>
+				<Text size="xs" variant="muted">
+					{line}
+				</Text>
+			</span>
+			<DropdownMenu
+				align="end"
+				trigger={
+					<Button
+						variant="ghost"
+						size="icon"
+						aria-label={t(accessKey('people.moreActions'))}
+						className="shrink-0"
+					>
+						<MoreHorizontal className="h-4 w-4" />
+					</Button>
+				}
+				groups={[
+					{
+						items: [
+							{ label: t(accessKey('people.revoke')), variant: 'destructive', onClick: onRevoke },
+						],
+					},
+				]}
+			/>
+		</div>
+	)
+}
+
+const signupLine = (t: ReturnType<typeof useTranslate>['t'], link: AccessSignupLink) =>
+	link.kind === SignupLinkKind.Single
+		? t(accessKey('people.invitedOne'), { when: formatAgo(link.expiresAt) })
+		: t(accessKey('people.invitedOpen'), {
+				used: link.uses,
+				max: link.maxUses,
+				when: formatAgo(link.expiresAt),
+			})
+
+const deviceLinkLine = (t: ReturnType<typeof useTranslate>['t'], invite: AccessInvite) =>
+	t(accessKey('people.invitedDevice'), {
+		name: invite.person?.username ?? '',
+		when: formatAgo(invite.expiresAt),
+	})
+
+/**
+ * Who can sign in from the internet, in one list: the people who can, the people who were invited
+ * and haven't come in yet, and (behind a click) the people who can't. The one big button of the
+ * page is *Invite someone*. A click on a person opens everything about them; nothing here has a
+ * control of its own, so the list reads at a glance and works the same on a phone
+ */
+export default function PeopleSection({ onInvite, onOpenPerson }: Props) {
+	const { t } = useTranslate()
+	const overview = useAccessOverview()
+	const people = useAccessPeople()
+	const links = useAccessSignupLinks(false).nodes
+	const invites = useAccessInvites(false).nodes
+	const ended = useEndedCount()
+
+	const [showHome, setShowHome] = useState(false)
+	const [showEnded, setShowEnded] = useState(false)
+	const [revoking, setRevoking] = useState<Revoking | null>(null)
+
+	// the server owner never signs in from the internet, and a removed account is gone
+	const others = people.filter(({ person }) => !person.isServerOwner && !person.removed)
+	const inside = others.filter((row) => row.publicSignin).sort(byLastSignIn)
+	const home = others.filter((row) => !row.publicSignin).sort(byLastSignIn)
+	const invited = links.length + invites.length
+
+	// soonest to end first
+	const invitedRows = [
+		...links.map((link) => ({ at: link.expiresAt, link })),
+		...invites.map((invite) => ({ at: invite.expiresAt, invite })),
+	].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+
+	return (
+		<section
+			id="access-people"
+			data-testid="access-people"
+			aria-labelledby="access-people-title"
+			className="gap-3 flex flex-col"
+		>
+			<NewCard
+				label={t(accessKey('people.title'))}
+				description={t(accessKey('people.description'))}
+				actions={
+					<Button
+						onClick={onInvite}
+						disabled={!overview.configured}
+						title={overview.configured ? undefined : t(accessKey('people.inviteNeedsSetup'))}
+						className="max-sm:w-full"
+					>
+						<UserPlus className="h-4 w-4" />
+						{t(accessKey('people.invite'))}
+					</Button>
+				}
+			>
+				{inside.length === 0 && invited === 0 && home.length === 0 && ended === 0 ? (
+					<Text size="sm" variant="muted" className="px-4 py-6 text-center">
+						{t(accessKey('people.empty'))}
+					</Text>
+				) : (
+					<>
+						{inside.length > 0 && (
+							<div data-testid="access-people-internet">
+								<Text size="xs" variant="muted" className="px-4 pt-3 pb-1 font-medium">
+									{t(accessKey('people.groups.internet'), { count: inside.length })}
+								</Text>
+								<div className="divide-y divide-border/70">
+									{inside.map((row) => (
+										<PersonRow
+											key={row.person.id}
+											row={row}
+											onOpen={() => onOpenPerson(row.person.id)}
+										/>
+									))}
+								</div>
+							</div>
+						)}
+						{inside.length === 0 && (
+							<Text size="sm" variant="muted" className="px-4 py-4">
+								{t(accessKey('people.nobody'))}
+							</Text>
+						)}
+
+						{invited > 0 && (
+							<div data-testid="access-people-invited" className="border-t border-border/70">
+								<Text size="xs" variant="muted" className="px-4 pt-3 pb-1 font-medium">
+									{t(accessKey('people.groups.invited'), { count: invited })}
+								</Text>
+								<div className="divide-y divide-border/70">
+									{invitedRows.map((entry) =>
+										'link' in entry ? (
+											<InvitedRow
+												key={entry.link.id}
+												testId={`access-invited-${entry.link.id}`}
+												title={entry.link.label}
+												line={signupLine(t, entry.link)}
+												onRevoke={() =>
+													setRevoking({
+														kind: 'signup',
+														id: entry.link.id,
+														label: entry.link.label,
+														accounts: entry.link.people.length,
+													})
+												}
+											/>
+										) : (
+											<InvitedRow
+												key={entry.invite.id}
+												testId={`access-invited-${entry.invite.id}`}
+												title={entry.invite.label}
+												line={deviceLinkLine(t, entry.invite)}
+												onRevoke={() =>
+													setRevoking({
+														kind: 'device',
+														id: entry.invite.id,
+														label: entry.invite.label,
+													})
+												}
+											/>
+										),
 									)}
 								</div>
-								<Text size="xs" variant="muted" className="mt-1">
-									{t(accessKey('people.lastSignIn'), {
-										at: lastSignInAt ? formatWhen(lastSignInAt) : t(accessKey('people.never')),
-									})}
-								</Text>
-								{isFriend && (
-									<Text size="xs" variant="muted" className="mt-1" data-testid={`access-people-${person.id}-numbers`}>
-										{t(accessKey('people.numbers'), {
-											active: row.activeDevices,
-											max: row.maxDevices,
-											sessions: row.sessions,
-											hidden: row.hiddenLibraries,
-										})}
-									</Text>
-								)}
-								{isFriend && row.beyondFriendSet.length > 0 && (
-									<div
-										data-testid={`access-people-${person.id}-beyond`}
-										className="mt-2 gap-1.5 flex flex-wrap items-center"
-									>
-										<Text size="xs" variant="muted">
-											{t(accessKey('people.beyond'))}
-										</Text>
-										{row.beyondFriendSet.map((permission) => (
-											<Badge key={permission} size="xs" variant="warning">
-												{permissionWords(permission)}
-											</Badge>
+							</div>
+						)}
+
+						{home.length > 0 && (
+							<div data-testid="access-people-home" className="border-t border-border/70">
+								<Button
+									variant="ghost"
+									size="sm"
+									className="m-2"
+									aria-expanded={showHome}
+									onClick={() => setShowHome((open) => !open)}
+								>
+									{t(accessKey('people.groups.home'), { count: home.length })}
+									<ChevronRight
+										aria-hidden
+										className={showHome ? 'h-4 w-4 rotate-90' : 'h-4 w-4'}
+									/>
+								</Button>
+								{showHome && (
+									<div className="divide-y divide-border/70">
+										{home.map((row) => (
+											<PersonRow
+												key={row.person.id}
+												row={row}
+												onOpen={() => onOpenPerson(row.person.id)}
+											/>
 										))}
 									</div>
 								)}
 							</div>
-							<div className="gap-3 flex flex-wrap items-center">
-								{isFriend && (
-									<>
-										<Switch
-											id={`access-publicsignin-${person.id}`}
-											label={t(accessKey('people.publicSignin.label'))}
-											checked={row.publicSignin}
-											disabled={actions.isPending}
-											onCheckedChange={(on) => setChoice({ person: row, mode: on ? 'on' : 'off' })}
-										/>
-										<div
-											className="gap-1 flex items-center"
-											role="group"
-											aria-label={t(accessKey('people.devices.label'))}
-										>
-											<Button
-												size="sm"
-												variant="outline"
-												aria-label={t(accessKey('people.devices.fewer'))}
-												disabled={actions.isPending || row.maxDevices <= MIN_DEVICES}
-												onClick={() => changeDevices(row, -1)}
-											>
-												<Minus className="h-3 w-3" />
-											</Button>
-											<Text size="sm" className="min-w-10 text-center" aria-live="polite">
-												{row.maxDevices}
-											</Text>
-											<Button
-												size="sm"
-												variant="outline"
-												aria-label={t(accessKey('people.devices.more'))}
-												disabled={actions.isPending || row.maxDevices >= MAX_DEVICES}
-												onClick={() => changeDevices(row, 1)}
-											>
-												<Plus className="h-3 w-3" />
-											</Button>
-										</div>
-									</>
-								)}
-								{person.locked && (
-									<Button
-										size="sm"
-										variant="outline"
-										disabled={actions.isPending}
-										onClick={() => unblock(person.id, person.username)}
-									>
-										{t(accessKey('signIns.unblock'))}
-									</Button>
-								)}
-								{/* the owner's password is not set from here, and it is never used from the internet */}
-								{isFriend && (
-									<Button size="sm" variant="outline" onClick={() => setSettingFor(person)}>
-										{t(accessKey('people.setPassword'))}
-									</Button>
-								)}
-								{!person.removed && (
-									<ButtonOrLink size="sm" variant="ghost" href={paths.updateUser(person.id)}>
-										{t(accessKey('people.manage'))}
-									</ButtonOrLink>
-								)}
+						)}
+
+						{ended > 0 && (
+							<div className="border-t border-border/70">
+								<Button
+									variant="ghost"
+									size="sm"
+									className="m-2"
+									aria-expanded={showEnded}
+									onClick={() => setShowEnded((open) => !open)}
+									data-testid="access-show-ended"
+								>
+									{showEnded
+										? t(accessKey('people.hideEnded'))
+										: t(accessKey('people.showEnded'), { count: ended })}
+								</Button>
+								{showEnded && <EndedList />}
 							</div>
-						</Row>
-					)
-				})}
-			</RowList>
+						)}
+					</>
+				)}
+			</NewCard>
 
-			{/* only while it is open: it asks the server for the default library, which a closed one has no use for */}
-			{choice && (
-				<Suspense fallback={null}>
-					<PublicSigninDialog
-						choice={choice}
-						onClose={() => setChoice(null)}
-						onSetPassword={setSettingFor}
-					/>
-				</Suspense>
-			)}
-
-			{settingFor && (
-				<SetPasswordDialog
-					person={settingFor}
-					isOpen={!!settingFor}
-					onClose={() => setSettingFor(null)}
-				/>
-			)}
-		</>
-	)
-}
-
-/**
- * The accounts: who may come in from the internet (a switch each, refused with the names of what
- * to remove for an account that holds more than a friend may), how many devices each may have,
- * and the two things the owner needs for somebody who can't get in: a new password, or the way in
- * again
- */
-export default function PeopleSection() {
-	const { t } = useTranslate()
-
-	return (
-		<Section
-			id="people"
-			title={t(accessKey('people.title'))}
-			description={t(accessKey('people.description'))}
-		>
-			<Suspense fallback={null}>
-				<PeopleList />
-			</Suspense>
-		</Section>
+			<RevokeLinkDialog link={revoking} onClose={() => setRevoking(null)} />
+		</section>
 	)
 }

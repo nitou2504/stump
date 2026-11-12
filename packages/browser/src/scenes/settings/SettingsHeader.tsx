@@ -4,10 +4,12 @@ import { useLocation } from 'react-router'
 import { useMediaMatch } from 'rooks'
 
 import { BreadcrumbPageSwitcher } from '@/components/navigation/BreadcrumbPageSwitcher'
+import AccessWarningsBadge from '@/components/navigation/sidebar/AccessWarningsBadge'
 import { usePageSwitcherGroups } from '@/components/navigation/usePageSwitcherGroups'
 import { PageHeader } from '@/components/sharedLayout'
 import { useRouterContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
+import ApprovalsBadge from '@/scenes/intake/ApprovalsBadge'
 import { useAppStore } from '@/stores'
 
 import SettingsNavigation from './SettingsNavigation'
@@ -47,13 +49,29 @@ export default function SettingsHeader({ renderNavigation }: Props) {
 			})),
 		[groups, basePath],
 	)
-	const switcherGroups = usePageSwitcherGroups({
+	const pageGroups = usePageSwitcherGroups({
 		localeBase: 'settingsScene',
 		routeGroups,
 		isActive: isActiveRoute,
 		formatKey: toLowerCase,
 		filter: platform === 'browser' ? isNotDesktopRoute : undefined,
 	})
+	// the phone's settings menu says, as the sidebar does, which pages have something to look at
+	const switcherGroups = useMemo(
+		() =>
+			pageGroups.map((group) => ({
+				...group,
+				items: group.items.map((item) => ({
+					...item,
+					badge: item.to.endsWith('/settings/access') ? (
+						<AccessWarningsBadge variant="inline" />
+					) : item.to.endsWith('/settings/book-approvals') ? (
+						<ApprovalsBadge variant="inline" forOwner />
+					) : undefined,
+				})),
+			})),
+		[pageGroups],
+	)
 
 	/**
 	 * The active route based on the current location

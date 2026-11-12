@@ -2,6 +2,7 @@ import { cn } from '@stump/components'
 import { ReactNode } from 'react'
 
 import { Sidebar } from '../navigation/sidebar'
+import AccessWarningsBadge from '../navigation/sidebar/AccessWarningsBadge'
 import { GlobalSearch } from '../search'
 
 type Props = {
@@ -38,7 +39,10 @@ function PageHeaderRoot({ children, className, search = true }: Props) {
 			)}
 		>
 			<div data-tauri-drag-region className="h-12 gap-3 pr-4 pl-2 min-w-0 flex w-full items-center">
-				<Sidebar.Trigger />
+				<Sidebar.Trigger>
+					{/* on a phone the sidebar is shut: a dot says the owner has something to look at */}
+					<AccessWarningsBadge variant="dot" className="md:hidden" />
+				</Sidebar.Trigger>
 				{children}
 				{search && <GlobalSearch className="ml-auto" />}
 			</div>
