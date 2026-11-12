@@ -2,7 +2,7 @@ import { useGraphQL } from '@stump/client'
 import { Command, Dialog, ProgressSpinner } from '@stump/components'
 import { graphql } from '@stump/graphql'
 import { ArrowRight, Dices, Library, Tags, Users } from 'lucide-react'
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useDebouncedValue } from 'rooks'
 
@@ -53,6 +53,11 @@ const query = graphql(`
 
 const MIN_LENGTH = 2
 
+// The value of each item: what the highlight is, so the items and the code that moves it agree
+const bookValue = (id: string) => `book-${id}`
+const authorValue = (name: string) => `author-${name}`
+const seriesValue = (id: string) => `series-${id}`
+
 type Props = {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -90,6 +95,27 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 		data?.media.pageInfo.__typename === 'OffsetPaginationInfo' ? data.media.pageInfo.totalItems : 0
 	const isWaiting = hasTerm && (isFetching || trimmed !== search)
 
+	// Enter opens the highlighted result, and that should be the best one. The list moves the
+	// highlight to its first item when the text changes, but what that text finds arrives later, and
+	// ranked differently: a result that was highlighted and is still listed would stay highlighted.
+	// So the highlight goes back to the first result whenever a new set of results arrives
+	const [highlighted, setHighlighted] = useState('')
+	useLayoutEffect(() => {
+		if (!hasTerm || !data) return
+		const book = data.media.nodes[0]
+		const author = data.searchAuthors[0]
+		const item = data.series.nodes[0]
+		setHighlighted(
+			book
+				? bookValue(book.id)
+				: author
+					? authorValue(author.value)
+					: item
+						? seriesValue(item.id)
+						: '',
+		)
+	}, [data, hasTerm])
+
 	const go = (to: string) => {
 		onOpenChange(false)
 		navigate(to)
@@ -106,7 +132,10 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 			open={open}
 			onOpenChange={(next) => {
 				onOpenChange(next)
-				if (!next) setTerm('')
+				if (!next) {
+					setTerm('')
+					setHighlighted('')
+				}
 			}}
 		>
 			<Dialog.Content
@@ -118,6 +147,8 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 				<Command
 					shouldFilter={false}
 					loop
+					value={highlighted}
+					onValueChange={setHighlighted}
 					className="p-0 rounded-none bg-dialog"
 					onKeyDown={(event) => {
 						// Enter with no result highlighted: the full results
@@ -196,7 +227,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 									return (
 										<Command.Item
 											key={book.id}
-											value={`book-${book.id}`}
+											value={bookValue(book.id)}
 											onSelect={() => go(paths.bookOverview(book.id))}
 											className="gap-3 py-1.5"
 										>
@@ -225,7 +256,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 								{authors.map((author) => (
 									<Command.Item
 										key={author.value}
-										value={`author-${author.value}`}
+										value={authorValue(author.value)}
 										onSelect={() => go(authorHref(author.value))}
 										className="gap-3 py-1.5"
 									>
@@ -244,7 +275,7 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 								{series.map((item) => (
 									<Command.Item
 										key={item.id}
-										value={`series-${item.id}`}
+										value={seriesValue(item.id)}
 										onSelect={() => go(paths.seriesOverview(item.id))}
 										className="gap-3 py-1.5"
 									>

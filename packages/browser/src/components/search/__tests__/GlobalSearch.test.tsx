@@ -37,26 +37,30 @@ type SetupOptions = {
 	authors?: Author[]
 	/** The books it finds */
 	books?: (typeof ROSE)[]
+	/** What the search finds for the text that was typed, when that differs from one text to the next */
+	answer?: (term: string) => { books: (typeof ROSE)[]; authors?: Author[] }
 }
 
 function setup(
 	locale: 'en-US' | 'es-ES' = 'en-US',
-	{ authors = [], books = [ROSE] }: SetupOptions = {},
+	{ authors = [], books = [ROSE], answer }: SetupOptions = {},
 ) {
 	const LocaleWrapper = localeWrapper(locale)
 	const sdk = new Api({ baseURL: 'http://localhost:10801', authMethod: 'session' })
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-	const execute = vi.spyOn(sdk, 'execute').mockImplementation(async (document) => {
+	const execute = vi.spyOn(sdk, 'execute').mockImplementation(async (document, variables) => {
 		const query = document.toString()
-		if (query.includes('query GlobalSearch'))
+		if (query.includes('query GlobalSearch')) {
+			const found = answer?.((variables as { term: string }).term) ?? { books, authors }
 			return {
 				media: {
-					nodes: books,
-					pageInfo: { __typename: 'OffsetPaginationInfo', totalItems: books.length ? 9 : 0 },
+					nodes: found.books,
+					pageInfo: { __typename: 'OffsetPaginationInfo', totalItems: found.books.length ? 9 : 0 },
 				},
 				series: { nodes: [] },
-				searchAuthors: authors,
+				searchAuthors: found.authors ?? [],
 			}
+		}
 		if (query.includes('query SurpriseMe')) return { randomMedia: [{ id: 'r1' }] }
 		throw new Error('Unexpected query')
 	})
@@ -250,6 +254,95 @@ describe('GlobalSearch', () => {
 			expect(screen.getByText('Autores')).toBeInTheDocument()
 			expect(screen.getByText('12 libros')).toBeInTheDocument()
 			expect(screen.getByText('1 libro')).toBeInTheDocument()
+		})
+	})
+
+	describe('the highlighted result', () => {
+		const WINDS = {
+			id: 'b2',
+			resolvedName: 'Rose of the Winds',
+			thumbnail: { url: '' },
+			metadata: { writers: ['Ada Lind'], rating: 0 },
+		}
+		const GARDEN = {
+			id: 'b3',
+			resolvedName: 'Rose Garden Mysteries',
+			thumbnail: { url: '' },
+			metadata: { writers: ['Ada Lind'], rating: 0 },
+		}
+		const ECO = { value: 'Umberto Eco', count: 12 }
+
+		/** "rose" finds the Name of the Rose first; the longer "rose garden" ranks the Garden first, the Rose still listed */
+		const answer = (term: string) => ({
+			books: term === 'rose' ? [ROSE, WINDS, GARDEN] : [GARDEN, WINDS, ROSE],
+		})
+		const options = () => screen.getAllByRole('option')
+
+		it('moves to the best result when more text re-ranks the list, and Enter opens that one', async () => {
+			const user = userEvent.setup()
+			const { Wrapper } = setup('en-US', { answer })
+			render(<GlobalSearch />, { wrapper: Wrapper })
+			await user.click(screen.getByRole('button', { name: 'Search the library' }))
+			const input = await screen.findByPlaceholderText('Search books, authors, series…')
+
+			await user.type(input, 'rose')
+			await screen.findByText('Rose of the Winds')
+			expect(options()[0]).toHaveTextContent('The Name of the Rose')
+			expect(options()[0]).toHaveAttribute('aria-selected', 'true')
+
+			// the first book is a different one now, and the one that was highlighted is still in the list
+			await user.type(input, ' garden')
+			await waitFor(() => expect(options()[0]).toHaveTextContent('Rose Garden Mysteries'))
+			expect(options()[0]).toHaveAttribute('aria-selected', 'true')
+			expect(screen.getByText('The Name of the Rose').closest('[role="option"]')).toHaveAttribute(
+				'aria-selected',
+				'false',
+			)
+
+			await user.keyboard('{Enter}')
+			expect(screen.getByTestId('location')).toHaveTextContent('/books/b3')
+		})
+
+		it('keeps the highlight where the reader put it until a new set of results arrives', async () => {
+			const user = userEvent.setup()
+			const { Wrapper } = setup('en-US', { answer })
+			render(<GlobalSearch />, { wrapper: Wrapper })
+			await user.click(screen.getByRole('button', { name: 'Search the library' }))
+			const input = await screen.findByPlaceholderText('Search books, authors, series…')
+
+			await user.type(input, 'rose')
+			await screen.findByText('Rose of the Winds')
+			await user.keyboard('{ArrowDown}')
+			expect(options()[1]).toHaveAttribute('aria-selected', 'true')
+			await user.keyboard('{Enter}')
+			expect(screen.getByTestId('location')).toHaveTextContent('/books/b2')
+		})
+
+		it('opens the full results with Enter when nothing is highlighted', async () => {
+			const user = userEvent.setup()
+			const { Wrapper } = setup('en-US', { answer: () => ({ books: [] }) })
+			render(<GlobalSearch />, { wrapper: Wrapper })
+			await user.click(screen.getByRole('button', { name: 'Search the library' }))
+			await user.type(await screen.findByPlaceholderText('Search books, authors, series…'), 'zzzz')
+			await screen.findByText('Nothing matches “zzzz”')
+			await user.keyboard('{Enter}')
+			expect(screen.getByTestId('location')).toHaveTextContent('/books?search=zzzz')
+		})
+
+		it('starts on the first suggestion again after it was closed with a result highlighted', async () => {
+			const user = userEvent.setup()
+			const { Wrapper } = setup('en-US', { answer })
+			render(<GlobalSearch />, { wrapper: Wrapper })
+			await user.click(screen.getByRole('button', { name: 'Search the library' }))
+			await user.type(await screen.findByPlaceholderText('Search books, authors, series…'), 'rose')
+			await screen.findByText('Rose of the Winds')
+			await user.keyboard('{ArrowDown}{Escape}')
+			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+			await user.click(screen.getByRole('button', { name: 'Search the library' }))
+			await screen.findByText('Surprise me')
+			expect(options()[0]).toHaveTextContent('Surprise me')
+			expect(options()[0]).toHaveAttribute('aria-selected', 'true')
 		})
 	})
 })
