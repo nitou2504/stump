@@ -138,9 +138,11 @@ describe('Needs your attention', () => {
 
 		await user.click(await screen.findByTestId('access-clear-all'))
 
-		// no ids: the server marks every warning it shows
+		// the ids of what was on the screen: one that arrived after the last refresh is not cleared
 		await waitFor(() =>
-			expect(sent(app.execute, 'PublicAccessDismissWarnings')).toEqual([{ ids: undefined }]),
+			expect(sent(app.execute, 'PublicAccessDismissWarnings')).toEqual([
+				{ ids: ['ManySessions:ana', 'BooksWaiting:-'] },
+			]),
 		)
 		const [message, options] = toast.mock.calls[0] as [string, { action: { onClick: () => void } }]
 		expect(message).toBe(`${K('attention.cleared')} count=2`)

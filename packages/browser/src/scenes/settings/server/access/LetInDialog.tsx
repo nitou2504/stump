@@ -24,7 +24,7 @@ import {
 	useUserLoader,
 } from './graphql'
 import { accessKey } from './keys'
-import { FRIEND_PERMISSIONS, permissionKey, permissionWords } from './permissions'
+import { FRIEND_PERMISSIONS, permissionKey } from './permissions'
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error && error.message ? error.message : undefined
@@ -53,10 +53,14 @@ export default function LetInDialog({ person, onClose, onSetPassword }: Props) {
 	const actions = useAccessActions()
 	const load = useUserLoader()
 
-	const [onlyDefault, setOnlyDefault] = useState(true)
+	// what the owner picked, if they did: somebody who is not in yet starts on the default library
+	// alone, somebody who is already in starts on *leave as they are* (the dialog is also the way to
+	// fix an account, and must not cut the libraries of a person who has them)
+	const [picked, setPicked] = useState<boolean | null>(null)
 	const [newPassword, setNewPassword] = useState(true)
 
 	const row = person
+	const onlyDefault = picked ?? !person?.publicSignin
 	const account = row?.person
 	const extras = row?.beyondFriendSet ?? []
 	const defaultLibrary = defaults.libraries[0]
@@ -82,7 +86,7 @@ export default function LetInDialog({ person, onClose, onSetPassword }: Props) {
 					: t(accessKey('letIn.some'), { count: libraries.length - row.hiddenLibraries })
 
 	const close = () => {
-		setOnlyDefault(true)
+		setPicked(null)
 		setNewPassword(true)
 		onClose()
 	}
@@ -126,7 +130,9 @@ export default function LetInDialog({ person, onClose, onSetPassword }: Props) {
 							<AlertDescription>
 								{t(accessKey('letIn.extras'), {
 									name: account?.username ?? '',
-									extras: extras.map(permissionWords).join(', '),
+									extras: extras
+										.map((permission) => t(`userPermissions.${permission}.label`))
+										.join(', '),
 								})}
 							</AlertDescription>
 						</Alert>
@@ -142,7 +148,7 @@ export default function LetInDialog({ person, onClose, onSetPassword }: Props) {
 						<RadioGroup
 							aria-label={t(accessKey('letIn.libraries'))}
 							value={onlyDefault ? 'only' : 'leave'}
-							onValueChange={(value) => setOnlyDefault(value === 'only')}
+							onValueChange={(value) => setPicked(value === 'only')}
 							className="gap-2"
 						>
 							<RadioGroup.CardItem

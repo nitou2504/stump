@@ -1,6 +1,7 @@
 import {
 	Button,
 	ButtonOrLink,
+	CheckBox,
 	ConfirmationModal,
 	IconButton,
 	Text,
@@ -21,7 +22,7 @@ import {
 	SHOWN_AT_FIRST,
 	sortWarnings,
 } from './attention'
-import { formatWhen } from './format'
+import { formatAgo, formatWhen } from './format'
 import {
 	type AccessDevice,
 	type AccessPersonRow,
@@ -33,7 +34,6 @@ import {
 	useAllAccessDevices,
 } from './graphql'
 import { accessKey } from './keys'
-import { permissionWords } from './permissions'
 
 const errorMessage = (error: unknown) =>
 	error instanceof Error && error.message ? error.message : undefined
@@ -129,7 +129,9 @@ export default function AttentionSection({
 	const clearAll = async () => {
 		const ids = warnings.map(({ id }) => id)
 		try {
-			const done = await actions.dismissWarnings()
+			// the ones that were on the screen: something that came in after the last refresh was
+			// never shown, and is not cleared by this click
+			const done = await actions.dismissWarnings(ids)
 			undoable(t(accessKey('attention.cleared'), { count: done }), ids)
 		} catch (error) {
 			toast.error(t(accessKey('attention.error')), { description: errorMessage(error) })
@@ -346,7 +348,7 @@ function Item({
 		note: warning.detail ?? '',
 		extras: (warning.detail ?? '')
 			.split(',')
-			.map((word) => permissionWords(word.trim()))
+			.map((word) => t(`userPermissions.${word.trim()}.label`))
 			.join(', '),
 	})
 
@@ -367,8 +369,8 @@ function Item({
 				/>
 				<div className="min-w-0">
 					<Text size="sm">{sentence}</Text>
-					<Text size="xs" variant="muted">
-						{formatWhen(warning.lastAt)}
+					<Text size="xs" variant="muted" title={formatWhen(warning.lastAt)}>
+						{formatAgo(warning.lastAt)}
 					</Text>
 				</div>
 			</div>
@@ -408,37 +410,47 @@ function LeftoversConfirm({ onClose }: { onClose: () => void }) {
 	const { t, translate } = useTranslate()
 	const devices = leftoverDevices(useAllAccessDevices().nodes)
 	const actions = useAccessActions()
+	// all ticked at first; the owner unticks what should keep working
+	const [kept, setKept] = useState<readonly string[]>([])
+	const chosen = devices.filter(({ id }) => !kept.includes(id))
 
 	return (
 		<ConfirmationModal
 			isOpen
 			title={t(accessKey('attention.actions.removeLeftovers'))}
-			description={t(accessKey('attention.leftoversConfirm'), { count: devices.length })}
+			description={t(accessKey('attention.leftoversConfirm'), { count: chosen.length })}
 			confirmText={t(accessKey('attention.actions.removeLeftovers'))}
 			confirmVariant="destructive"
+			confirmDisabled={chosen.length === 0}
 			cancelText={translate('shared.common.cancel')}
 			confirmIsLoading={actions.isPending}
 			onClose={onClose}
 			onConfirm={async () => {
 				try {
-					for (const device of devices) await actions.revokeDevice(device.id)
-					toast.success(t(accessKey('attention.leftoversRemoved'), { count: devices.length }))
+					for (const device of chosen) await actions.revokeDevice(device.id)
+					toast.success(t(accessKey('attention.leftoversRemoved'), { count: chosen.length }))
 					onClose()
 				} catch (error) {
 					toast.error(t(accessKey('attention.error')), { description: errorMessage(error) })
 				}
 			}}
 		>
-			<ul className="gap-1 text-sm flex flex-col" data-testid="access-leftovers">
+			<ul className="gap-2 text-sm flex flex-col" data-testid="access-leftovers">
 				{devices.map((device) => (
 					<li key={device.id}>
-						{device.label}
-						<span className="text-muted-foreground">
-							{' · '}
-							{device.person?.username ?? t(accessKey('person.kind.terminal'))}
-							{' · '}
-							{formatWhen(device.lastSeenAt ?? device.createdAt)}
-						</span>
+						<CheckBox
+							id={`access-leftover-${device.id}`}
+							checked={!kept.includes(device.id)}
+							onCheckedChange={() =>
+								setKept(
+									kept.includes(device.id)
+										? kept.filter((id) => id !== device.id)
+										: [...kept, device.id],
+								)
+							}
+							label={device.label}
+							description={`${device.person?.username ?? t(accessKey('person.kind.terminal'))} · ${formatWhen(device.lastSeenAt ?? device.createdAt)}`}
+						/>
 					</li>
 				))}
 			</ul>

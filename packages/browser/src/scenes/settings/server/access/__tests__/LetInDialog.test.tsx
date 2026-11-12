@@ -87,13 +87,30 @@ describe('Letting somebody in from the internet', () => {
 		expect(onSetPassword).not.toHaveBeenCalled()
 	})
 
+	it('does not cut the libraries of somebody who is already in: it starts on leaving them as they are', async () => {
+		const { app } = renderDialog(
+			row('ben', 'ben', { publicSignin: true, beyondFriendSet: ['MANAGE_USERS'] }),
+		)
+		const user = userEvent.setup()
+
+		const dialog = await screen.findByTestId('access-letin')
+		expect(within(dialog).getByRole('radio', { name: K('letIn.keepLibraries') })).toBeChecked()
+		await user.click(within(dialog).getByRole('button', { name: K('letIn.removeAndLetIn') }))
+
+		await waitFor(() =>
+			expect(sent(app.execute, 'PublicAccessSetPersonAccess')).toEqual([
+				{ input: { personId: 'ben', publicSignin: true, onlyLibraryIds: undefined } },
+			]),
+		)
+	})
+
 	it('names what keeps an account off the internet, and takes it off before letting them in, leaving the rest of the account alone', async () => {
 		const { app } = renderDialog(row('ben', 'ben', { beyondFriendSet: ['MANAGE_USERS'] }))
 		const user = userEvent.setup()
 
 		const dialog = await screen.findByTestId('access-letin')
 		expect(within(dialog).getByTestId('access-letin-extras')).toHaveTextContent(
-			`${K('letIn.extras')} name=ben extras=Manage users`,
+			`${K('letIn.extras')} name=ben extras=userPermissions.MANAGE_USERS.label`,
 		)
 		expect(within(dialog).getByRole('link', { name: K('person.editAccount') })).toHaveAttribute(
 			'href',

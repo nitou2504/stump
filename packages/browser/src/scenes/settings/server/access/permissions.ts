@@ -14,13 +14,6 @@ export const FRIEND_PERMISSIONS = [
 	UserPermission.AccessSmartList,
 ] as const
 
-/** `SCAN_LIBRARY` as the owner reads it: "Scan library" */
-export const permissionWords = (permission: string) =>
-	permission
-		.toLowerCase()
-		.replace(/_/g, ' ')
-		.replace(/^./, (letter) => letter.toUpperCase())
-
 /** The permission's name in the locale files: `ADD_BOOKS` is `addBooks` */
 export const permissionKey = (permission: string) =>
 	permission.toLowerCase().replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())

@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import { useTranslate } from '@/hooks/useTranslate'
 
+import { oldPasses } from './attention'
 import { formatWhen } from './format'
 import {
 	type AccessDevice,
@@ -15,6 +16,7 @@ import {
 	useAccessDevices,
 	useAccessInvites,
 	useAccessSignupLinks,
+	useAllAccessDevices,
 } from './graphql'
 import { accessKey } from './keys'
 import RevokeLinkDialog, { type Revoking } from './RevokeLinkDialog'
@@ -43,26 +45,46 @@ function useEnded() {
 		links: endedLinks(useAccessSignupLinks(true).nodes),
 		invites: endedInvites(useAccessInvites(true).nodes),
 		devices: looseDevices(useAccessDevices(null, true).nodes),
+		passes: oldPasses(useAllAccessDevices().nodes),
 	}
 }
 
 /** How many things are behind *Show ended* */
 export function useEndedCount() {
-	const { links, invites, devices } = useEnded()
-	return links.length + invites.length + devices.length
+	const { links, invites, devices, passes } = useEnded()
+	return links.length + invites.length + devices.length + passes.length
 }
 
 /**
  * What ended: links that were used up, expired or revoked, and revoked devices that belong to
  * nobody the page lists any more (a pass made in the terminal, a person who is gone). Each says
  * what it was and when; a revoked device can be brought back, and a link that made accounts can
- * still turn them off
+ * still turn them off. First, the old passes that still work (nobody's, or a gone person's):
+ * nothing else on the page lists them, so each can be removed, or given more tries, from here
  */
 export default function EndedList() {
 	const { t } = useTranslate()
-	const { links, invites, devices } = useEnded()
+	const { links, invites, devices, passes } = useEnded()
 	const actions = useAccessActions()
 	const [revoking, setRevoking] = useState<Revoking | null>(null)
+
+	const remove = async (device: AccessDevice) => {
+		try {
+			await actions.revokeDevice(device.id)
+			toast.success(t(accessKey('attention.leftoversRemoved'), { count: 1 }))
+		} catch (error) {
+			toast.error(t(accessKey('ended.error')), { description: errorMessage(error) })
+		}
+	}
+
+	const allowMoreTries = async (device: AccessDevice) => {
+		try {
+			await actions.resetBudget(device.id)
+			toast.success(t(accessKey('person.triesAllowed')))
+		} catch (error) {
+			toast.error(t(accessKey('ended.error')), { description: errorMessage(error) })
+		}
+	}
 
 	const restore = async (device: AccessDevice) => {
 		try {
@@ -75,6 +97,54 @@ export default function EndedList() {
 
 	return (
 		<div data-testid="access-ended" className="divide-y divide-border/70">
+			{passes.length > 0 && (
+				<Text size="xs" variant="muted" className="px-4 pt-3 pb-2 font-medium">
+					{t(accessKey('ended.oldPasses'))}
+				</Text>
+			)}
+			{passes.map((device) => (
+				<div key={device.id} className="gap-3 px-4 py-3 flex flex-wrap items-center">
+					<span className="min-w-0 flex-1">
+						<span className="gap-2 flex items-center">
+							<Text size="sm" className="font-medium">
+								{device.label}
+							</Text>
+							<Badge size="xs" variant="secondary">
+								{t(
+									accessKey(
+										device.person && !device.legacy
+											? 'ended.deviceOfRemoved'
+											: 'person.kind.terminal',
+									),
+								)}
+							</Badge>
+						</span>
+						<Text size="xs" variant="muted">
+							{t(accessKey('person.used'), {
+								when: formatWhen(device.lastSeenAt ?? device.createdAt),
+							})}
+						</Text>
+					</span>
+					{!device.person && (
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={actions.isPending}
+							onClick={() => allowMoreTries(device)}
+						>
+							{t(accessKey('person.allowMoreTries'))}
+						</Button>
+					)}
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={actions.isPending}
+						onClick={() => remove(device)}
+					>
+						{t(accessKey('person.removeDevice'))}
+					</Button>
+				</div>
+			))}
 			{links.map((link) => (
 				<div key={link.id} className="gap-3 px-4 py-3 flex items-center">
 					<span className="min-w-0 flex-1">
@@ -105,6 +175,7 @@ export default function EndedList() {
 													id: link.id,
 													label: link.label,
 													accounts: link.people.length,
+													turnOffOnly: true,
 												}),
 										},
 									],

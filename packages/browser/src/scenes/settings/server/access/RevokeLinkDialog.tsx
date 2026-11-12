@@ -12,7 +12,8 @@ const errorMessage = (error: unknown) =>
 
 /** What the dialog is about: a signup link (that may have made accounts) or a device link */
 export type Revoking =
-	| { kind: 'signup'; id: string; label: string; accounts: number }
+	// `turnOffOnly`: the link has ended already, so all that is left to do is turn its accounts off
+	| { kind: 'signup'; id: string; label: string; accounts: number; turnOffOnly?: boolean }
 	| { kind: 'device'; id: string; label: string }
 
 /**
@@ -29,10 +30,12 @@ export default function RevokeLinkDialog({
 }) {
 	const { t, translate } = useTranslate()
 	const actions = useAccessActions()
-	const [disableAccounts, setDisableAccounts] = useState(false)
+	const [picked, setPicked] = useState(false)
+	const turnOffOnly = link?.kind === 'signup' && link.turnOffOnly === true
+	const disableAccounts = turnOffOnly || picked
 
 	const close = () => {
-		setDisableAccounts(false)
+		setPicked(false)
 		onClose()
 	}
 
@@ -44,7 +47,9 @@ export default function RevokeLinkDialog({
 			} else {
 				await actions.revokeInvite(link.id)
 			}
-			toast.success(t(accessKey('revoke.done'), { label: link.label }))
+			toast.success(
+				t(accessKey(turnOffOnly ? 'revoke.turnOffDone' : 'revoke.done'), { label: link.label }),
+			)
 			close()
 		} catch (error) {
 			toast.error(t(accessKey('revoke.error')), { description: errorMessage(error) })
@@ -55,17 +60,21 @@ export default function RevokeLinkDialog({
 		<Dialog open={!!link} onOpenChange={(open) => !open && close()}>
 			<Dialog.Content size="sm" data-testid="access-revoke-link">
 				<Dialog.Header>
-					<Dialog.Title>{t(accessKey('revoke.title'), { label: link?.label ?? '' })}</Dialog.Title>
+					<Dialog.Title>
+						{t(accessKey(turnOffOnly ? 'revoke.turnOffTitle' : 'revoke.title'), {
+							label: link?.label ?? '',
+						})}
+					</Dialog.Title>
 					<Dialog.Close onClick={close} />
 				</Dialog.Header>
 				<div className="gap-4 flex flex-col">
-					<Text size="sm">{t(accessKey('revoke.body'))}</Text>
-					{link?.kind === 'signup' && link.accounts > 0 && (
+					<Text size="sm">{t(accessKey(turnOffOnly ? 'revoke.turnOffBody' : 'revoke.body'))}</Text>
+					{link?.kind === 'signup' && link.accounts > 0 && !turnOffOnly && (
 						<CheckBox
 							id="access-revoke-accounts"
 							label={t(accessKey('revoke.disableAccounts'), { count: link.accounts })}
 							checked={disableAccounts}
-							onCheckedChange={(checked) => setDisableAccounts(checked === true)}
+							onCheckedChange={(checked) => setPicked(checked === true)}
 						/>
 					)}
 				</div>
@@ -74,7 +83,7 @@ export default function RevokeLinkDialog({
 						{translate('shared.common.cancel')}
 					</Button>
 					<Button variant="destructive" onClick={confirm} isLoading={actions.isPending}>
-						{t(accessKey('revoke.confirm'))}
+						{t(accessKey(turnOffOnly ? 'revoke.turnOffConfirm' : 'revoke.confirm'))}
 					</Button>
 				</Dialog.Footer>
 			</Dialog.Content>

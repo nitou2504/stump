@@ -1,6 +1,13 @@
-import { AccessWarningKind } from '@stump/graphql'
+import { AccessDeviceStatus, AccessWarningKind } from '@stump/graphql'
 
-import type { AccessPersonRow, AccessWarning } from './graphql'
+import type { AccessDevice, AccessPersonRow, AccessWarning } from './graphql'
+
+/** Working devices that belong to nobody the page lists: a pass made in the terminal, a person who is gone */
+export const oldPasses = (devices: readonly AccessDevice[]) =>
+	devices.filter(
+		({ status, legacy, person }) =>
+			status === AccessDeviceStatus.Active && (legacy || !person || person.removed),
+	)
 
 /** What the one button of an item does */
 export type AttentionAction =
