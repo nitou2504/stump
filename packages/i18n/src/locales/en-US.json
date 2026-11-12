@@ -2748,11 +2748,11 @@
           "open": "Open",
           "removeAll": "Remove all devices",
           "removeAllConfirm": "All of {{name}}'s devices stop working within seconds.",
-          "lastIn": "Last in {{when}}",
+          "lastIn": "Last sign-in {{when}}",
           "neverIn": "Never signed in",
           "error": "That didn't work.",
           "allowMoreTriesHelp": "After too many wrong passwords on this device.",
-          "lastInFrom": "Last in {{when}} from {{device}}"
+          "lastInFrom": "Last sign-in {{when}} from {{device}}"
         },
         "status": {
           "notConfigured": {
@@ -2801,7 +2801,7 @@
           },
           "showEnded": "Show ended ({{count}})",
           "hideEnded": "Hide ended",
-          "devicesLine": "{{active}} of {{limit}} devices · last in {{when}}",
+          "devicesLine": "{{active}} of {{limit}} devices · last sign-in {{when}}",
           "devicesLineNever": "{{active}} of {{limit}} devices · never signed in",
           "nobody": "Nobody can sign in from the internet yet.",
           "homeOnly": "Can't sign in from the internet",
