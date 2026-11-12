@@ -1501,7 +1501,10 @@
           "notifications": "Notificaciones",
           "label": "Servidor",
           "tags": "Etiquetas",
-          "public access": "Acceso público"
+          "recently added": "Añadidos recientemente",
+          "deleted books": "Libros eliminados",
+          "public access": "Acceso público",
+          "book approvals": "Aprobación de libros"
         },
         "personal": {
           "account": "Cuenta",
