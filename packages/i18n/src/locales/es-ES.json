@@ -1509,9 +1509,9 @@
           "label": "Servidor",
           "tags": "Etiquetas",
           "recently added": "Añadidos recientemente",
-          "deleted books": "Libros eliminados",
+          "deleted books": "Libros borrados",
           "public access": "Acceso público",
-          "book approvals": "Aprobación de libros"
+          "book approvals": "Aprobar libros"
         },
         "personal": {
           "account": "Cuenta",
