@@ -419,6 +419,49 @@ impl MediaQuery {
 					.into(),
 				})
 			},
+			// A ranked order can't stop at the first page: every match has to be ranked. So the
+			// matches are read once, in order and as IDs (their number is the count, and a page
+			// is a slice of them), and only the books of the page are read after. Counting first
+			// and then reading a page in rank order would scan every book twice.
+			Pagination::Offset(info) if spec.is_led() => {
+				let mut ids: Vec<String> = query
+					.select_only()
+					.column(media::Column::Id)
+					.into_tuple()
+					.all(conn)
+					.await?;
+				let mut seen = HashSet::new();
+				ids.retain(|id| seen.insert(id.clone()));
+				let count = ids.len() as u64;
+
+				let start = usize::try_from(info.offset())
+					.unwrap_or(usize::MAX)
+					.min(ids.len());
+				let end = start
+					.saturating_add(usize::try_from(info.limit()).unwrap_or(usize::MAX))
+					.min(ids.len());
+				let page = ids[start..end].to_vec();
+
+				let mut books: HashMap<String, media::ModelWithMetadata> =
+					media::ModelWithMetadata::find_for_user(user)
+						.filter(media::Column::Id.is_in(page.clone()))
+						.filter(media::Column::DeletedAt.is_null())
+						.into_model::<media::ModelWithMetadata>()
+						.all(conn)
+						.await?
+						.into_iter()
+						.map(|model| (model.media.id.clone(), model))
+						.collect();
+
+				Ok(PaginatedResponse {
+					nodes: page
+						.iter()
+						.filter_map(|id| books.remove(id))
+						.map(Media::from)
+						.collect(),
+					page_info: OffsetPaginationInfo::new(info, count).into(),
+				})
+			},
 			Pagination::Offset(info) => {
 				let count = query.clone().count(conn).await?;
 

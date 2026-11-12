@@ -228,6 +228,85 @@ async fn ranking_ignores_accents_and_never_changes_what_is_found() {
 	);
 }
 
+const PAGE: &str = r#"query Page($search: String!, $relevanceTo: String, $page: Int!, $size: Int!) {
+	media(
+		filter: { search: $search }
+		relevanceTo: $relevanceTo
+		pagination: { offset: { page: $page, pageSize: $size } }
+	) {
+		nodes { id }
+		pageInfo { __typename ... on OffsetPaginationInfo { totalItems totalPages currentPage } }
+	}
+}"#;
+
+/// One page of a search: the IDs in the order they come, the total, the pages and the page
+async fn page_of(
+	app: &TestApp,
+	token: &str,
+	search: &str,
+	relevance_to: Option<&str>,
+	page: i32,
+	size: i32,
+) -> (Vec<String>, i64, i64, i64) {
+	let data = ask(
+		app,
+		token,
+		PAGE,
+		json!({ "search": search, "relevanceTo": relevance_to, "page": page, "size": size }),
+	)
+	.await;
+	let info = &data["media"]["pageInfo"];
+	(
+		data["media"]["nodes"]
+			.as_array()
+			.expect("a list")
+			.iter()
+			.map(|node| node["id"].as_str().expect("an id").to_string())
+			.collect(),
+		info["totalItems"].as_i64().expect("a total"),
+		info["totalPages"].as_i64().expect("pages"),
+		info["currentPage"].as_i64().expect("a page"),
+	)
+}
+
+/// A ranked search counts and pages like the plain one: the same total and pages, the same books on
+/// the pages (a page past the end is empty), and the total of a user with limits leaves out what is
+/// hidden from her
+#[tokio::test]
+async fn a_ranked_search_counts_and_pages_like_a_plain_one() {
+	let (app, world) = world().await;
+	for n in 1..=7 {
+		book(&app, &world.open_series, &format!("Atlas {n}"), None).await;
+	}
+	// two more that only people without limits may read
+	for n in 1..=2 {
+		book(&app, &world.hidden_series, &format!("Atlas hidden {n}"), None).await;
+	}
+
+	for (token, total) in [(&world.owner_token, 9), (&world.ana.token, 7)] {
+		let mut ranked_books = Vec::new();
+		let mut plain_books = Vec::new();
+		for page in 1..=4 {
+			let ranked = page_of(&app, token, "atlas", Some("atlas"), page, 3).await;
+			let plain = page_of(&app, token, "atlas", None, page, 3).await;
+			// the total, the pages and the page are the plain search's
+			assert_eq!((ranked.1, ranked.2, ranked.3), (plain.1, plain.2, plain.3), "page {page}");
+			assert_eq!(ranked.1, total, "page {page}");
+			assert_eq!(ranked.0.len(), plain.0.len(), "page {page}");
+			ranked_books.extend(ranked.0);
+			plain_books.extend(plain.0);
+		}
+		// no book twice, none missing, none that is hidden: the pages hold the same books
+		assert_eq!(ranked_books.len(), total as usize);
+		assert_eq!(sorted(ranked_books), sorted(plain_books));
+	}
+	// past the end there is nothing to show, and the total is still the total
+	let (books, total, _, _) =
+		page_of(&app, &world.ana.token, "atlas", Some("atlas"), 9, 3).await;
+	assert!(books.is_empty());
+	assert_eq!(total, 7);
+}
+
 /// A rank is not a cursor: the cursor pages say so instead of paging in a wrong order
 #[tokio::test]
 async fn ranked_results_do_not_page_with_a_cursor() {
