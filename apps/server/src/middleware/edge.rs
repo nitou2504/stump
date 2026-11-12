@@ -48,10 +48,24 @@ pub const EDGE_PASS_HEADER: &str = "x-edge-pass";
 /// A device's "last seen" is written at most once a minute
 const LAST_SEEN_EVERY: Duration = Duration::from_secs(60);
 
+/// Whether `path` is an OPDS 1.2 address that carries a reading-app key
+/// (`/opds/<id>.<mac>/v1.2/…`). The edge lets these through without a pass because the key is
+/// the credential; the app checks the key itself (`opds_key_middleware`) and refuses all but
+/// these addresses to it
+pub fn is_reading_key_path(path: &str) -> bool {
+	path.strip_prefix("/opds/")
+		.and_then(|rest| rest.split_once('/'))
+		.is_some_and(|(key, rest)| {
+			pass::is_reading_key_shaped(key) && rest.starts_with("v1.2/")
+		})
+}
+
 /// The paths a browser without a pass may still fetch through the edge: the invite pages and the
-/// two static files the browser asks for without cookies
+/// two static files the browser asks for without cookies, and the OPDS addresses that carry a
+/// reading-app key (the key is the credential)
 pub fn is_open_public_path(path: &str) -> bool {
 	path.starts_with("/api/_i/")
+		|| is_reading_key_path(path)
 		|| path == "/assets/manifest.webmanifest"
 		|| path
 			.strip_prefix("/assets/favicon-")
@@ -115,7 +129,7 @@ pub fn is_cross_site(
 	}
 }
 
-fn should_note_seen(device_id: &str) -> bool {
+pub(crate) fn should_note_seen(device_id: &str) -> bool {
 	static SEEN: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
 	let mut seen = SEEN
 		.get_or_init(Default::default)

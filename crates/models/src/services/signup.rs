@@ -384,12 +384,16 @@ pub struct Signup<'a> {
 	pub hashed_password: String,
 	pub ip: &'a str,
 	pub agent: &'a str,
+	/// Make the account's first device. `false` when the browser already holds a pass: a pass that
+	/// is there is never replaced
+	pub make_device: bool,
 }
 
 /// The account a signup made
 pub struct Created {
 	pub user: user::Model,
-	pub device: access_device::Model,
+	/// The first device, when one was made
+	pub device: Option<access_device::Model>,
 	pub link_id: String,
 }
 
@@ -534,26 +538,34 @@ where
 	}
 	mark_libraries_decided(&txn, &account.id).await?;
 
-	let label = device_label(signup.agent);
-	let id = unused_device_id(&txn, &label).await?;
-	let device = insert_device_within_limit(
-		&txn,
-		now,
-		NewDevice {
-			id,
-			invite_id: None,
-			person_id: &account.id,
-			label: &label,
-			kind: device_kind::BROWSER,
-			ip: signup.ip,
-			agent: &clean_text(signup.agent, MAX_AGENT_CHARS),
-		},
-		preset.max_devices,
-	)
-	.await?
-	.ok_or_else(|| {
-		SignupError::Db(DbErr::Custom("a new account has no room for a device".into()))
-	})?;
+	let device = if signup.make_device {
+		let label = device_label(signup.agent);
+		let id = unused_device_id(&txn, &label).await?;
+		Some(
+			insert_device_within_limit(
+				&txn,
+				now,
+				NewDevice {
+					id,
+					invite_id: None,
+					person_id: &account.id,
+					label: &label,
+					kind: device_kind::BROWSER,
+					ip: signup.ip,
+					agent: &clean_text(signup.agent, MAX_AGENT_CHARS),
+				},
+				preset.max_devices,
+			)
+			.await?
+			.ok_or_else(|| {
+				SignupError::Db(DbErr::Custom(
+					"a new account has no room for a device".into(),
+				))
+			})?,
+		)
+	} else {
+		None
+	};
 
 	audit(
 		&txn,

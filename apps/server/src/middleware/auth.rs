@@ -13,9 +13,9 @@ use graphql::data::{AuthContext, EdgeRequest, ServiceContext};
 use models::{
 	entity::{
 		api_key::{self, APIKeyWithUser},
-		user::{self, AuthUser},
+		user::{self, AuthUser, LoginUser},
 	},
-	services::access as access_service,
+	services::{access as access_service, access_people},
 	shared::{
 		api_key::{APIKeyPermissions, API_KEY_PREFIX},
 		enums::UserPermission,
@@ -24,6 +24,7 @@ use models::{
 };
 use prefixed_api_key::{PrefixedApiKey, PrefixedApiKeyController};
 use reqwest::Method;
+use stump_core::access::pass;
 use sea_orm::{prelude::*, Condition, DatabaseConnection, ExprTrait};
 use serde::Deserialize;
 use stump_core::opds::v2_0::{
@@ -240,6 +241,30 @@ fn allowed_while_password_must_change(path: &str) -> bool {
 	path.starts_with("/api/v2/auth/") || path == "/api/graphql" || path == "/api/graphql/"
 }
 
+/// Whether these credentials may be used on a request that came through the public edge.
+///
+/// Public sign-in **off**: the rule from before it existed, only the owner's credentials are
+/// refused. Public sign-in **on**: the account behind the credentials must be one the owner let
+/// in (see `authorize`). The account's own row is read, not what the credential carries: a scoped
+/// API key or a reading-app key carries fewer permissions than the account holds
+async fn may_use_the_internet(
+	ctx: &AppState,
+	auth: &AuthContext,
+) -> Result<bool, DbErr> {
+	let conn = ctx.conn.as_ref();
+	let public_signin = ctx
+		.config
+		.edge
+		.as_ref()
+		.is_some_and(|edge| edge.public_signin);
+	if !public_signin {
+		return Ok(credentials_are_the_owners(conn, auth).await? == Some(false));
+	}
+	Ok(access_people::public_eligibility(conn, &auth.user.id)
+		.await?
+		.is_ok())
+}
+
 /// The last step of authenticating a request, for every way of signing in (a session, a token or
 /// an API key, Basic auth): who the user is is settled, now whether this request may go on.
 ///
@@ -247,6 +272,12 @@ fn allowed_while_password_must_change(path: &str) -> bool {
 ///   server owner's credentials is refused, whatever they are (a cookie that is not tied to a
 ///   port reaches the public address too). Owner-only operations are also guarded one by one;
 ///   this is the layer that cannot be forgotten.
+/// - **With public sign-in on, the internet is only ever somebody the owner let in.** Whatever the
+///   credential (a session, a token, an API key, a reading-app key) and whatever pass the
+///   browser holds, the account behind it must be allowed in from the internet: not the owner, not
+///   locked, *Public sign-in* on for it, and holding only friend-set permissions
+///   (`access_people::eligibility`). A permission the owner gives it later cuts it off the
+///   internet at once, and still works at home.
 /// - A user whose password the owner set can use nothing until they choose their own.
 async fn authorize(
 	ctx: &AppState,
@@ -260,11 +291,11 @@ async fn authorize(
 		.get::<EdgeRequest>()
 		.is_some_and(|edge| edge.via_public);
 	if via_public {
-		match credentials_are_the_owners(ctx.conn.as_ref(), &auth).await {
-			Ok(Some(true)) => return Err(owner_through_the_edge()),
-			Ok(Some(false)) => {},
-			// the account is gone, or the lookup failed: refuse, never let it through
-			Ok(None) => return Err(owner_through_the_edge()),
+		match may_use_the_internet(ctx, &auth).await {
+			Ok(true) => {},
+			// the owner, or (with public sign-in on) anybody who is not allowed in from the
+			// internet, or whose account is gone: the same refusal, without the cookie
+			Ok(false) => return Err(owner_through_the_edge()),
 			Err(error) => {
 				tracing::error!(?error, "Failed to check whose credentials these are");
 				return Err(APIError::InternalServerError(
@@ -343,6 +374,153 @@ pub async fn api_key_middleware(
 		AuthContext {
 			user,
 			api_key: Some(api_key),
+		},
+		&path,
+		req,
+		next,
+	)
+	.await
+}
+
+/// The middleware of the OPDS 1.2 routes that carry a key in the path (`/opds/<key>/v1.2/…`):
+/// the key is either a **reading-app key** (`<id>.<mac>`, made on the *Reading apps* page) or an
+/// ordinary API key, which goes to [`api_key_middleware`] unchanged.
+///
+/// A path segment shaped like a reading-app key is **never** handed to the API key check, whether
+/// or not its MAC is right: the two kinds of token share nothing, and nothing but this function
+/// understands the first. A reading-app key:
+/// - works for `GET` and `HEAD` only, on these routes only (the KOReader and Kobo routes use
+///   [`api_key_middleware`] alone and the key is nothing to them);
+/// - is verified here (its MAC), and then the app asks its own database, so a revoked key stops
+///   working at once: the device row must exist, be of kind `opds` and not be revoked;
+/// - acts as the person it was made for, **with no more than** *Download files* (when they hold
+///   it) and never as the owner;
+/// - through the public edge works only when public sign-in is on, and then the person must be
+///   one the owner let in (`authorize`), like every other credential.
+pub async fn opds_key_middleware(
+	State(ctx): State<AppState>,
+	Path(params): Path<APIKeyPath>,
+	req: Request,
+	next: Next,
+) -> Result<Response, Response> {
+	let Some(segment) = params.get_key() else {
+		tracing::error!("No API key provided");
+		return Err(APIError::Unauthorized.into_response());
+	};
+	if !pass::is_reading_key_shaped(&segment) {
+		return api_key_middleware(State(ctx), Path(params), req, next)
+			.await
+			.map_err(IntoResponse::into_response);
+	}
+	reading_key_auth(&ctx, segment, req, next).await
+}
+
+async fn reading_key_auth(
+	ctx: &AppState,
+	segment: String,
+	req: Request,
+	next: Next,
+) -> Result<Response, Response> {
+	let settings = ctx.config.edge.as_ref();
+	let Some(key) = settings.and_then(|edge| edge.usable_key()) else {
+		return Err(StatusCode::NOT_FOUND.into_response());
+	};
+	let via_public = req
+		.extensions()
+		.get::<EdgeRequest>()
+		.is_some_and(|edge| edge.via_public);
+	// through the edge only while public sign-in is on: switching it off ends every reading-app
+	// key's use of the internet at once
+	if via_public && !settings.is_some_and(|edge| edge.public_signin) {
+		return Err(StatusCode::NOT_FOUND.into_response());
+	}
+	if !matches!(*req.method(), Method::GET | Method::HEAD) {
+		return Err(StatusCode::METHOD_NOT_ALLOWED.into_response());
+	}
+	let Some(id) = pass::verify_reading_key(key, &segment) else {
+		return Err(APIError::Unauthorized.into_response());
+	};
+
+	let conn = ctx.conn.as_ref();
+	let internal = |error: DbErr| {
+		tracing::error!(?error, "Failed to check a reading-app key");
+		APIError::InternalServerError("Failed to check the key".to_string())
+			.into_response()
+	};
+	let device = access_service::find_device(conn, &id)
+		.await
+		.map_err(internal)?
+		.filter(|device| {
+			device.kind == access_service::device_kind::OPDS && device.revoked_at.is_none()
+		})
+		.ok_or_else(|| APIError::Unauthorized.into_response())?;
+	let person_id = device
+		.person_id
+		.clone()
+		.ok_or_else(|| APIError::Unauthorized.into_response())?;
+	let account = LoginUser::find_by_id(person_id)
+		.filter(user::Column::DeletedAt.is_null())
+		.into_model::<LoginUser>()
+		.one(conn)
+		.await
+		.map_err(internal)?
+		.ok_or_else(|| APIError::Unauthorized.into_response())?;
+	if account.is_server_owner {
+		return Err(APIError::Unauthorized.into_response());
+	}
+	if account.is_locked {
+		return Err(APIError::Forbidden(api_error_message::LOCKED_ACCOUNT.to_string())
+			.into_response());
+	}
+
+	// "last seen", at most once a minute
+	if super::edge::should_note_seen(&device.id) {
+		let ClientIp(ip) = ClientIp::find(
+			req.headers(),
+			req.extensions(),
+			ctx.config.trust_proxy_headers,
+		);
+		let agent = req
+			.headers()
+			.get(header::USER_AGENT)
+			.and_then(|value| value.to_str().ok())
+			.unwrap_or_default()
+			.to_string();
+		let conn = ctx.conn.clone();
+		let id = device.id.clone();
+		tokio::spawn(async move {
+			if let Err(error) = access_service::touch_device(
+				conn.as_ref(),
+				chrono::Utc::now(),
+				&id,
+				&ip.to_string(),
+				&agent,
+			)
+			.await
+			{
+				tracing::warn!(?error, "Could not note that a reading-app key was used");
+			}
+		});
+	}
+
+	// no more than downloading, and never the owner
+	let holds_download = account.permissions.contains(&UserPermission::DownloadFile);
+	let user = AuthUser {
+		permissions: if holds_download {
+			vec![UserPermission::DownloadFile]
+		} else {
+			vec![]
+		},
+		is_server_owner: false,
+		..AuthUser::from(account)
+	};
+	let path = req.uri().path().to_string();
+	authorize(
+		ctx,
+		AuthContext {
+			user,
+			// the key is what the feeds build every link from (`/opds/<key>/v1.2/…`)
+			api_key: Some(segment),
 		},
 		&path,
 		req,

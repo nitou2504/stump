@@ -46,7 +46,7 @@ use super::v1_2_browse::{
 use crate::{
 	config::state::AppState,
 	errors::{APIError, APIResult},
-	middleware::auth::{api_key_middleware, auth_middleware},
+	middleware::auth::{auth_middleware, opds_key_middleware},
 	utils::{
 		http::{ImageResponse, Xml},
 		serve_media,
@@ -120,7 +120,7 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 			"/{api_key}/v1.2",
 			primary_router.layer(middleware::from_fn_with_state(
 				app_state,
-				api_key_middleware,
+				opds_key_middleware,
 			)),
 		)
 }

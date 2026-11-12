@@ -17,6 +17,7 @@ use models::{
 	},
 	services::{
 		access::{self as access_service, reason, SignInMark},
+		access_people,
 		user::{create_user_with_preferences, revoke_user_sessions},
 	},
 	shared::image::ImageRef,
@@ -41,6 +42,7 @@ use crate::{
 	middleware::{
 		auth::auth_middleware, edge::EDGE_PUBLIC_HEADER, ClientIp, HostExtractor,
 	},
+	routers::public_pages::signin::{authenticate_public, PublicVerdict},
 	utils::{
 		default_true, fetch_session_user, hash_password, verify_dummy_password,
 		verify_password,
@@ -221,7 +223,7 @@ async fn track_login_attempt(
 /// Records a sign-in attempt in the user's login activity, with what is known about it (the pass
 /// it came with, why it failed, whether the lock rule counts it). It never fails the sign-in: an
 /// error is logged
-async fn record_attempt(
+pub(crate) async fn record_attempt(
 	conn: &DatabaseConnection,
 	for_user: &user::LoginUser,
 	user_agent: String,
@@ -415,13 +417,58 @@ async fn login(
 		return Err(APIError::Unauthorized);
 	}
 
+	// With public sign-in on, the internet is only ever somebody the owner let in: not locked,
+	// *Public sign-in* on for them, holding only what a friend may. Anybody else gets the answer
+	// of a wrong password after the same work (their password IS checked, so the owner can be
+	// told that the right one was typed at an account that is not allowed in), recorded, and
+	// never counted towards a lock
+	let public_signin = via_public
+		&& config
+			.edge
+			.as_ref()
+			.is_some_and(|edge| edge.public_signin);
+	let mut eligible_person = None;
+	if public_signin {
+		match access_people::public_eligibility(state.conn.as_ref(), &user.id).await? {
+			Ok((_, person)) => eligible_person = Some(person),
+			Err(_) => {
+				let right = !user.hashed_password.is_empty()
+					&& verify_password(user.hashed_password.clone(), password.clone())
+						.await
+						.unwrap_or(false);
+				if user.hashed_password.is_empty() {
+					verify_dummy_password(password, &config).await;
+				}
+				record_attempt(
+					state.conn.as_ref(),
+					&user,
+					user_agent.to_string(),
+					client_ip,
+					false,
+					&SignInMark::ignored_by_lock(
+						device_id,
+						if right {
+							reason::NOT_ALLOWED_PUBLICLY
+						} else {
+							reason::WRONG_PASSWORD
+						},
+					),
+				)
+				.await;
+				return Err(APIError::Unauthorized);
+			},
+		}
+	}
+
 	// A pass made from an invite is for one person: through it, only that person can sign in. Any
 	// other name gets the answer of a wrong password after the same work, and is recorded
 	// without counting towards the lock of the account it was typed for: a leaked link or a lost
 	// phone must not be a way to lock somebody else out. It is checked before the account's own
-	// state, so a locked account doesn't answer differently for it either
+	// state, so a locked account doesn't answer differently for it either. (With public sign-in
+	// on, a pass that is not this person's is no longer a refusal: it is treated like no pass at
+	// all, below, and held to the same gates as the sign-in page)
 	let binds_person = config.edge.as_ref().is_none_or(|edge| edge.binds_person);
-	if via_public && binds_person {
+	if via_public && binds_person && !public_signin {
 		let bound_to = edge
 			.device
 			.as_ref()
@@ -462,13 +509,42 @@ async fn login(
 		_ => {},
 	}
 
+	// A pass that is not this person's (somebody else's, or one the owner made in the terminal)
+	// holds no claim on this account: the password is checked behind the same gates as the sign-in
+	// page, a failure feeds them and never the lock, and no device is made (a pass that is already
+	// there is never replaced)
+	let bound_to_this_person = edge
+		.device
+		.as_ref()
+		.and_then(|device| device.person_id.as_deref())
+		== Some(user.id.as_str());
+	let verified_by_the_gates = if eligible_person.is_some() && !bound_to_this_person {
+		match authenticate_public(
+			&state,
+			&user.username,
+			password.clone(),
+			client_ip,
+			&user_agent.to_string(),
+			device_id.clone(),
+		)
+		.await
+		{
+			PublicVerdict::Allowed { .. } => true,
+			PublicVerdict::Refused | PublicVerdict::Failed => {
+				return Err(APIError::Unauthorized);
+			},
+		}
+	} else {
+		false
+	};
+
 	// Check if this is an OIDC-only user (no password set)
-	if user.hashed_password.is_empty() && user.oidc_issuer_id.is_some() {
+	if !verified_by_the_gates && user.hashed_password.is_empty() && user.oidc_issuer_id.is_some() {
 		return Err(APIError::BadRequest(
 			"This account uses OIDC authentication. Please log in with your identity provider."
 				.to_string(),
 		));
-	} else if user.hashed_password.is_empty() {
+	} else if !verified_by_the_gates && user.hashed_password.is_empty() {
 		tracing::error!(
 			"Broken account! User {} has no password set and is not an OIDC user",
 			user.username
@@ -477,7 +553,7 @@ async fn login(
 		return Err(APIError::Unauthorized);
 	}
 
-	if user.is_locked {
+	if !verified_by_the_gates && user.is_locked {
 		// the same answer whatever the password is, so a locked account can't be used to check
 		// guesses; the attempt is recorded
 		track_login_attempt(
@@ -492,21 +568,35 @@ async fn login(
 		return Err(APIError::AccountLocked);
 	}
 
-	let provided_valid_credentials =
-		verify_password(user.hashed_password.clone(), password).await?;
+	let provided_valid_credentials = if verified_by_the_gates {
+		track_login_attempt(
+			state.conn.as_ref(),
+			&user,
+			user_agent.to_string(),
+			client_ip,
+			true,
+			SignInMark::counting(device_id, None),
+		)
+		.await?;
+		true
+	} else {
+		let provided_valid_credentials =
+			verify_password(user.hashed_password.clone(), password).await?;
 
-	track_login_attempt(
-		state.conn.as_ref(),
-		&user,
-		user_agent.to_string(),
-		client_ip,
-		provided_valid_credentials,
-		SignInMark::counting(
-			device_id,
-			(!provided_valid_credentials).then_some(reason::WRONG_PASSWORD),
-		),
-	)
-	.await?;
+		track_login_attempt(
+			state.conn.as_ref(),
+			&user,
+			user_agent.to_string(),
+			client_ip,
+			provided_valid_credentials,
+			SignInMark::counting(
+				device_id,
+				(!provided_valid_credentials).then_some(reason::WRONG_PASSWORD),
+			),
+		)
+		.await?;
+		provided_valid_credentials
+	};
 
 	if !provided_valid_credentials {
 		return Err(APIError::Unauthorized);
@@ -520,6 +610,8 @@ async fn login(
 	let auth_user = inject_avatar_url(auth_user, service);
 
 	if create_session {
+		// a session id that was set before the sign-in is useless after it
+		session.cycle_id().await?;
 		session
 			.insert(SESSION_USER_KEY, auth_user.id.clone())
 			.await?;

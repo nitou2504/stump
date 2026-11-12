@@ -49,6 +49,9 @@ pub const BACKOFF_MINUTES: [u64; 6] = [1, 2, 4, 8, 16, 30];
 pub const NAME_WINDOW_SECS: u64 = 60 * 60;
 /// Failures of one name, from all clients together, before the name is slowed for everybody
 pub const NAME_CEILING: u32 = 20;
+/// Failures on names that do not exist are written to the audit log as one row per this many
+/// seconds (the first one at once), so "every failure is audited" holds without a row each
+pub const UNKNOWN_FLUSH_SECS: u64 = 10 * 60;
 /// Entries of each table, at most
 pub const MAX_ENTRIES: usize = 4096;
 /// An entry nobody touched for this long is forgotten
@@ -155,9 +158,16 @@ struct Inner {
 	global: VecDeque<u64>,
 }
 
+#[derive(Default)]
+struct UnknownWindow {
+	last_flush: Option<u64>,
+	pending: u32,
+}
+
 pub struct SignInGuard {
 	started: Instant,
 	inner: Mutex<Inner>,
+	unknown: Mutex<UnknownWindow>,
 }
 
 impl Default for SignInGuard {
@@ -186,6 +196,7 @@ impl SignInGuard {
 		Self {
 			started: Instant::now(),
 			inner: Mutex::new(Inner::default()),
+			unknown: Mutex::new(UnknownWindow::default()),
 		}
 	}
 
@@ -281,6 +292,25 @@ impl SignInGuard {
 			outcome.name_ceiling_reached = counted.failures == NAME_CEILING;
 		}
 		outcome
+	}
+
+	/// Notes a failure on a name that does not exist. Returns how many have piled up when it is time
+	/// to write one aggregated audit row: at the first failure, then once per
+	/// [`UNKNOWN_FLUSH_SECS`]
+	pub fn note_unknown_name(&self, now: u64) -> Option<u32> {
+		let mut window = self
+			.unknown
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner());
+		window.pending = window.pending.saturating_add(1);
+		let due = window
+			.last_flush
+			.is_none_or(|at| now.saturating_sub(at) >= UNKNOWN_FLUSH_SECS);
+		if !due {
+			return None;
+		}
+		window.last_flush = Some(now);
+		Some(std::mem::take(&mut window.pending))
 	}
 
 	/// A right password: this client's waits for this name end. (The name's overall count is
@@ -624,6 +654,20 @@ mod tests {
 		// ten minutes on, nothing is waiting and nothing is counted
 		let stats = guard.stats(CLIENT_WINDOW_SECS + 100);
 		assert_eq!((stats.failures_last_10_min, stats.names_waiting), (0, 0));
+	}
+
+	#[test]
+	fn failures_on_unknown_names_make_one_audit_row_per_window() {
+		let guard = SignInGuard::new();
+		// the first one is written at once
+		assert_eq!(guard.note_unknown_name(5), Some(1));
+		// then they pile up…
+		for at in [6, 7, 100, 200] {
+			assert_eq!(guard.note_unknown_name(at), None, "at {at}");
+		}
+		// …and the next one after the window writes the lot
+		assert_eq!(guard.note_unknown_name(5 + UNKNOWN_FLUSH_SECS), Some(5));
+		assert_eq!(guard.note_unknown_name(5 + UNKNOWN_FLUSH_SECS + 1), None);
 	}
 
 	#[test]

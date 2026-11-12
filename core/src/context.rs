@@ -6,6 +6,7 @@ use sea_orm::{prelude::*, DatabaseConnection, MockDatabase, QuerySelect};
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 
 use crate::{
+	access::signin::SignInGuard,
 	config::StumpConfig,
 	database,
 	event::CoreEvent,
@@ -27,6 +28,8 @@ pub struct Ctx {
 	pub library_watcher: Arc<LibraryWatcher>,
 	pub apalis_state: Arc<ApalisWorkerState>,
 	pub job_storage: MemoryStorage<StumpJob>,
+	/// The guard of the public sign-in page (see `access::signin`): in memory, one per process
+	pub signin_guard: Arc<SignInGuard>,
 }
 
 impl Ctx {
@@ -71,6 +74,7 @@ impl Ctx {
 			library_watcher,
 			apalis_state,
 			job_storage,
+			signin_guard: Arc::new(SignInGuard::new()),
 		}
 	}
 
@@ -104,6 +108,7 @@ impl Ctx {
 			library_watcher,
 			apalis_state,
 			job_storage,
+			signin_guard: Arc::new(SignInGuard::new()),
 		}
 	}
 
@@ -132,6 +137,7 @@ impl Ctx {
 			library_watcher,
 			apalis_state,
 			job_storage,
+			signin_guard: Arc::new(SignInGuard::new()),
 		}
 	}
 

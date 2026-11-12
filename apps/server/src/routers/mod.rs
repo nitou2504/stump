@@ -7,9 +7,12 @@ mod invite;
 mod kobo;
 mod koreader;
 mod opds;
+pub(crate) mod public_pages;
 mod spa;
 
-pub(crate) use api::v2::auth::{enforce_max_sessions, track_basic_auth_attempt};
+pub(crate) use api::v2::auth::{
+	enforce_max_sessions, record_attempt, track_basic_auth_attempt,
+};
 pub(crate) use spa::relative_favicon_path;
 
 pub async fn mount(app_state: AppState) -> Router<AppState> {
@@ -29,6 +32,7 @@ pub async fn mount(app_state: AppState) -> Router<AppState> {
 	app_router
 		.merge(spa::mount(app_state.clone()))
 		.merge(invite::mount(app_state.clone()))
+		.merge(public_pages::mount(app_state.clone()))
 		.merge(api::mount(app_state.clone()).await)
 		.merge(opds::mount(app_state.clone()))
 		.layer(middleware::from_fn_with_state(app_state, edge_middleware))
