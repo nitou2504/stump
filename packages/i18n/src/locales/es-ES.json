@@ -3008,6 +3008,10 @@
       "continueWith": "Seguir con {{title}}",
       "startWith": "Empezar por {{title}}"
     },
+    "homeNothingYet": {
+      "title": "Nada en progreso todavía",
+      "message": "Empieza cualquier libro y aparecerá aquí."
+    },
     "sidebar": {
       "buttons": {
         "books": "Explorar",

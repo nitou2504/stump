@@ -3,7 +3,6 @@ import { Text } from '@stump/components'
 import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { Api } from '@stump/sdk'
 import { QueryClient, useQueryClient } from '@tanstack/react-query'
-import { BookMarked } from 'lucide-react'
 import { memo, Suspense, useCallback, useMemo } from 'react'
 import { useMediaMatch } from 'rooks'
 
@@ -14,6 +13,8 @@ import { Link } from '@/context'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
+
+import { useReportEmptySection } from './emptySections'
 
 const IMAGE_WIDTH_MOBILE = 160
 const IMAGE_WIDTH_TABLET = 200
@@ -118,12 +119,16 @@ function OnDeck() {
 		},
 	)
 	const nodes = data.pages.flatMap((page) => page.onDeck.nodes)
+	useReportEmptySection('onDeck', nodes.length === 0)
 
 	const handleFetchMore = useCallback(() => {
 		if (hasNextPage && !isFetchingNextPage) {
 			fetchNextPage()
 		}
 	}, [fetchNextPage, hasNextPage, isFetchingNextPage])
+
+	// nothing on deck: no box (the page says so once, if the other sections are empty too)
+	if (!nodes.length) return null
 
 	const cards = nodes.map((node) => (
 		<OnDeckBookCard key={node.id} fragment={node} cardWidth={imageWidth} />
@@ -136,19 +141,6 @@ function OnDeck() {
 			items={cards}
 			height={listHeight}
 			onFetchMore={handleFetchMore}
-			emptyState={
-				<div className="space-x-3 px-4 py-4 flex items-start justify-start rounded-lg border border-dashed border-border">
-					<span className="p-2 rounded-lg border border-border bg-muted">
-						<BookMarked className="h-8 w-8 text-muted-foreground" />
-					</span>
-					<div>
-						<Text>{translate('shared.homeSections.onDeck.emptyText')}</Text>
-						<Text size="sm" variant="muted">
-							{translate('shared.homeSections.onDeck.emptyMessage')}
-						</Text>
-					</div>
-				</div>
-			}
 		/>
 	)
 }

@@ -3456,6 +3456,10 @@
       "continueWith": "Continue with {{title}}",
       "startWith": "Start with {{title}}"
     },
+    "homeNothingYet": {
+      "title": "Nothing in progress yet",
+      "message": "Start any book and it will show up here."
+    },
     "sidebar": {
       "buttons": {
         "books": "Explore",
