@@ -6,6 +6,8 @@ import IntakeScene from '../IntakeScene'
 import type { IntakeItemData, IntakeLimitsData } from '../queries'
 import { item } from './fixtures'
 
+vi.mock('@/hooks/useTranslate', () => import('./english'))
+
 const state = vi.hoisted(() => ({
 	items: [] as unknown[],
 	limits: undefined as unknown,
@@ -105,9 +107,26 @@ describe('IntakeScene for somebody who needs approval', () => {
 		renderScene()
 
 		expect(screen.getByText(/looks over your books before they join it/)).toBeInTheDocument()
-		const usage = screen.getByLabelText('Your inbox')
-		expect(usage).toHaveTextContent('512.0 MB of 2.0 GB')
-		expect(usage).toHaveTextContent('3 of 100 books')
+		// a quarter full is nothing to say
+		expect(screen.queryByLabelText(/almost full/)).not.toBeInTheDocument()
+	})
+
+	it('says so, with the numbers, only when the inbox is almost full', () => {
+		state.limits = limits({ usedBytes: 1800 * MB, openItems: 90 })
+
+		renderScene()
+
+		const usage = screen.getByLabelText(/Your inbox is almost full/)
+		expect(usage).toHaveTextContent('1.8 GB of 2.0 GB')
+		expect(usage).toHaveTextContent('90 of 100 books')
+	})
+
+	it('says it also when the books, not the room, are nearly used up', () => {
+		state.limits = limits({ usedBytes: 10 * MB, openItems: 85 })
+
+		renderScene()
+
+		expect(screen.getByLabelText(/Your inbox is almost full/)).toBeInTheDocument()
 	})
 
 	it('shows nothing of the inbox until it is known who is looking', () => {
@@ -268,7 +287,7 @@ describe('IntakeScene for somebody who files books themselves', () => {
 
 		expect(screen.getByRole('region', { name: 'Ready to add' })).toBeInTheDocument()
 		expect(screen.queryByText(/looks over your books/)).not.toBeInTheDocument()
-		expect(screen.queryByLabelText('Your inbox')).not.toBeInTheDocument()
+		expect(screen.queryByLabelText(/Your inbox is almost full/)).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole('button', { name: 'Add all ready (2)' }))
 		expect(screen.getByRole('heading', { name: 'Add 2 books' })).toBeInTheDocument()
 		fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add 2 books' }))

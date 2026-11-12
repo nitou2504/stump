@@ -2872,7 +2872,42 @@
       },
       "server/bookApprovals": {
         "title": "Libros por aprobar",
-        "description": "Revisa los libros que han añadido otras personas antes de que pasen a la biblioteca"
+        "description": "Revisa los libros que han añadido otras personas antes de que pasen a la biblioteca",
+        "waiting_one": "{{count}} libro espera. Entra en la biblioteca cuando lo apruebas.",
+        "waiting_other": "{{count}} libros esperan. Entran en la biblioteca cuando los apruebas.",
+        "emptyHelp": "Los libros que añaden otras personas esperan aquí hasta que los apruebes.",
+        "empty": "No hay libros esperando aprobación.",
+        "sectionLabel": "Libros esperando aprobación",
+        "filter": "Filtrar por biblioteca",
+        "allLibraries": "Todas las bibliotecas",
+        "approveAll": "Aprobar todos los listos ({{count}})",
+        "acceptAll": {
+          "description": "Desmarca los géneros que no encajen. Cada libro se añade a la biblioteca como lo muestra la página.",
+          "skipped_one": "{{count}} libro se queda fuera: tiene algo que arreglar, puede que ya esté en la biblioteca, o falló. Sigue aquí para que lo abras.",
+          "skipped_other": "{{count}} libros se quedan fuera: tienen algo que arreglar, puede que ya estén en la biblioteca, o fallaron. Siguen aquí para que los abras."
+        },
+        "limits": {
+          "title": "Límites de subida por persona",
+          "help": "Deja una casilla vacía para usar el límite del servidor.",
+          "choose": "Elige una persona",
+          "person": "Persona",
+          "nobody": "Nadie más puede añadir libros todavía: da «Añadir libros» a alguien en Ajustes → Usuarios.",
+          "maxFileMb": "Archivo más grande",
+          "maxFilesPerRequest": "Archivos por subida",
+          "quotaMb": "Espacio en la bandeja",
+          "maxItems": "Libros a la vez",
+          "hint": {
+            "mb": "MB",
+            "files": "archivos",
+            "books": "libros"
+          },
+          "invalid": "Un número entero mayor que cero, o vacío",
+          "now": "Ahora: archivos de hasta {{file}} MB, {{files}} archivos por subida, {{quota}} MB en espera y {{items}} libros abiertos a la vez.",
+          "save": "Guardar",
+          "useServer": "Usar los del servidor",
+          "saved": "Límites guardados",
+          "saveError": "No se pudieron guardar los límites"
+        }
       },
       "app/devices": {
         "helmet": "Mis dispositivos",
@@ -3303,6 +3338,15 @@
           "unread": "No leído"
         }
       }
+    },
+    "intakeScene": {
+      "inboxAlmostFull": "Tu bandeja está casi llena ({{used}} de {{total}}).",
+      "inboxBooks": "{{open}} de {{max}} libros",
+      "alreadyInLibrary": "Ya está en la biblioteca.",
+      "removeFromList": "Quitar de mi lista",
+      "sourceFailures_one": "No se pudo consultar en línea ({{count}} fuente).",
+      "sourceFailures_other": "No se pudo consultar en línea ({{count}} fuentes).",
+      "sourceDetails": "Detalles"
     }
   },
   "shared": {

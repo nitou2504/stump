@@ -3,6 +3,8 @@ import { IntakeKind, IntakeReviewInput, IntakeState } from '@stump/graphql'
 import { EllipsisVertical, FolderOpen, Globe, RotateCw, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { useTranslate } from '@/hooks/useTranslate'
+
 import AgeRatingField from './AgeRatingField'
 import CoverTile from './CoverTile'
 import FolderPicker from './FolderPicker'
@@ -95,7 +97,13 @@ export default function IntakeItemCard({
 	const { proposal, decision, destination } = item
 	const friend = mode === 'submit'
 	const reviewing = mode === 'review'
+	const { t } = useTranslate()
 	const [sendingBack, setSendingBack] = useState(false)
+	// the same file as one in the library: the server refuses it, so there is nothing to send
+	const sameFile =
+		!reviewing &&
+		item.state !== IntakeState.Failed &&
+		(proposal?.duplicates ?? []).some((duplicate) => duplicate.reason === 'SAME_FILE')
 	const sentBack = isSentBack(item)
 	const meta = decision?.metadata
 	const isSeriesItem = item.kind === IntakeKind.Series
@@ -448,39 +456,60 @@ export default function IntakeItemCard({
 			<BlockingNotices item={item} friend={friend} reviewing={reviewing} />
 
 			<footer className="gap-2 sm:flex-row sm:items-center sm:justify-end flex flex-col-reverse">
-				{reviewing ? (
-					<Button
-						variant="outline"
-						onClick={() => setSendingBack(true)}
-						disabled={isBusy || !onSendBack}
-					>
-						Send back…
-					</Button>
+				{sameFile ? (
+					<>
+						<span
+							className="text-sm sm:mr-auto text-muted-foreground"
+							data-testid="intake-same-file"
+						>
+							{t('intakeScene.alreadyInLibrary')}
+						</span>
+						{onDiscard && (
+							<Button onClick={() => onDiscard([item.id])} disabled={isBusy}>
+								{t('intakeScene.removeFromList')}
+							</Button>
+						)}
+					</>
 				) : (
-					onDiscard && (
-						<Button variant="ghost" onClick={() => onDiscard([item.id])} disabled={isBusy}>
-							Discard
+					<>
+						{reviewing ? (
+							<Button
+								variant="outline"
+								onClick={() => setSendingBack(true)}
+								disabled={isBusy || !onSendBack}
+							>
+								Send back…
+							</Button>
+						) : (
+							onDiscard && (
+								<Button variant="ghost" onClick={() => onDiscard([item.id])} disabled={isBusy}>
+									Discard
+								</Button>
+							)
+						)}
+						<Button
+							className="sm:min-w-40"
+							onClick={() => {
+								if (failed) onReanalyse(item.id)
+								else if (reviewing) onApprove?.(item, chosenGenres)
+								else if (friend) onSubmit?.(item, chosenGenres)
+								else onAccept?.(item, chosenGenres)
+							}}
+							disabled={
+								failed
+									? isBusy
+									: isBusy ||
+										!decision ||
+										item.problems.length > 0 ||
+										item.state === IntakeState.Failed
+							}
+							title={failed ? undefined : item.problems[0]}
+						>
+							{failed && <RotateCw />}
+							{primaryLabel({ attention, friend, ready, reviewing, sentBack, state: item.state })}
 						</Button>
-					)
+					</>
 				)}
-				<Button
-					className="sm:min-w-40"
-					onClick={() => {
-						if (failed) onReanalyse(item.id)
-						else if (reviewing) onApprove?.(item, chosenGenres)
-						else if (friend) onSubmit?.(item, chosenGenres)
-						else onAccept?.(item, chosenGenres)
-					}}
-					disabled={
-						failed
-							? isBusy
-							: isBusy || !decision || item.problems.length > 0 || item.state === IntakeState.Failed
-					}
-					title={failed ? undefined : item.problems[0]}
-				>
-					{failed && <RotateCw />}
-					{primaryLabel({ attention, friend, ready, reviewing, sentBack, state: item.state })}
-				</Button>
 			</footer>
 
 			{reviewing && onSendBack && (

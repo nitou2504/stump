@@ -6,6 +6,7 @@ import { Helmet } from 'react-helmet'
 import { useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
+import { useTranslate } from '@/hooks/useTranslate'
 import Pagination from '@/components/Pagination'
 import AcceptAllSheet from '@/scenes/intake/AcceptAllSheet'
 import { useIntakeActions, usePendingIntake } from '@/scenes/intake/hooks'
@@ -22,7 +23,11 @@ export const APPROVALS_PAGE_SIZE = 20
  * those who manage libraries. Each can be changed (where it goes, its tags, its age rating),
  * approved (it is filed into the library) or sent back with a note.
  */
+/** The words of the page are all under one key in the locale files */
+const key = (name: string) => `settingsScene.server/bookApprovals.${name}`
+
 export default function BookApprovalsScene() {
+	const { t } = useTranslate()
 	const [params, setParams] = useSearchParams()
 	const libraryId = params.get('library') || undefined
 	const page = Math.max(1, Number.parseInt(params.get('page') ?? '', 10) || 1)
@@ -69,25 +74,23 @@ export default function BookApprovalsScene() {
 	return (
 		<SceneContainer variant="settings">
 			<Helmet>
-				<title>Stump | Book approvals</title>
+				<title>Stump | {t(key('title'))}</title>
 			</Helmet>
 
-			<section aria-label="Books waiting for approval" className="gap-4 flex flex-col">
+			<section aria-label={t(key('sectionLabel'))} className="gap-4 flex flex-col">
 				<div className="gap-3 flex flex-wrap items-center justify-between">
 					<p className="text-sm text-muted-foreground">
-						{totalCount > 0
-							? `${totalCount} ${totalCount === 1 ? 'book is' : 'books are'} waiting. They join the library when you approve them.`
-							: 'Books other people add wait here until you approve them.'}
+						{totalCount > 0 ? t(key('waiting'), { count: totalCount }) : t(key('emptyHelp'))}
 					</p>
 					<div className="gap-2 flex flex-wrap items-center">
 						{libraries.length > 1 && (
 							<NativeSelect
 								size="sm"
 								className="text-base md:text-sm w-auto"
-								aria-label="Filter by library"
+								aria-label={t(key('filter'))}
 								value={libraryId ?? ''}
 								options={[
-									{ label: 'All libraries', value: '' },
+									{ label: t(key('allLibraries')), value: '' },
 									...libraries.map((library) => ({ label: library.name, value: library.id })),
 								]}
 								onChange={(e) => {
@@ -110,7 +113,7 @@ export default function BookApprovalsScene() {
 								onClick={() => setApprovingAll(true)}
 								disabled={actions.isApproving || actions.isReviewing}
 							>
-								<CheckCheck /> Approve all ({approvable.length})
+								<CheckCheck /> {t(key('approveAll'), { count: approvable.length })}
 							</Button>
 						)}
 					</div>
@@ -128,7 +131,7 @@ export default function BookApprovalsScene() {
 							<span className="size-12 grid place-items-center rounded-full bg-muted text-muted-foreground">
 								<Inbox className="h-6 w-6" aria-hidden />
 							</span>
-							<p className="text-sm font-medium">Nothing is waiting for approval.</p>
+							<p className="text-sm font-medium">{t(key('empty'))}</p>
 						</div>
 					)
 				)}
@@ -149,10 +152,8 @@ export default function BookApprovalsScene() {
 				items={approvable}
 				open={approvingAll}
 				verb="approve"
-				description={`Untick any genre that doesn’t fit. Each book is added to the library the way the page shows it.${
-					skipped > 0
-						? ` ${skipped} ${skipped === 1 ? 'book is' : 'books are'} left out: ${skipped === 1 ? 'it has' : 'they have'} something to fix, may already be in the library, or failed. ${skipped === 1 ? 'It stays' : 'They stay'} here for you to open.`
-						: ''
+				description={`${t(key('acceptAll.description'))}${
+					skipped > 0 ? ` ${t(key('acceptAll.skipped'), { count: skipped })}` : ''
 				}`}
 				isPending={actions.isApproving || actions.isReviewing}
 				onClose={() => setApprovingAll(false)}

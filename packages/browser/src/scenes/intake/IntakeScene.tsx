@@ -17,6 +17,7 @@ import { useSearchParams } from 'react-router'
 
 import { SceneContainer } from '@/components/container'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
+import { useTranslate } from '@/hooks/useTranslate'
 
 import AcceptAllSheet from './AcceptAllSheet'
 import { useIntakeActions, useIntakeInbox, useIntakeLimits, useIntakeUploader } from './hooks'
@@ -399,17 +400,30 @@ function EmptyInbox({ friend }: { friend: boolean }) {
 
 /** How much of their inbox somebody who needs approval has used: room, and books */
 function InboxUsage({ limits }: { limits: IntakeLimitsData }) {
+	const { t } = useTranslate()
 	const room =
 		limits.quotaBytes > 0 ? Math.min(100, (limits.usedBytes * 100) / limits.quotaBytes) : 0
 	const full = limits.usedBytes >= limits.quotaBytes || limits.openItems >= limits.maxItems
+	// nothing to say until the inbox is nearly full: the numbers are not what the person came for
+	const almost = room >= 80 || (limits.maxItems > 0 && limits.openItems >= limits.maxItems * 0.8)
+	if (!almost) return null
 	return (
-		<div className="gap-1.5 text-xs flex flex-col text-muted-foreground" aria-label="Your inbox">
+		<div
+			className="gap-1.5 text-xs flex flex-col text-muted-foreground"
+			aria-label={t('intakeScene.inboxAlmostFull', {
+				used: formatBytes(limits.usedBytes),
+				total: formatBytes(limits.quotaBytes),
+			})}
+		>
 			<div className="gap-x-3 flex flex-wrap justify-between">
 				<span>
-					Your inbox: {formatBytes(limits.usedBytes)} of {formatBytes(limits.quotaBytes)}
+					{t('intakeScene.inboxAlmostFull', {
+						used: formatBytes(limits.usedBytes),
+						total: formatBytes(limits.quotaBytes),
+					})}
 				</span>
 				<span className={cn(full && 'text-warning')}>
-					{limits.openItems} of {limits.maxItems} books
+					{t('intakeScene.inboxBooks', { open: limits.openItems, max: limits.maxItems })}
 				</span>
 			</div>
 			<ProgressBar value={Math.round(room)} size="sm" />
