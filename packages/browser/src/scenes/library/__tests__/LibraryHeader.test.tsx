@@ -37,15 +37,24 @@ vi.mock('@/components/sharedLayout', () => ({
 		name,
 		settingsLink,
 		endActions,
+		stats,
 	}: {
 		name: string
 		settingsLink?: string
 		endActions?: ReactNode
+		stats?: { key: string; value: string | number; suffix?: string; title?: string }[]
 	}) => (
 		<header>
 			<h1>{name}</h1>
 			{settingsLink && <a href={settingsLink}>settings</a>}
 			{endActions}
+			<ul>
+				{stats?.map((stat) => (
+					<li key={stat.key} title={stat.title}>
+						{[stat.value, stat.suffix].filter(Boolean).join(' ')}
+					</li>
+				))}
+			</ul>
 		</header>
 	),
 	HeaderIconButton: ({ label }: { label: string }) => <a href="/add">{label}</a>,
@@ -59,11 +68,11 @@ const library = {
 	config: { hideSeriesView: false, oneshotsDirectory: null },
 }
 
-function setup(held: UserPermission[]) {
+function setup(held: UserPermission[], overrides: Record<string, unknown> = {}) {
 	permissions.held = new Set(held)
 	return render(
 		<MemoryRouter>
-			<LibraryContext.Provider value={{ library } as never}>
+			<LibraryContext.Provider value={{ library: { ...library, ...overrides } } as never}>
 				<LibraryHeader />
 			</LibraryContext.Provider>
 		</MemoryRouter>,
@@ -88,5 +97,41 @@ describe('LibraryHeader settings gear', () => {
 	it('names the Add books button through the translations (not in English)', () => {
 		setup([UserPermission.AddBooks])
 		expect(screen.getByRole('link', { name: 'sidebar.buttons.addBooks' })).toBeInTheDocument()
+	})
+})
+
+describe('LibraryHeader number chips', () => {
+	const stats = {
+		seriesCount: 813,
+		bookCount: 8756,
+		inProgressBooks: 2,
+		completedBooks: 2,
+		totalBytes: 56_600_000_000,
+		totalReadingTimeSeconds: 72_000,
+	}
+	const chips = () => screen.queryAllByRole('listitem').map((item) => item.textContent ?? '')
+
+	it('says what each number counts: the library in words, the reading progress in the info sheet', () => {
+		setup([], { stats })
+
+		const [series, books, size] = chips()
+		expect(series).toMatch(/^813 statChips\.series$/)
+		expect(books).toMatch(/^8\D?756 statChips\.books$/)
+		expect(size).toMatch(/\bGB$|\bGiB$/)
+		// no bare numbers, and the in-progress / completed / time chips moved to the info sheet
+		expect(chips()).toHaveLength(3)
+		expect(chips().every((chip) => /[A-Za-z]/.test(chip))).toBe(true)
+	})
+
+	it('has no series chip in a library that hides the series view', () => {
+		setup([], { stats, config: { hideSeriesView: true, oneshotsDirectory: null } })
+
+		expect(chips()[0]).toMatch(/statChips\.books$/)
+		expect(chips().some((chip) => chip.includes('statChips.series'))).toBe(false)
+	})
+
+	it('shows no chips for a library with no stats yet', () => {
+		setup([])
+		expect(chips()).toEqual([])
 	})
 })

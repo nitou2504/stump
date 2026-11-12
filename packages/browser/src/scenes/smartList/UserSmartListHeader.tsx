@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 
 import { EntityHeader } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -22,6 +23,7 @@ const errorMessage = (error: unknown) =>
 
 export default function UserSmartListHeader() {
 	const { t, translate } = useTranslate()
+	const labels = useStatLabels()
 	const location = useLocation()
 	const navigate = useNavigate()
 	const paths = usePaths()
@@ -69,18 +71,25 @@ export default function UserSmartListHeader() {
 				{
 					key: 'bookCount',
 					icon: Book,
-					value: meta.matchedBooks,
+					value: labels.number(meta.matchedBooks),
+					suffix: labels.word('books', meta.matchedBooks),
 				},
 				{
 					key: 'seriesCount',
 					icon: Layers,
-					value: meta.matchedSeries,
+					value: labels.number(meta.matchedSeries),
+					suffix: labels.word('series', meta.matchedSeries),
 				},
-				{
-					key: 'libraryCount',
-					icon: Library,
-					value: meta.matchedLibraries,
-				},
+				...(meta.matchedLibraries > 1
+					? [
+							{
+								key: 'libraryCount',
+								icon: Library,
+								value: labels.number(meta.matchedLibraries),
+								suffix: labels.word('libraries', meta.matchedLibraries),
+							},
+						]
+					: []),
 			]
 		: undefined
 

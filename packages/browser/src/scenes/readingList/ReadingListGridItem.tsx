@@ -2,6 +2,7 @@ import { FragmentType, graphql, useFragment } from '@stump/graphql'
 import { Book, Globe } from 'lucide-react'
 
 import { CollectionGridItem } from '@/components/collection'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
@@ -45,7 +46,8 @@ type Props = {
  */
 export default function ReadingListGridItem({ data, getLayoutNumber }: Props) {
 	const paths = usePaths()
-	const { t, translate } = useTranslate()
+	const { t } = useTranslate()
+	const labels = useStatLabels()
 	const { id, name, books, bookCount, visibility, canEdit, creator } = useFragment(fragment, data)
 
 	const isPublic = visibility === 'PUBLIC'
@@ -77,8 +79,9 @@ export default function ReadingListGridItem({ data, getLayoutNumber }: Props) {
 				{
 					key: 'books',
 					icon: Book,
-					value: bookCount,
-					label: translate('shared.common.xBooks', { count: bookCount }),
+					value: labels.number(bookCount),
+					unit: labels.word('books', bookCount),
+					label: labels.count('books', bookCount),
 				},
 				...badge,
 			]}

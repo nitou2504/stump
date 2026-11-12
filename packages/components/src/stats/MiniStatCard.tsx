@@ -22,7 +22,10 @@ export function MiniStatCard({ icon: Icon, value, suffix, title }: MiniStatCardP
 				</div>
 			)}
 			<span className="text-xs font-semibold text-foreground tabular-nums">{value}</span>
-			{suffix && <span className="text-xs font-medium text-foreground opacity-50">{suffix}</span>}
+			{suffix && (
+				// the space is for text readers and copying ("813 series"); it isn't drawn at the start of the box
+				<span className="text-xs font-medium text-foreground opacity-50"> {suffix}</span>
+			)}
 		</div>
 	)
 }

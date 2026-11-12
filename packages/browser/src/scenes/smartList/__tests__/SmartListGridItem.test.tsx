@@ -14,14 +14,14 @@ vi.mock('@/components/collection', () => ({
 		stats,
 	}: {
 		title: string
-		stats: { key: string; value: number | string; label: string }[]
+		stats: { key: string; value: number | string; unit?: string; label: string }[]
 	}) => (
 		<div>
 			<p>{title}</p>
 			<ul>
 				{stats.map((stat) => (
 					<li key={stat.key} title={stat.label}>
-						{stat.value}
+						{stat.unit ? `${stat.value} ${stat.unit}` : stat.value}
 					</li>
 				))}
 			</ul>
@@ -52,13 +52,10 @@ function renderCard(data: never) {
 }
 
 describe('SmartListGridItem', () => {
-	it("says a list of the user's own is private", () => {
+	it("says nothing about a private list of the user's own (it is the usual case)", () => {
 		renderCard(list())
 
-		expect(chip('userSmartListsScene.list.card.private')).toHaveAttribute(
-			'title',
-			'userSmartListsScene.list.card.privateHint',
-		)
+		expect(chip('userSmartListsScene.list.card.private')).toBeUndefined()
 		expect(chip('userSmartListsScene.list.card.shared')).toBeUndefined()
 	})
 
@@ -90,14 +87,22 @@ describe('SmartListGridItem', () => {
 		expect(chip('userSmartListsScene.list.card.private')).toBeUndefined()
 	})
 
-	it('keeps counting what the list matches', () => {
+	it('counts what the list matches in words, never as bare numbers', () => {
 		renderCard(list())
 
 		expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-			'1',
-			'2',
-			'3',
-			'userSmartListsScene.list.card.private',
+			'3 statChips.books count=3',
+			'2 statChips.series count=2',
+		])
+	})
+
+	it('counts the libraries only when the list spans more than one', () => {
+		renderCard(list({ meta: { matchedBooks: 30, matchedSeries: 9, matchedLibraries: 2 } }))
+
+		expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+			'30 statChips.books count=30',
+			'9 statChips.series count=9',
+			'2 statChips.libraries count=2',
 		])
 	})
 })

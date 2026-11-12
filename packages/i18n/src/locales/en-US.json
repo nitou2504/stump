@@ -3436,6 +3436,21 @@
       "bookCount_one": "{{count}} book",
       "bookCount_other": "{{count}} books"
     },
+    "statChips": {
+      "books_one": "book",
+      "books_other": "books",
+      "series_one": "series",
+      "series_other": "series",
+      "libraries_one": "library",
+      "libraries_other": "libraries",
+      "lists_one": "list",
+      "lists_other": "lists",
+      "authors_one": "author",
+      "authors_other": "authors",
+      "genres_one": "genre",
+      "genres_other": "genres",
+      "read": "read"
+    },
     "sidebar": {
       "buttons": {
         "books": "Explore",

@@ -8,6 +8,9 @@ export type CollectionStat = {
 	icon: LucideIcon
 	/** a count, or a few words (e.g. who made it) */
 	value: number | string
+	/** the word that goes with a count: "books" in "344 books" */
+	unit?: string
+	/** the longer name, as a tooltip */
 	label: string
 }
 
@@ -36,14 +39,17 @@ export function CollectionGridItem({ title, to, thumbnails, layoutNumber, stats,
 
 			{!!stats?.length && (
 				<div className="left-0 top-0 gap-1.5 px-3 py-2 absolute z-70 flex">
-					{stats.map(({ key, icon: Icon, value, label }) => (
+					{stats.map(({ key, icon: Icon, value, unit, label }) => (
 						<span
 							key={key}
 							title={label}
 							className="gap-1 px-2 py-1 text-xs font-medium bg-black/40 text-white shadow-sm backdrop-blur-sm flex items-center rounded-full tabular-nums"
 						>
 							<Icon className="h-3 w-3" />
-							{value}
+							<span>
+								{value}
+								{unit && <span className="font-normal opacity-80"> {unit}</span>}
+							</span>
 						</span>
 					))}
 				</div>

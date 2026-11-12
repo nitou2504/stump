@@ -2988,6 +2988,21 @@
       "bookCount_one": "{{count}} libro",
       "bookCount_other": "{{count}} libros"
     },
+    "statChips": {
+      "books_one": "libro",
+      "books_other": "libros",
+      "series_one": "serie",
+      "series_other": "series",
+      "libraries_one": "biblioteca",
+      "libraries_other": "bibliotecas",
+      "lists_one": "lista",
+      "lists_other": "listas",
+      "authors_one": "autor",
+      "authors_other": "autores",
+      "genres_one": "género",
+      "genres_other": "géneros",
+      "read": "leídos"
+    },
     "sidebar": {
       "buttons": {
         "books": "Explorar",

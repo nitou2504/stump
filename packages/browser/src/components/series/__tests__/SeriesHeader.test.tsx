@@ -8,7 +8,11 @@ vi.mock('@/hooks/useTranslate', () => ({
 	useTranslate: () => ({ t: (key: string) => key, translate: (key: string) => key }),
 }))
 
-const permissions = vi.hoisted(() => ({ held: new Set<string>(), isServerOwner: false }))
+const permissions = vi.hoisted(() => ({
+	held: new Set<string>(),
+	isServerOwner: false,
+	stats: { totalBytes: 0, totalReadingTimeSeconds: 0, bookCount: 0, completedBooks: 0 },
+}))
 vi.mock('@/context', () => ({
 	useAppContext: () => ({
 		isServerOwner: permissions.isServerOwner,
@@ -44,7 +48,7 @@ vi.mock('../context', () => ({
 			id: 'series',
 			resolvedName: 'Dune',
 			path: '/biblioteca/dune',
-			stats: { totalBytes: 0, totalReadingTimeSeconds: 0, bookCount: 0, completedBooks: 0 },
+			stats: permissions.stats,
 			library: { id: 'lib', name: 'Biblioteca' },
 		},
 	}),
@@ -52,10 +56,23 @@ vi.mock('../context', () => ({
 
 // the header is shown as its name and the link to the series' settings: what the page decides
 vi.mock('@/components/sharedLayout', () => ({
-	EntityHeader: ({ name, settingsLink }: { name: string; settingsLink?: string }) => (
+	EntityHeader: ({
+		name,
+		settingsLink,
+		stats,
+	}: {
+		name: string
+		settingsLink?: string
+		stats?: { key: string; value: string | number; suffix?: string }[]
+	}) => (
 		<header>
 			<h1>{name}</h1>
 			{settingsLink && <a href={settingsLink}>settings</a>}
+			<ul>
+				{stats?.map((stat) => (
+					<li key={stat.key}>{[stat.value, stat.suffix].filter(Boolean).join(' ')}</li>
+				))}
+			</ul>
 		</header>
 	),
 }))
@@ -89,5 +106,23 @@ describe('SeriesHeader settings gear', () => {
 			'href',
 			'/seriesSettings/series',
 		)
+	})
+})
+
+describe('SeriesHeader number chips', () => {
+	it('says what each number counts: the books, how many are read, the size', () => {
+		permissions.stats = {
+			totalBytes: 2_100_000_000,
+			totalReadingTimeSeconds: 3600,
+			bookCount: 6,
+			completedBooks: 2,
+		}
+		setup([])
+
+		const chips = screen.getAllByRole('listitem').map((item) => item.textContent ?? '')
+		expect(chips.slice(0, 2)).toEqual(['6 statChips.books', '2 statChips.read'])
+		expect(chips[2]).toMatch(/\bGB$|\bGiB$/)
+		// the in-progress count and the reading time are in the info sheet
+		expect(chips).toHaveLength(3)
 	})
 })

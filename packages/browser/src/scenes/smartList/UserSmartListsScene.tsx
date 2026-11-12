@@ -9,6 +9,7 @@ import { SceneContainer } from '@/components/container'
 import GenericEmptyState from '@/components/GenericEmptyState'
 import { CollectionSceneHeader } from '@/components/sharedLayout'
 import { useAppContext } from '@/context'
+import { useStatLabels } from '@/hooks/useStatLabels'
 import { useTranslate } from '@/hooks/useTranslate'
 
 import { useSetSmartListsVisibility } from './graphql'
@@ -41,6 +42,7 @@ const errorMessage = (error: unknown) =>
  */
 export default function UserSmartListsScene() {
 	const { t, translate } = useTranslate()
+	const labels = useStatLabels()
 	const { sdk } = useSDK()
 	const { user } = useAppContext()
 	const { data, isLoading } = useGraphQL(query, [sdk.cacheKeys.smartLists, 'scene'], {
@@ -153,7 +155,18 @@ export default function UserSmartListsScene() {
 				title={translate('shared.common.smartLists')}
 				docsLink="https://stumpapp.dev/docs/guides/features/smart-list"
 				actions={shareActions.length ? [{ items: shareActions }] : undefined}
-				stats={data ? [{ key: 'lists', icon: ListFilter, value: smartLists.length }] : undefined}
+				stats={
+					data
+						? [
+								{
+									key: 'lists',
+									icon: ListFilter,
+									value: labels.number(smartLists.length),
+									suffix: labels.word('lists', smartLists.length),
+								},
+							]
+						: undefined
+				}
 			/>
 
 			<SceneContainer>{renderContent()}</SceneContainer>
