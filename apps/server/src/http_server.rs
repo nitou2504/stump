@@ -125,6 +125,8 @@ pub async fn run_http_server(config: StumpConfig) -> ServerResult<()> {
 		server_ctx.conn.clone(),
 		server_ctx.config.clone(),
 	);
+	// new libraries are hidden from the people they are hidden from whether or not the edge is set up
+	stump_core::access::state::spawn_library_reconcile(server_ctx.conn.clone());
 
 	// Keeps the books of every smart list worked out in the background, so a reader finds them
 	// ready: at start-up, and a few seconds after the catalog stops changing (see

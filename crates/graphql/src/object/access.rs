@@ -16,12 +16,17 @@ use async_graphql::{
 use chrono::{DateTime, Utc};
 use models::{
 	entity::{access_audit, access_device, access_invite, user},
-	services::access::{
-		self as service, BlockedUser, InviteStatus, LockedBy, Person, SignInRow,
+	services::{
+		access::{
+			self as service, BlockedUser, InviteStatus, LockedBy, Person, SignInRow,
+		},
+		access_people::PersonAccess,
 	},
+	shared::enums::UserPermission,
 };
 use sea_orm::prelude::DateTimeWithTimeZone;
 
+use super::access_signup::AccessSigninStats;
 use crate::{
 	loader::access_person::AccessPersonLoader,
 	pagination::{OffsetPagination, OffsetPaginationInfo},
@@ -104,6 +109,13 @@ pub struct AccessOverview {
 	pub active_devices: u64,
 	/// Invites that can still be redeemed
 	pub open_invites: u64,
+	/// Public sign-in is switched on (`STUMP_EDGE_PUBLIC_SIGNIN`): signup links and the sign-in
+	/// page work from the internet, and so do reading-app addresses
+	pub public_signin: bool,
+	/// What the guard of the public sign-in page has seen lately
+	pub signin_stats: AccessSigninStats,
+	/// Signup links that can still make accounts
+	pub active_signup_links: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
@@ -188,6 +200,23 @@ pub enum AccessDeviceStatus {
 	Revoked,
 }
 
+/// What a device is: a browser's pass, or a reading-app key
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum AccessDeviceKind {
+	Browser,
+	Opds,
+}
+
+impl AccessDeviceKind {
+	pub fn parse(text: &str) -> Self {
+		if text == service::device_kind::OPDS {
+			Self::Opds
+		} else {
+			Self::Browser
+		}
+	}
+}
+
 /// A browser that holds a pass
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -208,6 +237,8 @@ pub struct AccessDevice {
 	pub status: AccessDeviceStatus,
 	pub revoked_at: Option<DateTime<Utc>>,
 	pub revoked_by: Option<String>,
+	/// A browser's pass, or a reading-app key
+	pub kind: AccessDeviceKind,
 	#[graphql(skip)]
 	person_id: Option<String>,
 }
@@ -230,6 +261,7 @@ impl From<access_device::Model> for AccessDevice {
 			last_agent: model.last_agent,
 			revoked_at: model.revoked_at,
 			revoked_by: model.revoked_by,
+			kind: AccessDeviceKind::parse(&model.kind),
 			person_id: model.person_id,
 		}
 	}
@@ -257,6 +289,10 @@ pub enum AccessSignInReason {
 	OwnerViaEdge,
 	/// A pass made for somebody else
 	WrongPerson,
+	/// The right password of an account that is not allowed in from the internet
+	NotAllowedPublicly,
+	/// The right password, but the person already uses all their devices
+	DeviceLimit,
 }
 
 fn sign_in_reason(text: &str) -> Option<AccessSignInReason> {
@@ -265,6 +301,8 @@ fn sign_in_reason(text: &str) -> Option<AccessSignInReason> {
 		service::reason::LOCKED => Some(AccessSignInReason::Locked),
 		service::reason::OWNER_VIA_EDGE => Some(AccessSignInReason::OwnerViaEdge),
 		service::reason::WRONG_PERSON => Some(AccessSignInReason::WrongPerson),
+		service::reason::NOT_ALLOWED_PUBLICLY => Some(AccessSignInReason::NotAllowedPublicly),
+		service::reason::DEVICE_LIMIT => Some(AccessSignInReason::DeviceLimit),
 		_ => None,
 	}
 }
@@ -374,21 +412,57 @@ impl From<BlockedUser> for AccessBlockedUser {
 	}
 }
 
-/// An account and how it stands: for the owner to set a password or unblock it
+/// An account and how it stands: for the owner to set a password or unblock it, and to decide
+/// whether it may come in from the internet
 #[derive(Debug, Clone, SimpleObject)]
 pub struct AccessPersonRow {
 	pub person: AccessPerson,
 	pub last_sign_in_at: Option<DateTime<Utc>>,
 	/// The owner set their password and they haven't chosen their own yet
 	pub must_change_password: bool,
+	/// May sign in from the internet (and use it afterwards)
+	pub public_signin: bool,
+	/// Devices they may have
+	pub max_devices: i32,
+	/// Devices that count against the limit now
+	pub active_devices: u64,
+	/// Sign-in sessions that have not expired
+	pub sessions: u64,
+	/// Libraries made from now on are hidden from them
+	pub new_libraries_hidden: bool,
+	/// The signup link that made the account, while it is still kept
+	pub signup_link_id: Option<String>,
+	/// The permissions that keep the account out of public sign-in: until they are removed it
+	/// can't be turned on
+	pub beyond_friend_set: Vec<UserPermission>,
+	/// How many libraries are hidden from them
+	pub hidden_libraries: u64,
 }
 
-impl From<Person> for AccessPersonRow {
-	fn from(person: Person) -> Self {
+impl AccessPersonRow {
+	pub fn new(person: Person, summary: Option<PersonAccess>) -> Self {
+		let summary = summary.unwrap_or(PersonAccess {
+			public_signin: false,
+			max_devices: 3,
+			new_libraries_hidden: true,
+			signup_link_id: None,
+			active_devices: 0,
+			sessions: 0,
+			beyond_friend_set: vec![],
+			hidden_libraries: 0,
+		});
 		Self {
 			last_sign_in_at: person.last_sign_in_at.map(utc),
 			must_change_password: person.must_change_password,
 			person: person.user.into(),
+			public_signin: summary.public_signin,
+			max_devices: summary.max_devices,
+			active_devices: summary.active_devices,
+			sessions: summary.sessions,
+			new_libraries_hidden: summary.new_libraries_hidden,
+			signup_link_id: summary.signup_link_id,
+			beyond_friend_set: summary.beyond_friend_set,
+			hidden_libraries: summary.hidden_libraries,
 		}
 	}
 }

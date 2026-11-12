@@ -150,6 +150,31 @@ pub fn spawn_housekeeping(conn: Arc<DatabaseConnection>, config: Arc<StumpConfig
 	});
 }
 
+/// How often libraries made by something that doesn't know about the hide-new-libraries rule (a
+/// script that inserts into `libraries`) are hidden from the people the rule is for
+pub const LIBRARY_RECONCILE_INTERVAL: StdDuration = StdDuration::from_secs(10 * 60);
+
+/// Once at start, then every ten minutes: hides every library that has no decision yet from the
+/// people whose "hide new libraries" choice is on (`access_people::reconcile_libraries`). It does
+/// **not** depend on the edge settings: libraries must stay hidden even if they are removed
+pub fn spawn_library_reconcile(conn: Arc<DatabaseConnection>) {
+	tokio::spawn(async move {
+		loop {
+			match models::services::access_people::reconcile_libraries(conn.as_ref()).await
+			{
+				Ok(0) => {},
+				Ok(hidden) => {
+					tracing::info!(hidden, "Hid new libraries from the people they are hidden from")
+				},
+				Err(error) => {
+					tracing::error!(?error, "Public access: hiding new libraries failed")
+				},
+			}
+			tokio::time::sleep(LIBRARY_RECONCILE_INTERVAL).await;
+		}
+	});
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

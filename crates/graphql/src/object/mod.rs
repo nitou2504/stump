@@ -1,4 +1,5 @@
 pub mod access;
+pub mod access_signup;
 pub mod api_key;
 pub mod author;
 pub mod book_club;
@@ -51,3 +52,4 @@ pub mod tag;
 pub mod user;
 pub mod user_login_activity;
 pub mod user_preferences;
+pub mod my_access;

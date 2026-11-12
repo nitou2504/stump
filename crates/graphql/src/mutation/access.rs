@@ -4,6 +4,8 @@ use models::{
 	entity::user,
 	services::{
 		access::{self as service, AccessError},
+		access_people::{self, PersonAccessChange},
+		signup::{self, NewSignupLink},
 		user::revoke_user_sessions,
 	},
 	shared::enums::UserPermission,
@@ -14,8 +16,15 @@ use stump_core::access::{pass, state as edge_state};
 use crate::{
 	data::{AuthContext, CoreContext},
 	guard::{NotViaPublicEdgeGuard, SameOriginGuard, ServerOwnerGuard},
-	object::access::{
-		AccessInvite, CreateAccessInviteInput, CreatedAccessInvite, INVITE_HOURS,
+	object::{
+		access::{
+			AccessInvite, AccessPersonRow, CreateAccessInviteInput, CreatedAccessInvite,
+			INVITE_HOURS,
+		},
+		access_signup::{
+			AccessSignupLink, CreateSignupLinkInput, CreatedSignupLink,
+			PersonAccessInput,
+		},
 	},
 };
 
@@ -34,7 +43,7 @@ const MAX_PASSWORD_CHARS: usize = 128;
 #[derive(Default)]
 pub struct AccessMutation;
 
-fn access_error(error: AccessError) -> async_graphql::Error {
+pub(crate) fn access_error(error: AccessError) -> async_graphql::Error {
 	match error {
 		AccessError::Db(error) => {
 			tracing::error!(?error, "Public access: a database error");
@@ -45,7 +54,7 @@ fn access_error(error: AccessError) -> async_graphql::Error {
 }
 
 /// Writes the state file so the edge follows a change, and says so if it can't
-async fn tell_the_edge(ctx: &Context<'_>) -> Result<()> {
+pub(crate) async fn tell_the_edge(ctx: &Context<'_>) -> Result<()> {
 	let core_ctx = ctx.data::<CoreContext>()?;
 	match edge_state::publish_if_configured(
 		core_ctx.conn.as_ref(),
@@ -111,6 +120,146 @@ impl AccessMutation {
 			link: format!("{base_url}/api/_i/{token}"),
 			invite: AccessInvite::new(invite, now),
 		})
+	}
+
+	/// Makes a link that lets somebody make their own account: for one person or for several
+	/// (a budget of accounts), valid for some hours, with the preset the accounts get. Refused
+	/// when the preset holds a permission a friend may not have (Upload files and Scan library
+	/// included). The link is in the response and nowhere else
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn create_access_signup_link(
+		&self,
+		ctx: &Context<'_>,
+		input: CreateSignupLinkInput,
+	) -> Result<CreatedSignupLink> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let core_ctx = ctx.data::<CoreContext>()?;
+		let conn = core_ctx.conn.as_ref();
+
+		let edge = core_ctx.config.edge.as_ref();
+		let Some(base_url) = edge.and_then(|edge| edge.public_base_url()) else {
+			return Err("The public address is not set (STUMP_EDGE_PUBLIC_URL)".into());
+		};
+		if edge.and_then(|edge| edge.usable_key()).is_none() {
+			return Err("There is no key to sign passes with (STUMP_EDGE_KEY)".into());
+		}
+		if !edge.is_some_and(|edge| edge.public_signin) {
+			return Err("Public sign-in is switched off (STUMP_EDGE_PUBLIC_SIGNIN)".into());
+		}
+
+		let (token, token_hash) = pass::new_invite_token().map_err(|error| {
+			tracing::error!(error, "Public access: could not make a token");
+			async_graphql::Error::new("Something went wrong")
+		})?;
+		let now = Utc::now();
+		let link = signup::create_signup_link(
+			conn,
+			now,
+			NewSignupLink {
+				label: input.label,
+				kind: input.kind.into(),
+				created_by: user.username.clone(),
+				token_hash,
+				valid_hours: i64::from(input.valid_for_hours),
+				max_uses: input.max_uses,
+				preset: input.preset.into_preset(),
+			},
+		)
+		.await
+		.map_err(access_error)?;
+
+		let libraries = signup::preset_of(&link)
+			.map(|preset| preset.library_ids)
+			.unwrap_or_default();
+		let names: std::collections::HashMap<String, String> =
+			models::entity::library::Entity::find()
+				.filter(models::entity::library::Column::Id.is_in(libraries.clone()))
+				.all(conn)
+				.await?
+				.into_iter()
+				.map(|library| (library.id, library.name))
+				.collect();
+		let libraries = libraries
+			.into_iter()
+			.filter_map(|id| {
+				names.get(&id).map(|name| crate::object::access_signup::PresetLibrary {
+					id,
+					name: name.clone(),
+				})
+			})
+			.collect();
+		Ok(CreatedSignupLink {
+			url: format!("{base_url}/api/_i/{token}"),
+			link: AccessSignupLink::new(link, now, libraries, vec![]),
+		})
+	}
+
+	/// Revokes a signup link: nobody can make an account with it any more. With
+	/// `disableAccounts` the accounts it already made are turned off too (their public sign-in
+	/// goes off, their devices are revoked, their sessions end; the accounts stay). Returns how
+	/// many accounts were turned off
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn revoke_access_signup_link(
+		&self,
+		ctx: &Context<'_>,
+		id: ID,
+		#[graphql(default = false)] disable_accounts: bool,
+	) -> Result<u64> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+
+		let revoked = signup::revoke_signup_link(
+			conn,
+			Utc::now(),
+			id.as_str(),
+			&user.username,
+			disable_accounts,
+		)
+		.await?;
+		tell_the_edge(ctx).await?;
+		Ok(revoked.accounts_disabled)
+	}
+
+	/// Changes what a person can do from the internet: whether they may sign in, how many devices
+	/// they may have, whether libraries made later are hidden from them, and (with
+	/// `onlyLibraryIds`) exactly which libraries they see. Refused for the server owner, and for an
+	/// account that holds permissions a friend may not have: the error names them
+	#[graphql(guard = "ServerOwnerGuard.and(NotViaPublicEdgeGuard).and(SameOriginGuard)")]
+	async fn set_person_access(
+		&self,
+		ctx: &Context<'_>,
+		input: PersonAccessInput,
+	) -> Result<AccessPersonRow> {
+		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
+		let conn = ctx.data::<CoreContext>()?.conn.as_ref();
+		let now = Utc::now();
+
+		access_people::set_person_access(
+			conn,
+			now,
+			&user.username,
+			input.person_id.as_str(),
+			PersonAccessChange {
+				public_signin: input.public_signin,
+				max_devices: input.max_devices,
+				new_libraries_hidden: input.new_libraries_hidden,
+				only_library_ids: input
+					.only_library_ids
+					.map(|ids| ids.into_iter().map(|id| id.to_string()).collect()),
+			},
+		)
+		.await
+		.map_err(access_error)?;
+
+		let person = service::people(conn)
+			.await?
+			.into_iter()
+			.find(|person| person.user.id == input.person_id.as_str())
+			.ok_or("User not found")?;
+		let summary = access_people::person_summaries(conn, now, &[person.user.clone()])
+			.await?
+			.remove(&person.user.id);
+		Ok(AccessPersonRow::new(person, summary))
 	}
 
 	/// Revokes an invite: it can't be opened any more. The devices that were made from it keep

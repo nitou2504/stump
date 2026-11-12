@@ -18,7 +18,7 @@ use stump_core::{
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::PermissionGuard,
+	guard::{NotViaPublicEdgeGuard, PermissionGuard},
 	input::thumbnail::UpdateThumbnailInput,
 	object::series::Series,
 };
@@ -28,7 +28,7 @@ pub struct SeriesMutation;
 
 #[Object]
 impl SeriesMutation {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
 	async fn analyze_series(
 		&self,
 		ctx: &Context<'_>,
@@ -188,7 +188,7 @@ impl SeriesMutation {
 		Ok(series.into())
 	}
 
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ScanLibrary)")]
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ScanLibrary).and(NotViaPublicEdgeGuard)")]
 	async fn scan_series(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
 		let AuthContext { user, .. } = ctx.data::<AuthContext>()?;
 		let core = ctx.data::<CoreContext>()?;

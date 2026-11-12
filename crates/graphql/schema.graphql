@@ -46,11 +46,19 @@ type AccessDevice {
 	status: AccessDeviceStatus!
 	revokedAt: DateTime
 	revokedBy: String
+	"A browser's pass, or a reading-app key"
+	kind: AccessDeviceKind!
 	"""
 	The person the device was made for. None for a legacy pass. A person who is removed is
 	still returned, with `removed` set
 	"""
 	person: AccessPerson
+}
+
+"What a device is: a browser's pass, or a reading-app key"
+enum AccessDeviceKind {
+	BROWSER
+	OPDS
 }
 
 type AccessDevicePage {
@@ -124,6 +132,15 @@ type AccessOverview {
 	activeDevices: Int!
 	"Invites that can still be redeemed"
 	openInvites: Int!
+	"""
+	Public sign-in is switched on (`STUMP_EDGE_PUBLIC_SIGNIN`): signup links and the sign-in
+	page work from the internet, and so do reading-app addresses
+	"""
+	publicSignin: Boolean!
+	"What the guard of the public sign-in page has seen lately"
+	signinStats: AccessSigninStats!
+	"Signup links that can still make accounts"
+	activeSignupLinks: Int!
 }
 
 "A person, as the owner sees them on this page"
@@ -137,12 +154,34 @@ type AccessPerson {
 	isServerOwner: Boolean!
 }
 
-"An account and how it stands: for the owner to set a password or unblock it"
+"""
+An account and how it stands: for the owner to set a password or unblock it, and to decide
+whether it may come in from the internet
+"""
 type AccessPersonRow {
 	person: AccessPerson!
 	lastSignInAt: DateTime
 	"The owner set their password and they haven't chosen their own yet"
 	mustChangePassword: Boolean!
+	"May sign in from the internet (and use it afterwards)"
+	publicSignin: Boolean!
+	"Devices they may have"
+	maxDevices: Int!
+	"Devices that count against the limit now"
+	activeDevices: Int!
+	"Sign-in sessions that have not expired"
+	sessions: Int!
+	"Libraries made from now on are hidden from them"
+	newLibrariesHidden: Boolean!
+	"The signup link that made the account, while it is still kept"
+	signupLinkId: String
+	"""
+	The permissions that keep the account out of public sign-in: until they are removed it
+	can't be turned on
+	"""
+	beyondFriendSet: [UserPermission!]!
+	"How many libraries are hidden from them"
+	hiddenLibraries: Int!
 }
 
 """
@@ -191,6 +230,81 @@ enum AccessSignInReason {
 	OWNER_VIA_EDGE
 	"A pass made for somebody else"
 	WRONG_PERSON
+	"The right password of an account that is not allowed in from the internet"
+	NOT_ALLOWED_PUBLICLY
+	"The right password, but the person already uses all their devices"
+	DEVICE_LIMIT
+}
+
+"Counters of the guard of the public sign-in page: numbers only, never names"
+type AccessSigninStats {
+	"Failed attempts counted in the last 10 minutes"
+	failuresLast10Min: Int!
+	"Names that are waiting out a delay"
+	namesWaiting: Int!
+	"Public sign-in is refusing everybody for a few minutes"
+	globalBudgetTripped: Boolean!
+}
+
+"A signup link the owner made. The link itself is never kept: it was shown once"
+type AccessSignupLink {
+	id: String!
+	"The owner's note (\"book club\")"
+	label: String!
+	kind: SignupLinkKind!
+	createdAt: DateTime!
+	"The admin who made it"
+	createdBy: String!
+	expiresAt: DateTime!
+	"The budget: how many accounts it may create"
+	maxUses: Int!
+	"How many it has created"
+	uses: Int!
+	status: SignupLinkStatus!
+	revokedAt: DateTime
+	preset: SignupPreset!
+	"The accounts it made (the ones that still exist)"
+	people: [AccessPerson!]!
+}
+
+type AccessSignupLinkPage {
+	nodes: [AccessSignupLink!]!
+	pageInfo: OffsetPaginationInfo!
+}
+
+"Something the owner should look at"
+type AccessWarning {
+	"The same warning has the same id every time"
+	id: String!
+	kind: AccessWarningKind!
+	severity: AccessWarningSeverity!
+	person: AccessPerson
+	linkId: String
+	"How many times, or how many devices"
+	count: Int!
+	since: DateTime!
+	"A short plain-text detail (a username, a note, the permissions)"
+	detail: String
+}
+
+enum AccessWarningKind {
+	AT_DEVICE_LIMIT
+	OVER_DEVICE_LIMIT
+	MANY_DEVICES
+	DEVICE_LIMIT_HIT
+	MANY_SESSIONS
+	SIGNIN_FAILURES
+	NAME_BACKOFF
+	GLOBAL_BUDGET
+	NOT_ENABLED_TRIED
+	NOT_FRIEND_CLASS
+	LINK_NEAR_BUDGET
+	LINK_NO_LIBRARIES
+}
+
+enum AccessWarningSeverity {
+	WARN
+	ALERT
 }
 
 input AddBookToClubInput {
@@ -699,6 +813,17 @@ input CreateScheduledJobInput {
 	enabled: Boolean
 }
 
+input CreateSignupLinkInput {
+	"A note so the owner remembers who it is for"
+	label: String!
+	kind: SignupLinkKind!
+	"How long it works, in hours (1 hour to 30 days)"
+	validForHours: Int! = 72
+	"How many accounts it may make: ignored for one person (1), 2 to 25 for an open link"
+	maxUses: Int! = 1
+	preset: SignupPresetInput!
+}
+
 input CreateUserInput {
 	username: String!
 	password: String!
@@ -737,6 +862,12 @@ type CreatedOrUpdatedManyMedia {
 	count: Int!
 	seriesId: String
 	libraryId: String!
+}
+
+"A link that was just made: the address is in this response and nowhere else"
+type CreatedSignupLink {
+	link: AccessSignupLink!
+	url: String!
 }
 
 "How well one of a book's current tags fits it"
@@ -3365,7 +3496,16 @@ type Mutation {
 	* `tags` - A non-empty list of tags to delete.
 	"""
 	deleteTags(tags: [String!]!): [Tag!]!
+	"""
+	Puts books straight into a library, with nobody's approval: for whoever manages libraries,
+	from home. *Upload files* alone is not enough, and the public edge never reaches it:
+	somebody who only adds books sends them through the "Add books" inbox
+	"""
 	uploadBooks(input: UploadBooksInput!): Boolean!
+	"""
+	Puts a series (a folder of books) straight into a library, with nobody's approval: the
+	same rules as `uploadBooks`
+	"""
 	uploadSeries(input: UploadSeriesInput!): Boolean!
 	uploadLibraryThumbnail(id: ID!, file: Upload!): Library!
 	uploadSeriesThumbnail(id: ID!, file: Upload!): Series!
@@ -3430,6 +3570,27 @@ type Mutation {
 	"""
 	createAccessInvite(input: CreateAccessInviteInput!): CreatedAccessInvite!
 	"""
+	Makes a link that lets somebody make their own account: for one person or for several
+	(a budget of accounts), valid for some hours, with the preset the accounts get. Refused
+	when the preset holds a permission a friend may not have (Upload files and Scan library
+	included). The link is in the response and nowhere else
+	"""
+	createAccessSignupLink(input: CreateSignupLinkInput!): CreatedSignupLink!
+	"""
+	Revokes a signup link: nobody can make an account with it any more. With
+	`disableAccounts` the accounts it already made are turned off too (their public sign-in
+	goes off, their devices are revoked, their sessions end; the accounts stay). Returns how
+	many accounts were turned off
+	"""
+	revokeAccessSignupLink(id: ID!, disableAccounts: Boolean! = false): Int!
+	"""
+	Changes what a person can do from the internet: whether they may sign in, how many devices
+	they may have, whether libraries made later are hidden from them, and (with
+	`onlyLibraryIds`) exactly which libraries they see. Refused for the server owner, and for an
+	account that holds permissions a friend may not have: the error names them
+	"""
+	setPersonAccess(input: PersonAccessInput!): AccessPersonRow!
+	"""
 	Revokes an invite: it can't be opened any more. The devices that were made from it keep
 	their pass (revoke those one by one)
 	"""
@@ -3460,6 +3621,26 @@ type Mutation {
 	out. It ends their sessions. The server owner's password is never set here.
 	"""
 	setUserPassword(id: ID!, password: String!, requireChange: Boolean! = true): Boolean!
+	"Renames one of your devices"
+	renameMyDevice(id: ID!, label: String!): MyDevice!
+	"""
+	Removes one of your devices: its pass (or reading-app key) stops working, at once for the app
+	and within seconds at the edge. Removing the device you are using also signs you out. Returns
+	whether something was removed
+	"""
+	removeMyDevice(id: ID!): Boolean!
+	"""
+	Makes a reading-app address (for KOReader and other OPDS readers) and counts it as one of
+	your devices. Needs *Download files*. Refused when you already use all your devices
+	"""
+	createReadingApp(label: String!): MyReadingApp!
+	"Replaces a reading-app address with a new one: the old one stops working at once"
+	replaceReadingApp(id: ID!): MyReadingApp!
+	"""
+	Removes a reading-app address: it stops working at once. Returns whether something was
+	removed
+	"""
+	removeReadingApp(id: ID!): Boolean!
 	createApiKey(input: ApikeyInput!): CreatedAPIKey!
 	updateApiKey(id: Int!, input: ApikeyInput!): Apikey!
 	deleteApiKey(id: Int!): Apikey!
@@ -3548,9 +3729,9 @@ type Mutation {
 	): [IntakeItem!]!
 	"""
 	Saves a review of an item (omitted fields keep their value). The uploader reviews their
-	own; an approver can also review an item that waits for approval. Somebody who needs
-	approval can't choose the folder, the file names or the kind of series, their texts are
-	plain and of a sensible length, and the age rating can't go down.
+	own; the server owner (from home) can also review an item that waits for approval.
+	Somebody who needs approval can't choose the folder, the file names or the kind of
+	series, their texts are plain and of a sensible length, and the age rating can't go down.
 	"""
 	intakeReview(id: ID!, input: IntakeReviewInput!): IntakeItem!
 	"Analyses an item again (e.g. after a failure, or to look it up online)"
@@ -3560,8 +3741,9 @@ type Mutation {
 	): IntakeItem!
 	"""
 	Moves an item to another library (one the user can use) and analyses it again there: the
-	proposal, the folder and the file names are made for the library the item is in. An
-	approver can move an item that waits for approval, to a library its uploader can use too
+	proposal, the folder and the file names are made for the library the item is in. The
+	server owner (from home) can move an item that waits for approval, to a library its
+	uploader can use too
 	"""
 	intakeChangeLibrary(id: ID!, libraryId: ID!): IntakeItem!
 	"""
@@ -3577,8 +3759,9 @@ type Mutation {
 	"Takes items back from the approval queue, to change them"
 	intakeWithdraw(ids: [ID!]!): [IntakeItem!]!
 	"""
-	Approves items waiting in the approval queue of libraries the approver can use. Each is
-	filed in the background (`FILING`, then `FILED`); an item already being filed comes back
+	Approves items waiting in the approval queue of libraries the owner can use. Only the
+	server owner, and only from home (never through the public edge). Each is filed in the
+	background (`FILING`, then `FILED`); an item already being filed comes back
 	as it is
 	"""
 	intakeApprove(ids: [ID!]!): [IntakeItem!]!
@@ -3729,6 +3912,38 @@ type Mutation {
 	A person decides it for themselves, so an API key can't
 	"""
 	updateMyReadingPrivacy(shareReadingHistory: Boolean!): ReadingPrivacy!
+}
+
+"One of the person's devices: a browser that holds a pass, or a reading-app key"
+type MyDevice {
+	id: String!
+	"The name shown in the list (\"Chrome on Android\"); the person can rename it"
+	label: String!
+	kind: AccessDeviceKind!
+	"This is the device the request came from"
+	current: Boolean!
+	createdAt: DateTime!
+	lastSeenAt: DateTime
+	"The address of the last request that came with it"
+	lastIp: String!
+}
+
+type MyDevices {
+	devices: [MyDevice!]!
+	"Devices that count against the limit now (one unseen for 60 days no longer counts)"
+	active: Int!
+	"How many devices the person may have"
+	limit: Int!
+}
+
+"A reading-app address: the key is part of the address, so keep it to yourself"
+type MyReadingApp {
+	id: String!
+	label: String!
+	"The address to give the reading app (OPDS catalogue). Leave its username and password empty"
+	url: String!
+	createdAt: DateTime!
+	lastSeenAt: DateTime
 }
 
 """
@@ -4100,6 +4315,20 @@ type PdfWorker {
 	current: String
 }
 
+input PersonAccessInput {
+	personId: ID!
+	"""
+	May the person sign in from the internet? Refused for an account that holds permissions a
+	friend may not have (the error names them)
+	"""
+	publicSignin: Boolean
+	maxDevices: Int
+	"Hide libraries made from now on from this person"
+	newLibrariesHidden: Boolean
+	"\"Only these libraries\": the person sees exactly these, every other library is hidden"
+	onlyLibraryIds: [ID!]
+}
+
 type PlaceholderGenerationOutput {
 	"The total number of entities that were visited"
 	visitedEntities: Int!
@@ -4227,6 +4456,12 @@ type PostProcessingTaskModel {
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	finishedAt: DateTime
+}
+
+"A library a preset names"
+type PresetLibrary {
+	id: String!
+	name: String!
 }
 
 type ProviderCredentialVerification {
@@ -4457,8 +4692,32 @@ type Query {
 	accessBlockedUsers: [AccessBlockedUser!]!
 	"The accounts of the server and how each stands, for setting a password or unblocking"
 	accessPeople: [AccessPersonRow!]!
+	"""
+	What a new signup link offers by default: the friend permissions, the library named
+	"Biblioteca", and three devices. The owner can change all of it per link
+	"""
+	signupPresetDefaults: SignupPreset!
+	"""
+	The signup links that were made, the latest first, with the accounts each one made. The
+	links themselves are not kept
+	"""
+	accessSignupLinks(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessSignupLinkPage!
+	"""
+	What the owner should look at: people at or over their device limit, four or more
+	sessions, bursts of failed sign-ins, links near their budget. The alerts come first
+	"""
+	accessWarnings: [AccessWarning!]!
+	"How many warnings there are: what the badge in the sidebar shows. The owner at home only"
+	accessWarningCount: Int!
 	"What the owner did on this page, the latest first"
 	accessAudit(pagination: OffsetPagination! = {page: 1, pageSize: 20, zeroBased: false}): AccessAuditPage!
+	"""
+	The signed-in person's devices (browsers that hold a pass, reading-app keys) that are not
+	removed, and how many they may have
+	"""
+	myDevices: MyDevices!
+	"The signed-in person's reading apps, each with the address to give the app"
+	myReadingApps: [MyReadingApp!]!
 	apiKeys: [Apikey!]!
 	apiKeyById(id: Int!): Apikey!
 	jobs(pagination: Pagination! = {offset: {page: 1, pageSize: 20, zeroBased: false}}): PaginatedJobResponse!
@@ -4525,10 +4784,13 @@ type Query {
 	intakeFolders(libraryId: ID!, seriesKind: IntakeSeriesKind, search: String, limit: Int! = 30): [IntakeFolder!]!
 	"""
 	The items waiting for approval in the libraries the viewer can use, oldest first, for the
-	approvers' review page
+	server owner's review page (from home: never through the public edge)
 	"""
 	pendingIntakeItems(libraryId: ID, page: Int! = 1, pageSize: Int! = 20): IntakeItemPage!
-	"How many items wait for approval in the libraries the viewer can use"
+	"""
+	How many items wait for approval in the libraries the viewer can use (the server owner, from
+	home)
+	"""
 	pendingIntakeCount: Int!
 	"""
 	What the viewer may upload, how much of it they have used, and whether uploads are open
@@ -5431,6 +5693,53 @@ type SharedWork {
 	authors: [Author!]!
 	"Authors who contributed to this work, excluding the viewing author"
 	coAuthors: [Author!]!
+}
+
+enum SignupLinkKind {
+	"For one person: one use"
+	SINGLE
+	"For several people: a budget of accounts"
+	OPEN
+}
+
+enum SignupLinkStatus {
+	"Can make accounts"
+	ACTIVE
+	"Every use is spent"
+	USED_UP
+	EXPIRED
+	REVOKED
+}
+
+"What an account made through a link gets"
+type SignupPreset {
+	permissions: [UserPermission!]!
+	"""
+	The libraries the account sees (the ones that still exist): every other library is hidden
+	from it, and so are libraries made later
+	"""
+	libraries: [PresetLibrary!]!
+	ageRestriction: SignupPresetAge
+	"Devices the person may have"
+	maxDevices: Int!
+}
+
+type SignupPresetAge {
+	age: Int!
+	restrictOnUnset: Boolean!
+}
+
+input SignupPresetAgeInput {
+	age: Int!
+	restrictOnUnset: Boolean!
+}
+
+input SignupPresetInput {
+	"Only permissions a friend may have: anything else is refused"
+	permissions: [UserPermission!]!
+	libraryIds: [ID!]!
+	ageRestriction: SignupPresetAgeInput
+	maxDevices: Int! = 3
 }
 
 type SmartList {

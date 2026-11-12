@@ -16,7 +16,7 @@ use stump_core::{
 
 use crate::{
 	data::{AuthContext, CoreContext},
-	guard::PermissionGuard,
+	guard::{NotViaPublicEdgeGuard, PermissionGuard},
 	input::thumbnail::PageBasedThumbnailInput,
 	object::media::Media,
 };
@@ -26,7 +26,7 @@ pub struct MediaMutation;
 
 #[Object]
 impl MediaMutation {
-	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary)")]
+	#[graphql(guard = "PermissionGuard::one(UserPermission::ManageLibrary).and(NotViaPublicEdgeGuard)")]
 	async fn analyze_media(
 		&self,
 		ctx: &Context<'_>,

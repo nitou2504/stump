@@ -178,7 +178,7 @@ impl UploadMutation {
 	// I think we can refactor this into some utility function(s) that take the model type and the ID as parameters
 
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::new(&[UserPermission::EditLibrary, UserPermission::EditThumbnails]))"
+		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::new(&[UserPermission::EditLibrary, UserPermission::EditThumbnails])).and(NotViaPublicEdgeGuard)"
 	)]
 	async fn upload_library_thumbnail(
 		&self,
@@ -264,7 +264,7 @@ impl UploadMutation {
 	}
 
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::one(UserPermission::EditThumbnails))"
+		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::one(UserPermission::EditThumbnails)).and(NotViaPublicEdgeGuard)"
 	)]
 	async fn upload_series_thumbnail(
 		&self,
@@ -363,7 +363,7 @@ impl UploadMutation {
 	}
 
 	#[graphql(
-		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::one(UserPermission::EditThumbnails))"
+		guard = "OptionalFeatureGuard::new(OptionalFeature::Upload).and(PermissionGuard::one(UserPermission::EditThumbnails)).and(NotViaPublicEdgeGuard)"
 	)]
 	async fn upload_media_thumbnail(
 		&self,
@@ -467,7 +467,7 @@ impl UploadMutation {
 	/// Upload a series thumbnail from a base64-encoded image string.
 	/// Note: This was added specifically for Komf, which would have been annyoing to
 	/// implement multipart uploads for
-	#[graphql(guard = "PermissionGuard::one(UserPermission::EditThumbnails)")]
+	#[graphql(guard = "PermissionGuard::one(UserPermission::EditThumbnails).and(NotViaPublicEdgeGuard)")]
 	async fn upload_series_thumbnail_base64(
 		&self,
 		ctx: &Context<'_>,
@@ -560,7 +560,7 @@ impl UploadMutation {
 	/// Upload a media thumbnail from a base64-encoded image string.
 	/// Note: This was added specifically for Komf, which would have been annyoing to
 	/// implement multipart uploads for
-	#[graphql(guard = "PermissionGuard::one(UserPermission::EditThumbnails)")]
+	#[graphql(guard = "PermissionGuard::one(UserPermission::EditThumbnails).and(NotViaPublicEdgeGuard)")]
 	async fn upload_media_thumbnail_base64(
 		&self,
 		ctx: &Context<'_>,
