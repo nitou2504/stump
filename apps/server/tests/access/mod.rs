@@ -406,7 +406,6 @@ pub async fn friend_gql(
 /// A friend who signed up with a link: what they were given
 pub struct Friend {
 	pub id: String,
-	pub username: String,
 	pub password: String,
 	pub pass: String,
 	pub session: String,
@@ -441,7 +440,6 @@ pub async fn sign_up_friend(
 		.expect("the account was made");
 	Friend {
 		id: account.id,
-		username: account.username,
 		password,
 		pass: cookie_in(&response, COOKIE).expect("a pass was given"),
 		session: cookie_in(&response, "stump_session").expect("a session was given"),
