@@ -50,6 +50,10 @@ const query = graphql(`
 	}
 `)
 
+/** Whether the page is the entry's own or one below it (`/reading` is not `/reading-lists`) */
+const isOnOrUnder = (pathname: string, path: string) =>
+	pathname === path || pathname.startsWith(`${path}/`)
+
 export default function AppSidebar() {
 	const location = useLocation()
 	const paths = usePaths()
@@ -141,7 +145,7 @@ export default function AppSidebar() {
 						<SideBarButtonLink
 							to={paths.readingLists()}
 							icon={BookMarked}
-							isActive={location.pathname.startsWith(paths.readingLists())}
+							isActive={isOnOrUnder(location.pathname, paths.readingLists())}
 						>
 							{t('readingLists.title')}
 						</SideBarButtonLink>
@@ -149,7 +153,7 @@ export default function AppSidebar() {
 							<SideBarButtonLink
 								to={paths.myReading()}
 								icon={BookCheck}
-								isActive={location.pathname.startsWith(paths.myReading())}
+								isActive={isOnOrUnder(location.pathname, paths.myReading())}
 							>
 								{t('sidebar.buttons.myReading')}
 							</SideBarButtonLink>
