@@ -94,15 +94,11 @@ pub(crate) fn signin_page(
 		<label>{username}<input name=\"username\" value=\"{typed}\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"{maxu}\" required autofocus></label>\
 		<label>{password}<input name=\"password\" type=\"password\" autocomplete=\"current-password\" maxlength=\"{maxp}\" required></label>\
 		{message}<button>{button}</button></form>\
-		<details><summary>{have_link}</summary>\
-		<form method=\"get\" action=\"/api/_i/\"><label><input name=\"t\" autocomplete=\"off\" autocapitalize=\"off\" spellcheck=\"false\" aria-label=\"{have_link}\"></label><button>{open}</button></form></details>\
 		<p class=muted>{forgot}</p>",
 		title = words.signin_title,
 		username = words.username,
 		password = words.password,
 		button = words.signin_button,
-		have_link = words.have_link,
-		open = words.open,
 		forgot = words.forgot,
 		typed = escape_html(typed),
 		maxu = MAX_USERNAME_CHARS,
@@ -379,6 +375,147 @@ async fn record_failure(
 	}
 }
 
+/// What a sign-in from the internet came to: what the page and the web app's own sign-in
+/// (`login()` behind the edge, no pass) both answer from
+pub(crate) enum PublicSignIn {
+	/// Refused before any password work (see [`PublicVerdict::Refused`])
+	Refused,
+	/// Not a sign-in: the same answer whatever the reason
+	Failed,
+	/// A right password, and the person already uses all their devices
+	LimitReached { max: i32 },
+	/// Signed in: the session is started. `pass_cookie` is the whole `Set-Cookie` value of the
+	/// pass of the device made here, none when the browser already held a pass (never replaced)
+	SignedIn {
+		account: user::Model,
+		pass_cookie: Option<String>,
+	},
+}
+
+/// The sign-in itself, behind both doors: the guard and the password ([`authenticate_public`]), the
+/// device made inside the person's limit (or the limit refusal, audited and warned), the session,
+/// the recorded attempt, the libraries that appeared since hidden, and the pass cookie. Nothing
+/// is decided twice: the page and the JSON sign-in map the outcome to HTML or to a status
+pub(crate) async fn sign_in_from_internet(
+	state: &AppState,
+	session: &Session,
+	ip: IpAddr,
+	agent: &str,
+	passed_device: Option<String>,
+	typed_username: &str,
+	password: String,
+) -> PublicSignIn {
+	let Some(settings) = state.config.edge.as_ref() else {
+		return PublicSignIn::Failed;
+	};
+	let Some(key) = settings.usable_key() else {
+		return PublicSignIn::Failed;
+	};
+
+	let (account, person) = match authenticate_public(
+		state,
+		typed_username,
+		password,
+		ip,
+		agent,
+		passed_device.clone(),
+	)
+	.await
+	{
+		PublicVerdict::Refused => return PublicSignIn::Refused,
+		PublicVerdict::Failed => return PublicSignIn::Failed,
+		PublicVerdict::Allowed { account, person } => (account, person),
+	};
+
+	let conn = state.conn.as_ref();
+	let now = Utc::now();
+
+	// a pass that is already in the browser stays: it is never replaced. Otherwise this device
+	// gets one, within the person's limit
+	let device: Option<access_device::Model> = if passed_device.is_some() {
+		None
+	} else {
+		let label = device_label(agent);
+		let made = async {
+			let id = service::unused_device_id(conn, &label).await?;
+			service::insert_device_within_limit(
+				conn,
+				now,
+				service::NewDevice {
+					id,
+					invite_id: None,
+					person_id: &account.id,
+					label: &label,
+					kind: service::device_kind::BROWSER,
+					ip: &ip.to_string(),
+					agent,
+				},
+				person.max_devices,
+			)
+			.await
+		}
+		.await;
+		match made {
+			Ok(Some(device)) => Some(device),
+			Ok(None) => {
+				device_limit_reached(state, &account, &person, ip, agent).await;
+				return PublicSignIn::LimitReached {
+					max: person.max_devices,
+				};
+			},
+			Err(error) => {
+				tracing::error!(?error, "Public sign-in: could not make a device");
+				return PublicSignIn::Failed;
+			},
+		}
+	};
+
+	if let Err(error) = start_session(state, session, &account.id).await {
+		tracing::error!(?error, "Public sign-in: could not start the session");
+		if let Some(device) = &device {
+			let _ = service::revoke_device(conn, now, &device.id, "system").await;
+		}
+		return PublicSignIn::Failed;
+	}
+
+	// the sign-in is recorded, and a library that appeared since is hidden before the first page
+	if let Ok(Some(login)) = LoginUser::find_by_id(account.id.clone())
+		.into_model::<LoginUser>()
+		.one(conn)
+		.await
+	{
+		let device_for_mark = device
+			.as_ref()
+			.map(|device| device.id.clone())
+			.or(passed_device);
+		record_attempt(
+			conn,
+			&login,
+			agent.to_string(),
+			ip,
+			true,
+			&SignInMark::counting(device_for_mark, None),
+		)
+		.await;
+	}
+	if person.new_libraries_hidden {
+		if let Err(error) =
+			access_people::hide_undecided_libraries(conn, &account.id).await
+		{
+			tracing::error!(?error, "Public sign-in: could not hide a new library");
+		}
+	}
+
+	let pass_cookie = device.as_ref().map(|device| {
+		let value = pass::mint_pass(key, &device.id, now.timestamp());
+		pass::pass_cookie_header(&settings.cookie, &value)
+	});
+	PublicSignIn::SignedIn {
+		account,
+		pass_cookie,
+	}
+}
+
 async fn submit(
 	State(state): State<AppState>,
 	Extension(edge): Extension<EdgeRequest>,
@@ -395,9 +532,9 @@ async fn submit(
 	let Some(settings) = state.config.edge.as_ref() else {
 		return StatusCode::NOT_FOUND.into_response();
 	};
-	let Some(key) = settings.usable_key() else {
+	if settings.usable_key().is_none() {
 		return StatusCode::NOT_FOUND.into_response();
-	};
+	}
 
 	// the same site, and a form of a size that is a sign-in: otherwise the generic answer,
 	// without any work
@@ -422,107 +559,28 @@ async fn submit(
 		.to_string();
 	let passed_device = edge.device.as_ref().map(|device| device.id.clone());
 
-	let (account, person) = match authenticate_public(
+	match sign_in_from_internet(
 		&state,
-		&form.username,
-		form.password,
+		&session,
 		ip,
 		&agent,
-		passed_device.clone(),
+		passed_device,
+		&form.username,
+		form.password,
 	)
 	.await
 	{
-		PublicVerdict::Refused => return too_many_page(words),
-		PublicVerdict::Failed => return failed_page(words, &form.username),
-		PublicVerdict::Allowed { account, person } => (account, person),
-	};
-
-	let conn = state.conn.as_ref();
-	let now = Utc::now();
-
-	// a pass that is already in the browser stays: it is never replaced. Otherwise this device
-	// gets one, within the person's limit
-	let device: Option<access_device::Model> = if passed_device.is_some() {
-		None
-	} else {
-		let label = device_label(&agent);
-		let made = async {
-			let id = service::unused_device_id(conn, &label).await?;
-			service::insert_device_within_limit(
-				conn,
-				now,
-				service::NewDevice {
-					id,
-					invite_id: None,
-					person_id: &account.id,
-					label: &label,
-					kind: service::device_kind::BROWSER,
-					ip: &ip.to_string(),
-					agent: &agent,
-				},
-				person.max_devices,
-			)
-			.await
-		}
-		.await;
-		match made {
-			Ok(Some(device)) => Some(device),
-			Ok(None) => {
-				device_limit_reached(&state, &account, &person, ip, &agent).await;
-				return limit_page(words, person.max_devices);
-			},
-			Err(error) => {
-				tracing::error!(?error, "Public sign-in: could not make a device");
-				return failed_page(words, &form.username);
-			},
-		}
-	};
-
-	if let Err(error) = start_session(&state, &session, &account.id).await {
-		tracing::error!(?error, "Public sign-in: could not start the session");
-		if let Some(device) = &device {
-			let _ = service::revoke_device(conn, now, &device.id, "system").await;
-		}
-		return failed_page(words, &form.username);
+		PublicSignIn::Refused => too_many_page(words),
+		PublicSignIn::Failed => failed_page(words, &form.username),
+		PublicSignIn::LimitReached { max } => limit_page(words, max),
+		PublicSignIn::SignedIn { pass_cookie, .. } => {
+			let mut extra = vec![(header::LOCATION, "/".to_string())];
+			if let Some(cookie) = pass_cookie {
+				extra.push((header::SET_COOKIE, cookie));
+			}
+			page(StatusCode::SEE_OTHER, words, "", &extra)
+		},
 	}
-
-	// the sign-in is recorded, and a library that appeared since is hidden before the first page
-	if let Ok(Some(login)) = LoginUser::find_by_id(account.id.clone())
-		.into_model::<LoginUser>()
-		.one(conn)
-		.await
-	{
-		let device_for_mark = device
-			.as_ref()
-			.map(|device| device.id.clone())
-			.or(passed_device);
-		record_attempt(
-			conn,
-			&login,
-			agent,
-			ip,
-			true,
-			&SignInMark::counting(device_for_mark, None),
-		)
-		.await;
-	}
-	if person.new_libraries_hidden {
-		if let Err(error) =
-			access_people::hide_undecided_libraries(conn, &account.id).await
-		{
-			tracing::error!(?error, "Public sign-in: could not hide a new library");
-		}
-	}
-
-	let mut extra = vec![(header::LOCATION, "/".to_string())];
-	if let Some(device) = &device {
-		let value = pass::mint_pass(key, &device.id, now.timestamp());
-		extra.push((
-			header::SET_COOKIE,
-			pass::pass_cookie_header(&settings.cookie, &value),
-		));
-	}
-	page(StatusCode::SEE_OTHER, words, "", &extra)
 }
 
 /// Starts the session of a person who just signed in: room is made under their session limit,
@@ -618,6 +676,23 @@ mod tests {
 			.to_string();
 		assert!(csp.contains("default-src 'none'"));
 		assert!(!csp.contains("script-src"));
+	}
+
+	/// D1: people who hold an invite link just open it, so the sign-in page has no box to paste
+	/// one into, in either language
+	#[tokio::test]
+	async fn the_sign_in_page_has_no_invite_link_box() {
+		for words in [&super::super::ENGLISH, &super::super::SPANISH] {
+			let response = signin_page(StatusCode::OK, words, None, "");
+			let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+				.await
+				.unwrap();
+			let text = String::from_utf8_lossy(&body);
+			assert!(!text.contains("name=\"t\""), "{text}");
+			assert!(!text.contains("action=\"/api/_i/\""), "{text}");
+			assert!(!text.contains("<details"), "{text}");
+			assert!(text.contains("action=\"/api/_i/signin\""), "{text}");
+		}
 	}
 
 	#[tokio::test]
