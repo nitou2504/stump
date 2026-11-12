@@ -770,7 +770,8 @@
         "buttons": {
           "confirm": "Crear biblioteca"
         }
-      }
+      },
+      "failedToCreateLibrary": "No se pudo crear la biblioteca"
     },
     "directoryPicker": {
       "title": "Selecciona un directorio",
@@ -1036,7 +1037,8 @@
       },
       "criticalHeading": "Ocurrió un error crítico",
       "emptyMessage": "El mensaje de error estaba vacío.",
-      "copiedDetails": "Detalles del error copiados al portapapeles"
+      "copiedDetails": "Detalles del error copiados al portapapeles",
+      "imageAlt": "Ilustración de obras en construcción"
     },
     "metadataMatching": {
       "section": {
@@ -1177,7 +1179,10 @@
                   }
                 },
                 "series_meta": {
-                  "label": "Metadatos de la serie"
+                  "label": "Metadatos de la serie",
+                  "attributes": {
+                    "year": "Año de inicio"
+                  }
                 },
                 "library": {
                   "label": "Biblioteca",
@@ -1190,7 +1195,9 @@
               "placeholder": "Atributo"
             },
             "enumValue": {
-              "selectPlaceholder": "Seleccionar valor"
+              "selectPlaceholder": "Seleccionar valor",
+              "selectMultiplePlaceholder": "Selecciona valores",
+              "emptyState": "No hay valores que mostrar"
             },
             "emptyState": "Añade un grupo para iniciar",
             "actions": {
@@ -1510,6 +1517,9 @@
       "title": "Mi lectura",
       "titleOf": "Lectura de {{name}}",
       "helmet": "Lectura",
+      "read_ordinal_one": "{{count}}.ª lectura",
+      "read_ordinal_two": "{{count}}.ª lectura",
+      "read_ordinal_few": "{{count}}.ª lectura",
       "read_ordinal_other": "{{count}}.ª lectura",
       "people": {
         "label": "De quién es la lectura",
@@ -3085,10 +3095,12 @@
     "noLibraries": {
       "heading": "Nada que ver aquí",
       "message": {
-        "create": "Crea una biblioteca para empezar"
+        "create": "Crea una biblioteca para empezar",
+        "wait": "Cuando se cree una biblioteca, el contenido empezará a aparecer aquí"
       },
       "links": {
-        "create": "Crear biblioteca"
+        "create": "Crear biblioteca",
+        "settings": "Ir a Ajustes"
       }
     },
     "signOutModal": {
@@ -3379,7 +3391,11 @@
         "buttons": {
           "confirm": "Crear lista"
         }
-      }
+      },
+      "failedToCreateSmartList": "No se pudo crear la lista inteligente"
+    },
+    "steppedForm": {
+      "sheetTitle": "Pasos"
     },
     "createOrUpdateApiKey": {
       "validation": {
@@ -3469,12 +3485,15 @@
       }
     },
     "thumbnailSelector": {
+      "label": "Seleccionar miniatura",
+      "chooseAPage": "Elegir una página",
       "chooseFromBooks": "Seleccionar desde los libros",
       "uploadImage": "Subir una imagen",
       "title": "Elige una miniatura",
       "descriptions": {
         "chooseBookPage": "Escoge una página de este libro para usar como la nueva miniatura",
-        "chooseSeriesBook": "Elegir un libro de la serie"
+        "chooseSeriesBook": "Elegir un libro de la serie",
+        "chooseLibrarySeries": "Elige una serie de la biblioteca"
       },
       "uploadDialog": {
         "emptyState": "Una vista previa de tu imagen aparecerá aquí",
