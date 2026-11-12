@@ -3605,6 +3605,38 @@
         }
       }
     },
+    "readerAnnotations": {
+      "toolbar": "Anotar selección",
+      "annotate": "Anotar",
+      "addNote": "Añadir nota",
+      "editNote": "Editar nota",
+      "delete": "Eliminar",
+      "style": "Estilo",
+      "page": "Página {{page}}",
+      "addBookmark": "Añadir marcador",
+      "removeBookmark": "Quitar marcador",
+      "bookmarkAdded": "Marcador añadido",
+      "bookmarkRemoved": "Marcador quitado",
+      "styles": {
+        "highlight": "Resaltado",
+        "underline": "Subrayado",
+        "strikethrough": "Tachado",
+        "invert": "Invertido"
+      },
+      "shortcuts": {
+        "title": "Atajos de teclado",
+        "withSelection": "Con texto o una anotación seleccionados",
+        "deleteSelected": "Eliminar la anotación",
+        "dismiss": "Cerrar la barra de herramientas",
+        "bookmark": "Marcar esta página",
+        "help": "Mostrar atajos",
+        "turnPage": "Pasar la página",
+        "search": "Buscar en el libro"
+      },
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copyFailed": "No se pudo copiar el texto"
+    },
     "pdfReader": {
       "openFailed": "No se pudo abrir este PDF.",
       "retry": "Reintentar",
