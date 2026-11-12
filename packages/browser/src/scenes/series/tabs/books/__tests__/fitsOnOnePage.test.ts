@@ -15,10 +15,19 @@ describe('fitsOnOnePage', () => {
 	})
 
 	it('is false while a search, a letter or a filter narrows the list, so it can be undone', () => {
-		expect(fitsOnOnePage({ loaded: true, totalPages: 1, currentPage: 1, search: 'dune' })).toBe(false)
-		expect(fitsOnOnePage({ loaded: true, totalPages: 1, currentPage: 1, startsWith: 'D' })).toBe(false)
+		expect(fitsOnOnePage({ loaded: true, totalPages: 1, currentPage: 1, search: 'dune' })).toBe(
+			false,
+		)
+		expect(fitsOnOnePage({ loaded: true, totalPages: 1, currentPage: 1, startsWith: 'D' })).toBe(
+			false,
+		)
 		expect(
-			fitsOnOnePage({ loaded: true, totalPages: 1, currentPage: 1, filters: { extension: 'epub' } }),
+			fitsOnOnePage({
+				loaded: true,
+				totalPages: 1,
+				currentPage: 1,
+				filters: { extension: 'epub' },
+			}),
 		).toBe(false)
 	})
 
