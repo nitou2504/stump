@@ -3039,6 +3039,22 @@
         "label": "Cambiar avatar",
         "description": "Permite al usuario cambiar su propio avatar"
       },
+      "CREATE_BOOK_CLUB": {
+        "label": "Crear clubes de lectura",
+        "description": "Permite al usuario crear nuevos clubes de lectura"
+      },
+      "CREATE_LIBRARY": {
+        "label": "Crear bibliotecas",
+        "description": "Permite al usuario crear nuevas bibliotecas"
+      },
+      "CREATE_NOTIFIER": {
+        "label": "Crear notificadores",
+        "description": "Permite al usuario crear nuevos sistemas de notificación"
+      },
+      "DELETE_LIBRARY": {
+        "label": "Eliminar bibliotecas",
+        "description": "Permite al usuario eliminar bibliotecas existentes"
+      },
       "METADATA_PROVIDER_READ": {
         "label": "Ver proveedores de metadatos",
         "description": "Permite al usuario ver los proveedores de metadatos externos configurados"
@@ -3064,11 +3080,20 @@
         "description": "Permite al usuario enviar correos usando el sistema"
       },
       "READ_JOBS": {
-        "label": "Trabajos de lectura"
+        "label": "Trabajos de lectura",
+        "description": "Permite al usuario ver los trabajos del sistema y su estado"
       },
       "EDIT_LIBRARY": {
         "label": "Editar bibliotecas",
         "description": "Permite al usuario modificar las bibliotecas existentes"
+      },
+      "EMAILER_CREATE": {
+        "label": "Crear servidor de correo",
+        "description": "Permite al usuario crear la configuración de correo electrónico"
+      },
+      "EMAILER_MANAGE": {
+        "label": "Gestionar servidor de correo",
+        "description": "Permite al usuario gestionar la configuración y los ajustes de correo electrónico"
       },
       "UPLOAD_FILE": {
         "label": "Cargar archivos",
@@ -3078,14 +3103,29 @@
         "label": "Gestionar trabajos",
         "description": "Permite al usuario gestionary cualquier trabajo en cola"
       },
+      "ACCESS_API_KEYS": {
+        "label": "Claves de API",
+        "description": "Permite al usuario gestionar sus propias claves de API"
+      },
+      "ACCESS_BOOK_CLUB": {
+        "label": "Clubes de lectura",
+        "description": "Permite al usuario acceder a las funciones de clubes de lectura, incluido ver y unirse a clubes de lectura"
+      },
       "ACCESS_KOREADER_SYNC": {
-        "label": "Sincronización con KoReader"
+        "label": "Sincronización con KoReader",
+        "description": "Permite al usuario acceder a la integración de sincronización con KoReader"
       },
       "ACCESS_SMART_LIST": {
+        "label": "Listas inteligentes",
         "description": "Permite al usuario acceder a las funciones de listas inteligentes, incluyendo crear y gestionar listas inteligentes"
       },
       "DELETE_NOTIFIER": {
+        "label": "Eliminar notificadores",
         "description": "Permite al usuario eliminar sistemas de notificación"
+      },
+      "DOWNLOAD_FILE": {
+        "label": "Descargar archivos",
+        "description": "Permite al usuario descargar archivos del servidor"
       },
       "EMAILER_READ": {
         "label": "Leer servidor de correo",
@@ -3100,19 +3140,56 @@
         "description": "Permite al usuario gestionar ajustes y configuraciones de bibliotecas"
       },
       "MANAGE_NOTIFIER": {
-        "label": "Gestionar notificadores"
+        "label": "Gestionar notificadores",
+        "description": "Permite al usuario gestionar los ajustes del sistema de notificaciones"
       },
       "MANAGE_SERVER": {
+        "label": "Gestionar servidor",
         "description": "Permite al usuario gestionar ajustes y configuraciones del servidor"
       },
       "MANAGE_USERS": {
-        "label": "Gestionar usuarios"
+        "label": "Gestionar usuarios",
+        "description": "Permite al usuario crear, editar y eliminar cuentas de usuario"
       },
       "READ_NOTIFIER": {
-        "label": "Leer notificadores"
+        "label": "Leer notificadores",
+        "description": "Permite al usuario ver la configuración del sistema de notificaciones"
+      },
+      "READ_PERSISTED_LOGS": {
+        "label": "Leer registros guardados",
+        "description": "Permite al usuario ver los registros del sistema almacenados"
+      },
+      "READ_SYSTEM_LOGS": {
+        "label": "Leer registros del sistema",
+        "description": "Permite al usuario ver los registros del sistema en tiempo real"
+      },
+      "READ_USERS": {
+        "label": "Leer usuarios",
+        "description": "Permite al usuario ver la información de las cuentas de usuario"
+      },
+      "REMOVE_BOOK": {
+        "label": "Quitar libros",
+        "description": "Permite al usuario quitar libros de las bibliotecas"
+      },
+      "ADD_BOOKS": {
+        "label": "Añadir libros",
+        "description": "Permite al usuario subir libros y añadirlos a las bibliotecas"
+      },
+      "SCAN_LIBRARY": {
+        "label": "Escanear bibliotecas",
+        "description": "Permite al usuario iniciar escaneos de bibliotecas para descubrir contenido nuevo"
       },
       "EDIT_METADATA": {
-        "label": "Editar metadatos"
+        "label": "Editar metadatos",
+        "description": "Permite al usuario editar los metadatos de libros y series"
+      },
+      "WRITE_BACK_METADATA": {
+        "label": "Escribir metadatos en los archivos",
+        "description": "Permite al usuario escribir los cambios de metadatos de vuelta en los archivos de origen"
+      },
+      "EDIT_THUMBNAILS": {
+        "label": "Editar miniaturas",
+        "description": "Permite al usuario editar las miniaturas de libros y series"
       }
     },
     "metadataEditor": {
