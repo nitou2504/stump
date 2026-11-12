@@ -503,11 +503,17 @@ accounts only). **Dani today** holds *Upload files* and *Scan library*: remove b
 cd /mnt/data2/containers/stump-fork; S=/mnt/data2/Code/worktrees/stump/onboard     # the checkout of the revision you deploy
 test -f $S/deploy/public-edge/nginx.conf && git -C $S log --oneline -1
 sqlite3 -readonly config/stump.db "select count(*) from jobs where status in ('RUNNING','QUEUED','PAUSED')"     # 0
+grep -E '^trust_proxy_headers *= *true' config/Stump.toml || echo 'STOP: trust_proxy_headers is not true'      # must print the line (see below)
 T=$(date -u +%Y%m%dT%H%M%SZ); B=config.backup-$T-db; mkdir $B && sqlite3 config/stump.db ".backup $B/stump.db"
 cp config/Stump.toml $B/; cp -a edge $B/edge; cp $S/crates/migrations/manual-down/m20261115_000000_friend_onboarding.sql $B/manual-down.sql
 cp docker-compose.yml docker-compose.yml.bak-$(date +%Y%m%d)-friend-onboarding
 docker image inspect stump:fork-<rev> >/dev/null && echo image-ok       # built on l5 and loaded (AGENTS.md); remember the rollback tag
 ```
+
+**`trust_proxy_headers = true` must be in `config/Stump.toml`** (it is on the live file). The sign-in limits are per client,
+and the client is the address the edge forwards in `X-Real-IP`. With the setting off every client from the internet would
+look like the edge itself, and 10 failed sign-ins from anybody would make every friend wait to sign in on a new device.
+If the line is missing or `false`, stop and fix that first (it needs a restart of `stump-fork`, which step 1 does anyway).
 
 *Test the migration first* on a copy of the live database in an isolated container (never the live one):
 `cp $B/stump.db /tmp/migrate-test.db`, run the image against it with the app's migration command, and check
@@ -582,14 +588,18 @@ DEV=$(curl -s -H "$C" -H 'Content-Type: application/json' -d '{"query":"{ myDevi
 curl -s -H "$C" -H 'Content-Type: application/json' -d '{"query":"mutation($id: ID!){ removeMyDevice(id:$id) }","variables":{"id":"'$DEV'"}}' $E/api/graphql      # true: room for the reading app
 RA=$(curl -s -H "$C" -H 'Content-Type: application/json' -d '{"query":"mutation { createReadingApp(label: \"Kobo\") { id url } }"}' $E/api/graphql | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["createReadingApp"]["url"])')
 P=${RA#https://g3.tail3e401.ts.net:8443}
-echo "feed $(curl -s -o /dev/null -w %{http_code} $E$P) post $(curl -s -o /dev/null -w %{http_code} -X POST $E$P) basic $(curl -s -o /dev/null -w %{http_code} -H 'Authorization: Basic Zm9vOmJhcg==' $E$P) graphql $(curl -s -o /dev/null -w %{http_code} -H "Authorization: Bearer ${P#/opds/}" $E/api/graphql)"   # 200 405 403 401
+echo "feed $(curl -s -o /dev/null -w %{http_code} $E$P) post $(curl -s -o /dev/null -w %{http_code} -X POST $E$P) basic $(curl -s -o /dev/null -w %{http_code} -H 'Authorization: Basic Zm9vOmJhcg==' $E$P) graphql $(curl -s -o /dev/null -w %{http_code} -H "Authorization: Bearer ${P#/opds/}" $E/api/graphql)"   # 200 405 403 404 (the last is not a 401: a reading-app address opens OPDS only, and the edge refuses a pass-less /api/graphql before the app sees it)
 # six wrong passwords: the wait (429) for that name and client; another client is not asked to wait
 for n in 1 2 3 4 5 6; do curl -s -o /dev/null -w "$(printf '%s ' wrong$n)%{http_code}\n" -X POST -H 'Sec-Fetch-Site: same-origin' -H "X-Forwarded-For: 198.51.100.77" -d "username=walkthrough&password=nope$n" $E/api/_i/signin; done    # 401 ×5, then 429
 curl -s -o /dev/null -w 'another origin %{http_code}\n' -X POST -H 'Origin: https://evil.example' -d "username=walkthrough&password=$PW" $E/api/_i/signin       # 401 (the generic page): never signs in
-# clean up: the account (hard), the link, the devices; and check the library has no new rows
+# clean up. First the link, with its accounts turned off (the account's devices are revoked and its sessions end:
+# deleting the account alone would leave its passes valid as devices of nobody), then the account (hard); then the
+# files that held the pass and the session cookie; then check the library has no new rows
+LINK=$(sqlite3 -readonly config/stump.db "select id from access_signup_links where label='throwaway'")
+curl -s -H "Authorization: Bearer $K" -H 'Content-Type: application/json' -d '{"query":"mutation { revokeAccessSignupLink(id: \"'$LINK'\", disableAccounts: true) }"}' $H     # {"data":{"revokeAccessSignupLink":1}}
 UID_=$(sqlite3 -readonly config/stump.db "select id from users where username='walkthrough'")
 curl -s -H "Authorization: Bearer $K" -H 'Content-Type: application/json' -d '{"query":"mutation { deleteUser(id: \"'$UID_'\", hardDelete: true) { id } }"}' $H
-curl -s -H "Authorization: Bearer $K" -H 'Content-Type: application/json' -d '{"query":"mutation { revokeAccessSignupLink(id: \"'$(sqlite3 -readonly config/stump.db "select id from access_signup_links where label='throwaway'")'\") }"}' $H
+rm -f /tmp/join.h /tmp/in[123].html
 sqlite3 -readonly config/stump.db "select count(*) from users where username='walkthrough'; select count(*) from access_people;"
 ```
 
