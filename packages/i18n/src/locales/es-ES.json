@@ -268,7 +268,7 @@
         "heading": "Buscar metadatos",
         "description": "Buscar un proveedor externo para este libro y elegir una coincidencia para aplicar",
         "openButton": "Buscar metadatos",
-        "noProviders": "Ningún proveedor de metadatos habilitado está configurado para este tipo de librería. Configure uno en la configuración del servidor primero.",
+        "noProviders": "Ningún proveedor de metadatos habilitado está configurado para este tipo de biblioteca. Configure uno en la configuración del servidor primero.",
         "noResults": "No se encontraron coincidencias para esa búsqueda",
         "partialResults": "Algunos resultados no se pudieron cargar desde el proveedor, probablemente debido a la limitación de la velocidad. Intenta buscar de nuevo para ver si aparecen más.",
         "searchFailed": "Error al buscar proveedores de metadatos",
@@ -498,8 +498,8 @@
           "description": "Utilizado para categorizar tu biblioteca o imponer reglas de acceso"
         },
         "libraryType": {
-          "label": "Contenido de la librería",
-          "description": "Tipo de contenido presente en la librería"
+          "label": "Contenido de la biblioteca",
+          "description": "Tipo de contenido presente en la biblioteca"
         },
         "readingSettings": {
           "section": {
@@ -665,7 +665,7 @@
           },
           "skipBookOverview": {
             "label": "Omitir vista general del libro",
-            "description": "Abrir lector directamente al seleccionar libros en esta librería"
+            "description": "Abrir lector directamente al seleccionar libros en esta biblioteca"
           }
         },
         "oneshotsDirectory": {
@@ -681,8 +681,8 @@
         "description": "Indexar los archivos de la biblioteca para llenar la base de datos"
       },
       "errors": {
-        "failedToUpdate": "Se ha encontrado un problema al actualizar la librería",
-        "failedToScan": "Se ha encontrado un problema al escanear la librería"
+        "failedToUpdate": "Se ha encontrado un problema al actualizar la biblioteca",
+        "failedToScan": "Se ha encontrado un problema al escanear la biblioteca"
       }
     },
     "createLibraryScene": {
@@ -816,12 +816,12 @@
             "heading": "Configurar escaneo",
             "description": "Un escaneo con opciones adicionales para un control más preciso",
             "form": {
-              "alert": "Estos sobreescribirán los ajustes correspondientes de la librería",
+              "alert": "Estos sobreescribirán los ajustes correspondientes de la biblioteca",
               "options": {
                 "forceRebuild": {
                   "label": "Forzar reconstrucción",
-                  "description": "Reconstruir todos los libros de la librería en el disco",
-                  "alert": "Esto reconstruirá todos los libros de la librería en el disco desde cero, incluyendo metadatos y hashes"
+                  "description": "Reconstruir todos los libros de la biblioteca en el disco",
+                  "alert": "Esto reconstruirá todos los libros de la biblioteca en el disco desde cero, incluyendo metadatos y hashes"
                 },
                 "custom": {
                   "label": "Personalizado",
@@ -832,30 +832,30 @@
                 },
                 "rebuildMeta": {
                   "label": "Reconstruir metadatos",
-                  "description": "Reconstruir metadatos de los libros en la librería"
+                  "description": "Reconstruir metadatos de los libros en la biblioteca"
                 },
                 "regenHashes": {
                   "label": "Regenerar hashes",
-                  "description": "Recrear hashes de los libros en la librería"
+                  "description": "Recrear hashes de los libros en la biblioteca"
                 }
               }
             }
           },
           "defaultScan": {
             "heading": "Escaneo por defecto",
-            "description": "Un escaneo estándar para indexar el nuevo contenido de tu librería"
+            "description": "Un escaneo estándar para indexar el nuevo contenido de tu biblioteca"
           },
           "history": {
             "heading": "Historial de escaneos",
-            "description": "El historial de todos los escaneos registrados para esta librería",
-            "empty": "No hay escaneos registrados para esta librería",
+            "description": "El historial de todos los escaneos registrados para esta biblioteca",
+            "empty": "No hay escaneos registrados para esta biblioteca",
             "runScan": "Escanear",
             "inspect": "Ver detalles",
             "inspector": {
               "title": "Registro del escaneo",
               "description": "Una vista detallada del registro de este escaneo",
               "fields": {
-                "library": "Librería",
+                "library": "Biblioteca",
                 "date": "Fecha",
                 "config": "Configuración",
                 "jobOutput": "Resultado de la tarea",
@@ -878,34 +878,34 @@
       },
       "options/thumbnails": {
         "title": "Miniaturas",
-        "description": "Ajustes y opciones de gestión para las miniaturas de esta librería"
+        "description": "Ajustes y opciones de gestión para las miniaturas de esta biblioteca"
       },
       "integrations/analysis": {
         "sections": {
           "analyzeBooks": {
             "disclaimer": "This process is resource-intensive and may take a while to complete. In the future, it will be more configurable",
             "heading": "Analizar libros",
-            "description": "Analizar los libros de esta librería para añadir metadatos adicionales a la base de datos, como las dimensiones de las páginas para libros basados en imágenes",
+            "description": "Analizar los libros de esta biblioteca para añadir metadatos adicionales a la base de datos, como las dimensiones de las páginas para libros basados en imágenes",
             "disclaimerTitle": "Este proceso es intensivo en recursos",
             "analyzeButton": "Analizar libros"
           },
           "missingFiles": {
             "heading": "Archivos faltantes",
             "description": "Archivos que son referenciados en la base de datos pero no pueden ser localizados en el disco",
-            "noMissingFiles": "No hay archivos faltantes en esta librería"
+            "noMissingFiles": "No hay archivos faltantes en esta biblioteca"
           },
           "duplicateFiles": {
             "heading": "Archivos duplicados",
             "description": "Archivos que están potencialmente duplicados en el disco",
-            "noDuplicateFiles": "No se detectaron archivos duplicados en esta librería"
+            "noDuplicateFiles": "No se detectaron archivos duplicados en esta biblioteca"
           }
         },
         "title": "Análisis",
-        "description": "Analizar los contenidos de esta librería para identificar problemas o mejoras potenciales"
+        "description": "Analizar los contenidos de esta biblioteca para identificar problemas o mejoras potenciales"
       },
       "integrations/metadata": {
         "title": "Metadatos",
-        "description": "Gestiona y revisa las coincidencias de metadatos para esta librería",
+        "description": "Gestiona y revisa las coincidencias de metadatos para esta biblioteca",
         "sections": {
           "fetchMetadata": {
             "heading": "Obtener metadatos",
@@ -921,16 +921,16 @@
       },
       "danger-zone/delete": {
         "title": "Deletion Actions",
-        "description": "Eliminar permanentemente esta librería y todos sus contenidos o ciertos recursos",
+        "description": "Eliminar permanentemente esta biblioteca y todos sus contenidos o ciertos recursos",
         "sections": {
           "cleanLibrary": {
-            "heading": "Limpiar librería",
+            "heading": "Limpiar biblioteca",
             "description": "Remover todos los medios y series que no pueden localizarse en el disco",
             "disclaimerTitle": "No se eliminará ningún archivo",
             "disclaimer": "Aunque esta acción no eliminará ningún archivo, eliminará permanentemente todos los registros relacionados a los medios y series que carezcan estado",
             "confirmation": {
-              "label": "Limpiar librería",
-              "text": "¿Estás seguro de querer limpiar esta librería?"
+              "label": "Limpiar biblioteca",
+              "text": "¿Estás seguro de querer limpiar esta biblioteca?"
             },
             "emptyText": "No había nada para limpiar",
             "missingEntitiesTable": {
@@ -942,16 +942,16 @@
               "types": {
                 "BOOK": "Libro",
                 "SERIES": "Series",
-                "LIBRARY": "Librería"
+                "LIBRARY": "Biblioteca"
               },
-              "emptyHeading": "No falta nada en esta librería",
+              "emptyHeading": "No falta nada en esta biblioteca",
               "emptySubtitle": "Todos los archivos referenciados en la base de datos fueron localizados en el disco"
             }
           },
           "deleteLibrary": {
-            "heading": "Eliminar librería",
+            "heading": "Eliminar biblioteca",
             "description": [
-              "Eliminar permanentemente esta librería y todos sus contenidos.",
+              "Eliminar permanentemente esta biblioteca y todos sus contenidos.",
               "Esta acción no se puede deshacer"
             ]
           }
@@ -959,13 +959,13 @@
       },
       "danger-zone/access-control": {
         "title": "Control de acceso",
-        "description": "Controla quien puede acceder al contenido de esta librería",
+        "description": "Controla quien puede acceder al contenido de esta biblioteca",
         "sections": {
           "libraryExclusions": {
             "heading": "Excluir usuarios",
-            "description": "Prevenir que ciertos usuarios accedan a esta librería o sus contenidos",
+            "description": "Prevenir que ciertos usuarios accedan a esta biblioteca o sus contenidos",
             "noUsersTitle": "No hay usuarios a excluir",
-            "noUsers": "No hay otros usuarios registrados a excluir de esta librería",
+            "noUsers": "No hay otros usuarios registrados a excluir de esta biblioteca",
             "updated": "Exclusiones actualizadas",
             "failure": "Falló al actualizar exclusiones"
           }
@@ -1108,7 +1108,7 @@
                   "label": "Metadatos de la serie"
                 },
                 "library": {
-                  "label": "Librería",
+                  "label": "Biblioteca",
                   "attributes": {
                     "name": "Nombre",
                     "path": "Ruta"
@@ -1184,7 +1184,7 @@
                 "label": "Series"
               },
               "by_library": {
-                "label": "Librería"
+                "label": "Biblioteca"
               }
             }
           }
@@ -1638,7 +1638,7 @@
             "options": {
               "HOME": "Inicio",
               "EXPLORE": "Explorar",
-              "LIBRARIES": "Librerías",
+              "LIBRARIES": "Bibliotecas",
               "BOOK_CLUBS": "Clubs de libros",
               "SMART_LISTS": "Listas inteligentes"
             },
@@ -1983,7 +1983,7 @@
               },
               "libraryIds": {
                 "label": "Bibliotecas a escanear",
-                "description": "Dejar en blanco para escanear todas las librerías"
+                "description": "Dejar en blanco para escanear todas las bibliotecas"
               },
               "statuses": {
                 "label": "Estados a reintentar",
@@ -2128,24 +2128,24 @@
             "library": {
               "scan": {
                 "label": "Escanear bibliotecas",
-                "description": "Permite al usuario iniciar escaneos para librerías existentes"
+                "description": "Permite al usuario iniciar escaneos para bibliotecas existentes"
               },
               "edit": {
                 "label": "Editar bibliotecas",
-                "description": "Permite al usuario editar detalles básicos de librerías existentes"
+                "description": "Permite al usuario editar detalles básicos de bibliotecas existentes"
               },
               "delete": {
-                "label": "Eliminar librerías",
-                "description": "Permite al usuario eliminar librerías existentes. Incluye permisos para editar, gestionar y escanear"
+                "label": "Eliminar bibliotecas",
+                "description": "Permite al usuario eliminar bibliotecas existentes. Incluye permisos para editar, gestionar y escanear"
               },
-              "label": "Gestión de librería",
+              "label": "Gestión de biblioteca",
               "create": {
-                "label": "Crear librerías",
-                "description": "Permite al usuario crear nuevas librerías. Incluye permisos para editar y escanear"
+                "label": "Crear bibliotecas",
+                "description": "Permite al usuario crear nuevas bibliotecas. Incluye permisos para editar y escanear"
               },
               "manage": {
-                "label": "Gestionar librerías",
-                "description": "Permite al usuario gestionar ajustes avanzados de librerías existentes. Incluye permisos para editar y escanear"
+                "label": "Gestionar bibliotecas",
+                "description": "Permite al usuario gestionar ajustes avanzados de bibliotecas existentes. Incluye permisos para editar y escanear"
               }
             },
             "user": {
@@ -2156,7 +2156,7 @@
               "label": "Gestión de usuarios",
               "read": {
                 "label": "Ver usuarios",
-                "description": "Permite al usuario consultar sobre los otros usuarios del servidor. Esto es requerido para algunas otras funciones, ej. excluir usuarios del acceso a una librería"
+                "description": "Permite al usuario consultar sobre los otros usuarios del servidor. Esto es requerido para algunas otras funciones, ej. excluir usuarios del acceso a una biblioteca"
               }
             },
             "smartlist": {
@@ -2715,7 +2715,7 @@
         "noProviders": "Aún no hay proveedores configurados. Agrega uno para empezar",
         "providers": {
           "title": "Proveedores",
-          "description": "Configurar proveedores de metadatos externos para buscar y enriquecer los datos de tu librería"
+          "description": "Configurar proveedores de metadatos externos para buscar y enriquecer los datos de tu biblioteca"
         },
         "providerForm": {
           "apiToken": {
@@ -2829,7 +2829,7 @@
         "sections": {
           "createTag": {
             "modal": {
-              "description": "Las etiquetas se pueden asignar a libros, series y librerías",
+              "description": "Las etiquetas se pueden asignar a libros, series y bibliotecas",
               "name": {
                 "placeholder": "Ingrese el nombre de la etiqueta"
               }
@@ -3022,8 +3022,8 @@
         "label": "Trabajos de lectura"
       },
       "EDIT_LIBRARY": {
-        "label": "Editar librerías",
-        "description": "Permite al usuario modificar las librerías existentes"
+        "label": "Editar bibliotecas",
+        "description": "Permite al usuario modificar las bibliotecas existentes"
       },
       "UPLOAD_FILE": {
         "label": "Cargar archivos",
@@ -3051,8 +3051,8 @@
         "description": "Permite al usuario buscar y explorar el sistema de archivos del servidor"
       },
       "MANAGE_LIBRARY": {
-        "label": "Gestionar librerías",
-        "description": "Permite al usuario gestionar ajustes y configuraciones de librerías"
+        "label": "Gestionar bibliotecas",
+        "description": "Permite al usuario gestionar ajustes y configuraciones de bibliotecas"
       },
       "MANAGE_NOTIFIER": {
         "label": "Gestionar notificadores"
@@ -3345,7 +3345,7 @@
       "username": "Nombre de usuario",
       "accessOpdsV2": "Acceder al OPDS v2.0",
       "home": "Inicio",
-      "libraries": "Librerías",
+      "libraries": "Bibliotecas",
       "smartLists": "Listas inteligentes",
       "files": "Archivos",
       "search": "Buscar",
@@ -3629,7 +3629,7 @@
       },
       "goToSeries": "Ir a series",
       "seeDetails": "Ver detalles",
-      "goToLibrary": "Ir a Librería"
+      "goToLibrary": "Ir a Biblioteca"
     },
     "libraryActions": {
       "scan": "Escanear"
