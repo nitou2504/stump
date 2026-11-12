@@ -99,6 +99,7 @@ async fn the_shell_and_its_files_open_without_a_pass_under_a_policy() {
 			Some("no-store"),
 			"{path}"
 		);
+		assert_eq!(header_of(&page, "x-robots-tag"), "noindex", "{path}");
 	}
 	let head = via_spa_edge(app, Method::HEAD, "/").await;
 	head.assert_status_ok();
@@ -204,6 +205,7 @@ async fn a_valid_pass_gets_the_shell_without_the_pass_less_policy() {
 	shell.assert_status_ok();
 	assert!(shell.text().contains("THE-SHELL"));
 	assert_eq!(csp_of(&shell), "");
+	assert_eq!(header_of(&shell, "x-robots-tag"), "");
 	assert_ne!(
 		shell
 			.headers()

@@ -159,6 +159,10 @@ async fn shell_policy(
 		response
 			.headers_mut()
 			.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+		// the server-made pages this replaces said so too: a sign-in screen is not for search results
+		response
+			.headers_mut()
+			.insert("x-robots-tag", HeaderValue::from_static("noindex"));
 	}
 	response
 }
