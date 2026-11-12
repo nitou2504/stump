@@ -17,8 +17,18 @@
 //     for a valid, unrevoked pass (a client's own header is replaced); the app checks the
 //     signature itself and believes it only for requests through this edge.
 //
-// Invite pages are the app's (/api/_i/…): this file never makes a pass. (The app, Stump, checks the
-// pass again itself with the same key; vectors.json pins the format for both.)
+// Invite pages and the sign-in page are the app's (/api/_i/…): this file never makes a pass. (The app,
+// Stump, checks the pass again itself with the same key; vectors.json pins the format for both.)
+//
+// READING-APP KEYS (friend onboarding): a reading app (KOReader, a Kobo) cannot hold a cookie, so its
+// address carries a key, `/opds/<id>.<mac>/v1.2/<route>`, mac = base64url HMAC-SHA256(EDGE_KEY,
+// "opds|<id>"). opdsKey() accepts it only when ALL of these hold, judged on the raw request line (the
+// text the client sent, which is what Stump gets): the exact shape with no dot segment, no empty
+// segment and no escaped slash, dot or NUL; the route is one of OPDS 1.2's; the MAC checks out; the
+// app has not revoked the id (the state file, like passes; until the first good read every key is
+// refused). A valid key makes device() the key's id for that one address, which is what lets the
+// request through without a pass. A pass is not a key and a key is not a pass (different domain tags).
+// At most DL_CAP files a day may be downloaded per key (a leaked key cannot pull a whole library).
 import cr from 'crypto';
 import fs from 'fs';
 
@@ -27,6 +37,9 @@ const STATE_FILE = '/etc/nginx/state/state.json';
 const AGE = 180 * 86400, RENEW = 86400;
 const SIGNIN_CAP = 8;                      // below the app's own lock (10 failures a day)
 const PASS = /^([a-z0-9-]{1,24})\.(\d{10})\.([A-Za-z0-9_-]{43})$/;
+const DL_CAP = parseInt(process.env.EDGE_DL_CAP || '300', 10) || 300;   // files a reading-app key may download per UTC day (EDGE_DL_CAP is for the tests)
+const OPDS_ROUTES = ['catalog', 'search', 'keep-reading', 'smart-lists', 'reading-lists', 'authors', 'genres', 'libraries', 'series', 'books'];
+const OPDS_KEY = /^\/opds\/([a-z0-9-]{1,24})\.([A-Za-z0-9_-]{43})\/v1\.2\/(.+)$/;
 const mac = (s) => cr.createHmac('sha256', KEY).update(s).digest('base64url');
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -58,7 +71,35 @@ function valid(r) {                        // a valid pass the app has not revok
   return c;
 }
 
-function device(r) { const c = valid(r); return c ? c.name : ''; }
+function opdsKey(r) {                      // {id, file} for a valid reading-app key in the raw request line, else null
+  const raw = r.variables.request_uri || '', q = raw.indexOf('?');
+  const path = q === -1 ? raw : raw.slice(0, q);
+  const m = OPDS_KEY.exec(path);
+  if (!m || KEY.length < 64 || /%(?:2e|2f|5c|00)/i.test(path)) return null;
+  const segs = m[3].split('/');
+  if (OPDS_ROUTES.indexOf(segs[0]) === -1) return null;
+  for (let i = 0; i < segs.length; i++) {  // no empty segment, no dot segment, only what a URL path may hold
+    if (!segs[i] || segs[i] === '.' || segs[i] === '..' || !/^[A-Za-z0-9._~%-]+$/.test(segs[i])) return null;
+  }
+  if (mac('c|' + m[2]) !== mac('c|' + mac('opds|' + m[1]))) return null;   // second HMAC: no timing signal
+  const s = state();
+  if (!s || s.r.indexOf(m[1]) !== -1) return null;
+  return { id: m[1], file: segs[0] === 'books' && segs[2] === 'file', epoch: (s.g && s.g[m[1]]) || 0 };
+}
+
+function device(r) {                       // a valid pass's device, else the id of a valid reading-app key for its address
+  const c = valid(r);
+  if (c) return c.name;
+  const k = opdsKey(r);
+  return k ? k.id : '';
+}
+function opds_key(r) { const k = opdsKey(r); return k ? k.id : ''; }
+function opds_dl(r) {                      // "0" once a key has downloaded DL_CAP files today (a budget reset starts again)
+  const k = opdsKey(r);
+  if (!k || !k.file) return '1';
+  try { return ngx.shared.edge_dl.incr(`dl:${k.id}:${Math.floor(now() / 86400)}:${k.epoch}`, 1, 0) <= DL_CAP ? '1' : '0'; }
+  catch (e) { return '0'; }
+}
 function pass_header(r) { const c = valid(r); return c ? c.raw : ''; }
 
 function renew(r) {                        // a pass in use is renewed once a day
@@ -98,4 +139,4 @@ function warn(dict, what) {                // one warning per problem, not one a
   if (dict.get('warned') !== what) { ngx.log(ngx.WARN, 'stump edge: state file ' + what + (dict.get('state') ? ' (keeping the last good state)' : ' (no state yet: every pass refused)')); dict.set('warned', what); }
 }
 
-export default { device, pass_header, renew, signin, poll };
+export default { device, pass_header, renew, signin, opds_key, opds_dl, poll };

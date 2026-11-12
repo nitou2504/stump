@@ -52,21 +52,26 @@ http { server { listen 10801;
 EOF
 docker run -d --name $NET-stub --network $NET --network-alias stump-fork -v /tmp/$NET-stub.conf:/etc/nginx/nginx.conf:ro nginx:alpine >/dev/null
 docker run -d --name $NET-edge --network $NET -p 127.0.0.1:$PUB_PORT:8081 -p 127.0.0.1:$HOME_PORT:8080 \
-  -e EDGE_KEY="$KEY" -e EDGE_COOKIE=$COOKIE -v "$EDGE":/etc/nginx/edge:ro -v "$STATE":/etc/nginx/state:ro \
+  -e EDGE_KEY="$KEY" -e EDGE_COOKIE=$COOKIE -e EDGE_DL_CAP=5 -v "$EDGE":/etc/nginx/edge:ro -v "$STATE":/etc/nginx/state:ro \
   --entrypoint nginx nginx:alpine -c /etc/nginx/edge/nginx.conf -g 'daemon off;' >/dev/null
 sleep 3
 docker exec $NET-edge nginx -t -c /etc/nginx/edge/nginx.conf >/dev/null 2>&1 && ok "nginx -t" || bad "nginx -t"
 
 P=$(pass_for ana-phone-k3f9x)
+RKID=kobo-9x2mq; RK="$RKID.$(mac "opds|$RKID")"     # a reading-app key, as the app makes one
+[ "$RK" = "$(python3 -c "import json;print(json.load(open('$HERE/vectors.json'))['reading_key']['value'])")" ] && ok "openssl makes the vector's reading-app key" || bad "openssl does not make the vector's reading-app key"
 
 echo "== before the first state file, every pass is refused (fail closed)"
 check 404 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" "a valid pass, no state file yet"
+check 404 "$(code $PUB/opds/$RK/v1.2/catalog)" "a valid reading-app key, no state file yet (fail closed too)"
 
 echo "== once the app has written the state file, passes work"
 write_state 1 '[]' '{}'; sleep 2.5
 check 200 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P")" "a valid pass"
 check 404 "$(code $PUB/api/v2/ping)" "no pass"
-check 404 "$(code $PUB/)" "no pass, the front page"
+# the front door: a browser with no pass is shown the sign-in page (the app's: an internal rewrite)
+FD=$(curl -s $PUB/)
+echo "$FD" | grep -q 'uri=/api/_i/signin' && echo "$FD" | grep -q 'pub=\[1\]' && echo "$FD" | grep -q 'pass=\[\]' && ok "no pass, the front page: the app's sign-in page (rewritten, marker, no pass)" || bad "the front door: $FD"
 check 404 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}')" "no pass, a sign-in"
 check 404 "$(code $PUB/api/graphql -H 'Content-Type: application/json' -d '{}')" "no pass, GraphQL"
 check 404 "$(code $PUB/settings/access -H "Cookie: $COOKIE=$P")" "the admin page, even with a pass"
@@ -229,6 +234,124 @@ basic429=0; for i in $(seq 1 150); do [ "$(code $HOME_/opds/v1.2/catalog -H 'Aut
 [ "$basic429" -ge 1 ] && [ "$basic429" -lt 60 ] && ok "HTTP Basic: a reader's burst of about 120 goes through, a flood does not ($basic429 of 150 got a 429)" || bad "HTTP Basic limit: $basic429 of 150 requests got a 429 (wanted 1 to 59)"
 check 200 "$(code $HOME_/api/v2/ping)" "and a request without Basic is still answered"
 check 404 "$(code $HOME_/api/v2/ping -H 'Tailscale-Funnel-Request: ?1')" "the Funnel refusal still holds after the floods"
+
+
+echo "== friend onboarding: the front door, the sign-in page and the signup form need no pass; nothing else does"
+sleep 12   # the sign-in zones refill (the home-listener floods above did not touch them)
+for t in "/?a=1" "/api/_i/signin" "/api/_i/signin?x=1"; do
+  check 200 "$(code "$PUB$t")" "no pass: GET $t reaches the app"
+done
+check 200 "$(code -I $PUB/)" "no pass: HEAD / (the front door)"
+check 404 "$(code $PUB/x)" "no pass: any other path is still 404"
+check 404 "$(code -X POST $PUB/)" "no pass: POST / is 404 (only GET and HEAD of / are the front door)"
+check 404 "$(code -X POST "$PUB/?a=1")" "no pass: POST /?a=1 is 404"
+check 404 "$(code $PUB/index.html)" "no pass: /index.html is 404"
+FD=$(curl -s "$PUB/?a=1")
+echo "$FD" | grep -q 'uri=/api/_i/signin?a=1' && ok "the front door keeps the query" || bad "front door with a query: $FD"
+# every way of reaching the sign-in page or the form by a path that is not the exact one needs a pass
+for t in /api/_i/signin/ /api/_i/signin/../x //api/_i/signin /api/_i/%73ignin /Api/_i/signin /api/_i/signin%2f /api/_i/./signin /api//_i/signin \
+         /api/_i/join/ /api/_i/%6aoin /api/_i/../_i/join; do
+  check 404 "$(code --path-as-is "$PUB$t")" "no pass: $t"
+  check 404 "$(code --path-as-is -X POST "$PUB$t")" "no pass, POST: $t"
+done
+check 200 "$(code -X POST $PUB/api/_i/signin -d 'username=a&password=b')" "no pass: POST /api/_i/signin reaches the app"
+check 200 "$(code -X POST $PUB/api/_i/join -d 't=x&username=a&password=b&password2=b')" "no pass: POST /api/_i/join reaches the app"
+check 405 "$(code $PUB/api/_i/join)" "GET /api/_i/join is 405"
+check 200 "$(code $PUB/ -H "Cookie: $COOKIE=$P")" "a pass: / is the web app"
+R=$(curl -s $PUB/ -H "Cookie: $COOKIE=$P"); echo "$R" | grep -q 'uri=/ ' || echo "$R" | grep -q 'uri=/$' && ok "a pass: / is forwarded as /, not rewritten" || bad "a pass on /: $R"
+head -c 5000 /dev/zero | tr '\0' 'x' > "$STATE/5k.bin"
+check 413 "$(code -X POST $PUB/api/_i/signin --data-binary @"$STATE/5k.bin")" "a sign-in body over 4 KB is refused before the app"
+check 413 "$(code -X POST $PUB/api/_i/join --data-binary @"$STATE/5k.bin")" "a signup body over 4 KB is refused before the app"
+# a revoked device is no pass: the front door shows it the sign-in page, and its API calls are 404 with the hint
+write_state 8 '["ana-phone-k3f9x"]' '{}'; sleep 2.5
+R=$(curl -s "$PUB/" -H "Cookie: $COOKIE=$P"); echo "$R" | grep -q 'uri=/api/_i/signin' && echo "$R" | grep -q 'pass=\[\]' && ok "a revoked device at the front door: the sign-in page, and its pass is not passed on" || bad "revoked at the front door: $R"
+write_state 9 '[]' '{}'; sleep 2.5
+# the 404 of a request with no pass says where to sign in (and tells the web app, by a header)
+H=$(curl -s -D - $PUB/api/v2/ping)
+echo "$H" | head -1 | grep -q 404 && echo "$H" | grep -qi '^x-edge-sign-in: 1' && echo "$H" | grep -q 'href="/api/_i/signin"' && ok "the 404 of a request with no pass: the sign-in link, and X-Edge-Sign-In: 1" || bad "the 404 body/header: $H"
+echo "$H" | grep -q 'action=/api/_i/' && bad "the 404 still carries the old paste form" || ok "the paste form moved into the sign-in page"
+H=$(curl -s -D - $PUB/api/v2/ping -H "Cookie: $COOKIE=$P"); echo "$H" | grep -qi '^x-edge-sign-in' && bad "a request with a pass got the sign-in hint" || ok "no sign-in hint on a request that has a pass"
+H=$(curl -s -D - $PUB/api/_i/signin); echo "$H" | grep -qi '^x-edge-sign-in' && bad "the sign-in page itself carries the hint" || ok "no hint on the sign-in page"
+# the new pages: only the app's headers and HSTS (no pass renewal over a pass the app just set)
+OLD=$(pass_for ana-phone-k3f9x $(( $(date +%s) - 2*86400 )))
+for t in /api/_i/signin; do
+  curl -s -D - -o /dev/null $PUB$t -H "Cookie: $COOKIE=$OLD" | grep -qi "^set-cookie" && bad "$t got a renewal Set-Cookie" || ok "no renewal Set-Cookie on $t"
+done
+# limits: a POST is a password guess (6 a minute per client, a burst of 4), a GET is never counted against it
+sleep 10
+got429=0; for i in $(seq 1 14); do [ "$(code -X POST $PUB/api/_i/signin -d 'username=a&password=b')" = 429 ] && got429=$((got429+1)); done
+[ "$got429" -ge 3 ] && ok "a flood of sign-in POSTs is limited ($got429 of 14 got a 429)" || bad "sign-in POSTs not limited ($got429 of 14)"
+check 200 "$(code $PUB/api/_i/signin)" "a GET of the sign-in page is never counted against the POST limit"
+check 200 "$(code $PUB/ -H "Cookie: $COOKIE=$P")" "the web app is not affected by the sign-in limit"
+got429=0; for i in $(seq 1 10); do [ "$(code -X POST $PUB/api/_i/join -d 't=x')" = 429 ] && got429=$((got429+1)); done
+[ "$got429" -ge 3 ] && ok "a flood of signups is limited ($got429 of 10 got a 429)" || bad "signups not limited ($got429 of 10)"
+
+echo "== reading apps: the key is the credential (no pass, no cookie), and only OPDS 1.2 addresses accept it"
+RKB="$PUB/opds/$RK/v1.2"
+A=$(curl -s "$RKB/catalog" -H 'X-Edge-Pass: planted' -H 'X-Edge-Public: evil' -H 'Cookie: other=zzz')
+echo "$A" | grep -q 'pub=\[1\]' && echo "$A" | grep -q 'pass=\[\]' && echo "$A" | grep -q 'cookie=\[\]' && ok "a key reaches the app: the marker, no pass (a key never becomes a pass), no cookie, planted headers replaced" || bad "key request: $A"
+for r in catalog search keep-reading smart-lists reading-lists authors genres libraries series books smart-lists/abc reading-lists/abc libraries/abc/books series/latest books/latest books/abc/thumbnail "books/abc/pages/3?zero_based=true" "books/abc/file/My%20Book.epub" "search/feed?search=x"; do
+  check 200 "$(code "$RKB/$r")" "the key reads /v1.2/$r"
+done
+curl -s -D - -o /dev/null "$RKB/catalog" | tr -d '\r' > "$STATE/key.headers"
+grep -qi '^x-robots-tag: noindex' "$STATE/key.headers" && grep -qi '^referrer-policy: no-referrer' "$STATE/key.headers" && grep -qi '^strict-transport-security' "$STATE/key.headers" && grep -qi '^x-content-type-options: nosniff' "$STATE/key.headers" && ok "the feed keeps HSTS, nosniff and gets no-referrer / noindex" || bad "feed headers: $(cat "$STATE/key.headers")"
+for what in "forged mac:$PUB/opds/$RKID.$(mac "opds|other")/v1.2/catalog" \
+            "truncated mac:$PUB/opds/$RKID.${RK#*.}x/v1.2/catalog" \
+            "a pass is not a key:$PUB/opds/$RKID.$(mac "dev|$RKID|$(printf %010d "$(date +%s)")")/v1.2/catalog" \
+            "no such route:$RKB/nothing" \
+            "no v1.2:$PUB/opds/$RK/catalog" \
+            "OPDS 2.0:$PUB/opds/$RK/v2.0/catalog" \
+            "the sync apis:$PUB/koreader/$RK/syncs/progress" \
+            "the kobo sync:$PUB/kobo/$RK/v1/library/sync" \
+            "uppercase id:$PUB/opds/KOBO-9X2MQ.${RK#*.}/v1.2/catalog"; do
+  check 404 "$(code --path-as-is "${what#*:}")" "not served: ${what%%:*}"
+done
+check 403 "$(code "$PUB/koreader/x/y" -H "Cookie: $COOKIE=$P")" "the sync apis are 403 for a browser with a pass and no key (as before)"
+for t in "/v1.2/../../api/graphql" "/v1.2/books/../../../api/graphql" "/v1.2/books/%2e%2e/%2e%2e/api" "/v1.2/books/a%2fb" "/v1.2/books/a%2Fb" "/v1.2/books/a%5cb" "/v1.2//catalog" "/v1.2/books//x" "/v1.2/books/./x" "/v1.2/books/x/." "/v1.2/books/x/.." "/v1.2/catalog/..;/x" "/v1.2/catalog%0d%0a"; do
+  check 404 "$(code --path-as-is "$PUB/opds/$RK$t")" "not served: key + $t"
+done
+c=$(code --path-as-is "$PUB/opds/$RK/v1.2/books/a%00b"); { [ "$c" = 400 ] || [ "$c" = 404 ]; } && ok "not served: key + a NUL byte ($c: nginx itself refuses it)" || bad "key + a NUL byte: $c"
+check 404 "$(code --path-as-is "$PUB/opds//$RK/v1.2/catalog")" "not served: // before the key"
+check 404 "$(code --path-as-is "$PUB/opds/$RK/../$RK/v1.2/catalog")" "not served: a dot segment before the route"
+check 405 "$(code -X POST "$RKB/catalog")" "a key may only GET and HEAD: POST"
+check 405 "$(code -X PUT "$RKB/catalog")" "PUT"
+check 405 "$(code -X DELETE "$RKB/books/abc/file/x.epub")" "DELETE"
+check 200 "$(code -I "$RKB/catalog")" "HEAD"
+check 403 "$(code "$RKB/catalog" -H 'Authorization: Basic Zm9vOmJhcg==')" "HTTP Basic stays refused, key or not"
+check 404 "$(code $PUB/opds/v1.2/catalog)" "the keyless address needs a pass like any other"
+check 403 "$(code $PUB/opds/v2.0/catalog -H "Cookie: $COOKIE=$P")" "even with a pass, OPDS without a key stays 403 (as before)"
+# revocation: the app's state file, followed within seconds, no reload; and the break-glass map
+write_state 10 "[\"$RKID\"]" '{}'; sleep 2.5
+check 404 "$(code "$RKB/catalog")" "a revoked key is refused within seconds"
+write_state 11 '[]' '{}'; sleep 2.5
+check 200 "$(code "$RKB/catalog")" "and works again once it is restored"
+echo "$RKID 1;" >> "$EDGE/revoked.map"; docker exec $NET-edge nginx -s reload -c /etc/nginx/edge/nginx.conf >/dev/null 2>&1; sleep 2.5
+check 404 "$(code "$RKB/catalog")" "a key in revoked.map is refused (break-glass)"
+sed -i "/^$RKID 1;\$/d" "$EDGE/revoked.map"; docker exec $NET-edge nginx -s reload -c /etc/nginx/edge/nginx.conf >/dev/null 2>&1; sleep 2.5
+check 200 "$(code "$RKB/catalog")" "and works again once the line is gone"
+# a cookie pass does not turn a key URL into something else, and a key does not open anything but its routes
+check 200 "$(code "$RKB/catalog" -H "Cookie: $COOKIE=$P")" "a key with a pass too is fine (the pass wins, the address is the same)"
+check 404 "$(code $PUB/api/v2/ping -H "X-Edge-Pass: $RK")" "a key is no pass for anything else"
+check 404 "$(code "$PUB/api/graphql?x=/opds/$RK/v1.2/catalog" -H 'Content-Type: application/json' -d '{}')" "a key in a query string opens nothing"
+# the daily cap on downloaded files (EDGE_DL_CAP=5 in this test; 300 in production), and a reset
+RK2ID=nook-4t7pw; RK2="$RK2ID.$(mac "opds|$RK2ID")"
+got=""; for i in 1 2 3 4 5 6 7; do got="$got $(code "$PUB/opds/$RK2/v1.2/books/abc/file/x.epub")"; done
+[ "$got" = " 200 200 200 200 200 429 429" ] && ok "downloads: the 6th file of a day is refused (5 allowed in this test:$got)" || bad "download cap:$got"
+check 200 "$(code "$PUB/opds/$RK2/v1.2/catalog")" "browsing is not capped"
+write_state 12 '[]' "{\"$RK2ID\": $(date +%s)}"; sleep 2.5
+check 200 "$(code "$PUB/opds/$RK2/v1.2/books/abc/file/x.epub")" "a budget reset starts the day again"
+write_state 13 '[]' '{}'; sleep 2.5
+# the rate per key: a feed page loads a screen of covers, a flood does not
+RK3ID=pico-8z2kd; RK3="$RK3ID.$(mac "opds|$RK3ID")"
+got429=0; for i in $(seq 1 150); do [ "$(code "$PUB/opds/$RK3/v1.2/catalog")" = 429 ] && got429=$((got429+1)); done
+[ "$got429" -ge 20 ] && [ "$got429" -lt 150 ] && ok "a flood on one key is limited, a burst is not ($got429 of 150 got a 429)" || bad "per-key limit: $got429 of 150 got a 429"
+check 200 "$(code $PUB/ -H "Cookie: $COOKIE=$P")" "other requests are not affected by a key's limit"
+echo "== no reading-app key is in any log"
+sleep 1
+if docker logs $NET-edge 2>&1 | grep -q "${RK#*.}"; then bad "a reading-app key (its MAC) is in the edge's logs"; else ok "the key is in no log"; fi
+docker logs $NET-edge 2>&1 | grep -q '/opds/-key-/v1.2/catalog' && ok "the access log says -key- in its place" || bad "no -key- line in the access log"
+docker logs $NET-edge 2>&1 | grep -q '"GET /opds/v1.2/catalog' && ok "an address that is not a key is logged as itself" || bad "the keyless address was rewritten in the log"
+if docker logs $NET-edge 2>&1 | grep -q 'username=a'; then bad "a form body is in the logs"; else ok "no form body in the logs"; fi
 
 if [ "$LIVE" = 1 ]; then
   echo "== the live edge"
