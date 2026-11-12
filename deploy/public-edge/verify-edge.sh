@@ -45,7 +45,12 @@ echo "== starting the stub upstream and the edge"
 docker network create $NET >/dev/null 2>&1
 cat > /tmp/$NET-stub.conf <<'EOF'
 events {}
-http { server { listen 10801;
+http {
+  # a request that carries `X-Hold` is answered at one byte a second: it stays in flight (and counted by the edge's
+  # connection limits) until the client gives up. Used by the connection checks near the end
+  map $http_x_hold $hold_rate { default 0; "~." 1; }
+  server { listen 10801;
+  limit_rate $hold_rate;
   client_max_body_size 400m;
   location / { default_type text/plain;
     return 200 "pub=[$http_x_edge_public] pass=[$http_x_edge_pass] cookie=[$http_cookie] host=[$http_host] xfp=[$http_x_forwarded_proto] xff=[$http_x_forwarded_for] real=[$http_x_real_ip] fwd=[$http_forwarded] fhost=[$http_x_forwarded_host] upg=[$http_upgrade] conn=[$http_connection] login=[$http_x_edge_login] uri=$request_uri\n"; } } }
@@ -454,6 +459,32 @@ write_state 14 '["dani-laptop-q1z8c"]' '{}'; sleep 2.5
 check 401 "$(code $PUB/api/v2/auth/viewer -H "Cookie: $COOKIE=$P2")" "a revoked pass is a stranger for the viewer question"
 R=$(curl -s $PUB/auth -H "Cookie: $COOKIE=$P2"); echo "$R" | grep -q 'pass=\[\]' && ok "the shell does not pass a revoked pass on" || bad "revoked pass on the shell: $R"
 write_state 15 '[]' '{}'; sleep 2.5
+
+# how many connections ONE client may have open at once. Tailscale serve (the Funnel's relay on :8443 and the tailnet's :10802)
+# turns one browser's HTTP/2 into MANY parallel HTTP/1.1 connections to the edge, so a cold load of the app has dozens in flight
+# at a time: the first caps (30 for a public client, 8 for the owner's GraphQL on the home listener) refused the app's own files
+# and the owner's calls with a 429 in the live walk-through. Here N curls are started together against the stub's slow answer
+# (see `X-Hold`) and the ones the edge refuses (429, at once) are counted; the others stay open until -m ends them (000)
+sleep 20   # the request budgets of the checks above refill
+held() { # held <n> <curl args>: n parallel slow requests from this address; prints how many the edge refused with a 429
+  local n=$1 i; shift; rm -rf "$STATE/held"; mkdir -p "$STATE/held"
+  for i in $(seq 1 "$n"); do ( curl -s -m 6 -o /dev/null -w '%{http_code}' -H 'X-Hold: 1' "$@" > "$STATE/held/$i" 2>/dev/null ) & done
+  wait
+  grep -lx 429 "$STATE"/held/* 2>/dev/null | wc -l
+}
+c=$(held 50 "$PUB/assets/hold-Ab12Cd34.js")
+[ "$c" = 0 ] && ok "50 build files at once from one address (a cold load behind Tailscale serve, no pass): none refused" || bad "$c of 50 parallel build files got a 429 (the per-address connection cap is too low for a cold load)"
+c=$(held 150 "$PUB/assets/hold-Ab12Cd34.js")
+[ "$c" -ge 10 ] && ok "but 150 at once are still limited ($c of 150 got a 429)" || bad "150 parallel build files from one address are not limited ($c got a 429)"
+c=$(held 40 -H "Cookie: $COOKIE=$P2" "$PUB/api/v2/ping")
+[ "$c" = 0 ] && ok "40 API calls at once from one address (with a pass): none refused" || bad "$c of 40 parallel API calls got a 429 (the per-address connection cap is too low)"
+c=$(held 90 -H "Cookie: $COOKIE=$P2" "$PUB/api/v2/ping")
+[ "$c" -ge 15 ] && ok "but 90 at once are still limited ($c of 90 got a 429)" || bad "90 parallel API calls from one address are not limited ($c got a 429)"
+c=$(held 20 -X POST -H 'Authorization: Bearer stump_testkey' -H 'Content-Type: application/json' -d '{}' "$HOME_/api/graphql")
+[ "$c" = 0 ] && ok "20 GraphQL calls at once on the home listener (the owner's app over the tailnet): none refused" || bad "$c of 20 parallel GraphQL calls on the home listener got a 429"
+c=$(held 60 -X POST -H 'Authorization: Bearer stump_testkey' -H 'Content-Type: application/json' -d '{}' "$HOME_/api/graphql")
+[ "$c" -ge 10 ] && ok "but 60 at once are still limited ($c of 60 got a 429)" || bad "60 parallel GraphQL calls on the home listener are not limited ($c got a 429)"
+check 200 "$(code $PUB/assets/index-Ab12Cd34.js)" "and the edge serves normally again once they are gone"
 
 if [ "$LIVE" = 1 ]; then
   echo "== the live edge"

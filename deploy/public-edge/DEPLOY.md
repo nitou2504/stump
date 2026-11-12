@@ -117,7 +117,7 @@ install -m 644 $S/deploy/public-edge/{nginx.conf,stump-gate.js} $N/
 cp edge/revoked.map $N/revoked.map && chmod 644 $N/revoked.map          # keep the break-glass revocations
 docker run --rm --network stump-fork_default -e EDGE_KEY=$(openssl rand -hex 32) -e EDGE_COOKIE=__Host-g3-stump \
   -v $N:/etc/nginx/edge:ro -v $PWD/edge-state:/etc/nginx/state:ro --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-# and the real config against a stub (314 checks, ~9 min, nothing live is touched):
+# and the real config against a stub (321 checks, ~9 min, nothing live is touched):
 bash $S/deploy/public-edge/verify-edge.sh
 ```
 
@@ -259,7 +259,7 @@ cd /mnt/data2/containers/stump-fork && : "${S:?set S first, see the top of this 
 && echo "edge switched"
 ```
 
-`verify-edge.sh` ends with `314 checks, 0 failed` (needs docker; about nine minutes). If the chain stops, read its last
+`verify-edge.sh` ends with `321 checks, 0 failed` (needs docker; about nine minutes). If the chain stops, read its last
 line: before `install -m 644 $N/nginx.conf edge/nginx.conf` nothing live has changed; after it, put the old file back
 (`cp -a edge/nginx.conf.bak-<date>-before-uploads edge/nginx.conf`, see *Back out*).
 
@@ -547,7 +547,7 @@ mkdir -p edge-new && cp $S/deploy/public-edge/nginx.conf $S/deploy/public-edge/s
 # nginx -t with the same mounts as the live edge, in a throwaway container
 docker run --rm -v "$PWD/edge-new":/etc/nginx/edge:ro -v "$PWD/edge-state":/etc/nginx/state:ro -e EDGE_KEY=x$(printf 'x%.0s' $(seq 63)) -e EDGE_COOKIE=__Host-g3-stump \
   --add-host stump-fork:127.0.0.1 --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-bash $S/deploy/public-edge/verify-edge.sh        # 314 checks, ~9 min, nothing live is touched (it runs the staged copy of this folder)
+bash $S/deploy/public-edge/verify-edge.sh        # 321 checks, ~9 min, nothing live is touched (it runs the staged copy of this folder)
 cp edge/nginx.conf edge/nginx.conf.bak-$(date +%Y%m%d)-before-onboarding && cp edge/stump-gate.js edge/stump-gate.js.bak-$(date +%Y%m%d)-before-onboarding
 cp edge-new/nginx.conf edge/nginx.conf && cp edge-new/stump-gate.js edge/stump-gate.js
 docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
@@ -669,6 +669,15 @@ What changes for a visitor:
   file and the screen stayed on its loading spinner (found by `spa-capture.sh`, test 5/6). The location serves only a flat
   `/assets/<name>.<ext>` as the client sent it (an escape or a doubled slash is a `404`); a query is fine with a pass. `verify-edge.sh`
   checks a cold load of 450 files, that the API's budget is untouched by it, and that a flood is still limited.
+* **Open connections are counted per client too, and Tailscale serve opens many of them.** Behind the Funnel's relay (`:8443`) and
+  the tailnet's `:10802`, one browser's HTTP/2 becomes many parallel HTTP/1.1 connections to the edge, so a cold load of the app has
+  dozens in flight at once. The first caps refused the app's own files (`limit_conn pub_conn`, a `429` on the sign-in screen's chunks) and
+  the owner's own calls over the tailnet (`limit_conn home_gql`) in the live walk-through. They are now: **60 a client** on the public
+  listener (was 30: API calls, covers, the websocket); the build files' location has its own, **120 a client and 300 in all** (a location
+  that sets `limit_conn` drops the ones it would inherit, so it names both); the owner's GraphQL on the home listener **32 an address**
+  (was 8). They are still caps: a flood of connections gets a `429`. `verify-edge.sh` holds 20 to 150 slow requests at once (the stub
+  answers a request that carries `X-Hold` at a byte a second) and counts the refusals: 50 files, 40 API calls and 20 GraphQL calls
+  are never refused, 150 files, 90 API calls and 60 GraphQL calls are.
 * **To add a path to that list**: a row in `open-paths.json`, the regex in `nginx.conf` (`$edge_open`) and the rule in
   `middleware/edge.rs` (`is_open_public_request`). `verify-edge.sh` checks the edge column of every row, a Rust test checks the app
   column. The policy of the shell a stranger gets (hash of each inline script) is made by the **app** from the `index.html` it serves,
@@ -724,7 +733,7 @@ policy violation, never add `'unsafe-eval'` to make it go away.** Do not go on u
 mkdir -p edge-new && cp $S/deploy/public-edge/nginx.conf $S/deploy/public-edge/stump-gate.js $S/deploy/public-edge/revoked.map edge-new/
 docker run --rm -v "$PWD/edge-new":/etc/nginx/edge:ro -v "$PWD/edge-state":/etc/nginx/state:ro -e EDGE_KEY=x$(printf 'x%.0s' $(seq 63)) -e EDGE_COOKIE=__Host-g3-stump \
   --add-host stump-fork:127.0.0.1 --entrypoint nginx nginx:alpine -t -c /etc/nginx/edge/nginx.conf
-bash $S/deploy/public-edge/verify-edge.sh        # 314 checks, ~9 min, nothing live is touched (it runs the staged copy of this folder)
+bash $S/deploy/public-edge/verify-edge.sh        # 321 checks, ~9 min, nothing live is touched (it runs the staged copy of this folder)
 cp edge-new/nginx.conf edge/nginx.conf && cp edge-new/stump-gate.js edge/stump-gate.js
 docker exec stump-edge nginx -t -c /etc/nginx/edge/nginx.conf && docker exec stump-edge nginx -s reload -c /etc/nginx/edge/nginx.conf
 sleep 3; docker logs --since 1m stump-edge 2>&1 | grep -c emerg                    # 0: a zone whose key changed would make the reload fail and keep the OLD config running
@@ -809,7 +818,7 @@ docker image inspect stump:fork-<rev> --format '{{index .Config.Labels "org.open
 ```sh
 cd /mnt/data2/Code/worktrees/stump/integ8
 l5run -- 'bash scripts/fork/node.sh "yarn install --frozen-lockfile >/tmp/y.log 2>&1 || tail -5 /tmp/y.log" && bash deploy/public-edge/spa-capture.sh stump:fork-<rev>'
-l5run -- 'bash deploy/public-edge/verify-edge.sh'          # 314 checks, ~9 min, 0 failed
+l5run -- 'bash deploy/public-edge/verify-edge.sh'          # 321 checks, ~9 min, 0 failed
 ```
 
 `spa-capture.sh` (~3 min; the first run pulls the browser image if l5 does not have it) is **the gate of this release**: the real-browser check of the
