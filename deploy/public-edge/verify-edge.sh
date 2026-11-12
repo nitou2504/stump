@@ -427,12 +427,28 @@ done
 [ "$allowed" -ge 1 ] && [ "$allowed" -le 6 ] && [ "$got429" -ge 5 ] && ok "the page and the web app's sign-in are one budget ($allowed let through, $got429 limited of 12 alternating)" || bad "shared budget: $allowed let through, $got429 limited of 12"
 check 200 "$(code -X POST $PUB/api/v2/auth/login -H 'Content-Type: application/json' -d '{}' -H "Cookie: $COOKIE=$P2")" "a sign-in with a pass is not refused after pass-less traffic used the budget up"
 check 200 "$(code $PUB/auth -H "Cookie: $COOKIE=$P2")" "and the shell with a pass is not counted against it"
-# pass-less shell loads are counted per client; a pass is not counted, and the files only by the general limit
+# pass-less shell loads are counted per client; a pass is not counted; the build's files have a budget of their own (below)
 sleep 40
 got429=0; for i in $(seq 1 16); do [ "$(code $PUB/auth)" = 429 ] && got429=$((got429+1)); done
 [ "$got429" -ge 3 ] && ok "a flood of pass-less shell loads is limited ($got429 of 16 got a 429)" || bad "shell loads not limited ($got429 of 16)"
 check 200 "$(code $PUB/auth -H "Cookie: $COOKIE=$P2")" "the shell with a pass is never counted there"
-check 200 "$(code $PUB/assets/index-Ab12Cd34.js)" "and the build's files stay under the general limit only"
+# the build's own files have a budget of their own (pub_assets). A cold load of the sign-in screen is ~110 files and of the
+# whole app a few hundred, and every browser that is new to the address (a new phone, a first visit, a cleared cache)
+# fetches them all: they used to share the budget of the API calls and the covers (20 a second, a burst of 300), so one
+# cold load from one address (or one household behind one router) left the next files and calls with a 429 and the screen
+# on its loading spinner. The files are tried one URL after the other over one connection (curl's [1-450] range)
+check 200 "$(code $PUB/assets/index-Ab12Cd34.js)" "a build file is served (no pass: it is on the open list)"
+check 200 "$(code "$PUB/assets/index-Ab12Cd34.js?v=3" -H "Cookie: $COOKIE=$P2")" "and with a pass a query on it is fine"
+check 404 "$(code "$PUB/assets/index-Ab12Cd34.js?v=3")" "but with no pass a query on it is not on the open list"
+check 404 "$(code --path-as-is "$PUB/assets/in%64ex-Ab12Cd34.js" -H "Cookie: $COOKIE=$P2")" "a build file named with an escape is not served by the files' location, pass or not"
+check 404 "$(code --path-as-is "$PUB//assets/index-Ab12Cd34.js" -H "Cookie: $COOKIE=$P2")" "nor one behind a doubled slash"
+cold=$(curl -s -o /dev/null -w '%{http_code}\n' "$PUB/assets/vendor-Ab12Cd34-[1-450].js" | grep -c 429)
+[ "$cold" = 0 ] && ok "a cold load of the whole app (450 files, no pass) from one address is not limited" || bad "$cold of 450 files of a cold load got a 429"
+api=$(curl -s -o /dev/null -w '%{http_code}\n' -H "Cookie: $COOKIE=$P2" "$PUB/api/v2/ping?n=[1-250]" | grep -c 429)
+[ "$api" = 0 ] && ok "and the API calls that follow (250 in a burst, with a pass) still have their whole budget" || bad "$api of 250 API calls got a 429 after the files of a cold load"
+flood=$(curl -s -o /dev/null -w '%{http_code}\n' "$PUB/assets/flood-Ab12Cd34-[1-1800].js" | grep -c 429)
+[ "$flood" -ge 100 ] && ok "a flood of files is still limited ($flood of 1800 got a 429)" || bad "files are not limited ($flood of 1800 got a 429)"
+check 200 "$(code $PUB/api/v2/ping -H "Cookie: $COOKIE=$P2")" "and the flood of files did not touch the API's budget"
 # a device the app has revoked is no pass: the stubs answer it as a stranger, the sign-in screen opens for it
 write_state 14 '["dani-laptop-q1z8c"]' '{}'; sleep 2.5
 check 401 "$(code $PUB/api/v2/auth/viewer -H "Cookie: $COOKIE=$P2")" "a revoked pass is a stranger for the viewer question"
