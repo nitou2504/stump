@@ -3449,7 +3449,8 @@
       "authors_other": "authors",
       "genres_one": "genre",
       "genres_other": "genres",
-      "read": "read"
+      "read_one": "read",
+      "read_other": "read"
     },
     "seriesContinue": {
       "start": "Start reading",

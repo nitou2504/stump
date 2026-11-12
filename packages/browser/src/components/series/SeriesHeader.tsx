@@ -188,7 +188,7 @@ export function SeriesHeader() {
 					key: 'completedBooks',
 					icon: BookCheck,
 					value: labels.number(stats.completedBooks),
-					suffix: labels.read(),
+					suffix: labels.read(stats.completedBooks),
 					title: translate('shared.common.infoSheetStats.completedBooks'),
 				},
 				...(formattedSize

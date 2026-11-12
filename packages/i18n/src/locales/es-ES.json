@@ -3001,7 +3001,8 @@
       "authors_other": "autores",
       "genres_one": "género",
       "genres_other": "géneros",
-      "read": "leídos"
+      "read_one": "leído",
+      "read_other": "leídos"
     },
     "seriesContinue": {
       "start": "Empezar a leer",

@@ -20,7 +20,7 @@ export function useStatLabels() {
 		word,
 		/** The whole phrase: "8,756 books" */
 		count: (kind: StatWord, count: number) => `${number(count)} ${word(kind, count)}`,
-		/** "read", as in "2 / 6 read" */
-		read: () => t('statChips.read'),
+		/** "read", as in "2 read": it agrees with the count in Spanish (1 leído, 2 leídos) */
+		read: (count: number) => t('statChips.read', { count }),
 	}
 }

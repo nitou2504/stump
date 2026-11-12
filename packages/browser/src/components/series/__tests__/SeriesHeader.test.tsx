@@ -4,8 +4,14 @@ import { MemoryRouter } from 'react-router'
 
 import { SeriesHeader } from '../SeriesHeader'
 
+// the words are their keys; the "read" word also shows the count it was asked for, because in Spanish
+// it agrees with it ("1 leído", "2 leídos")
 vi.mock('@/hooks/useTranslate', () => ({
-	useTranslate: () => ({ t: (key: string) => key, translate: (key: string) => key }),
+	useTranslate: () => ({
+		t: (key: string, options?: { count?: number }) =>
+			key === 'statChips.read' ? `${key}(${options?.count})` : key,
+		translate: (key: string) => key,
+	}),
 }))
 
 const permissions = vi.hoisted(() => ({
@@ -120,9 +126,22 @@ describe('SeriesHeader number chips', () => {
 		setup([])
 
 		const chips = screen.getAllByRole('listitem').map((item) => item.textContent ?? '')
-		expect(chips.slice(0, 2)).toEqual(['6 statChips.books', '2 statChips.read'])
+		expect(chips.slice(0, 2)).toEqual(['6 statChips.books', '2 statChips.read(2)'])
 		expect(chips[2]).toMatch(/\bGB$|\bGiB$/)
 		// the in-progress count and the reading time are in the info sheet
 		expect(chips).toHaveLength(3)
+	})
+
+	it('gives the word "read" the number of books read, so Spanish says 1 leído, not 1 leídos', () => {
+		permissions.stats = {
+			totalBytes: 0,
+			totalReadingTimeSeconds: 0,
+			bookCount: 6,
+			completedBooks: 1,
+		}
+		setup([])
+
+		const chips = screen.getAllByRole('listitem').map((item) => item.textContent ?? '')
+		expect(chips.slice(0, 2)).toEqual(['6 statChips.books', '1 statChips.read(1)'])
 	})
 })
