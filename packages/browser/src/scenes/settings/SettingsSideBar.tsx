@@ -1,9 +1,9 @@
 import AccessWarningsBadge from '@/components/navigation/sidebar/AccessWarningsBadge'
-import ApprovalsBadge from '@/scenes/intake/ApprovalsBadge'
 import { SecondarySidebar } from '@/components/sharedLayout'
 import { useRouterContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePathActive } from '@/paths'
+import ApprovalsBadge from '@/scenes/intake/ApprovalsBadge'
 import { useAppStore } from '@/stores'
 
 import { useSettingsRoutes } from './useSettingsRoutes'

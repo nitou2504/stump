@@ -14,9 +14,9 @@ import { usePaths } from '@/paths'
 import AccountDetails from './AccountDetails'
 import MaxSessionsAllowed from './MaxSessionsAllowed'
 import { buildSchema, CreateOrUpdateUserSchema, formDefaults } from './schema'
+import { useInternetPerson } from './useInternetPerson'
 import UserPermissionsTable from './UserPermissionsTable'
 import UserRestrictionsForm from './UserRestrictionsForm'
-import { useInternetPerson } from './useInternetPerson'
 
 const updateMutation = graphql(`
 	mutation CreateOrUpdateUserFormUpdateUser($id: ID!, $input: UpdateUserInput!) {
