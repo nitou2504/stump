@@ -3871,14 +3871,33 @@
       "scan": "Escanear"
     },
     "sorting": {
+      "label": "Ordenar por",
       "labelEllipsis": "Ordenar por...",
+      "placeholder": "Selecciona un campo",
+      "fieldGroups": {
+        "book": "Libro",
+        "metadata": "Metadatos"
+      },
+      "sortOrderLabel": "Orden",
       "sortField": {
         "CREATED_AT": "Fecha de creación",
         "NUMBER": "Posición en la serie",
         "YEAR": "Año de publicación",
         "NAME": "Nombre",
         "ADDED_AT": "Fecha de adición",
-        "SERIES": "Serie"
+        "SERIES": "Serie",
+        "SERIES_ID": "Serie",
+        "LIBRARY_ID": "Biblioteca",
+        "MODIFIED_AT": "Fecha de modificación",
+        "STATUS": "Estado",
+        "PATH": "Ruta",
+        "SIZE": "Tamaño",
+        "EXTENSION": "Tipo de archivo",
+        "PAGES": "Número de páginas",
+        "DESCRIPTION": "Descripción",
+        "VOLUME": "Volumen",
+        "RATING": "Valoración",
+        "AGE_RATING": "Clasificación por edad"
       },
       "sortDirection": {
         "ASC": "Ascendente",
@@ -3888,7 +3907,12 @@
         "ASC": "Más antiguos primero",
         "DESC": "Más reciente primero"
       },
+      "sortDirectionNumber": {
+        "ASC": "1 → 10",
+        "DESC": "10 → 1"
+      },
       "sortDirectionString": {
+        "ASC": "A → Z",
         "DESC": "Z → A"
       }
     },
