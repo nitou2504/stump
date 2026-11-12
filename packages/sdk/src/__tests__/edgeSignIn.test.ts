@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 import { Api, EDGE_SIGN_IN_PAGE } from '../api'
