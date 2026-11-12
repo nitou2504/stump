@@ -8,6 +8,8 @@ const baseURL = process.env.STUMP_BASE_URL ?? 'http://localhost:3000'
 
 export default defineConfig({
 	testDir: './tests',
+	// the public-address checks need the edge in front of Stump and have their own config
+	testIgnore: '**/public/**',
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
