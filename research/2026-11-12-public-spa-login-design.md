@@ -371,3 +371,46 @@ Builds and tests on g3 only, one package at a time (`g3-cargo stump-check-target
 5. `.map`/`.gz`/`.br` and subfolders closed; the capture decides what else, with exact rules.
 6. `generate_token` ignored on the pass-less path; deep links not served pass-less.
 7. Hard navigation after sign-in (D8) costs one more load of the shell, only on the public address.
+
+## Appendix A: as built (the lead's decisions applied, and where the code differs from the text above)
+
+Commits on `feat/public-login`, in order: the core extracted from the page (`sign_in_from_internet`, and the invite-link box removed from the
+server-made sign-in page, D1); the app's second gate (capability header, open list, policy on the pass-less shell, `claim.isPublic`); the JSON
+sign-in and signup; the edge (`nginx.conf`, `stump-gate.js`, `verify-edge.sh`, `open-paths.json`); the web app's login screen; the join screen; the
+sign-out delay; the browser check (`spa-capture.sh` + `apps/web/tests/public/public-login.spec.ts`); `DEPLOY.md` and `FORK.md`.
+
+**The lead's blockers.** R1: the sign-in zones keep their names and key variables and only their maps changed (`$signin_post_key`/`$signin_post_all`
+count the server-made form with or without a pass and the JSON sign-in with no pass, so the two doors share one budget); `pub_login_pass(_all)` count
+a sign-in that holds a pass; `pub_shell` counts pass-less GET/HEAD of the three shell addresses; assets go through `location /` (no new location). The
+maps use `~` regexes: **a plain string in an nginx `map` is matched ignoring case**, a regex is not, and the open list is case-sensitive. R2: the
+pass-less JSON sign-in writes its own answers (fixed bytes, JSON, `no-store`, no `Set-Cookie`, nothing logged above debug); a test sends the
+owner's *real* home session along with refused attempts and shows it still works. R3: `login()` first asks "through the edge, no device, edge
+configured?": then the public branch or a 404 before any work (also with `STUMP_EDGE_REQUIRE_PASS=false`, tested). R4: `safeRedirect` parses with
+`URL`, keeps only the same origin, and sends `/auth…`/`/join…` home. R5: the SDK's sign-in target, its test, `MyDevicesScene` and the edge's 404 page stay
+on `/api/_i/signin`, which answers `303 /auth` when the capability header is present; the SDK's loop guard also stays quiet on `/auth` and `/join`. R6:
+(a) own header sets on sign-in and signup, (b) a revoked pass is no pass on **every** open request, (c) the page waits 2.5 s after removing the device
+in use. R7: the token is taken out of the address in `apps/web/src/index.tsx` before `createRoot`, kept in memory only. R8: the browser check
+(`DEPLOY.md`, step 2).
+
+**The cheap decisions.** S1: the app sends the policy (hash of each inline script, computed once from the `index.html` it serves) and `no-store` on
+the pass-less shell, so the edge adds no header in those locations and a pass in use is still renewed there; it also sends `X-Robots-Tag: noindex`, as the
+server-made pages did. S2: no query on the viewer, claim, identity-provider, sign-in and signup rows or on assets; no `.svg`; the home listener blanks
+`X-Edge-Login`. S3: a visitor nobody knows yet gets Spanish when the browser's **first** language is Spanish (`browserLocale`). S4: the `preconnect` and
+`dns-prefetch` to `cdn.jsdelivr.net` are gone from `index.html`. S5: after a public sign-in or signup the page does `location.assign`, with no `setUser`
+or refetch under the pass-less policy. S6: "account made, session failed" is `409` with its own word (`account_ready`, en and es) and the screen sends the
+person to sign in.
+
+**Where the code differs from the text above.**
+1. The three answers the edge gives itself are written **inside an `if ($edge_has_pass = 0)`**, so a request with a pass gets the app's own answer with
+   the server-level headers (and the renewal of its pass) exactly as before, and no header is added twice.
+2. The app's own open list (`is_open_public_request`) is given the request line **with its query**, so the sign-in, the signup and the assets take no query
+   there either. Result: `POST /api/v2/auth/login?generate_token=true` is a 404 without a pass (the screen sends no query). If a rollout with
+   `REQUIRE_PASS=false` lets one through, the query is ignored (a test).
+3. R3's 404-before-work applies where the edge is configured; a server with **no edge settings at all** keeps the older rule (the owner's password is
+   refused after the same work as a wrong one), which existing tests pin.
+4. D9's claim that "a path in one list but not in the fixture fails a test" is dropped, as the lead said it cannot hold for nginx: `open-paths.json`
+   is checked row by row at the edge (`verify-edge.sh`, by curl, every row) and in the app (a Rust test, every row, all four flag combinations).
+5. `Input` components take `errorMessage` explicitly, so the join form passes the form errors itself.
+6. `useGraphQLSubscription` gained an `enabled` option (default on) and `useCoreEvent` passes `!!storeUser` (D11): nothing opens the socket before sign-in.
+7. The login screen's `renderError` now reads `data.message` (the API's error body is an object) instead of casting it to a string.
+8. New strings exist in en-US and es-ES only (other locales fall back to English).
