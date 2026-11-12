@@ -3,18 +3,26 @@
     "tabs": {
       "browse": "Navegar",
       "clubs": "Clubes",
+      "activity": "Actividad",
+      "stats": "Estadísticas",
+      "servers": "Servidores",
+      "localLibrary": "Biblioteca",
       "settings": "Ajustes"
     },
     "localLibrary": {
+      "title": "Biblioteca local",
       "emptyState": {
         "all": {
-          "title": "Nada que leer aún"
+          "title": "Nada que leer aún",
+          "description": "Cuando tengas libros para leer sin conexión, aparecerán aquí"
         },
         "imported": {
-          "title": "No hay libros importados"
+          "title": "No hay libros importados",
+          "description": "Importa libros para leerlos sin conexión"
         },
         "server": {
-          "title": "No hay libros descargados"
+          "title": "No hay libros descargados",
+          "description": "Descarga libros de tu biblioteca para leerlos sin conexión"
         }
       },
       "downloadProblemsSheet": {
@@ -34,13 +42,20 @@
       "downloadsHeaderMenu": {
         "deleteAllDownloads": {
           "label": "Eliminar libros",
+          "confirmation": "¿Seguro que quieres eliminar tu biblioteca local?",
           "disclaimer": "Esta acción no se puede deshacer."
-        }
+        },
+        "seeProblems": "Ver problemas ({{problemCount}})",
+        "hideCurated": "Ocultar destacados",
+        "showCurated": "Mostrar destacados",
+        "attemptSync": "Intentar sincronizar",
+        "syncConflicts": "Conflictos de sincronización"
       },
       "downloadsHeaderSortMenu": {
         "sourceFilter": {
           "all": "Todos los libros",
-          "server": "Descargado"
+          "server": "Descargado",
+          "imported": "Importados"
         }
       }
     },
@@ -51,6 +66,33 @@
         "explanation": "Algunos servidores utilizan métodos de autenticación que no se pueden actualizar automáticamente"
       },
       "syncFailed": "No se pudo sincronizar el progreso sin conexión"
+    },
+    "syncConflicts": {
+      "title": "Conflictos de sincronización",
+      "remainingCount": "{{remainingCount}} restantes",
+      "noConflicts": {
+        "title": "Sin conflictos de sincronización",
+        "description": "Todo tu progreso local está sincronizado con los servidores"
+      },
+      "lastCommonSession": "Última sesión en común",
+      "localSession": "Sesión local",
+      "remoteSessionWithId": "Sesión remota {{sessionId}}",
+      "noCommonSession": "Sin historial de lectura en común",
+      "noRemoteSessions": "Sin sesiones remotas",
+      "divergentProgress": {
+        "title": "Progreso divergente",
+        "description": "La última sesión en común se modificó en el servidor después de tu última sincronización"
+      },
+      "noCommonReadingHistory": {
+        "title": "Sin historial de lectura en común",
+        "description": "Este libro no tenía historial sincronizado cuando empezaste a leer sin conexión"
+      },
+      "acceptSource": {
+        "local": "Aceptar local",
+        "remote": "Aceptar remoto",
+        "both": "Aceptar ambos"
+      },
+      "pullError": "No se pudo obtener el progreso remoto"
     },
     "search": {
       "label": "Buscar en este servidor",
@@ -219,8 +261,23 @@
     "stumpServer": {
       "browse": {
         "books": "Libros",
-        "favorites": "Favoritos"
+        "favorites": "Favoritos",
+        "series": "Series"
       }
+    },
+    "readingSessions": {
+      "chaptersRead_one": "{{count}} capítulo leído",
+      "chaptersRead_other": "{{count}} capítulos leídos",
+      "pagesRead_one": "{{count}} página leída",
+      "pagesRead_other": "{{count}} páginas leídas",
+      "pageFragment": "página {{page}}",
+      "sessionSentence": {
+        "pageRange": "Pasaste {{timeRange}} leyendo desde la {{startPageFragment}} hasta la {{endPageFragment}}",
+        "singlePage": "Pasaste {{timeRange}} leyendo la {{startPageFragment}}"
+      },
+      "bookmarkSentence": "Marcaste la {{pageFragment}}",
+      "openedBookSentence": "Abriste el libro en la {{pageFragment}}",
+      "closedBookSentence": "Cerraste el libro en la {{pageFragment}}"
     },
     "widgets": {
       "readingNow": {
@@ -249,15 +306,31 @@
       "saveUrlChanges": "Guardar cambios a la URL",
       "swapUrls": {
         "label": "Intercambiar URLs",
-        "confirmationText": "¿Estás seguro de querer intercambiar las URLs remota y local? Esto entrará en efecto inmediatamente"
+        "swap": "Intercambiar",
+        "confirmationText": "¿Estás seguro de querer intercambiar las URLs remota y local? Esto entrará en efecto inmediatamente",
+        "noLocalUrlSet": {
+          "title": "Sin URL local",
+          "description": "Debes configurar una URL local antes de poder cambiarla por la URL remota"
+        }
       },
       "wifiNetwork": {
         "label": "Red Wi-Fi",
         "noAssociatedNetwork": "No hay una red Wi-Fi asociada",
         "notConnectedToWifi": "No estás contectado a Wi-Fi. Por favor conéctate a una red local para terminar de ajustar el perfil local",
+        "connectedTip": "Si la red actual no aparece en la lista, puede que tengas que dar permiso a Stump para acceder a tu ubicación",
         "addNetwork": "Añadir \"{{ssid}}\"",
         "permissionNotGranted": {
-          "label": "Permiso no otorgado"
+          "label": "Permiso no otorgado",
+          "description": "Debes conceder el permiso de ubicación para acceder a la red wifi activa"
+        },
+        "permissionFailedToBeGranted": {
+          "title": "Error en el permiso de ubicación",
+          "description": "La aplicación no pudo obtener permiso para acceder a tu ubicación. Revisa los ajustes de tu dispositivo e inténtalo de nuevo"
+        },
+        "requestPermission": "Solicitar permiso de ubicación",
+        "removeWifi": {
+          "label": "Quitar",
+          "confirmationText": "¿Seguro que quieres quitar la red '{{ssid}}' del perfil local?"
         }
       }
     }
