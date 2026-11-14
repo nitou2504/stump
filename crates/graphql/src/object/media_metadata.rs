@@ -114,3 +114,63 @@ impl MediaMetadata {
 			.unwrap_or_default()
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema};
+	use serde_json::json;
+
+	use super::*;
+
+	struct Root(MediaMetadata);
+
+	#[Object]
+	impl Root {
+		async fn metadata(&self) -> MediaMetadata {
+			self.0.clone()
+		}
+	}
+
+	/// What a client gets for `genres` and `writers` of a book stored with these two texts
+	async fn lists_of(genres: Option<&str>, writers: Option<&str>) -> serde_json::Value {
+		let book = MediaMetadata::from(media_metadata::Model {
+			genres: genres.map(str::to_string),
+			writers: writers.map(str::to_string),
+			..Default::default()
+		});
+		let schema = Schema::build(Root(book), EmptyMutation, EmptySubscription).finish();
+		let response = schema.execute("{ metadata { genres writers } }").await;
+		assert!(response.errors.is_empty(), "{:?}", response.errors);
+		response.data.into_json().unwrap()["metadata"].clone()
+	}
+
+	#[tokio::test]
+	async fn a_stored_leading_comma_is_not_an_empty_genre_or_writer() {
+		// what an EPUB with an empty first `<dc:subject/>` was stored as
+		let lists = lists_of(
+			Some(", Biology & Nature, Form: Reportage, Level: General Reader"),
+			Some(", Charlotte Brontë"),
+		)
+		.await;
+		assert_eq!(
+			lists,
+			json!({
+				"genres": ["Biology & Nature", "Form: Reportage", "Level: General Reader"],
+				"writers": ["Charlotte Brontë"],
+			})
+		);
+	}
+
+	#[tokio::test]
+	async fn doubled_trailing_and_blank_lists_have_no_empty_items() {
+		assert_eq!(
+			lists_of(Some("A,, B, "), Some(" , ")).await,
+			json!({ "genres": ["A", "B"], "writers": [] })
+		);
+		// no value at all is an empty list, as before
+		assert_eq!(
+			lists_of(None, None).await,
+			json!({ "genres": [], "writers": [] })
+		);
+	}
+}
