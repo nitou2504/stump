@@ -4,6 +4,7 @@ import { useFormContext, useWatch } from 'react-hook-form'
 import { Link } from 'react-router'
 
 import { useMetadataEditorContext } from '@/components/metadata/metadataEditor/context'
+import { nonBlank } from '@/utils/lists'
 
 import ValueChipsField from './edit/ValueChipsField'
 
@@ -37,7 +38,7 @@ export default function GenreListCell({ field, values, itemUrl }: Props) {
 
 	return (
 		<div className="gap-1.5 flex h-full flex-wrap items-center">
-			{values.map((value, index) => (
+			{nonBlank(values).map((value, index) => (
 				<Link key={`${value}-${index}`} to={itemUrl(value)}>
 					<Badge className="cursor-pointer">{value}</Badge>
 				</Link>

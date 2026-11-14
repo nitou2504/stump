@@ -1,5 +1,6 @@
 export * from './compare'
 export * from './form'
+export * from './lists'
 export * from './misc'
 export * from './pluralize'
 export * from './prefetch'

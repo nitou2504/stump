@@ -8,6 +8,7 @@ import ReadMore from '@/components/ReadMore'
 import TagList from '@/components/tags/TagList'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
+import { nonBlank } from '@/utils/lists'
 
 import BookStatRow from './BookStatRow'
 import { getBookPresentation } from './presentation'
@@ -67,9 +68,10 @@ export function BookOverviewDetails({ fragment: fragmentRef, onEditGenres }: Pro
 	const paths = usePaths()
 	const metadata = media.metadata
 
-	const writers = metadata?.writers ?? []
-	const artists = metadata?.pencillers ?? []
-	const genres = metadata?.genres ?? []
+	// no blank items: an empty chip would link to a filter on nothing
+	const writers = nonBlank(metadata?.writers)
+	const artists = nonBlank(metadata?.pencillers)
+	const genres = nonBlank(metadata?.genres)
 	const links = (metadata?.links ?? []).filter(Boolean)
 	const tags = (media.tags ?? []) as Tag[]
 

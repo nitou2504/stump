@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 
 import BookOverviewScene from '../BookOverviewScene'
 
-const mocks = vi.hoisted(() => ({ canEditMetadata: true }))
+const mocks = vi.hoisted(() => ({ canEditMetadata: true, writers: [] as string[] }))
 
 vi.mock('@/components/book', () => ({
 	useBookOverview: () => ({
@@ -13,7 +13,7 @@ vi.mock('@/components/book', () => ({
 				id: 'book',
 				resolvedName: 'Dune',
 				seriesId: null,
-				metadata: { writers: [] },
+				metadata: { writers: mocks.writers },
 				thumbnail: { url: '/cover.png', metadata: null },
 			},
 		},
@@ -36,6 +36,10 @@ vi.mock('@/components/book/BookActions', () => ({
 	BookActions: ({ onEditDetails }: { onEditDetails: () => void }) => (
 		<button onClick={onEditDetails}>from the menu</button>
 	),
+}))
+
+vi.mock('../MoreByAuthor', () => ({
+	default: ({ author }: { author: string }) => <div data-testid="more-by">{author}</div>,
 }))
 
 vi.mock('@/components/book/BookOverviewDetails', () => ({
@@ -72,6 +76,7 @@ const renderScene = () =>
 describe('BookOverviewScene', () => {
 	beforeEach(() => {
 		mocks.canEditMetadata = true
+		mocks.writers = []
 	})
 
 	it('has the dialog to edit the details closed until it is asked for', () => {
@@ -108,5 +113,19 @@ describe('BookOverviewScene', () => {
 
 		expect(screen.queryByRole('button', { name: 'pencil by the genres' })).not.toBeInTheDocument()
 		expect(screen.queryByTestId('edit-book-dialog')).not.toBeInTheDocument()
+	})
+
+	it('lists more by the first author that has a name', () => {
+		mocks.writers = ['', 'Frank Herbert']
+		renderScene()
+
+		expect(screen.getByTestId('more-by')).toHaveTextContent('Frank Herbert')
+	})
+
+	it('lists nothing more by an author when no author has a name', () => {
+		mocks.writers = ['', '  ']
+		renderScene()
+
+		expect(screen.queryByTestId('more-by')).not.toBeInTheDocument()
 	})
 })

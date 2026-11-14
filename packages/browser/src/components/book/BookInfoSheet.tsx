@@ -8,6 +8,7 @@ import BadgeList from '@/components/BadgeList'
 import { useAppContext } from '@/context'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
+import { nonBlank } from '@/utils/lists'
 
 const fragment = graphql(`
 	fragment BookInfoSheet on Media {
@@ -174,15 +175,15 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 
 	const credits = (
 		[
-			['writers', metadata?.writers],
-			['pencillers', metadata?.pencillers],
-			['inkers', metadata?.inkers],
-			['colorists', metadata?.colorists],
-			['letterers', metadata?.letterers],
-			['coverArtists', metadata?.coverArtists],
-			['editors', metadata?.editors],
+			['writers', nonBlank(metadata?.writers)],
+			['pencillers', nonBlank(metadata?.pencillers)],
+			['inkers', nonBlank(metadata?.inkers)],
+			['colorists', nonBlank(metadata?.colorists)],
+			['letterers', nonBlank(metadata?.letterers)],
+			['coverArtists', nonBlank(metadata?.coverArtists)],
+			['editors', nonBlank(metadata?.editors)],
 		] as const
-	).filter(([, names]) => !!names?.length)
+	).filter(([, names]) => names.length > 0)
 
 	const file: Row[] = [
 		{ label: meta('format'), value: book.extension?.toUpperCase() },
@@ -238,11 +239,11 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 			]
 		: []
 
-	const characters = (metadata?.characters ?? []).map((character) => ({
+	const characters = nonBlank(metadata?.characters).map((character) => ({
 		to: paths.bookSearchWithFilter({ metadata: { characters: { contains: character } } }),
 		label: character,
 	}))
-	const teams = (metadata?.teams ?? []).map((team) => ({
+	const teams = nonBlank(metadata?.teams).map((team) => ({
 		to: paths.bookSearchWithFilter({ metadata: { teams: { contains: team } } }),
 		label: team,
 	}))

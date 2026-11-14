@@ -1,5 +1,7 @@
 import type { MediaMetadataInput } from '@stump/graphql'
 
+import { nonBlank } from '@/utils/lists'
+
 import { orderTags } from './tags'
 
 /** The fields of the "Edit details" dialog, as typed */
@@ -35,14 +37,14 @@ const text = (value: unknown) => (value == null ? '' : String(value))
 export function detailsForm(meta?: StoredDetails | null): DetailsForm {
 	return {
 		ageRating: text(meta?.ageRating),
-		genres: meta?.genres ?? [],
+		genres: nonBlank(meta?.genres),
 		language: text(meta?.language),
 		number: text(meta?.number),
 		publisher: text(meta?.publisher),
 		series: text(meta?.series),
 		summary: text(meta?.summary),
 		title: text(meta?.title),
-		writers: meta?.writers ?? [],
+		writers: nonBlank(meta?.writers),
 		year: text(meta?.year),
 	}
 }

@@ -19,6 +19,16 @@ const stored = {
 }
 
 describe('edit details form', () => {
+	it('starts from the stored lists without blank items, so a save sends them clean', () => {
+		const initial = detailsForm({
+			...stored,
+			genres: ['', 'History', '  '],
+			writers: ['', 'Charlotte Brontë'],
+		})
+		expect(initial.genres).toEqual(['History'])
+		expect(initial.writers).toEqual(['Charlotte Brontë'])
+	})
+
 	it('sends nothing when nothing was touched', () => {
 		const initial = detailsForm(stored)
 		expect(editInput(initial, { ...initial })).toEqual({})

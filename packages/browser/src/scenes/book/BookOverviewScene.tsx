@@ -11,6 +11,7 @@ import { EditBookDialog } from '@/components/book/metadata/edit'
 import { useBookPermissions } from '@/components/book/useBookPermissions'
 import { SceneContainer } from '@/components/container'
 import { ProminentThumbnailImage } from '@/components/thumbnail'
+import { nonBlank } from '@/utils/lists'
 
 import BooksInSeries from './BooksInSeries'
 import MoreByAuthor from './MoreByAuthor'
@@ -25,6 +26,8 @@ export default function BookOverviewScene() {
 	if (!media) {
 		throw new Error('Book not found')
 	}
+	// the "More by" row follows the first author that has a name
+	const firstAuthor = nonBlank(media.metadata?.writers)[0]
 
 	const [isInfoSheetOpen, setIsInfoSheetOpen] = useState(false)
 	// The dialog to edit the book's details is mounted once, here: the *More* menu and the pencil by
@@ -65,12 +68,12 @@ export default function BookOverviewScene() {
 					<BooksInSeries key={`series-${media.id}`} bookId={media.id} seriesId={media.seriesId} />
 				)}
 
-				{!!media.metadata?.writers?.[0] && (
+				{!!firstAuthor && (
 					<MoreByAuthor
 						key={media.id}
 						bookId={media.id}
 						seriesId={media.seriesId}
-						author={media.metadata.writers[0]}
+						author={firstAuthor}
 					/>
 				)}
 			</SceneContainer>
