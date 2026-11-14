@@ -109,3 +109,106 @@ async fn test_series_position_via_row_number() {
 		);
 	}
 }
+
+/// a book stored with a blank first item (what an EPUB with an empty `<dc:subject/>` was scanned
+/// as) is returned without it: no empty genre or writer for the book page to show as a chip
+#[tokio::test]
+async fn test_a_stored_blank_item_is_not_returned_in_a_list() {
+	let app = TestApp::new_with_default_user().await;
+	let conn = app.conn();
+
+	let library = fake_data::Library::default().insert(conn).await;
+	let (_, books) = setup_single_series_with_n_books(
+		&app,
+		fake_data::Series {
+			library_id: Some(library.id),
+			..Default::default()
+		},
+		1,
+	)
+	.await;
+	let book = &books[0];
+
+	media_metadata::ActiveModel {
+		media_id: sea_orm::Set(Some(book.id.clone())),
+		genres: sea_orm::Set(Some(", History, Form: Reference Work".to_string())),
+		writers: sea_orm::Set(Some(", Charlotte Brontë".to_string())),
+		..Default::default()
+	}
+	.insert(conn)
+	.await
+	.expect("could not insert media metadata");
+
+	let media = fetch_media_by_id(&app, &book.id, "metadata { genres writers }").await;
+
+	assert_eq!(
+		media["metadata"]["genres"],
+		serde_json::json!(["History", "Form: Reference Work"])
+	);
+	assert_eq!(
+		media["metadata"]["writers"],
+		serde_json::json!(["Charlotte Brontë"])
+	);
+}
+
+/// the link of an empty chip filtered on `hasAnyOf: [""]`, which matched every book stored with a
+/// doubled comma. A blank value matches nothing, and a real value still finds the same books
+#[tokio::test]
+async fn test_a_blank_list_filter_matches_nothing_and_a_real_value_still_matches() {
+	let app = TestApp::new_with_default_user().await;
+	let conn = app.conn();
+
+	let library = fake_data::Library::default().insert(conn).await;
+	let (_, books) = setup_single_series_with_n_books(
+		&app,
+		fake_data::Series {
+			library_id: Some(library.id),
+			..Default::default()
+		},
+		2,
+	)
+	.await;
+	for (book, genres) in books
+		.iter()
+		.zip([", History, Level: General Reader", "History"])
+	{
+		media_metadata::ActiveModel {
+			media_id: sea_orm::Set(Some(book.id.clone())),
+			genres: sea_orm::Set(Some(genres.to_string())),
+			..Default::default()
+		}
+		.insert(conn)
+		.await
+		.expect("could not insert media metadata");
+	}
+
+	let count_with = |values: serde_json::Value| {
+		let app = &app;
+		async move {
+			let result = app
+				.execute_gql(
+					r#"query Filtered($values: [String!]!) {
+						media(
+							filter: { metadata: { genres: { hasAnyOf: $values } } }
+							pagination: { offset: { page: 1, pageSize: 20 } }
+						) { nodes { id } }
+					}"#,
+					Some(serde_json::json!({ "values": values })),
+				)
+				.await;
+			result["data"]["media"]["nodes"]
+				.as_array()
+				.unwrap_or_else(|| panic!("expected media nodes: {result:#}"))
+				.len()
+		}
+	};
+
+	assert_eq!(count_with(serde_json::json!([""])).await, 0);
+	assert_eq!(count_with(serde_json::json!(["   "])).await, 0);
+	// the book stored with the blank item still has its real genre
+	assert_eq!(count_with(serde_json::json!(["History"])).await, 2);
+	assert_eq!(
+		count_with(serde_json::json!(["Level: General Reader"])).await,
+		1
+	);
+}
