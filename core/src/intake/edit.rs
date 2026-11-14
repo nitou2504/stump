@@ -67,6 +67,7 @@ use crate::{
 	},
 	postproc::refresh_media_after_swap,
 	scan::own_writes,
+	utils::serde::clean_list_items,
 	CoreError, CoreResult, Ctx,
 };
 
@@ -885,7 +886,7 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 		set_comic_element(&mut xml, "Title", Some(title));
 	}
 	if let Some(writers) = &changes.writers {
-		let joined = writers.join(", ");
+		let joined = clean_list_items(writers).join(", ");
 		set_comic_element(
 			&mut xml,
 			"Writer",
@@ -917,7 +918,7 @@ pub fn apply_comic_info_changes(existing: Option<&str>, changes: &FileChanges) -
 		set_comic_element(&mut xml, "Publisher", publisher.as_deref());
 	}
 	if let Some(genres) = &changes.genres {
-		let joined = genres.join(", ");
+		let joined = clean_list_items(genres).join(", ");
 		set_comic_element(
 			&mut xml,
 			"Genre",
@@ -1098,7 +1099,9 @@ pub fn pdf_info_after(
 		info.push(("Title".into(), pdf_string(&title)));
 	}
 	let author = match &changes.writers {
-		Some(writers) => Some(writers.join(", ")).filter(|a| !a.is_empty()),
+		Some(writers) => {
+			Some(clean_list_items(writers).join(", ")).filter(|a| !a.is_empty())
+		},
 		None => existing.author.clone(),
 	};
 	if let Some(author) = author {

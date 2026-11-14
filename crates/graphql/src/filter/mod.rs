@@ -63,10 +63,16 @@ where
 /// not `Science fiction`. Separators with or without a space are both accepted. Case
 /// folding follows SQLite `LIKE` (ASCII case-insensitive), so the value is intentionally
 /// not lowercased in Rust.
+///
+/// A blank `value` matches nothing: no list has a blank element (the lists are read without them),
+/// and the pattern `%,,%` it would otherwise build matches every row that has a doubled comma
 pub fn list_has_element<C>(column: C, value: &str) -> Condition
 where
 	C: sea_orm::ColumnTrait + Copy,
 {
+	if value.trim().is_empty() {
+		return Condition::all().add(QExpr::val(1).eq(0));
+	}
 	let normalized_column = QExpr::cust_with_exprs(
 		"',' || REPLACE(REPLACE(?, ', ', ','), ' ,', ',') || ','",
 		[QExpr::col(column.as_column_ref())],
@@ -301,6 +307,39 @@ mod tests {
 		assert_eq!(
 			sql,
 			r#"SELECT  FROM "media" WHERE (',' || REPLACE(REPLACE("media"."name", ', ', ','), ' ,', ',') || ',') LIKE '%,Science,%' ESCAPE '\' OR (',' || REPLACE(REPLACE("media"."name", ', ', ','), ' ,', ',') || ',') LIKE '%,50\% off\_,%' ESCAPE '\'"#
+		);
+	}
+
+	#[test]
+	fn a_blank_list_element_matches_nothing() {
+		let sql = |filter: StringLikeFilter<String>| {
+			media::Entity::find()
+				.filter(apply_string_filter(media::Column::Name, filter))
+				.select_only()
+				.into_query()
+				.to_string(SqliteQueryBuilder)
+		};
+		// `hasAnyOf: [""]` is what the link of an empty chip asked for: never a match
+		assert_eq!(
+			sql(StringLikeFilter::HasAnyOf(vec![String::new()])),
+			r#"SELECT  FROM "media" WHERE 1 = 0"#
+		);
+		assert_eq!(
+			sql(StringLikeFilter::HasAnyOf(vec!["   ".to_string()])),
+			r#"SELECT  FROM "media" WHERE 1 = 0"#
+		);
+		// ...next to a real value, only the real one counts
+		assert_eq!(
+			sql(StringLikeFilter::HasAnyOf(vec![
+				String::new(),
+				"Science".to_string()
+			])),
+			r#"SELECT  FROM "media" WHERE 1 = 0 OR (',' || REPLACE(REPLACE("media"."name", ', ', ','), ' ,', ',') || ',') LIKE '%,Science,%' ESCAPE '\'"#
+		);
+		// "has none of" a blank element: every row
+		assert_eq!(
+			sql(StringLikeFilter::HasNoneOf(vec![String::new()])),
+			r#"SELECT  FROM "media" WHERE NOT 1 = 0"#
 		);
 	}
 

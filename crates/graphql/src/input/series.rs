@@ -4,6 +4,7 @@ use models::{
 	shared::series_metadata::{CollectedItem, CollectedItems},
 };
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
+use stump_core::utils::serde::list_to_comma_separated;
 
 #[derive(Debug, Clone, InputObject)]
 pub struct SeriesMetadataInput {
@@ -58,8 +59,21 @@ impl IntoActiveModel<series_metadata::ActiveModel> for SeriesMetadataInput {
 }
 
 fn into_array_string(s: Option<Vec<String>>) -> Option<String> {
-	match s {
-		Some(v) if !v.is_empty() => Some(v.join(", ")),
-		_ => None,
+	s.and_then(list_to_comma_separated)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_series_list_is_stored_without_blank_items() {
+		assert_eq!(
+			into_array_string(Some(vec![String::new(), "Fantasy".to_string()])),
+			Some("Fantasy".to_string())
+		);
+		assert_eq!(into_array_string(Some(vec![" ".to_string()])), None);
+		assert_eq!(into_array_string(Some(vec![])), None);
+		assert_eq!(into_array_string(None), None);
 	}
 }

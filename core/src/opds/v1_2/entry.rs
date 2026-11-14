@@ -16,6 +16,7 @@ use crate::fs_utils::{ContentType, FileParts, PathUtils};
 use crate::media::processor::get_content_types_for_pages;
 use crate::opds::v1_2::link::OpdsStreamLink;
 use crate::opds::v2_0::entity::OPDSPublicationEntity;
+use crate::utils::serde::clean_list_items;
 
 use super::{
 	link::{OpdsLink, OpdsLinkRel, OpdsLinkType},
@@ -291,17 +292,8 @@ impl IntoOPDSEntry for OPDSEntryBuilder<OPDSPublicationEntity> {
 			.and_then(|m| m.title.clone())
 			.unwrap_or_else(|| self.data.media.name.clone());
 		let summary = self.data.metadata.as_ref().and_then(|m| m.summary.clone());
-		let authors = self
-			.data
-			.metadata
-			.as_ref()
-			.and_then(|m| m.writers.clone())
-			.map(|w| {
-				w.split(',')
-					.map(|s| s.trim().to_string())
-					.collect::<Vec<_>>()
-			})
-			.filter(|v| !v.is_empty());
+		let authors =
+			authors_of(self.data.metadata.as_ref().and_then(|m| m.writers.clone()));
 
 		// e.g. "★ 4.1 · 18+ · EN · 1.2 MiB - epub"
 		let mut details = Vec::new();
@@ -347,6 +339,14 @@ impl IntoOPDSEntry for OPDSEntryBuilder<OPDSPublicationEntity> {
 			stream_link: Some(stream_link),
 		}
 	}
+}
+
+/// The names of an entry's `<author>` elements: the writers column's items, never a blank one (a
+/// blank name would be an empty `<author>` that readers show as an unnamed author)
+fn authors_of(writers: Option<String>) -> Option<Vec<String>> {
+	writers
+		.map(|w| clean_list_items(w.split(',')))
+		.filter(|names| !names.is_empty())
 }
 
 #[cfg(test)]
@@ -427,6 +427,20 @@ mod tests {
 		);
 
 		assert_eq!(result, expected_result);
+	}
+
+	#[test]
+	fn an_entry_has_no_blank_author() {
+		assert_eq!(
+			authors_of(Some(", Charlotte Brontë, ".to_string())),
+			Some(vec!["Charlotte Brontë".to_string()])
+		);
+		assert_eq!(
+			authors_of(Some("A. One,, B. Two".to_string())),
+			Some(vec!["A. One".to_string(), "B. Two".to_string()])
+		);
+		assert_eq!(authors_of(Some(" , ".to_string())), None);
+		assert_eq!(authors_of(None), None);
 	}
 
 	fn library() -> library::Model {

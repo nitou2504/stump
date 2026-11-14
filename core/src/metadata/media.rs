@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 use crate::utils::serde::{
-	age_rating_deserializer, optional_f64_deserializer, optional_i32_deserializer,
-	parse_age_restriction, string_list_deserializer,
+	age_rating_deserializer, clean_list_items, list_to_comma_separated,
+	optional_f64_deserializer, optional_i32_deserializer, parse_age_restriction,
+	string_list_deserializer,
 };
 
 use crate::metadata::utils::parse_pdf_date;
@@ -242,21 +243,21 @@ impl ProcessedMediaMetadata {
 				.filter(|r| r.is_finite())
 				.map(|r| r.clamp(0.0, 5.0))
 				.and_then(|r| Decimal::try_from((r * 100.0).round() / 100.0).ok())),
-			genres: Set(self.genres.map(|v| v.join(", "))),
+			genres: Set(self.genres.and_then(list_to_comma_separated)),
 			year: Set(self.year),
 			month: Set(self.month),
 			day: Set(self.day),
-			writers: Set(self.writers.map(|v| v.join(", "))),
-			pencillers: Set(self.pencillers.map(|v| v.join(", "))),
-			inkers: Set(self.inkers.map(|v| v.join(", "))),
-			colorists: Set(self.colorists.map(|v| v.join(", "))),
-			letterers: Set(self.letterers.map(|v| v.join(", "))),
-			cover_artists: Set(self.cover_artists.map(|v| v.join(", "))),
-			editors: Set(self.editors.map(|v| v.join(", "))),
+			writers: Set(self.writers.and_then(list_to_comma_separated)),
+			pencillers: Set(self.pencillers.and_then(list_to_comma_separated)),
+			inkers: Set(self.inkers.and_then(list_to_comma_separated)),
+			colorists: Set(self.colorists.and_then(list_to_comma_separated)),
+			letterers: Set(self.letterers.and_then(list_to_comma_separated)),
+			cover_artists: Set(self.cover_artists.and_then(list_to_comma_separated)),
+			editors: Set(self.editors.and_then(list_to_comma_separated)),
 			publisher: Set(self.publisher),
-			links: Set(self.links.map(|v| v.join(", "))),
-			characters: Set(self.characters.map(|v| v.join(", "))),
-			teams: Set(self.teams.map(|v| v.join(", "))),
+			links: Set(self.links.and_then(list_to_comma_separated)),
+			characters: Set(self.characters.and_then(list_to_comma_separated)),
+			teams: Set(self.teams.and_then(list_to_comma_separated)),
 			page_count: Set(self.page_count),
 			language: Set(self.language),
 			identifier_amazon: Set(self.identifier_amazon),
@@ -319,7 +320,8 @@ impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 				},
 				"notes" => metadata.notes = Some(value.join("\n").to_string()),
 				"genre" | "genres" | "subject" | "subjects" => {
-					metadata.genres = Some(value)
+					// an empty `<dc:subject/>` is no genre
+					metadata.genres = Some(clean_list_items(value))
 				},
 				"tag" | "tags" => {
 					metadata.tags = Some(
@@ -363,16 +365,16 @@ impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 				"identifier_uuid" => {
 					metadata.identifier_uuid = Some(value.join("\n").to_string())
 				},
-				"pencillers" => metadata.pencillers = Some(value),
-				"inkers" => metadata.inkers = Some(value),
-				"colorists" => metadata.colorists = Some(value),
-				"letterers" => metadata.letterers = Some(value),
-				"coverartists" => metadata.cover_artists = Some(value),
-				"editors" => metadata.editors = Some(value),
+				"pencillers" => metadata.pencillers = Some(clean_list_items(value)),
+				"inkers" => metadata.inkers = Some(clean_list_items(value)),
+				"colorists" => metadata.colorists = Some(clean_list_items(value)),
+				"letterers" => metadata.letterers = Some(clean_list_items(value)),
+				"coverartists" => metadata.cover_artists = Some(clean_list_items(value)),
+				"editors" => metadata.editors = Some(clean_list_items(value)),
 				"publisher" => metadata.publisher = Some(value.join("\n").to_string()),
-				"links" => metadata.links = Some(value),
-				"characters" => metadata.characters = Some(value),
-				"teams" => metadata.teams = Some(value),
+				"links" => metadata.links = Some(clean_list_items(value)),
+				"characters" => metadata.characters = Some(clean_list_items(value)),
+				"teams" => metadata.teams = Some(clean_list_items(value)),
 				"pagecount" => {
 					metadata.page_count =
 						value.into_iter().next().and_then(|n| n.parse().ok());
@@ -391,12 +393,12 @@ impl From<HashMap<String, Vec<String>>> for ProcessedMediaMetadata {
 				// TODO: separate out writer vs author?
 				"creator" | "author" | "writers" => match metadata.writers {
 					Some(ref mut writers) => {
-						writers.extend(value);
+						writers.extend(clean_list_items(value));
 						// remove duplicates
 						writers.sort();
 						writers.dedup();
 					},
-					None => metadata.writers = Some(value),
+					None => metadata.writers = Some(clean_list_items(value)),
 				},
 				// calibre stores ratings from 0 to 10 (half stars)
 				"rating" => {
@@ -522,6 +524,61 @@ mod tests {
 				"standalone".to_string(),
 			])
 		);
+	}
+
+	#[test]
+	fn an_empty_epub_subject_is_not_a_genre() {
+		// an OPF with `<dc:subject/>` first: the parsers hand the empty value over as an item
+		let mut map = HashMap::new();
+		map.insert(
+			"subject".to_string(),
+			vec![
+				String::new(),
+				"Biology & Nature".to_string(),
+				"  ".to_string(),
+				"Form: Reportage".to_string(),
+			],
+		);
+		map.insert(
+			"creator".to_string(),
+			vec![String::new(), "Charlotte Brontë".to_string()],
+		);
+
+		let metadata = ProcessedMediaMetadata::from(map);
+		assert_eq!(
+			metadata.genres,
+			Some(vec![
+				"Biology & Nature".to_string(),
+				"Form: Reportage".to_string()
+			])
+		);
+		assert_eq!(metadata.writers, Some(vec!["Charlotte Brontë".to_string()]));
+
+		// ...and what is stored has no leading comma either
+		let stored = metadata.into_active_model();
+		assert_eq!(
+			stored.genres.unwrap(),
+			Some("Biology & Nature, Form: Reportage".to_string())
+		);
+		assert_eq!(
+			stored.writers.unwrap(),
+			Some("Charlotte Brontë".to_string())
+		);
+	}
+
+	#[test]
+	fn lists_of_blanks_are_stored_as_no_list() {
+		let metadata = ProcessedMediaMetadata {
+			genres: Some(vec![String::new(), " ".to_string()]),
+			writers: Some(vec![]),
+			// set directly (a ComicInfo row, a sidecar): the saving side cleans too
+			teams: Some(vec![String::new(), "Justice League".to_string()]),
+			..Default::default()
+		};
+		let stored = metadata.into_active_model();
+		assert_eq!(stored.genres.unwrap(), None);
+		assert_eq!(stored.writers.unwrap(), None);
+		assert_eq!(stored.teams.unwrap(), Some("Justice League".to_string()));
 	}
 
 	#[test]

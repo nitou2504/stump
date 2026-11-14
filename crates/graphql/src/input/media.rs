@@ -7,6 +7,7 @@ use models::{
 	},
 };
 use sea_orm::{prelude::*, ActiveValue::Set, IntoActiveModel};
+use stump_core::utils::serde::list_to_comma_separated;
 
 #[derive(Debug, Clone, InputObject)]
 pub struct EpubProgressInput {
@@ -191,8 +192,10 @@ where
 		.unwrap_or_default()
 }
 
+/// A list as the text it is stored as: blank items are left out, and a list with nothing left is
+/// cleared (stored as no list)
 fn into_array_string(value: MaybeUndefined<Vec<String>>) -> MaybeUndefined<String> {
-	value.map(|values| values.filter(|v| !v.is_empty()).map(|v| v.join(", ")))
+	value.map(|values| values.and_then(list_to_comma_separated))
 }
 
 /// One book of `editMediaMetadataBatch`: named by `id` or by `path` (as Stump stores it; both
@@ -288,4 +291,38 @@ pub struct MediaMetadataSearchInput {
 	/// configured for the media's library type are searched.
 	pub provider: Option<MetadataProvider>,
 	pub limit: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// `Undefined` as `None`, `Null` as `Some(None)`, a value as `Some(Some(text))`
+	fn stored(value: MaybeUndefined<Vec<String>>) -> Option<Option<String>> {
+		Option::<Option<String>>::from(into_array_string(value))
+	}
+
+	#[test]
+	fn a_list_is_stored_without_blank_items() {
+		assert_eq!(
+			stored(MaybeUndefined::Value(vec![
+				String::new(),
+				"History".to_string(),
+				"  ".to_string(),
+				"Form: Reference Work".to_string(),
+			])),
+			Some(Some("History, Form: Reference Work".to_string()))
+		);
+	}
+
+	#[test]
+	fn a_list_of_blanks_clears_the_field_and_undefined_is_left_alone() {
+		assert_eq!(
+			stored(MaybeUndefined::Value(vec![String::new()])),
+			Some(None)
+		);
+		assert_eq!(stored(MaybeUndefined::Value(vec![])), Some(None));
+		assert_eq!(stored(MaybeUndefined::Null), Some(None));
+		assert_eq!(stored(MaybeUndefined::Undefined), None);
+	}
 }

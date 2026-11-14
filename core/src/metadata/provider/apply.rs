@@ -12,6 +12,7 @@ use serde_json::Value as JsonValue;
 
 use crate::{
 	metadata::membership::{remove_series_thumbnails, sync_media_membership},
+	utils::serde::list_to_comma_separated,
 	CoreError,
 };
 
@@ -478,8 +479,8 @@ fn build_series_metadata_insert(
 		age_rating: Set(ext_age_rating),
 		status: Set(ext_status),
 		total_issues: Set(ext.volume_count),
-		genres: Set(ext.genres.as_ref().map(|g| g.join(", "))),
-		writers: Set(ext.authors.as_ref().map(|a| a.join(", "))),
+		genres: Set(ext.genres.as_ref().and_then(list_to_comma_separated)),
+		writers: Set(ext.authors.as_ref().and_then(list_to_comma_separated)),
 		metadata_source: Set(Some(provider.to_string())),
 		metadata_external_id: Set(Some(external_id.to_string())),
 		..Default::default()
