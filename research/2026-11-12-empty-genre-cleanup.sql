@@ -12,11 +12,15 @@
 --
 -- How to run (never on a database a Stump of the OLD build keeps scanning: a rescan of those EPUBs would bring
 -- the blank back; deploy the fixed build first):
---   1. snapshot:  sqlite3 config/stump.db ".backup config.backup-$(date -u +%Y%m%dT%H%M%SZ)-db/stump.db"
+--   1. snapshot:  B=config.backup-$(date -u +%Y%m%dT%H%M%SZ)-db; mkdir -p $B && sqlite3 config/stump.db ".backup $B/stump.db"
 --   2. run:       sqlite3 config/stump.db < research/2026-11-12-empty-genre-cleanup.sql
 --      It prints the number of malformed lists per column before, then after: every 'after' line is 0.
 -- It is idempotent: running it again changes nothing. Back out: restore the snapshot (nothing else was written).
+-- It is ONE transaction: if the database stays busy for 5 seconds (Stump writing), or anything fails, it stops
+-- before changing a thing (.bail), instead of running each UPDATE on its own.
 
+.bail on
+.timeout 5000
 .headers on
 .mode column
 SELECT 'before' AS stage, * FROM (
