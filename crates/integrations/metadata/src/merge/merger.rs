@@ -5,6 +5,17 @@ use serde_json::Value as JsonValue;
 
 use crate::{AutoApplyConfig, MergeStrategy, MetadataField, MetadataFieldOverride};
 
+/// The items of a list a provider or the user gave, trimmed and without the blank ones. A blank item
+/// stored in a comma-separated column reads back as an empty chip on the book page (and as a filter
+/// on nothing), so none is ever saved
+fn without_blank_items<'a>(items: impl IntoIterator<Item = &'a String>) -> Vec<String> {
+	items
+		.into_iter()
+		.map(|item| item.trim().to_string())
+		.filter(|item| !item.is_empty())
+		.collect()
+}
+
 // Note: This is a little verbose, but I think its fine. I started to think through a macro route and quickly said fuck that lol
 
 pub struct FieldMerger {
@@ -98,6 +109,7 @@ impl FieldMerger {
 			Some(v) => {
 				let items: Vec<String> =
 					serde_json::from_value(v.clone()).unwrap_or_default();
+				let items = without_blank_items(&items);
 				if items.is_empty() {
 					Some(None)
 				} else {
@@ -175,10 +187,10 @@ impl FieldMerger {
 			return None;
 		}
 
-		let external_items = match external {
-			Some(items) if !items.is_empty() => items,
-			_ => return None,
-		};
+		let external_items = without_blank_items(external.as_ref()?);
+		if external_items.is_empty() {
+			return None;
+		}
 
 		match self.strategy {
 			MergeStrategy::FillGaps => {
@@ -205,9 +217,8 @@ impl FieldMerger {
 				let mut merged: Vec<String> = existing_items.iter().cloned().collect();
 
 				for item in external_items {
-					let normalized = item.trim().to_string();
-					if !normalized.is_empty() && !existing_items.contains(&normalized) {
-						merged.push(normalized);
+					if !existing_items.contains(&item) {
+						merged.push(item);
 					}
 				}
 
@@ -400,5 +411,111 @@ mod tests {
 			merger.merge_comma_list(MetadataField::Genres, &Some("Horror".into()), &None),
 			None
 		);
+	}
+
+	fn items(list: &[&str]) -> Option<Vec<String>> {
+		Some(list.iter().map(|item| item.to_string()).collect())
+	}
+
+	#[test]
+	fn a_provider_list_never_saves_a_blank_item() {
+		// a provider that sends an empty <dc:subject/> or a stray comma gives a blank item: saved, it comes
+		// back as an empty chip on the book page, so every strategy leaves it out
+		for strategy in [
+			MergeStrategy::FillGaps,
+			MergeStrategy::PreferExternal,
+			MergeStrategy::PreferExternalAndMergeLists,
+			MergeStrategy::FillAndMergeLists,
+		] {
+			let merger = FieldMerger::new(strategy, vec![], vec![]);
+			// the strategies that merge lists sort the result; the others keep the provider's order
+			let merges = matches!(
+				strategy,
+				MergeStrategy::PreferExternalAndMergeLists
+					| MergeStrategy::FillAndMergeLists
+			);
+			let expected = if merges {
+				"Fantasy, Sci-Fi"
+			} else {
+				"Sci-Fi, Fantasy"
+			};
+
+			assert_eq!(
+				merger.merge_comma_list(
+					MetadataField::Genres,
+					&None,
+					&items(&["", "  Sci-Fi ", " ", "Fantasy"])
+				),
+				Some(Some(expected.to_string())),
+				"{strategy:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn a_provider_list_of_only_blank_items_changes_nothing() {
+		for strategy in [
+			MergeStrategy::FillGaps,
+			MergeStrategy::PreferExternal,
+			MergeStrategy::PreferExternalAndMergeLists,
+			MergeStrategy::FillAndMergeLists,
+		] {
+			let merger = FieldMerger::new(strategy, vec![], vec![]);
+
+			// not even PreferExternal clears a field that has a value, or fills one with an empty string
+			assert_eq!(
+				merger.merge_comma_list(
+					MetadataField::Genres,
+					&Some("Horror".into()),
+					&items(&["", " "])
+				),
+				None,
+				"{strategy:?}"
+			);
+			assert_eq!(
+				merger.merge_comma_list(MetadataField::Genres, &None, &items(&[""])),
+				None,
+				"{strategy:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn merging_lists_keeps_the_existing_items_and_adds_the_new_ones_without_blanks() {
+		let merger = FieldMerger::new(MergeStrategy::FillAndMergeLists, vec![], vec![]);
+
+		assert_eq!(
+			merger.merge_comma_list(
+				MetadataField::Genres,
+				&Some("Horror, Sci-Fi".into()),
+				&items(&["", "Fantasy", " Sci-Fi "])
+			),
+			Some(Some("Fantasy, Horror, Sci-Fi".to_string()))
+		);
+	}
+
+	#[test]
+	fn an_override_never_saves_a_blank_item() {
+		let overridden = |value: serde_json::Value| {
+			FieldMerger::with_overrides(
+				MergeStrategy::FillGaps,
+				vec![],
+				vec![],
+				vec![MetadataFieldOverride {
+					field: MetadataField::Genres,
+					value,
+				}],
+			)
+			.apply_comma_list_override(MetadataField::Genres)
+		};
+
+		assert_eq!(
+			overridden(serde_json::json!(["", " History ", "  ", "Politics"])),
+			Some(Some("History, Politics".to_string()))
+		);
+		// nothing left to save clears the field, like an empty list does
+		assert_eq!(overridden(serde_json::json!([""])), Some(None));
+		assert_eq!(overridden(serde_json::json!([])), Some(None));
+		assert_eq!(overridden(serde_json::Value::Null), Some(None));
 	}
 }
