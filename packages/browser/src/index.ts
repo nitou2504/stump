@@ -14,3 +14,5 @@ export { AppRouter as StumpRouter, StumpWebClient }
 export { Link, useNavigate } from './context'
 export { usePaths } from './paths'
 export { captureJoinToken } from './scenes/auth/joinToken'
+// a tab left open across a deploy reloads once to take the current build, instead of showing the error screen
+export { reloadOnStaleBuild } from './utils/reloadOnStaleBuild'

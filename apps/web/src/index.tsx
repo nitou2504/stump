@@ -1,4 +1,4 @@
-import { captureJoinToken } from '@stump/browser'
+import { captureJoinToken, reloadOnStaleBuild } from '@stump/browser'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
@@ -33,6 +33,9 @@ function registerServiceWorkerWhenIdle() {
 // an invite link's token (the address's fragment on /join) leaves the address bar before anything
 // renders: an error report copies the address, and the browser's history would keep it
 captureJoinToken()
+
+// a tab left open across a deploy asks for files the new build no longer has: reload once to take it
+reloadOnStaleBuild()
 
 const rootElement = document.getElementById('root')
 
