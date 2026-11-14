@@ -33,6 +33,7 @@ use stump_core::{
 		membership::{remove_series_thumbnails, sync_media_membership},
 		provider::ProviderClientCache,
 	},
+	utils::serde::comma_separated_list_to_vec,
 };
 
 fn clean_list(
@@ -291,9 +292,7 @@ impl MediaMetadataMutation {
 				.metadata
 				.as_ref()
 				.and_then(|m| m.writers.clone())
-				.and_then(|authors_str| {
-					authors_str.split(',').map(|s| s.trim().to_string()).next()
-				})
+				.and_then(|authors_str| first_writer(&authors_str))
 		});
 
 		let isbn = search.as_ref().and_then(|s| s.isbn.clone()).or_else(|| {
@@ -538,4 +537,31 @@ async fn edit_result(
 		save_id: saved.save_id,
 		skipped_fields: saved.skipped,
 	})
+}
+
+/// The first writer of a stored writers list, to search the providers for. A blank item is never an author: a
+/// list that starts with a comma has an empty first item, and searching for an author "" finds nothing useful
+fn first_writer(writers: &str) -> Option<String> {
+	comma_separated_list_to_vec(writers.to_string())
+		.into_iter()
+		.next()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::first_writer;
+
+	#[test]
+	fn the_author_to_search_for_is_the_first_real_writer() {
+		for (stored, expected) in [
+			("Charlotte Brontë, Emily Brontë", Some("Charlotte Brontë")),
+			(", Charlotte Brontë", Some("Charlotte Brontë")),
+			(" , ,Charlotte Brontë, ", Some("Charlotte Brontë")),
+			("Charlotte Brontë", Some("Charlotte Brontë")),
+			(" , ", None),
+			("", None),
+		] {
+			assert_eq!(first_writer(stored).as_deref(), expected, "{stored:?}");
+		}
+	}
 }
