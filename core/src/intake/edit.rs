@@ -67,7 +67,7 @@ use crate::{
 	},
 	postproc::refresh_media_after_swap,
 	scan::own_writes,
-	utils::serde::clean_list_items,
+	utils::serde::{clean_list_items, list_to_comma_separated},
 	CoreError, CoreResult, Ctx,
 };
 
@@ -303,6 +303,9 @@ pub fn set_field_from_text(
 ) -> bool {
 	let trimmed = value.trim();
 	let string = || (!trimmed.is_empty()).then(|| value.to_string());
+	// the lists are stored as text, and a blank item in it (a leading comma: older writers left them) is never kept,
+	// so undoing an edit whose old text had one does not bring the blank back
+	let list = || list_to_comma_separated(value.split(','));
 	let int = || -> Option<Option<i32>> {
 		if trimmed.is_empty() {
 			Some(None)
@@ -320,24 +323,24 @@ pub fn set_field_from_text(
 	match field {
 		"title" => active.title = Set(string()),
 		"titleSort" => active.title_sort = Set(string()),
-		"writers" => active.writers = Set(string()),
+		"writers" => active.writers = Set(list()),
 		"series" => active.series = Set(string()),
 		"seriesGroup" => active.series_group = Set(string()),
 		"storyArc" => active.story_arc = Set(string()),
 		"summary" => active.summary = Set(string()),
 		"notes" => active.notes = Set(string()),
-		"genres" => active.genres = Set(string()),
+		"genres" => active.genres = Set(list()),
 		"format" => active.format = Set(string()),
-		"pencillers" => active.pencillers = Set(string()),
-		"inkers" => active.inkers = Set(string()),
-		"colorists" => active.colorists = Set(string()),
-		"letterers" => active.letterers = Set(string()),
-		"coverArtists" => active.cover_artists = Set(string()),
-		"editors" => active.editors = Set(string()),
+		"pencillers" => active.pencillers = Set(list()),
+		"inkers" => active.inkers = Set(list()),
+		"colorists" => active.colorists = Set(list()),
+		"letterers" => active.letterers = Set(list()),
+		"coverArtists" => active.cover_artists = Set(list()),
+		"editors" => active.editors = Set(list()),
 		"publisher" => active.publisher = Set(string()),
-		"links" => active.links = Set(string()),
-		"characters" => active.characters = Set(string()),
-		"teams" => active.teams = Set(string()),
+		"links" => active.links = Set(list()),
+		"characters" => active.characters = Set(list()),
+		"teams" => active.teams = Set(list()),
 		"identifierAmazon" => active.identifier_amazon = Set(string()),
 		"identifierCalibre" => active.identifier_calibre = Set(string()),
 		"identifierGoogle" => active.identifier_google = Set(string()),
@@ -2693,6 +2696,60 @@ mod tests {
 		let mut active = empty.clone().into_active_model();
 		assert!(!set_field_from_text(&mut active, "year", "MMXX"));
 		assert!(!set_field_from_text(&mut active, "nope", "x"));
+	}
+
+	#[test]
+	fn undoing_an_edit_never_brings_a_blank_list_item_back() {
+		// the edit history holds the text a field had, and 92 of the owner's rows hold a genres text that
+		// starts with ", " (a blank item): undoing it must store the list without the blank
+		let lists = [
+			"writers",
+			"genres",
+			"pencillers",
+			"inkers",
+			"colorists",
+			"letterers",
+			"coverArtists",
+			"editors",
+			"links",
+			"characters",
+			"teams",
+		];
+		let stored_after_undo = |field: &str, old_text: &str| {
+			let mut active = media_metadata::Model::default().into_active_model();
+			assert!(set_field_from_text(&mut active, field, old_text), "{field}");
+			let mut back = media_metadata::Model::default();
+			apply_set_values(&mut back, active);
+			field_text(&back, field)
+		};
+
+		for field in lists {
+			assert_eq!(
+				stored_after_undo(field, ", History, Politics"),
+				"History, Politics",
+				"{field}: a leading comma"
+			);
+			assert_eq!(
+				stored_after_undo(field, "History,, Politics, "),
+				"History, Politics",
+				"{field}: a doubled and a trailing comma"
+			);
+			// a list of nothing but blanks is no list, never "" or ", "
+			assert_eq!(stored_after_undo(field, " , ,"), "", "{field}: only blanks");
+			// a clean list comes back as it was
+			assert_eq!(
+				stored_after_undo(field, "History, Politics"),
+				"History, Politics",
+				"{field}: a clean list"
+			);
+		}
+
+		// other fields keep the text as it was: it is not a list
+		assert_eq!(
+			stored_after_undo("title", ", Not A List"),
+			", Not A List",
+			"a title is not a list"
+		);
 	}
 
 	/// The values an active model sets, applied to a model (what an update would store)
