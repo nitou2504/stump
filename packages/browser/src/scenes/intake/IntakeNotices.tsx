@@ -2,16 +2,16 @@ import { Alert, AlertDescription, AlertTitle, Button, Link } from '@stump/compon
 import { IntakeState } from '@stump/graphql'
 import { formatDistanceToNow } from 'date-fns'
 import { AlertTriangle, CircleAlert, Copy, MessageSquareWarning } from 'lucide-react'
-import { useState } from 'react'
 
-import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
 import type { IntakeItemData } from './queries'
 import { type AgeLimit, ageRatingHides } from './reviewState'
 
-/** The warnings the server writes when a place to look a book up could not be reached */
-const SOURCE_FAILURE = /: (unreachable|no answer in time)/i
+/** Anything the online lookup says about itself ("Google Books: daily limit reached…", "Hardcover: …",
+ * "Open Library: unreachable"): plumbing, nothing to fix while adding a book, so it is never shown */
+const SOURCE_FAILURE =
+	/^\s*(Open Library|Google Books|Hardcover)\b|: (unreachable|no answer in time)/i
 
 /** The server's warning that goes with a duplicate, which the duplicates alert already says */
 const DUPLICATE_WARNING = 'This book may already be in the library'
@@ -46,7 +46,6 @@ export function CardNotices({
 	onChangeLibrary,
 }: Props) {
 	const paths = usePaths()
-	const { t } = useTranslate()
 	const { proposal, decision } = item
 	const suggested = item.suggestedLibrary
 	const ageHides = reviewing ? ageRatingHides(decision?.metadata.ageRating, uploaderAge) : null
@@ -55,11 +54,9 @@ export function CardNotices({
 	const allWarnings = (proposal?.warnings ?? []).filter(
 		(warning) => !proposal?.duplicates.length || warning !== DUPLICATE_WARNING,
 	)
-	// a source that could not be asked ("Open Library: unreachable") is not something to fix: one
-	// muted line for an approver, and nothing at all for the person who sent the book
-	const sourceFailures = allWarnings.filter((warning) => SOURCE_FAILURE.test(warning))
+	// what the online lookup says about itself (a daily limit, a key, a source that could not be
+	// asked) is not something to fix while adding a book: never shown, to anybody
 	const warnings = allWarnings.filter((warning) => !SOURCE_FAILURE.test(warning))
-	const [showSources, setShowSources] = useState(false)
 
 	return (
 		<>
@@ -137,32 +134,6 @@ export function CardNotices({
 						</li>
 					))}
 				</ul>
-			)}
-
-			{!friend && sourceFailures.length > 0 && (
-				<div
-					className="gap-1 text-xs flex flex-col text-muted-foreground"
-					data-testid="intake-source-failures"
-				>
-					<span className="gap-2 flex flex-wrap items-center">
-						{t('intakeScene.sourceFailures', { count: sourceFailures.length })}
-						<button
-							type="button"
-							className="underline"
-							aria-expanded={showSources}
-							onClick={() => setShowSources((open) => !open)}
-						>
-							{t('intakeScene.sourceDetails')}
-						</button>
-					</span>
-					{showSources && (
-						<ul className="pl-4 list-disc">
-							{sourceFailures.map((warning) => (
-								<li key={warning}>{warning}</li>
-							))}
-						</ul>
-					)}
-				</div>
 			)}
 
 			{suggested && (

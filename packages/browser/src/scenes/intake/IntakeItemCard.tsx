@@ -196,6 +196,21 @@ export default function IntakeItemCard({
 						decision &&
 						!filedAsSeries && <p className="text-sm text-muted-foreground">No author yet</p>
 					)}
+					{/* after correcting the title or the author: search again with what was typed (the same as the menu's item) */}
+					{!isSeriesItem && (
+						<div>
+							<Button
+								size="xs"
+								variant="ghost"
+								className="-ml-2 gap-1.5 text-muted-foreground"
+								disabled={isBusy}
+								onClick={() => onReanalyse(item.id, true)}
+							>
+								<Globe className="h-3.5 w-3.5" aria-hidden />
+								Look up online
+							</Button>
+						</div>
+					)}
 					{reviewing && <UploaderRow uploader={item.uploader} submittedAt={item.submittedAt} />}
 					<div className="gap-x-2 gap-y-1 text-xs flex flex-wrap items-center text-muted-foreground">
 						<IntakeStatusChip item={item} friend={friend} reviewing={reviewing} />

@@ -273,24 +273,27 @@ describe('IntakeItemCard for somebody who needs approval', () => {
 		expect(screen.getByRole('button', { name: /Send/ })).toBeEnabled()
 	})
 
-	it('folds the places that could not be asked into one line for an approver, with the list on request', () => {
+	it('never shows an approver what the online lookup says about itself (limits, keys, unreachable sources)', () => {
 		renderCard(
 			{
 				proposal: withProposal({
-					warnings: ['Open Library: unreachable', 'Google Books: no answer in time', 'Add a cover'],
+					warnings: [
+						'Open Library: unreachable',
+						'Google Books: no answer in time',
+						'Google Books: daily limit reached: add a Google Books API key in Settings → Metadata',
+						'Hardcover: daily limit reached: try again in about 2 h',
+						'Add a cover',
+					],
 				}),
 			},
 			{ mode: 'file' },
 		)
 
-		const line = screen.getByTestId('intake-source-failures')
-		expect(line).toHaveTextContent("Couldn't check online (2 sources).")
-		expect(line).not.toHaveTextContent('Open Library')
-		// what is not about a place that could not be asked stays as it was
+		// what the online lookup says about itself is never shown, not even as a muted line
+		expect(screen.queryByTestId('intake-source-failures')).not.toBeInTheDocument()
+		expect(screen.queryByText(/Open Library|Google Books/)).not.toBeInTheDocument()
+		// what is not about the lookup stays as it was
 		expect(screen.getByText('Add a cover')).toBeInTheDocument()
-		fireEvent.click(within(line).getByRole('button', { name: 'Details' }))
-		expect(line).toHaveTextContent('Open Library: unreachable')
-		expect(line).toHaveTextContent('Google Books: no answer in time')
 	})
 
 	it('says nothing of the places that could not be asked to the person who sent the book', () => {
@@ -737,5 +740,22 @@ describe('IntakeItemCard layout', () => {
 		expect(problems).not.toBeNull()
 		// the alert comes straight before the footer in the card
 		expect(problems?.nextElementSibling).toBe(footer)
+	})
+})
+
+describe('IntakeItemCard look up online', () => {
+	it('has a visible “Look up online” button that looks the book up again', () => {
+		const onReanalyse = vi.fn()
+		renderCard({}, { onReanalyse })
+
+		fireEvent.click(screen.getByRole('button', { name: 'Look up online' }))
+
+		expect(onReanalyse).toHaveBeenCalledWith('a', true)
+	})
+
+	it('cannot be pressed while something is being saved', () => {
+		renderCard({}, { isBusy: true })
+
+		expect(screen.getByRole('button', { name: 'Look up online' })).toBeDisabled()
 	})
 })
