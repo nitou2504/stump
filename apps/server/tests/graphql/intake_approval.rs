@@ -1651,7 +1651,10 @@ async fn test_the_upload_limits_are_told_and_can_be_changed_for_a_user() {
 		response["data"]["intakeUploadLimits"]["quotaApplies"],
 		false
 	);
-	assert_eq!(response["data"]["intakeUploadLimits"]["maxFilesPerRequest"], 500);
+	assert_eq!(
+		response["data"]["intakeUploadLimits"]["maxFilesPerRequest"],
+		500
+	);
 	assert_eq!(
 		response["data"]["intakeUploadLimits"]["canFileDirectly"],
 		true
@@ -2258,9 +2261,7 @@ async fn test_an_analysis_does_not_tell_a_friend_what_a_folder_of_hidden_books_h
 		.await;
 	world.ana_items().await;
 
-	let response = world
-		.gql(&world.vis.ana.token, ANA_VIEW, json!({}))
-		.await;
+	let response = world.gql(&world.vis.ana.token, ANA_VIEW, json!({})).await;
 	assert_ok(&response);
 	let items = &response["data"]["intakeItems"];
 	assert_eq!(items.as_array().map(Vec::len), Some(4), "{response:#}");
@@ -2286,7 +2287,13 @@ async fn test_an_analysis_does_not_tell_a_friend_what_a_folder_of_hidden_books_h
 			"{view:#}"
 		);
 		let text = view.to_string();
-		for word in ["Hidden_Author", "Hidden Saga", "Hidden Author", "Hidden Writer", "Dark"] {
+		for word in [
+			"Hidden_Author",
+			"Hidden Saga",
+			"Hidden Author",
+			"Hidden Writer",
+			"Dark",
+		] {
 			assert!(!text.contains(word), "{word} reached her: {view:#}");
 		}
 	}
@@ -2312,7 +2319,6 @@ async fn test_an_analysis_does_not_tell_a_friend_what_a_folder_of_hidden_books_h
 		Some(IntakeSeriesKind::LightNovel)
 	);
 }
-
 
 /// the text of a file in an EPUB
 fn epub_entry(path: &std::path::Path, name: &str) -> String {
@@ -3115,7 +3121,10 @@ async fn test_a_friends_book_is_read_by_the_checker_and_filed_from_what_it_made(
 		"{item:#}"
 	);
 	// the same card as when the server reads the book itself
-	assert_eq!(item["proposal"]["metadata"]["title"], "El nombre de la rosa", "{item:#}");
+	assert_eq!(
+		item["proposal"]["metadata"]["title"], "El nombre de la rosa",
+		"{item:#}"
+	);
 	assert!(item["destination"].is_null() && item["decision"]["folder"] == "");
 	// what the checker said is kept in the file: the server asks once
 	let row = world.row(&id).await;
@@ -3123,7 +3132,9 @@ async fn test_a_friends_book_is_read_by_the_checker_and_filed_from_what_it_made(
 	assert_eq!(screening["verdict"]["status"], "ok");
 	assert!(row.files.0[0].hash.is_some(), "the hash is the checker's");
 
-	let response = world.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] })).await;
+	let response = world
+		.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+		.await;
 	assert_ok(&response);
 	let response = world.as_owner(APPROVE, json!({ "ids": [id] })).await;
 	assert_ok(&response);
@@ -3175,7 +3186,11 @@ async fn test_a_friends_epub_is_filed_without_its_scripts() {
 	let staged = PathBuf::from(&row.staging_dir).join(&row.files.0[0].staged_name);
 	assert_eq!(fs::read(&staged).unwrap(), sent);
 
-	assert_ok(&world.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] })).await);
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
 	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
 	let row = world.wait_for(&id, IntakeState::Filed).await;
 	assert!(row.error.is_none(), "{:?}", row.error);
@@ -3185,13 +3200,24 @@ async fn test_a_friends_epub_is_filed_without_its_scripts() {
 		.expect("the book is filed");
 	let mut zip = zip::ZipArchive::new(fs::File::open(&filed).unwrap()).unwrap();
 	let mut chapter = String::new();
-	std::io::Read::read_to_string(&mut zip.by_name("OEBPS/c1.xhtml").unwrap(), &mut chapter).unwrap();
+	std::io::Read::read_to_string(
+		&mut zip.by_name("OEBPS/c1.xhtml").unwrap(),
+		&mut chapter,
+	)
+	.unwrap();
 	assert!(chapter.contains("<p>hello there</p>"), "{chapter}");
-	assert!(!chapter.contains("script") && !chapter.contains("onerror"), "{chapter}");
+	assert!(
+		!chapter.contains("script") && !chapter.contains("onerror"),
+		"{chapter}"
+	);
 	let mut opf = String::new();
 	// a friend's book is written anew: its package is the one that was generated, at the root
-	std::io::Read::read_to_string(&mut zip.by_name("content.opf").unwrap(), &mut opf).unwrap();
-	assert!(!opf.contains("onerror"), "the description is plain text now: {opf}");
+	std::io::Read::read_to_string(&mut zip.by_name("content.opf").unwrap(), &mut opf)
+		.unwrap();
+	assert!(
+		!opf.contains("onerror"),
+		"the description is plain text now: {opf}"
+	);
 }
 
 /// a zip bomb is refused by the checker without the server reading it, and a book that was
@@ -3203,12 +3229,16 @@ async fn test_a_friends_zip_bomb_is_refused_and_not_checked_again() {
 	std::io::Write::flush(&mut std::io::sink()).ok();
 	bomb.start_file(
 		"001.png",
-		zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+		zip::write::SimpleFileOptions::default()
+			.compression_method(zip::CompressionMethod::Deflated),
 	)
 	.unwrap();
 	std::io::Write::write_all(&mut bomb, &vec![0u8; 24 * 1024 * 1024]).unwrap();
 	let bytes = bomb.finish().unwrap().into_inner();
-	assert!(bytes.len() < 1024 * 1024, "a few KiB of file for 24 MB of nothing");
+	assert!(
+		bytes.len() < 1024 * 1024,
+		"a few KiB of file for 24 MB of nothing"
+	);
 	let response = post_upload(
 		&world.app,
 		Some(&world.vis.ana.token),
@@ -3225,11 +3255,18 @@ async fn test_a_friends_zip_bomb_is_refused_and_not_checked_again() {
 	let row = world.wait_for(&id, IntakeState::Failed).await;
 	let error = row.error.clone().unwrap_or_default();
 	assert!(error.contains("not accepted"), "{error}");
-	let first = row.files.0[0].screening.clone().expect("the refusal is kept");
+	let first = row.files.0[0]
+		.screening
+		.clone()
+		.expect("the refusal is kept");
 	assert_eq!(first["verdict"]["status"], "reject");
 	assert_eq!(first["verdict"]["reasons"][0]["code"], "RATIO");
 	// analysing it again asks nobody: the refusal stands, and is the same one
-	assert_ok(&world.gql(&world.vis.ana.token, REANALYSE, json!({ "id": id })).await);
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, REANALYSE, json!({ "id": id }))
+			.await,
+	);
 	let again = world.wait_for(&id, IntakeState::Failed).await;
 	assert_eq!(again.files.0[0].screening, row.files.0[0].screening);
 	assert!(fs::read_dir(world.config_dir.join("workers/intake/done"))
@@ -3251,10 +3288,17 @@ async fn test_a_friend_cannot_upload_when_the_checker_is_offline_or_a_pack() {
 	)
 	.await;
 	assert_eq!(response.status_code(), 503, "{}", response.text());
-	assert!(message(&response).contains("offline"), "{}", message(&response));
+	assert!(
+		message(&response).contains("offline"),
+		"{}",
+		message(&response)
+	);
 	let limits = queued.gql(&queued.vis.ana.token, LIMITS, json!({})).await;
 	assert_ok(&limits);
-	assert_eq!(limits["data"]["intakeUploadLimits"]["uploadsOpen"], false, "{limits:#}");
+	assert_eq!(
+		limits["data"]["intakeUploadLimits"]["uploadsOpen"], false,
+		"{limits:#}"
+	);
 	// a checker that is beating is there
 	let spool = queued.config_dir.join("workers/intake");
 	fs::create_dir_all(&spool).unwrap();
@@ -3269,7 +3313,10 @@ async fn test_a_friend_cannot_upload_when_the_checker_is_offline_or_a_pack() {
 	)
 	.unwrap();
 	let limits = queued.gql(&queued.vis.ana.token, LIMITS, json!({})).await;
-	assert_eq!(limits["data"]["intakeUploadLimits"]["uploadsOpen"], true, "{limits:#}");
+	assert_eq!(
+		limits["data"]["intakeUploadLimits"]["uploadsOpen"], true,
+		"{limits:#}"
+	);
 
 	let sandboxed = sandboxed_world().await;
 	let pack = zip_bytes(&[("a.epub", "x"), ("b.epub", "y")]);
@@ -3282,7 +3329,11 @@ async fn test_a_friend_cannot_upload_when_the_checker_is_offline_or_a_pack() {
 	)
 	.await;
 	assert_eq!(response.status_code(), 415, "{}", response.text());
-	assert!(message(&response).contains("books themselves"), "{}", message(&response));
+	assert!(
+		message(&response).contains("books themselves"),
+		"{}",
+		message(&response)
+	);
 	// the formats Stump has no reader for are said as what they are
 	for name in ["a.cb7", "a.cbt", "a.7z"] {
 		let response = post_upload(
@@ -3327,7 +3378,10 @@ async fn test_the_queue_is_answered_by_a_real_supervisor() {
 	fs::create_dir_all(&inbox).unwrap();
 	// offline until it beats
 	let closed = world.gql(&world.vis.ana.token, LIMITS, json!({})).await;
-	assert_eq!(closed["data"]["intakeUploadLimits"]["uploadsOpen"], false, "{closed:#}");
+	assert_eq!(
+		closed["data"]["intakeUploadLimits"]["uploadsOpen"], false,
+		"{closed:#}"
+	);
 	let _supervisor = Supervisor(
 		std::process::Command::new(env!("CARGO_BIN_EXE_stump_server"))
 			.args(["intake-probe", "serve", "--spool"])
@@ -3353,8 +3407,15 @@ async fn test_the_queue_is_answered_by_a_real_supervisor() {
 
 	let id = world.ana_uploads("El nombre de la rosa").await;
 	let items = world.ana_items().await;
-	assert_eq!(items[0]["proposal"]["metadata"]["title"], "El nombre de la rosa", "{items:#}");
-	assert_ok(&world.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] })).await);
+	assert_eq!(
+		items[0]["proposal"]["metadata"]["title"], "El nombre de la rosa",
+		"{items:#}"
+	);
+	assert_ok(
+		&world
+			.gql(&world.vis.ana.token, SUBMIT, json!({ "ids": [id] }))
+			.await,
+	);
 	assert_ok(&world.as_owner(APPROVE, json!({ "ids": [id] })).await);
 	let row = world.wait_for(&id, IntakeState::Filed).await;
 	assert!(row.error.is_none(), "{:?}", row.error);
@@ -3364,7 +3425,10 @@ async fn test_the_queue_is_answered_by_a_real_supervisor() {
 		.exists());
 	// the spool is left clean: nothing queued, running or made
 	for folder in ["queue", "running", "out"] {
-		let left: Vec<_> = fs::read_dir(spool.join(folder)).unwrap().flatten().collect();
+		let left: Vec<_> = fs::read_dir(spool.join(folder))
+			.unwrap()
+			.flatten()
+			.collect();
 		assert!(left.is_empty(), "{folder}: {left:?}");
 	}
 }
@@ -3419,15 +3483,22 @@ async fn test_the_server_uses_the_verdict_and_not_the_file() {
 		matches!(item["state"].as_str(), Some("NEEDS_REVIEW" | "READY")),
 		"{item:#}"
 	);
-	assert_eq!(item["proposal"]["metadata"]["title"], "From The Verdict", "{item:#}");
+	assert_eq!(
+		item["proposal"]["metadata"]["title"], "From The Verdict",
+		"{item:#}"
+	);
 	let id = item["id"].as_str().unwrap().to_string();
-	assert_eq!(world.row(&id).await.files.0[0].hash.as_deref(), Some("cafe0001"));
+	assert_eq!(
+		world.row(&id).await.files.0[0].hash.as_deref(),
+		Some("cafe0001")
+	);
 
 	// an answer about another file than the one asked about is no answer
 	let lying = canned_probe(tmp.path(), r#""stump_hash":"x","pages":1"#);
-	let wrong = std::fs::read_to_string(&lying)
-		.unwrap()
-		.replace(r#"sha=$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' "$req")"#, r#"sha=$(printf '%064d' 0)"#);
+	let wrong = std::fs::read_to_string(&lying).unwrap().replace(
+		r#"sha=$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' "$req")"#,
+		r#"sha=$(printf '%064d' 0)"#,
+	);
 	fs::write(&lying, wrong).unwrap();
 	let response = post_upload(
 		&world.app,
@@ -3438,11 +3509,146 @@ async fn test_the_server_uses_the_verdict_and_not_the_file() {
 	)
 	.await;
 	assert_eq!(response.status_code(), 200, "{}", response.text());
-	let second = response.json::<Value>()["items"][0]["id"].as_str().unwrap().to_string();
+	let second = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
 	let row = world.wait_for(&second, IntakeState::Failed).await;
 	assert!(
-		row.error.clone().unwrap_or_default().contains("could not be used"),
+		row.error
+			.clone()
+			.unwrap_or_default()
+			.contains("could not be used"),
 		"{:?}",
 		row.error
 	);
+}
+
+/// The owner's PDF-like case: the file has no author, so there is no folder yet. Typing the author
+/// gives a folder: a new one named after them, or theirs when the library already has it
+#[tokio::test]
+async fn test_typing_the_author_gives_the_book_a_folder() {
+	let world = world().await;
+	let bytes = world.epub("No author yet", "");
+	let response = post_upload(
+		&world.app,
+		Some(&world.app.access_token.read().await.clone().unwrap()),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("no-author.epub", bytes),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	let row = world.wait_for_analysis(&id).await;
+	assert_eq!(row.decision.unwrap().folder, "", "no author, no folder yet");
+
+	// a new author: a new folder named after them
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "authors": ["Ursula K. Le Guin"] } }),
+		)
+		.await;
+	assert_ok(&response);
+	let folder = response["data"]["intakeReview"]["decision"]["folder"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	assert!(
+		folder.contains("Guin"),
+		"a folder for the new author: {folder:?}"
+	);
+
+	// an author the library has: their folder
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "authors": ["Umberto Eco"] } }),
+		)
+		.await;
+	assert_ok(&response);
+	assert_eq!(
+		response["data"]["intakeReview"]["decision"]["folder"],
+		"Umberto_Eco"
+	);
+}
+
+/// A folder picked by hand is the owner's choice: a later change of author does not move the book
+#[tokio::test]
+async fn test_a_folder_picked_by_hand_stays_when_the_author_changes() {
+	let world = world().await;
+	let bytes = world.epub("Picked folder", "Eco, Umberto");
+	let response = post_upload(
+		&world.app,
+		Some(&world.app.access_token.read().await.clone().unwrap()),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("picked.epub", bytes),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	world.wait_for_analysis(&id).await;
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "folder": "Somewhere" } }),
+		)
+		.await;
+	assert_ok(&response);
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "authors": ["Ursula K. Le Guin"] } }),
+		)
+		.await;
+	assert_ok(&response);
+	assert_eq!(
+		response["data"]["intakeReview"]["decision"]["folder"],
+		"Somewhere"
+	);
+}
+
+/// Reading the file again (and so "Look up online") keeps the title and the authors the owner
+/// typed: the lookup searches for the corrected book, and the correction is not thrown away
+#[tokio::test]
+async fn test_reading_again_keeps_the_typed_title_and_authors() {
+	let world = world().await;
+	let bytes = world.epub("Wrong title", "");
+	let response = post_upload(
+		&world.app,
+		Some(&world.app.access_token.read().await.clone().unwrap()),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("wrong.epub", bytes),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	world.wait_for_analysis(&id).await;
+	let response = world
+		.as_owner(
+			REVIEW,
+			json!({ "id": id, "input": { "title": "Right title", "authors": ["Umberto Eco"] } }),
+		)
+		.await;
+	assert_ok(&response);
+
+	let response = world.as_owner(REANALYSE, json!({ "id": id })).await;
+	assert_ok(&response);
+	let row = world.wait_for_analysis(&id).await;
+	let decision = row.decision.expect("a decision after reading again");
+	assert_eq!(decision.metadata.title.as_deref(), Some("Right title"));
+	assert_eq!(decision.metadata.authors, vec!["Umberto Eco".to_string()]);
+	assert_eq!(decision.folder, "Umberto_Eco");
 }

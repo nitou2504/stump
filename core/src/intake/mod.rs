@@ -330,14 +330,38 @@ async fn analyse_item(
 	let formats: Vec<String> = files.iter().map(|f| f.format.clone()).collect();
 	let wants_online = online.unwrap_or(settings.online_lookup);
 	let is_comic = formats.iter().all(|f| f == "cbz" || f == "cbr");
-	let lookup = if lookup_wanted(
-		wants_online,
-		item.kind,
-		is_comic,
-		&file_meta,
-		&index,
-		viewer_index.as_deref(),
-	) {
+	// What the person corrected themselves (the title, the authors) wins over what the file says:
+	// "Look up online" after a correction searches for the corrected book, and reading the file
+	// again does not throw the correction away
+	let prior_meta = item.decision.as_ref().map(|d| &d.metadata);
+	let user_title = prior_meta
+		.filter(|m| m.source_of("title") == Some(IntakeSource::User))
+		.and_then(|m| m.title.clone())
+		.filter(|t| !t.trim().is_empty());
+	let user_authors = prior_meta
+		.filter(|m| m.source_of("authors") == Some(IntakeSource::User))
+		.map(|m| m.authors.clone())
+		.filter(|a| !a.is_empty());
+	let corrected = user_title.is_some() || user_authors.is_some();
+	let mut lookup_meta = file_meta.clone();
+	if let Some(title) = &user_title {
+		lookup_meta.title = Some(title.clone());
+	}
+	if let Some(authors) = &user_authors {
+		lookup_meta.authors = authors.clone();
+	}
+	// asked for by hand ("Look up online"): a book is always looked up, however well it is tagged
+	let asked_by_hand =
+		online == Some(true) && item.kind == IntakeKind::Book && !is_comic;
+	let lookup = if asked_by_hand
+		|| lookup_wanted(
+			wants_online,
+			item.kind,
+			is_comic,
+			&lookup_meta,
+			&index,
+			viewer_index.as_deref(),
+		) {
 		let epub_at = files.iter().position(|f| f.format == "epub");
 		let epub = epub_at.map(|i| staging.join(&files[i].staged_name));
 		// from the checker's verdict for the books it read, from the file for the others
@@ -348,25 +372,31 @@ async fn analyse_item(
 		};
 		let query = lookup::LookupQuery {
 			isbn: file_meta.isbn.clone(),
-			title: file_meta.title.clone(),
-			authors: file_meta.authors.clone(),
+			title: lookup_meta.title.clone(),
+			authors: lookup_meta.authors.clone(),
 			original_title,
 			series: file_meta.series.clone(),
 			by_series: false,
 		};
-		// junk metadata (`OUP Book`, a swapped title and author): searched by the title page
+		// junk metadata (`OUP Book`, a swapped title and author): searched by the title page; a
+		// title or author the person typed is searched as typed
 		let epub_path = epub.as_deref().unwrap_or_else(|| Path::new(""));
-		let (query, _) = match epub_book {
-			Some(book) => {
-				let page = (book.title_page_title.is_some()
-					|| !book.title_page_authors.is_empty())
-				.then(|| title_page::TitlePage {
-					title: book.title_page_title.clone(),
-					authors: book.title_page_authors.clone(),
-				});
-				title_page::repair_with(query, page, epub_path)
-			},
-			None => title_page::repair_for_lookup(query, epub_path).await,
+		let query = if corrected {
+			query
+		} else {
+			match epub_book {
+				Some(book) => {
+					let page = (book.title_page_title.is_some()
+						|| !book.title_page_authors.is_empty())
+					.then(|| title_page::TitlePage {
+						title: book.title_page_title.clone(),
+						authors: book.title_page_authors.clone(),
+					});
+					title_page::repair_with(query, page, epub_path)
+				},
+				None => title_page::repair_for_lookup(query, epub_path).await,
+			}
+			.0
 		};
 		lookup::lookup(conn, &query).await
 	} else {
@@ -498,7 +528,18 @@ async fn analyse_item(
 		None => proposal.clone(),
 	};
 	let mut decision = default_decision(item.kind, &files, &decision_source);
-	if uploader_view.is_some() {
+	// the person's own title and authors are kept (see `user_title` above); with authors of
+	// their own, the folder and file names follow them (an existing author folder, or a new one)
+	if let Some(title) = user_title {
+		decision.metadata.title = Some(title);
+		decision.metadata.set_source("title", IntakeSource::User);
+	}
+	let authors_corrected = user_authors.is_some();
+	if let Some(authors) = user_authors {
+		decision.metadata.authors = authors;
+		decision.metadata.set_source("authors", IntakeSource::User);
+	}
+	if uploader_view.is_some() || (authors_corrected && decision.series_kind.is_none()) {
 		// the folder is worked out from the whole library, as for every change an uploader
 		// makes: they never see it
 		decision.folder = derived_folder(conn, &library, &settings, &decision).await?;
@@ -945,6 +986,8 @@ pub async fn apply_review(
 	let mut decision = item.decision.clone().unwrap_or_default();
 	let old_names = default_file_names(&files, &decision);
 	let names_were_default = decision.file_names == old_names;
+	let old_authors = decision.metadata.authors.clone();
+	let old_folder = decision.folder.clone();
 	let meta = &mut decision.metadata;
 
 	if input.title.is_some() {
@@ -1040,6 +1083,24 @@ pub async fn apply_review(
 						.first()
 						.map(|a| fold_name(a))
 						.unwrap_or_default();
+				} else if decision.series_kind.is_none()
+					&& decision.metadata.authors != old_authors
+					&& !decision.metadata.authors.is_empty()
+				{
+					// the authors changed and the folder was the automatic one (none yet, one of the
+					// suggested author folders, or the previous author's name): it follows the new
+					// authors, an existing author folder or a new one. A folder picked by hand stays
+					let was_automatic = old_folder.is_empty()
+						|| proposal
+							.author_folders
+							.iter()
+							.any(|c| c.folder == old_folder)
+						|| old_authors.first().map(|a| fold_name(a)).as_deref()
+							== Some(old_folder.as_str());
+					if was_automatic {
+						decision.folder =
+							derived_folder(conn, &library, &settings, &decision).await?;
+					}
 				}
 			},
 		}
