@@ -33,7 +33,7 @@ export default function ReadingNowSection({ userId }: Props) {
 
 			{reading.length ? (
 				<ul className="gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 grid grid-cols-2">
-					{reading.map(({ media, percentage, lastReadOn, readthroughNumber }) => (
+					{reading.map(({ media, percentage, lastReadOn }) => (
 						<li key={media.id}>
 							<Link
 								to={paths.bookOverview(media.id)}
@@ -72,8 +72,6 @@ export default function ReadingNowSection({ userId }: Props) {
 									)}
 									<Text variant="muted" size="xs">
 										{t('readingHistory.now.lastRead', { date: formatDay(lastReadOn) })}
-										{readthroughNumber > 1 &&
-											` · ${t('readingHistory.read', { count: readthroughNumber, ordinal: true })}`}
 									</Text>
 								</span>
 							</Link>

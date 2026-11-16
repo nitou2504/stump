@@ -111,10 +111,11 @@ describe('ReadingHistoryPage', () => {
 			expect(bars.map((bar) => bar.getAttribute('aria-valuenow'))).toEqual(['43', '100'])
 			expect(within(now).getByText('43%')).toBeInTheDocument()
 
-			// the day it was read last, on the calendar of the reader, and which read it is
+			// the day it was read last, on the calendar of the reader; a book is read or not, so no
+			// "2nd read" is ever said, even for an old record numbered 2
 			expect(
 				within(now).getByText(/readingHistory\.now\.lastRead date=Mar 9, 2026/),
-			).toHaveTextContent('readingHistory.read count=2 ordinal=true')
+			).not.toHaveTextContent('ordinal')
 			expect(within(now).getByText(/date=Mar 1, 2026/)).not.toHaveTextContent('ordinal')
 		})
 
@@ -123,7 +124,7 @@ describe('ReadingHistoryPage', () => {
 			expect(await screen.findByText('readingHistory.now.empty')).toBeInTheDocument()
 		})
 
-		it('lists the finished books in months, newest first, with their dates and which read they were', async () => {
+		it('lists the finished books in months, newest first, with their dates (no read numbers)', async () => {
 			renderPage(
 				history({
 					years: [
@@ -154,7 +155,8 @@ describe('ReadingHistoryPage', () => {
 			expect(emmaRow).toHaveAttribute('href', '/books/emma')
 			expect(emmaRow).toHaveTextContent('Jane Austen, Someone Else')
 			expect(emmaRow).toHaveTextContent('Mar 2, 2026')
-			expect(emmaRow).toHaveTextContent('readingHistory.read count=2 ordinal=true')
+			// an old record numbered 2 is not called a "2nd read": a book is read or not
+			expect(emmaRow).not.toHaveTextContent('ordinal')
 			const duneRow = within(march).getByRole('link', { name: /Dune/ })
 			expect(duneRow).toHaveTextContent('Mar 4, 2026')
 			expect(duneRow).not.toHaveTextContent('ordinal')

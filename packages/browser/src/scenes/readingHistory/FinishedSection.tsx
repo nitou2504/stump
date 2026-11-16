@@ -1,4 +1,4 @@
-import { Badge, cn, Text } from '@stump/components'
+import { cn, Text } from '@stump/components'
 import { extractErrorMessage } from '@stump/graphql'
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
@@ -160,11 +160,6 @@ export default function FinishedSection({ userId }: Props) {
 												<Text variant="muted" size="xs">
 													{formatDay(finishedOn)}
 												</Text>
-												{readthroughNumber > 1 && (
-													<Badge size="xs" variant="primary">
-														{t('readingHistory.read', { count: readthroughNumber, ordinal: true })}
-													</Badge>
-												)}
 											</span>
 										</span>
 									</Link>

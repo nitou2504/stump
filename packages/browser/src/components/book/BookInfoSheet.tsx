@@ -231,11 +231,6 @@ export function BookInfoSheet({ fragment: fragmentRef, isOpen, onClose }: Props)
 						: translate('shared.common.lastFinished'),
 					value: formatDate(lastReadthrough.completedAt),
 				},
-				{
-					label: translate('shared.common.readthroughs', { count: 2 }),
-					// ^ just need plural verison
-					value: book.readHistory.length,
-				},
 			]
 		: []
 
