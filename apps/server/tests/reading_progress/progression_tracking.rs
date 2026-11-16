@@ -300,7 +300,11 @@ async fn test_opening_a_finished_book_again_is_not_a_second_read() {
 	assert_eq!(all_sessions.len(), 1, "no second session");
 	assert_eq!(all_sessions[0].readthrough_number, 1);
 	assert_eq!(all_sessions[0].status, ReadingStatus::Finished);
-	assert_eq!(all_sessions[0].end_page, Some(100), "the finished read is untouched");
+	assert_eq!(
+		all_sessions[0].end_page,
+		Some(100),
+		"the finished read is untouched"
+	);
 }
 
 /// going back a page right after finishing (within grace) does not re-open the read: it stays

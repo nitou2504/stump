@@ -117,11 +117,16 @@ pub async fn create_nth_readthrough(app: &TestApp, book_id: &str, n: i32) {
 			status: Set(ReadingStatus::Finished),
 			media_id: Set(book_id.to_string()),
 			user_id: Set(first.user_id.clone()),
-			created_at: Set((first.created_at + Duration::seconds(i64::from(number))).into()),
+			created_at: Set(
+				(first.created_at + Duration::seconds(i64::from(number))).into()
+			),
 			updated_at: Set(Some(old.into())),
 			..Default::default()
 		};
-		session.insert(conn).await.expect("could not write an earlier readthrough");
+		session
+			.insert(conn)
+			.await
+			.expect("could not write an earlier readthrough");
 	}
 }
 
