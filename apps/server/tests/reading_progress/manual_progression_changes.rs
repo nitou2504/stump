@@ -1,6 +1,6 @@
 use crate::common::{
 	book::{
-		active_session_for_book, create_nth_readthrough, fudge_session_time,
+		active_session_for_book, create_nth_readthrough, start_reread_from_history, fudge_session_time,
 		update_progress,
 	},
 	series::setup_single_series_with_n_books,
@@ -210,16 +210,7 @@ async fn test_clear_series_reading_history() {
 
 	// full readthrough + active for book 2
 	create_nth_readthrough(&app, "black_science_2", 1).await;
-	update_progress(
-		&app,
-		"black_science_2",
-		MediaProgressInput::Paged(PagedProgressInput {
-			page: 20,
-			elapsed_seconds_delta: Some(300),
-			..Default::default()
-		}),
-	)
-	.await;
+	start_reread_from_history(&app, "black_science_2", 20).await;
 
 	// active for book 3
 	update_progress(
@@ -481,16 +472,7 @@ async fn test_clear_media_reading_history_retains_current() {
 	create_nth_readthrough(&app, "black_science_1", 1).await;
 
 	// start a new session, which should create a new readthrough since the previous session is finished
-	update_progress(
-		&app,
-		"black_science_1",
-		MediaProgressInput::Paged(PagedProgressInput {
-			page: 10,
-			elapsed_seconds_delta: Some(300),
-			..Default::default()
-		}),
-	)
-	.await;
+	start_reread_from_history(&app, "black_science_1", 10).await;
 
 	// max readthrough should be 2 now
 	let max_readthrough = reading_session::Entity::find()

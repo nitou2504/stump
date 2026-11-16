@@ -1,6 +1,6 @@
 use crate::common::{
 	book::{
-		create_nth_readthrough, fudge_session_time, fudge_session_time_with_timestamp,
+		create_nth_readthrough, start_reread_from_history, fudge_session_time, fudge_session_time_with_timestamp,
 		update_progress,
 	},
 	series::setup_single_series_with_n_books,
@@ -162,7 +162,7 @@ async fn test_keep_reading_filters_finished_and_prior_readthroughs() {
 	start_active_session(&app, &book_ids[1], 10).await;
 
 	create_nth_readthrough(&app, &book_ids[2], 1).await;
-	start_active_session(&app, &book_ids[2], 20).await;
+	start_reread_from_history(&app, &book_ids[2], 20).await;
 
 	start_active_session(&app, &book_ids[3], 30).await;
 	let book_4_first_session = active_session_for_book(&app, &book_ids[3]).await;

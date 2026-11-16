@@ -3,7 +3,7 @@ use sea_orm::{prelude::*, EntityTrait};
 
 use crate::common::{
 	book::{
-		active_session_for_book, create_nth_readthrough, fudge_session_time,
+		active_session_for_book, create_nth_readthrough, start_reread_from_history, fudge_session_time,
 		update_progress,
 	},
 	TestApp,
@@ -330,16 +330,7 @@ async fn test_series_stats_second_readthrough() {
 	create_nth_readthrough(&app, "black_science_1", 1).await;
 
 	// start re-reading
-	update_progress(
-		&app,
-		"black_science_1",
-		MediaProgressInput::Paged(PagedProgressInput {
-			page: 10,
-			elapsed_seconds_delta: Some(300),
-			..Default::default()
-		}),
-	)
-	.await;
+	start_reread_from_history(&app, "black_science_1", 10).await;
 
 	let stats = fetch_series_stats(&app, "black_science").await;
 

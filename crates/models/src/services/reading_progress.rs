@@ -96,8 +96,10 @@ pub async fn upsert_reading_session(
 		.await?;
 
 	match latest {
+		// a finished book stays finished: opening it again (to look at a note, to check a passage) is not
+		// a second read. Nothing is extended, re-opened or started; marking it unread is the way back
+		Some(session) if session.status == ReadingStatus::Finished => Ok(session),
 		// so long as the status is no dnf, progression within grace period will extend the existing session.
-		// this might re-open the session if it was previously marked as finished
 		Some(session)
 			if session.session_date == logical_today
 				&& should_extend_session(&session, grace_period) =>
@@ -157,9 +159,9 @@ pub async fn derive_readthrough_number(
 	Ok(match latest {
 		// no existing session = first read
 		None => 1,
-		// existing session that was completed/dnf = increment readthrough number, new readthrough
-		Some(session) if session.is_finalized() => session.readthrough_number + 1,
-		Some(session) => session.readthrough_number,
+		// one read per book: a book that was put down (dnf) and picked up again goes on in the same read,
+		// never a numbered second one (a finished book is not read again: see `upsert_reading_session`)
+		Some(session) => Ord::max(session.readthrough_number, 1),
 	})
 }
 

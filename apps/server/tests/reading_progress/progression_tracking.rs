@@ -225,10 +225,10 @@ async fn test_detect_finishing_session() {
 	assert!(session.is_finalized());
 }
 
-/// if the latest session is finished, then a new readthrough session should be created with
-/// an incremented readthrough number
+/// a finished book stays finished: opening it again later (to look at a note) is not a second read,
+/// so no new session and no second readthrough is made, and it stays finished
 #[tokio::test]
-async fn test_new_readthrough_after_finished_session() {
+async fn test_opening_a_finished_book_again_is_not_a_second_read() {
 	let (app, book) = setup().await;
 
 	let conn = app.conn();
@@ -280,7 +280,7 @@ async fn test_new_readthrough_after_finished_session() {
 		.await
 		.expect("could not update session timestamp");
 
-	// start a new session, which should create a new readthrough since the previous session is finished
+	// opened again later, at a note on page 10: not a new read
 	update_progress(
 		&app,
 		&book.id,
@@ -292,24 +292,21 @@ async fn test_new_readthrough_after_finished_session() {
 	)
 	.await;
 
-	let new_session = reading_session::Entity::find()
-		.filter(
-			reading_session::Column::MediaId
-				.eq(book.id.clone())
-				.and(reading_session::Column::Status.eq(ReadingStatus::Reading)),
-		)
-		.order_by_desc(reading_session::Column::CreatedAt)
-		.one(conn)
+	let all_sessions = reading_session::Entity::find()
+		.filter(reading_session::Column::MediaId.eq(book.id.clone()))
+		.all(conn)
 		.await
-		.expect("could not query reading sessions")
-		.expect("no session found");
-	assert_eq!(new_session.readthrough_number, 2); // should have incremented
+		.expect("could not query reading sessions");
+	assert_eq!(all_sessions.len(), 1, "no second session");
+	assert_eq!(all_sessions[0].readthrough_number, 1);
+	assert_eq!(all_sessions[0].status, ReadingStatus::Finished);
+	assert_eq!(all_sessions[0].end_page, Some(100), "the finished read is untouched");
 }
 
-/// if a progression event occurs after completion within grace, the same session should reopen
-/// instead of creating a new readthrough
+/// going back a page right after finishing (within grace) does not re-open the read: it stays
+/// finished, one session, one readthrough
 #[tokio::test]
-async fn test_reopen_recent_finished_session_within_grace() {
+async fn test_a_finished_book_stays_finished_within_grace() {
 	let (app, book) = setup().await;
 
 	let conn = app.conn();
@@ -358,7 +355,7 @@ async fn test_reopen_recent_finished_session_within_grace() {
 		.expect("could not query reading sessions")
 		.expect("no session found");
 	assert_eq!(latest_before_finish.readthrough_number, 1);
-	assert_eq!(latest_before_finish.status, ReadingStatus::Reading);
+	assert_eq!(latest_before_finish.status, ReadingStatus::Finished);
 
 	let sessions_after_reopen = reading_session::Entity::find()
 		.filter(reading_session::Column::MediaId.eq(book.id.clone()))
