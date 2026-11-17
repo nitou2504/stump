@@ -500,6 +500,10 @@ impl JobLifecycle for LibraryScanJob {
 			tracing::error!(error = ?error, "Failed to handle scan completion");
 		}
 
+		if did_create || did_update {
+			crate::content::job::enqueue_after_scan(ctx).await;
+		}
+
 		if did_create_media {
 			crate::postproc::enqueue_for_new_books(
 				ctx,

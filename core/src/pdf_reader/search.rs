@@ -37,7 +37,7 @@ const ACCENTS: &[(char, char)] = &[
 ];
 
 /// Lowercases `ch` and strips its accent. Ligatures common in PDFs are expanded.
-fn fold_char(ch: char, out: &mut String) {
+pub(crate) fn fold_char(ch: char, out: &mut String) {
 	match ch {
 		'ﬁ' => out.push_str("fi"),
 		'ﬂ' => out.push_str("fl"),

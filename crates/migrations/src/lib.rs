@@ -60,6 +60,9 @@ mod m20261113_000000_public_access;
 mod m20261114_000000_intake_approval;
 mod m20261115_000000_friend_onboarding;
 mod m20261116_000000_access_warning_reviews;
+mod m20261117_000000_content_index;
+
+pub use m20261117_000000_content_index::UP as CONTENT_INDEX_UP;
 
 pub struct Migrator;
 
@@ -126,6 +129,7 @@ impl MigratorTrait for Migrator {
 			Box::new(m20261114_000000_intake_approval::Migration),
 			Box::new(m20261115_000000_friend_onboarding::Migration),
 			Box::new(m20261116_000000_access_warning_reviews::Migration),
+			Box::new(m20261117_000000_content_index::Migration),
 		]
 	}
 }

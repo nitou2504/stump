@@ -83,6 +83,27 @@
   },
   {
    "method": "GET",
+   "path": "/api/v2/content/status",
+   "edge": "closed",
+   "app": false,
+   "note": "the content index is for the household: closed at the public edge, with a pass too"
+  },
+  {
+   "method": "GET",
+   "path": "/API/v2/content/search?q=x",
+   "edge": "closed",
+   "app": false,
+   "note": "the content index is for the household: closed at the public edge, with a pass too"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v2/content",
+   "edge": "closed",
+   "app": false,
+   "note": "the content index is for the household: closed at the public edge, with a pass too"
+  },
+  {
+   "method": "GET",
    "path": "/auth/",
    "edge": "closed",
    "app": false,

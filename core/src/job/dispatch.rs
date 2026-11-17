@@ -7,6 +7,7 @@ use serde::{de, Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+	content::job::{ContentIndexConfig, ContentIndexJob, ContentIndexOutput},
 	event::JobStarted,
 	image::thumbnail::{
 		PlaceholderGenerationJob, PlaceholderGenerationJobConfig,
@@ -41,6 +42,7 @@ pub enum CoreJobOutput {
 	// before the outputs whose fields all have defaults (untagged: the first match wins), so a
 	// stored post-processing output is not read back as a thumbnail generation output
 	PostProcess(PostProcessOutput),
+	ContentIndex(ContentIndexOutput),
 	TrashPurge(TrashPurgeOutput),
 	RescanBooks(RescanBooksOutput),
 	ThumbnailGeneration(ThumbnailGenerationOutput),
@@ -105,6 +107,10 @@ pub enum StumpJob {
 	PostProcess {
 		config: PostProcessJobConfig,
 	},
+	/// Reads the text of new and changed books into the content index (`/api/v2/content`)
+	ContentIndex {
+		config: ContentIndexConfig,
+	},
 	/// The automatic purge of the expired books in Deleted books
 	TrashPurge,
 	/// A targeted rescan of some books (after the metadata batch API rewrote their files)
@@ -125,6 +131,7 @@ impl StumpJob {
 			StumpJob::MetadataFetch { .. } => "metadata_fetch",
 			StumpJob::AnalyzeMedia { .. } => "analyze_media",
 			StumpJob::PostProcess { .. } => "post_processing",
+			StumpJob::ContentIndex { .. } => ContentIndexJob::NAME,
 			StumpJob::TrashPurge => TrashPurgeJob::NAME,
 			StumpJob::RescanBooks { .. } => RescanBooksJob::NAME,
 		}
@@ -149,6 +156,10 @@ impl StumpJob {
 				Some(format!("Analyze media: {:?}", config.scope))
 			},
 			StumpJob::PostProcess { config } => Some(config.describe()),
+			StumpJob::ContentIndex { config } => ContentIndexJob {
+				config: config.clone(),
+			}
+			.description(),
 			StumpJob::TrashPurge => TrashPurgeJob.description(),
 			StumpJob::RescanBooks { media_ids, reason } => RescanBooksJob {
 				media_ids: media_ids.clone(),
@@ -161,11 +172,18 @@ impl StumpJob {
 	/// Post-processing jobs run on their own worker, so a long 16-grey pass never holds up
 	/// scans and the other jobs
 	pub fn runs_on_post_processing_worker(&self) -> bool {
-		matches!(self, StumpJob::PostProcess { .. })
+		matches!(
+			self,
+			StumpJob::PostProcess { .. } | StumpJob::ContentIndex { .. }
+		)
 	}
 
 	pub fn post_process(config: PostProcessJobConfig) -> Self {
 		StumpJob::PostProcess { config }
+	}
+
+	pub fn content_index(config: ContentIndexConfig) -> Self {
+		StumpJob::ContentIndex { config }
 	}
 
 	pub fn library_scan(id: String, path: String, options: Option<ScanOptions>) -> Self {
@@ -267,7 +285,12 @@ pub async fn dispatch_job(
 	job: StumpJob,
 	ctx: Data<Arc<ApalisWorkerState>>,
 ) -> Result<(), apalis::prelude::Error> {
-	let job_id = Uuid::new_v4().to_string();
+	let job_id = match &job {
+		StumpJob::ContentIndex { config } if config.job_id.is_some() => {
+			config.job_id.clone().unwrap_or_default()
+		},
+		_ => Uuid::new_v4().to_string(),
+	};
 	let job_name = job.name();
 
 	tracing::info!(%job_id, job_name, "Starting job");
@@ -310,6 +333,9 @@ pub async fn dispatch_job(
 		},
 		StumpJob::PostProcess { config } => {
 			run_job(&job_ctx, &mut PostProcessJob { config }).await
+		},
+		StumpJob::ContentIndex { config } => {
+			run_job(&job_ctx, &mut ContentIndexJob { config }).await
 		},
 		StumpJob::TrashPurge => run_job(&job_ctx, &mut TrashPurgeJob).await,
 		StumpJob::RescanBooks { media_ids, reason } => {

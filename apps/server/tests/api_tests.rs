@@ -1,6 +1,7 @@
 mod access;
 mod auth;
 mod common;
+mod content;
 mod epub;
 mod graphql;
 mod intake_rest;

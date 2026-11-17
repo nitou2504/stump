@@ -755,10 +755,20 @@ type ConfidenceFactor {
 	matched: Boolean!
 }
 
+type ContentIndexOutput {
+	"Books read in this run"
+	indexedBooks: Int!
+	"Of them, books with no text (a scan without a text layer)"
+	booksWithoutText: Int!
+	failedBooks: Int!
+	"Books left alone: already indexed, file unchanged"
+	unchangedBooks: Int!
+}
+
 "An event that is emitted by the core and consumed by a client"
 union CoreEvent = JobStarted | JobUpdate | JobOutput | DiscoveredMissingLibrary | CreatedMedia | CreatedManySeries | CreatedOrUpdatedManyMedia
 
-union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | TrashPurgeOutput | RescanBooksOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
+union CoreJobOutput = LibraryScanOutput | SeriesScanOutput | PostProcessOutput | ContentIndexOutput | TrashPurgeOutput | RescanBooksOutput | ThumbnailGenerationOutput | PlaceholderGenerationOutput | MetadataFetchJobOutput | AnalyzeMediaOutput
 
 input CreateAccessInviteInput {
 	"The user the link is for: anyone but the server owner"

@@ -220,6 +220,10 @@ impl JobLifecycle for SeriesScanJob {
 		let did_create = output.created_media > 0;
 		let did_update = output.updated_media > 0;
 
+		if did_create || did_update {
+			crate::content::job::enqueue_after_scan(ctx).await;
+		}
+
 		if did_create {
 			crate::postproc::enqueue_for_new_books(
 				ctx,

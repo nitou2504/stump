@@ -876,7 +876,7 @@ pub async fn enqueue_for_new_books(
 }
 
 /// Run blocking work on its own thread at idle priority
-async fn run_low_priority<T, F>(work: F) -> T
+pub(crate) async fn run_low_priority<T, F>(work: F) -> T
 where
 	F: FnOnce() -> T + Send + 'static,
 	T: Send + 'static,
