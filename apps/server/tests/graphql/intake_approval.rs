@@ -3652,3 +3652,33 @@ async fn test_reading_again_keeps_the_typed_title_and_authors() {
 	assert_eq!(decision.metadata.authors, vec!["Umberto Eco".to_string()]);
 	assert_eq!(decision.folder, "Umberto_Eco");
 }
+
+/// A PDF that was cut off while downloading is refused with a plain reason, instead of being filed
+/// and then never showing up as a book (no PDF reader can open it)
+#[tokio::test]
+async fn test_a_pdf_cut_off_while_downloading_is_refused() {
+	let world = world().await;
+	let mut bytes = b"%PDF-1.7\n1 0 obj<< /Length 99999 >>stream\n".to_vec();
+	bytes.extend(std::iter::repeat(0x5au8).take(50_000));
+	let response = post_upload(
+		&world.app,
+		Some(&world.app.access_token.read().await.clone().unwrap()),
+		&world.library.id,
+		None,
+		&UploadBody::new().file("cut-off.pdf", bytes),
+	)
+	.await;
+	assert_eq!(response.status_code(), 200, "{}", response.text());
+	let id = response.json::<Value>()["items"][0]["id"]
+		.as_str()
+		.unwrap()
+		.to_string();
+	let row = world.wait_for_analysis(&id).await;
+	assert_eq!(row.state, IntakeState::Failed, "{:?}", row.error);
+	let error = row.error.unwrap_or_default();
+	assert!(error.contains("incomplete"), "{error}");
+	assert!(
+		row.destination.is_none(),
+		"never given a place in the library"
+	);
+}

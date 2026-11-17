@@ -255,6 +255,12 @@ async fn analyse_item(
 	let mut screening_warnings: Vec<String> = vec![];
 	let mut refused: Option<String> = None;
 	for file in files.iter_mut() {
+		// a PDF that was cut off (an interrupted download) has no end: no reader can open it, and once
+		// filed it would silently never show up as a book. Said here, before anything else
+		if let Some(reason) = incomplete_pdf_reason(&staging.join(&file.staged_name)) {
+			refused = Some(reason);
+			break;
+		}
 		let extracted = if sandboxed {
 			let verdict = queue::screened(ctx, &item.staging_dir, file).await?;
 			let Some(book) = queue::book_of(&verdict) else {
@@ -832,6 +838,35 @@ pub fn decision_problems(
 		problems.push(scope::EXISTS_PROBLEM.to_string());
 	}
 	problems
+}
+
+/// Why a staged file can't be a whole PDF, if it is a PDF at all (by its first bytes, whatever its
+/// name): every complete PDF ends with a `startxref` pointer and an `%%EOF` marker, in its last
+/// few KB (an incremental update or trailing whitespace keeps them there). A download that stopped
+/// part way has neither, and PDF readers refuse it
+pub(crate) fn incomplete_pdf_reason(path: &Path) -> Option<String> {
+	use std::io::{Read, Seek, SeekFrom};
+
+	const TAIL: u64 = 4096;
+	let mut file = std::fs::File::open(path).ok()?;
+	let mut head = [0u8; 5];
+	if file.read_exact(&mut head).is_err() || &head != b"%PDF-" {
+		return None;
+	}
+	let len = file.metadata().ok()?.len();
+	let start = len.saturating_sub(TAIL);
+	file.seek(SeekFrom::Start(start)).ok()?;
+	let mut tail = Vec::with_capacity(TAIL as usize);
+	file.read_to_end(&mut tail).ok()?;
+	let has = |needle: &[u8]| tail.windows(needle.len()).any(|w| w == needle);
+	if has(b"%%EOF") && has(b"startxref") {
+		return None;
+	}
+	Some(
+		"This PDF is incomplete: the end of the file is missing. It was probably cut off while \
+		 downloading. Download it again and add the new copy."
+			.to_string(),
+	)
 }
 
 fn set_text(
@@ -1963,6 +1998,52 @@ pub async fn recently_filed(
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn a_complete_pdf_is_not_refused() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("whole.pdf");
+		std::fs::write(
+			&path,
+			b"%PDF-1.7\n1 0 obj<<>>endobj\nxref\n0 1\ntrailer<<>>\nstartxref\n9\n%%EOF\n",
+		)
+		.unwrap();
+		assert_eq!(super::incomplete_pdf_reason(&path), None);
+	}
+
+	#[test]
+	fn a_pdf_cut_off_while_downloading_is_refused() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("cut.pdf");
+		let mut bytes = b"%PDF-1.7\n1 0 obj<< /Length 9999 >>stream\n".to_vec();
+		bytes.extend(std::iter::repeat(0x5au8).take(20_000));
+		std::fs::write(&path, bytes).unwrap();
+		let reason = super::incomplete_pdf_reason(&path).expect("refused");
+		assert!(reason.contains("incomplete"), "{reason}");
+	}
+
+	#[test]
+	fn a_pdf_with_its_end_far_from_the_last_bytes_is_refused() {
+		// the markers are only looked for in the last few KB: a stray startxref early on does not count
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("early.pdf");
+		let mut bytes = b"%PDF-1.7\nstartxref\n9\n%%EOF\n".to_vec();
+		bytes.extend(std::iter::repeat(0x5au8).take(20_000));
+		std::fs::write(&path, bytes).unwrap();
+		assert!(super::incomplete_pdf_reason(&path).is_some());
+	}
+
+	#[test]
+	fn what_is_not_a_pdf_is_left_to_the_other_checks() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("book.epub");
+		std::fs::write(&path, b"PK\x03\x04 not a pdf, and no end markers").unwrap();
+		assert_eq!(super::incomplete_pdf_reason(&path), None);
+		assert_eq!(
+			super::incomplete_pdf_reason(&dir.path().join("missing.pdf")),
+			None
+		);
+	}
+
 	use super::*;
 
 	/// A zip of comic pages with the given entries (name, text), the way an uploader might build one
