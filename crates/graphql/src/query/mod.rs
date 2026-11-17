@@ -17,6 +17,7 @@ mod job;
 mod library;
 mod log;
 pub(crate) mod media;
+pub use media::discover_pick_ids;
 mod media_metadata_overview;
 mod metadata_edit;
 pub mod metadata_facets;

@@ -51,6 +51,31 @@ pub async fn saved_discover_rules(
 	))
 }
 
+/// The Discover picks for an OPDS reader (or anything outside GraphQL): the same books the web
+/// home shows for `seed` (it seeds with the ISO week, e.g. `2026-W46`, so the picks change on
+/// Mondays): the user's saved rules, the books they may see, the same seeded pick
+pub async fn discover_pick_ids(
+	conn: &DatabaseConnection,
+	user: &AuthUser,
+	seed: &str,
+	count: usize,
+) -> std::result::Result<Vec<String>, sea_orm::DbErr> {
+	let saved = user_discover_rules::Entity::find_by_id(user.id.clone())
+		.one(conn)
+		.await?;
+	let rules = DiscoverRules::from_json(saved.as_ref().map(|row| row.rules.as_str()));
+	let ids = media::Entity::find_for_user(user)
+		.filter(media::Column::DeletedAt.is_null())
+		.filter(random_pick::rules_condition(&user.id, &rules))
+		.select_only()
+		.column(media::Column::Id)
+		.into_tuple::<String>()
+		.all(conn)
+		.await?;
+	let seed = random_pick::hash_str(random_pick::hash_str(0, &user.id), seed);
+	Ok(random_pick::pick(ids, seed, count))
+}
+
 /// Seeded picks for `randomMedia`: each ID gets a stable pseudo-random key from the seed, and
 /// the lowest keys win, so a seed always picks the same books (in the same order) as long as
 /// they still match, whatever order the database returns them in

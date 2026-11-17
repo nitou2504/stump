@@ -8,7 +8,7 @@ use axum::{
 	routing::get,
 	Extension, Router,
 };
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use futures_util::StreamExt;
 use graphql::{data::AuthContext, pagination::OffsetPagination};
 use models::{
@@ -78,6 +78,7 @@ pub(crate) fn mount(app_state: AppState) -> Router<AppState> {
 		.route("/search", get(search_description))
 		.route("/search/feed", get(search_feed))
 		.route("/keep-reading", get(keep_reading))
+		.route("/discover", get(discover))
 		.route("/smart-lists", get(get_smart_lists))
 		.route("/smart-lists/{id}", get(get_smart_list_books))
 		.route("/reading-lists", get(get_reading_lists))
@@ -194,6 +195,20 @@ async fn catalog(Extension(req): Extension<AuthContext>) -> APIResult<Xml> {
 				link_type: OpdsLinkType::Navigation,
 				rel: OpdsLinkRel::Subsection,
 				href: catalog_url(&req, "keep-reading"),
+			}]),
+			None,
+		),
+		OpdsEntry::new(
+			"discover".to_string(),
+			Utc::now().into(),
+			"Discover".to_string(),
+			None,
+			Some(String::from("This week's random picks")),
+			None,
+			Some(vec![OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Subsection,
+				href: catalog_url(&req, "discover"),
 			}]),
 			None,
 		),
@@ -380,6 +395,53 @@ async fn keep_reading(
 				link_type: OpdsLinkType::Navigation,
 				rel: OpdsLinkRel::ItSelf,
 				href: catalog_url(&req, "keep-reading"),
+			},
+			OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::Start,
+				href: catalog_url(&req, "catalog"),
+			},
+		]),
+		entries,
+	);
+
+	Ok(Xml(feed.build()?))
+}
+
+/// GET /opds/v1.2/discover: this week's Discover picks, the same books the web home shows (the
+/// reader's saved rules, the books they may see, seeded with the ISO week so they change on Mondays)
+async fn discover(
+	State(ctx): State<AppState>,
+	Extension(req): Extension<AuthContext>,
+) -> APIResult<Xml> {
+	const PICKS: usize = 16;
+	let user = req.user();
+	let week = Utc::now().iso_week();
+	let seed = format!("{}-W{:02}", week.year(), week.week());
+	let ids =
+		graphql::query::discover_pick_ids(ctx.conn.as_ref(), &user, &seed, PICKS).await?;
+
+	let mut books = if ids.is_empty() {
+		vec![]
+	} else {
+		OPDSPublicationEntity::find_for_user(&user)
+			.filter(media::Column::Id.is_in(ids.clone()))
+			.into_model::<OPDSPublicationEntity>()
+			.all(ctx.conn.as_ref())
+			.await?
+	};
+	// in the order they were picked, like the home page
+	books.sort_by_key(|book| ids.iter().position(|id| *id == book.media.id));
+	let entries = book_entries(books, req.api_key()).await;
+
+	let feed = OpdsFeed::new(
+		"discover".to_string(),
+		"Discover".to_string(),
+		Some(vec![
+			OpdsLink {
+				link_type: OpdsLinkType::Navigation,
+				rel: OpdsLinkRel::ItSelf,
+				href: catalog_url(&req, "discover"),
 			},
 			OpdsLink {
 				link_type: OpdsLinkType::Navigation,

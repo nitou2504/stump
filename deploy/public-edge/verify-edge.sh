@@ -299,7 +299,7 @@ echo "== reading apps: the key is the credential (no pass, no cookie), and only 
 RKB="$PUB/opds/$RK/v1.2"
 A=$(curl -s "$RKB/catalog" -H 'X-Edge-Pass: planted' -H 'X-Edge-Public: evil' -H 'Cookie: other=zzz')
 echo "$A" | grep -q 'pub=\[1\]' && echo "$A" | grep -q 'pass=\[\]' && echo "$A" | grep -q 'cookie=\[\]' && ok "a key reaches the app: the marker, no pass (a key never becomes a pass), no cookie, planted headers replaced" || bad "key request: $A"
-for r in catalog search keep-reading smart-lists reading-lists authors genres libraries series books smart-lists/abc reading-lists/abc libraries/abc/books series/latest books/latest books/abc/thumbnail "books/abc/pages/3?zero_based=true" "books/abc/file/My%20Book.epub" "search/feed?search=x"; do
+for r in catalog search keep-reading discover smart-lists reading-lists authors genres libraries series books smart-lists/abc reading-lists/abc libraries/abc/books series/latest books/latest books/abc/thumbnail "books/abc/pages/3?zero_based=true" "books/abc/file/My%20Book.epub" "search/feed?search=x"; do
   check 200 "$(code "$RKB/$r")" "the key reads /v1.2/$r"
 done
 curl -s -D - -o /dev/null "$RKB/catalog" | tr -d '\r' > "$STATE/key.headers"
