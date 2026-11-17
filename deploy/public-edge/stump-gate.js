@@ -38,7 +38,7 @@ const AGE = 180 * 86400, RENEW = 86400;
 const SIGNIN_CAP = 8;                      // below the app's own lock (10 failures a day)
 const PASS = /^([a-z0-9-]{1,24})\.(\d{10})\.([A-Za-z0-9_-]{43})$/;
 const DL_CAP = parseInt(process.env.EDGE_DL_CAP || '300', 10) || 300;   // files a reading-app key may download per UTC day (EDGE_DL_CAP is for the tests)
-const OPDS_ROUTES = ['catalog', 'search', 'keep-reading', 'smart-lists', 'reading-lists', 'authors', 'genres', 'libraries', 'series', 'books'];
+const OPDS_ROUTES = ['catalog', 'search', 'keep-reading', 'discover', 'smart-lists', 'reading-lists', 'authors', 'genres', 'libraries', 'series', 'books'];
 const OPDS_KEY = /^\/opds\/([a-z0-9-]{1,24})\.([A-Za-z0-9_-]{43})\/v1\.2\/(.+)$/;
 const mac = (s) => cr.createHmac('sha256', KEY).update(s).digest('base64url');
 const now = () => Math.floor(Date.now() / 1000);
