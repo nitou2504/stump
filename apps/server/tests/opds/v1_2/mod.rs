@@ -4,6 +4,7 @@
 //! escaped for the XML is text again), and what is left is what the client's HTML reader is given
 //! for an entry's `content`.
 
+mod discover;
 mod reading_lists;
 mod shelves;
 
