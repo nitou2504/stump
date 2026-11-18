@@ -12,10 +12,9 @@ use super::{
 	MAX_SECTION_CHARS,
 };
 
-/// Longest `q`
-pub const MAX_QUERY_CHARS: usize = 256;
-/// Most terms of a query
-pub const MAX_TERMS: usize = 12;
+/// Most words of a query: 32, the same limit web search engines use (Google ignores words after
+/// the 32nd). Words past it are ignored, the query is never refused.
+pub const MAX_TERMS: usize = 32;
 /// Longest regex pattern (and literal pattern)
 pub const MAX_PATTERN_CHARS: usize = 200;
 /// Compiled size of a regex, in bytes
@@ -51,11 +50,6 @@ pub struct Terms {
 
 /// Splits `q` into terms. `None` when there is no word in it.
 pub fn parse_terms(q: &str, match_all: bool) -> Result<Option<Terms>, ContentError> {
-	if q.chars().count() > MAX_QUERY_CHARS {
-		return Err(ContentError::Invalid(format!(
-			"q is longer than {MAX_QUERY_CHARS} characters"
-		)));
-	}
 	let mut raw: Vec<String> = Vec::new();
 	let mut current = String::new();
 	let mut quoted = false;
@@ -79,11 +73,8 @@ pub fn parse_terms(q: &str, match_all: bool) -> Result<Option<Terms>, ContentErr
 		}
 	}
 	flush(&mut current, &mut raw);
-	if raw.len() > MAX_TERMS {
-		return Err(ContentError::Invalid(format!(
-			"q has more than {MAX_TERMS} words"
-		)));
-	}
+	// The query is searched as sent; words past MAX_TERMS are ignored, not refused
+	raw.truncate(MAX_TERMS);
 	if raw.is_empty() {
 		return Ok(None);
 	}
@@ -868,10 +859,11 @@ mod tests {
 	}
 
 	#[test]
-	fn long_or_wordy_queries_are_refused() {
-		assert!(parse_terms(&"a".repeat(MAX_QUERY_CHARS + 1), false).is_err());
-		let many = (0..=MAX_TERMS).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
-		assert!(parse_terms(&many, false).is_err());
+	fn words_past_the_limit_are_ignored_not_refused() {
+		let many = (0..MAX_TERMS + 8).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
+		let terms = parse_terms(&many, false).unwrap().unwrap();
+		assert_eq!(terms.raw.len(), MAX_TERMS);
+		assert_eq!(terms.raw[0], "w0");
 	}
 
 	#[test]

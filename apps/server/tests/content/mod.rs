@@ -780,15 +780,13 @@ async fn inputs_are_validated_and_capped() {
 	get("/api/v2/content/search?q=%22%22%20%3F".to_string())
 		.await
 		.assert_status_bad_request();
-	get(format!("/api/v2/content/search?q={}", "a".repeat(257)))
-		.await
-		.assert_status_bad_request();
+	// a wordy query is searched with its first 32 words, never refused
 	get(format!(
-		"/api/v2/content/search?q={}",
-		(0..13).map(|i| format!("w{i}")).collect::<Vec<_>>().join("%20")
+		"/api/v2/content/search?q=alice%20{}",
+		(0..60).map(|i| format!("w{i}")).collect::<Vec<_>>().join("%20")
 	))
 	.await
-	.assert_status_bad_request();
+	.assert_status_ok();
 	get("/api/v2/content/search?q=a&mode=vector".to_string())
 		.await
 		.assert_status_bad_request();
