@@ -89,6 +89,8 @@ const pathsInternal = {
 		return `${baseUrl}/reader?${searchParams.toString()}`
 	},
 	bookSearch: () => '/books',
+	bookTextSearch: (q?: string) =>
+		`/search/text${q ? `?${new URLSearchParams({ q }).toString()}` : ''}`,
 	browseIndex: (index: BrowseIndex) => `/browse/${index}`,
 	bookSearchWithFilter: (filters: MediaFilterInput) => {
 		const params = toUrlParams({ filters: JSON.stringify(filters) })
@@ -174,6 +176,7 @@ export function usePaths() {
 		bookReader: (id: string, params: BookReaderParams = {}) =>
 			`${basePath}${pathsInternal.bookReader(id, params)}`,
 		bookSearch: () => `${basePath}${pathsInternal.bookSearch()}`,
+		bookTextSearch: (q?: string) => `${basePath}${pathsInternal.bookTextSearch(q)}`,
 		browseIndex: (index: BrowseIndex) => `${basePath}${pathsInternal.browseIndex(index)}`,
 		bookSearchWithFilter: (filters: MediaFilterInput) =>
 			`${basePath}${pathsInternal.bookSearchWithFilter(filters)}`,

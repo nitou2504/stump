@@ -3517,6 +3517,19 @@
       "perPage": "per page",
       "booksPerPage": "Books per page"
     },
+    "textSearch": {
+      "title": "Search inside books",
+      "placeholder": "Words or a phrase from the text…",
+      "search": "Search",
+      "hint": "Finds passages in the text of your books (EPUB and PDF), the best of each book.",
+      "unavailable": "The text search is not available right now.",
+      "noMatches": "No passage matches “{{term}}”",
+      "total_one": "{{count}} book has a passage",
+      "total_other": "{{count}} books have a passage",
+      "page": "page {{label}}",
+      "previous": "Previous",
+      "next": "Next"
+    },
     "globalSearch": {
       "label": "Search the library",
       "title": "Search",
@@ -3529,6 +3542,9 @@
       "genres": "Genres",
       "books": "Books",
       "series": "Series",
+      "inText": "In the books’ text",
+      "seeAllPassages": "See all {{total}} passages",
+      "openTextSearch": "Open in text search",
       "noMatches": "Nothing matches “{{term}}”",
       "seeAll": "See all {{total}} books",
       "openInExplore": "Open in Explore",

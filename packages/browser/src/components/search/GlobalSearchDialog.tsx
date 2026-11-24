@@ -1,7 +1,7 @@
 import { useGraphQL } from '@stump/client'
 import { Command, Dialog, ProgressSpinner } from '@stump/components'
 import { graphql } from '@stump/graphql'
-import { ArrowRight, Dices, Library, Tags, Users } from 'lucide-react'
+import { ArrowRight, Dices, Library, Quote, Tags, Users } from 'lucide-react'
 import { useLayoutEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useDebouncedValue } from 'rooks'
@@ -11,7 +11,9 @@ import { useSurpriseMe } from '@/hooks/useSurpriseMe'
 import { useTranslate } from '@/hooks/useTranslate'
 import { usePaths } from '@/paths'
 
+import { highlight } from './highlight'
 import { GLOBAL_SEARCH_SHORTCUT } from './shortcut'
+import { useContentSearch } from './useContentSearch'
 
 const query = graphql(`
 	query GlobalSearch($media: MediaFilterInput!, $series: SeriesFilterInput!, $term: String!) {
@@ -57,6 +59,10 @@ const MIN_LENGTH = 2
 const bookValue = (id: string) => `book-${id}`
 const authorValue = (name: string) => `author-${name}`
 const seriesValue = (id: string) => `series-${id}`
+const passageValue = (key: string) => `passage-${key}`
+
+// Passages shown under the books; the rest are on the text search page
+const PASSAGES = 3
 
 type Props = {
 	open: boolean
@@ -87,7 +93,11 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 		{ media: { search }, series: { search }, term: search },
 		{ enabled, placeholderData: (previous) => previous, staleTime: 30_000 },
 	)
+	// the text of the books: slower than the titles, so it fills in under them when it arrives
+	const passagesQuery = useContentSearch(search, enabled, PASSAGES)
 	const hasTerm = trimmed.length >= MIN_LENGTH
+	const passages = hasTerm ? (passagesQuery.data?.items ?? []) : []
+	const passageTotal = hasTerm ? (passagesQuery.data?.total ?? 0) : 0
 	const books = hasTerm ? (data?.media.nodes ?? []) : []
 	const series = hasTerm ? (data?.series.nodes ?? []) : []
 	const authors = hasTerm ? (data?.searchAuthors ?? []) : []
@@ -208,7 +218,11 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 							</Command.Group>
 						)}
 
-						{hasTerm && !isWaiting && !books.length && !authors.length && !series.length && (
+						{hasTerm && !isWaiting && !books.length &&
+							!authors.length &&
+							!series.length &&
+							!passages.length &&
+							!passagesQuery.isFetching && (
 							<p className="py-6 text-sm text-center text-muted-foreground">
 								{t('globalSearch.noMatches', { term: trimmed })}
 							</p>
@@ -303,6 +317,42 @@ export default function GlobalSearchDialog({ open, onOpenChange }: Props) {
 										</span>
 									</Command.Item>
 								))}
+							</Command.Group>
+						)}
+
+						{passages.length > 0 && (
+							<Command.Group heading={t('globalSearch.inText')}>
+								{passages.map((hit) => {
+									const key = `${hit.media_id}-${hit.section}-${hit.pos}`
+									return (
+										<Command.Item
+											key={key}
+											value={passageValue(key)}
+											onSelect={() => go(paths.bookOverview(hit.media_id))}
+											className="gap-3 py-1.5"
+										>
+											<Quote className="h-4 w-4 shrink-0 text-muted-foreground" />
+											<div className="min-w-0 flex flex-1 flex-col">
+												<span className="line-clamp-1">{hit.title}</span>
+												{hit.snippet && (
+													<span className="text-xs font-normal line-clamp-2 text-muted-foreground">
+														{highlight(hit.snippet, trimmed)}
+													</span>
+												)}
+											</div>
+										</Command.Item>
+									)
+								})}
+								<Command.Item
+									value="all-passages"
+									onSelect={() => go(paths.bookTextSearch(trimmed))}
+									className="mt-1 text-muted-foreground"
+								>
+									<ArrowRight className="mr-2 h-4 w-4" />
+									{passageTotal > passages.length
+										? t('globalSearch.seeAllPassages', { total: passageTotal })
+										: t('globalSearch.openTextSearch')}
+								</Command.Item>
 							</Command.Group>
 						)}
 					</Command.List>

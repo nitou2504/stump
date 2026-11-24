@@ -3355,6 +3355,19 @@
       "perPage": "por página",
       "booksPerPage": "Libros por página"
     },
+    "textSearch": {
+      "title": "Buscar dentro de los libros",
+      "placeholder": "Palabras o una frase del texto…",
+      "search": "Buscar",
+      "hint": "Encuentra pasajes en el texto de tus libros (EPUB y PDF), el mejor de cada libro.",
+      "unavailable": "La búsqueda de texto no está disponible ahora.",
+      "noMatches": "Ningún pasaje coincide con “{{term}}”",
+      "total_one": "{{count}} libro tiene un pasaje",
+      "total_other": "{{count}} libros tienen un pasaje",
+      "page": "página {{label}}",
+      "previous": "Anterior",
+      "next": "Siguiente"
+    },
     "globalSearch": {
       "label": "Buscar en la biblioteca",
       "title": "Buscar",
@@ -3367,6 +3380,9 @@
       "genres": "Géneros",
       "books": "Libros",
       "series": "Series",
+      "inText": "En el texto de los libros",
+      "seeAllPassages": "Ver los {{total}} pasajes",
+      "openTextSearch": "Abrir en la búsqueda de texto",
       "noMatches": "Nada coincide con “{{term}}”",
       "seeAll": "Ver los {{total}} libros",
       "openInExplore": "Abrir en Explorar",

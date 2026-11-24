@@ -21,6 +21,7 @@ const ServerConnectionErrorScene = lazy(
 const LoginOrClaimScene = lazy(() => import('./scenes/auth'))
 const JoinScene = lazy(() => import('./scenes/auth/JoinScene.tsx'))
 const BrowseIndexScene = lazy(() => import('./scenes/browse'))
+const TextSearchScene = lazy(() => import('./scenes/textSearch'))
 const IntakeScene = lazy(() => import('./scenes/intake'))
 const ReadingHistoryScene = lazy(() => import('./scenes/readingHistory'))
 
@@ -54,6 +55,7 @@ export function AppRouter({ basePath }: AppRouterProps = {}) {
 					<Route path="series/*" element={<SeriesRouter />} />
 					<Route path="books/*" element={<BookRouter />} />
 					<Route path="browse/:index" element={<BrowseIndexScene />} />
+					<Route path="search/text" element={<TextSearchScene />} />
 					<Route path="add-books" element={<IntakeScene />} />
 					<Route path="reading" element={<ReadingHistoryScene />} />
 					<Route path="reading/:userId" element={<ReadingHistoryScene />} />
