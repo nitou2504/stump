@@ -1,4 +1,5 @@
 export * from './auth-api'
+export * from './content-api'
 export * from './epub-api'
 export * from './intake-api'
 export * from './library-api'

@@ -5,6 +5,7 @@ import { AuthenticationMethod, Configuration } from './configuration'
 import { cacheKeys } from './constants'
 import {
 	AuthAPI,
+	ContentAPI,
 	EpubAPI,
 	IntakeAPI,
 	JwtTokenPair,
@@ -591,6 +592,13 @@ export class Api {
 	 */
 	get media(): MediaAPI {
 		return new MediaAPI(this)
+	}
+
+	/**
+	 * Get an instance for the ContentAPI: search inside the books' text
+	 */
+	get content(): ContentAPI {
+		return new ContentAPI(this)
 	}
 
 	/**
