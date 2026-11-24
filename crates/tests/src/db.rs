@@ -104,7 +104,10 @@ pub async fn create_database_tables(db: &DbConn) -> Result<(), DbErr> {
 	}
 
 	// the content index's tables (the migration's own statements; SQLite)
-	for sql in migrations::CONTENT_INDEX_UP {
+	for sql in migrations::CONTENT_INDEX_UP
+		.iter()
+		.chain(migrations::CONTENT_CONTENTLESS_UP)
+	{
 		db.execute_unprepared(sql).await?;
 	}
 
