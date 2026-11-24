@@ -7,6 +7,8 @@
 //!   extraction), a PDF's outline sections or pages (from the text layer the PDF reader serves).
 //!   A scan without a text layer has no text, and that is all there is to say about it.
 //! - [`store`] writes them (and reads the index's state)
+//! - [`text`] reads a section's text from the book's file again: the index (`content_idx`, an FTS5
+//!   table without content) keeps the words and their positions, not a second copy of the books
 //! - [`job`] is the Stump job that does it for the books that are new, changed or never indexed,
 //!   at idle priority, skipping what is unchanged
 //! - [`query`] answers the searches over the allowed books. Who may read what is decided by the
@@ -20,6 +22,7 @@ pub mod extract;
 pub mod job;
 pub mod query;
 pub mod store;
+pub mod text;
 
 use sea_orm::DbErr;
 use thiserror::Error;
@@ -28,6 +31,11 @@ use crate::pdf_reader::fold_char;
 
 /// Bumped when what the extractors produce changes, so every book is read again
 pub const EXTRACTOR_VERSION: i32 = 1;
+
+/// How a book's index rows are kept. 0: moved from the first index (which kept the text) by the
+/// `content_contentless` migration: its sections have no `source`. 1: read with `source`s. The job
+/// reads a book of an older layout again (quietly: such a book is as searchable as any).
+pub const LAYOUT_VERSION: i32 = 1;
 
 /// Characters kept of one section (the rest of a longer one is cut off)
 pub const MAX_SECTION_CHARS: usize = 2_000_000;
@@ -48,6 +56,9 @@ pub enum ContentError {
 	/// The request is not one the index answers (a pattern that is too big, ...)
 	#[error("{0}")]
 	Invalid(String),
+	/// The book's file is not there to be read (a section's text comes from it)
+	#[error("{0}")]
+	Unavailable(String),
 }
 
 pub type ContentResult<T> = Result<T, ContentError>;

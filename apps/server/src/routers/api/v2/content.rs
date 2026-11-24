@@ -58,6 +58,8 @@ fn content_error(error: ContentError) -> APIError {
 		ContentError::Invalid(message) => APIError::BadRequest(message),
 		ContentError::Db(error) => APIError::DbError(error),
 		ContentError::Extract(message) => APIError::InternalServerError(message),
+		// the book's file is not there: for a reader it is a book that can't be read, not a crash
+		ContentError::Unavailable(message) => APIError::NotFound(message),
 	}
 }
 
@@ -287,11 +289,17 @@ async fn get_search(
 		}));
 	}
 
-	let ids: Vec<String> = books.iter().map(|b| b.media_id.clone()).collect();
-	let (total, passages) =
-		query::search_text(conn, &ids, &terms, media_id.is_none(), page, page_size)
-			.await
-			.map_err(content_error)?;
+	let (total, passages) = query::search_text(
+		conn,
+		ctx.config.as_ref(),
+		&books,
+		&terms,
+		media_id.is_none(),
+		page,
+		page_size,
+	)
+	.await
+	.map_err(content_error)?;
 	let items = passages
 		.into_iter()
 		.filter_map(|passage| {
@@ -389,6 +397,8 @@ async fn get_section(
 	let book = book_for(&ctx, &req, &scope, &id).await?;
 	let chunk = query::read_section(
 		ctx.conn.as_ref(),
+		ctx.config.as_ref(),
+		&book,
 		&book.media_id,
 		n,
 		q.pos.unwrap_or(0),
@@ -444,7 +454,8 @@ async fn get_grep(
 	let book = book_for(&ctx, &req, &scope, &id).await?;
 	let (total, hits) = query::grep_book(
 		ctx.conn.as_ref(),
-		&book.media_id,
+		ctx.config.as_ref(),
+		&book,
 		&re,
 		case,
 		q.section,

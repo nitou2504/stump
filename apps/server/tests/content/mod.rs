@@ -825,3 +825,267 @@ async fn inputs_are_validated_and_capped() {
 		assert!(ok.status_code().is_success(), "{path}");
 	}
 }
+
+// ---------------------------------------------------------------- what iaboy reads
+
+fn keys(value: &Value) -> Vec<String> {
+	let mut keys: Vec<String> = value
+		.as_object()
+		.expect("an object")
+		.keys()
+		.cloned()
+		.collect();
+	keys.sort();
+	keys
+}
+
+fn names(list: &[&str]) -> Vec<String> {
+	let mut list: Vec<String> = list.iter().map(|k| k.to_string()).collect();
+	list.sort();
+	list
+}
+
+/// The shapes iaboy's client (`iaboy/shelf/stump.py`) reads: a key that goes or changes is a break
+/// of that contract, whatever the index is made of
+#[tokio::test]
+async fn the_answers_keep_the_keys_iaboy_reads() {
+	let w = world().await;
+	let status: Value = w.app.get("/api/v2/content/status").await.json();
+	assert_eq!(
+		keys(&status),
+		names(&["books", "indexed", "pending", "failed", "last_run"])
+	);
+
+	let search: Value = w.app.get("/api/v2/content/search?q=alice").await.json();
+	assert_eq!(keys(&search), names(&["total", "page", "page_size", "items"]));
+	assert_eq!(
+		keys(&search["items"][0]),
+		names(&[
+			"media_id", "title", "authors", "language", "library", "tags", "score", "section",
+			"section_title", "pos", "snippet", "page_label"
+		])
+	);
+
+	let sections: Value = w
+		.app
+		.get(&format!("/api/v2/content/media/{}/sections", w.alice.id))
+		.await
+		.json();
+	assert_eq!(
+		keys(&sections),
+		names(&["media_id", "title", "authors", "language", "tags", "total", "sections"])
+	);
+	assert_eq!(
+		keys(&sections["sections"][0]),
+		names(&["n", "title", "level", "chars", "page_start"])
+	);
+
+	let read: Value = w
+		.app
+		.get(&format!("/api/v2/content/media/{}/sections/1?chars=300", w.alice.id))
+		.await
+		.json();
+	assert_eq!(
+		keys(&read),
+		names(&[
+			"media_id", "n", "title", "text", "pos", "next_pos", "chars_total", "page_labels"
+		])
+	);
+
+	let grep: Value = w
+		.app
+		.get(&format!("/api/v2/content/media/{}/grep?pattern=alice", w.alice.id))
+		.await
+		.json();
+	assert_eq!(keys(&grep), names(&["total", "page", "hits"]));
+	assert_eq!(keys(&grep["hits"][0]), names(&["n", "pos", "snippet"]));
+}
+
+async fn section_ids(app: &TestApp, id: &str) -> String {
+	use sea_orm::{ConnectionTrait, Statement};
+	app.conn()
+		.query_one_raw(Statement::from_string(
+			app.conn().get_database_backend(),
+			format!(
+				"SELECT group_concat(id) AS ids FROM (SELECT id FROM content_sections WHERE media_id = '{id}' ORDER BY n)"
+			),
+		))
+		.await
+		.unwrap()
+		.unwrap()
+		.try_get::<String>("", "ids")
+		.unwrap()
+}
+
+/// Whether every section of the book has a source
+async fn sources_set(app: &TestApp, id: &str) -> bool {
+	use sea_orm::{ConnectionTrait, Statement};
+	app.conn()
+		.query_one_raw(Statement::from_string(
+			app.conn().get_database_backend(),
+			format!("SELECT COUNT(*) AS n FROM content_sections WHERE media_id = '{id}' AND source IS NULL"),
+		))
+		.await
+		.unwrap()
+		.unwrap()
+		.try_get::<i64>("", "n")
+		.unwrap()
+		== 0
+}
+
+async fn probe(app: &TestApp, id: &str) -> Vec<Value> {
+	let urls = vec![
+		format!("/api/v2/content/search?q=alice%20rabbit&media_id={id}&page_size=5"),
+		"/api/v2/content/search?q=alice%20rabbit".to_string(),
+		format!("/api/v2/content/media/{id}/sections/1?pos=40&chars=700"),
+		format!("/api/v2/content/media/{id}/grep?pattern=white%20rabbit&page_size=50"),
+		format!("/api/v2/content/media/{id}/grep?pattern=%5Cbalice%5Cb&regex=true&section=1"),
+	];
+	let mut answers = Vec::new();
+	for url in urls {
+		answers.push(app.get(&url).await.json::<Value>());
+	}
+	answers
+}
+
+/// What a book gives before its sections have a `source` (the first index's books, until the job reads
+/// them again) and after: the same text, the same positions, the same hits
+#[tokio::test]
+async fn a_book_without_section_sources_answers_exactly_as_when_it_has_them() {
+	use sea_orm::ConnectionTrait;
+	let w = world().await;
+	let id = w.alice.id.clone();
+	// the first index's books: no source, layout 0 (nothing has been read yet: nothing is cached)
+	w.app
+		.conn()
+		.execute_unprepared("UPDATE content_sections SET source = NULL")
+		.await
+		.unwrap();
+	w.app
+		.conn()
+		.execute_unprepared("UPDATE content_books SET layout = 0")
+		.await
+		.unwrap();
+	let before = probe(&w.app, &id).await;
+	let ids_before = section_ids(&w.app, &id).await;
+	assert!(before[2]["text"].as_str().unwrap().chars().count() > 100);
+	assert!(before[3]["total"].as_u64().unwrap() > 0);
+
+	// the job reads the book again (its file is unchanged, but its layout is old)
+	let state = stump_core::content::store::book_state(w.app.conn(), &id)
+		.await
+		.unwrap()
+		.unwrap();
+	assert!(stump_core::content::store::needs_indexing(
+		Some(&state),
+		state.file_size,
+		state.file_mtime,
+		false
+	));
+	index_book(
+		w.app.conn(),
+		w.app.ctx.config.as_ref(),
+		&ContentIndexTask {
+			media_id: id.clone(),
+			path: w.alice.path.clone(),
+			kind: "epub".to_string(),
+			size: state.file_size,
+			mtime: state.file_mtime,
+		},
+	)
+	.await
+	.unwrap();
+	let after = probe(&w.app, &id).await;
+	// the same answers, scores included, because the index was not touched: the sections are the same
+	// rows (an FTS5 table without content keeps a deleted row in its counts, so reading a book again
+	// would move every score)
+	assert_eq!(before, after);
+	assert_eq!(ids_before, section_ids(&w.app, &id).await);
+	assert_eq!(
+		sources_set(&w.app, &id).await,
+		stump_core::content::store::book_state(w.app.conn(), &id)
+			.await
+			.unwrap()
+			.map(|_| true)
+			.unwrap()
+	);
+	let state = stump_core::content::store::book_state(w.app.conn(), &id)
+		.await
+		.unwrap()
+		.unwrap();
+	assert_eq!(state.layout, stump_core::content::LAYOUT_VERSION);
+	assert!(!stump_core::content::store::needs_indexing(
+		Some(&state),
+		state.file_size,
+		state.file_mtime,
+		false
+	));
+	// and `status` never showed the old layout as work to do
+	let status: Value = w.app.get("/api/v2/content/status").await.json();
+	assert_eq!(status["pending"], 0);
+	assert_eq!(status["indexed"], status["books"]);
+}
+
+#[tokio::test]
+async fn a_book_whose_file_is_gone_is_a_404_to_read_and_still_a_hit_without_its_passage() {
+	let w = world().await;
+	std::fs::remove_file(&w.alice.path).expect("remove the file");
+	let url = format!("/api/v2/content/media/{}", w.alice.id);
+	w.app
+		.get(&format!("{url}/sections/1"))
+		.await
+		.assert_status_not_found();
+	w.app
+		.get(&format!("{url}/grep?pattern=alice"))
+		.await
+		.assert_status_not_found();
+	// the section list is the index's: it is still there
+	let list: Value = w.app.get(&format!("{url}/sections")).await.json();
+	assert!(list["total"].as_u64().unwrap() > 2);
+	// a search still finds the books; the one without a file has no passage to show
+	let body: Value = w.app.get("/api/v2/content/search?q=alice").await.json();
+	assert_eq!(body["total"], 2);
+	for item in body["items"].as_array().unwrap() {
+		let snippet = item["snippet"].as_str().unwrap();
+		if item["media_id"] == w.alice.id {
+			assert_eq!(snippet, "");
+		} else {
+			assert!(snippet.to_lowercase().contains("alice"));
+		}
+	}
+}
+
+/// A book of the older layout that no longer reads as it was indexed is read again in full, not
+/// given sources that don't fit its sections
+#[tokio::test]
+async fn a_book_that_reads_differently_is_indexed_again_instead_of_backfilled() {
+	use sea_orm::ConnectionTrait;
+	let w = world().await;
+	let id = w.alice.id.clone();
+	let before = section_ids(&w.app, &id).await;
+	w.app.conn().execute_unprepared("UPDATE content_sections SET source = NULL").await.unwrap();
+	w.app.conn().execute_unprepared("UPDATE content_books SET layout = 0").await.unwrap();
+	w.app
+		.conn()
+		.execute_unprepared("UPDATE content_sections SET chars = chars + 1 WHERE n = 0")
+		.await
+		.unwrap();
+	let state = stump_core::content::store::book_state(w.app.conn(), &id).await.unwrap().unwrap();
+	index_book(
+		w.app.conn(),
+		w.app.ctx.config.as_ref(),
+		&ContentIndexTask {
+			media_id: id.clone(),
+			path: w.alice.path.clone(),
+			kind: "epub".to_string(),
+			size: state.file_size,
+			mtime: state.file_mtime,
+		},
+	)
+	.await
+	.unwrap();
+	assert_ne!(before, section_ids(&w.app, &id).await, "the sections were written again");
+	assert!(sources_set(&w.app, &id).await);
+	let state = stump_core::content::store::book_state(w.app.conn(), &id).await.unwrap().unwrap();
+	assert_eq!(state.layout, stump_core::content::LAYOUT_VERSION);
+}

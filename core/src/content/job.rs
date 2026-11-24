@@ -132,17 +132,33 @@ pub async fn index_book(
 	config: &crate::config::StumpConfig,
 	task: &ContentIndexTask,
 ) -> Result<store::BookState, ContentError> {
+	// a book of an older layout whose file is as it was indexed only lacks its sections' `source`
+	let backfill = store::book_state(conn, &task.media_id)
+		.await?
+		.is_some_and(|state| {
+			state.status == store::INDEXED
+				&& state.layout < super::LAYOUT_VERSION
+				&& state.extractor == super::EXTRACTOR_VERSION
+				&& state.file_size == task.size
+				&& state.file_mtime == task.mtime
+		});
 	match extract_book(config, &task.kind, &task.path).await {
 		Ok(extracted) => {
-			store::save_book(
-				conn,
-				&task.media_id,
-				&task.kind,
-				task.size,
-				task.mtime,
-				extracted.sections,
-			)
-			.await?;
+			if backfill
+				&& store::backfill_sources(conn, &task.media_id, &extracted.sections).await?
+			{
+				// done: the index is as it was
+			} else {
+				store::save_book(
+					conn,
+					&task.media_id,
+					&task.kind,
+					task.size,
+					task.mtime,
+					extracted.sections,
+				)
+				.await?;
+			}
 		},
 		Err(ContentError::Db(error)) => return Err(ContentError::Db(error)),
 		Err(error) => {

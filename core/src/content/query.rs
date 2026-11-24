@@ -8,9 +8,12 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value};
 use serde::Serialize;
 
 use super::{
-	catalog::CatalogRow, fold_mapped, fold_str, ContentError, ContentResult,
-	MAX_SECTION_CHARS,
+	catalog::CatalogRow,
+	fold_mapped, fold_str,
+	text::{read_sections, Want},
+	ContentError, ContentResult,
 };
+use crate::config::StumpConfig;
 
 /// Most words of a query: 32, the same limit web search engines use (Google ignores words after
 /// the 32nd). Words past it are ignored, the query is never refused.
@@ -23,8 +26,8 @@ const REGEX_SIZE_LIMIT: usize = 1 << 20;
 pub const MAX_GREP_HITS: usize = 2000;
 /// Sections one grep query reads (their texts are all that is in memory at once)
 const GREP_SECTIONS_PER_QUERY: usize = 16;
-/// How long one grep may run
-const GREP_BUDGET: Duration = Duration::from_secs(5);
+/// How long one grep may run (reading the sections from the file is part of it)
+const GREP_BUDGET: Duration = Duration::from_secs(20);
 /// Largest page
 pub const MAX_PAGE_SIZE: u32 = 50;
 /// Largest `chars` of a read
@@ -120,29 +123,32 @@ pub struct Passage {
 /// section. Returns the total and the page
 pub async fn search_text(
 	conn: &DatabaseConnection,
-	ids: &[String],
+	config: &StumpConfig,
+	books: &[CatalogRow],
 	terms: &Terms,
 	per_book: bool,
 	page: u32,
 	page_size: u32,
 ) -> ContentResult<(u64, Vec<Passage>)> {
-	if ids.is_empty() {
+	if books.is_empty() {
 		return Ok((0, Vec::new()));
 	}
+	let ids: Vec<String> = books.iter().map(|b| b.media_id.clone()).collect();
+	let ids = ids.as_slice();
 	let expression = terms.fts_expression(None);
 	let inner = "SELECT s.media_id AS media_id, s.id AS section_id, s.n AS n, s.title AS title,
-			s.page_marks AS page_marks, bm25(content_fts, 5.0, 1.0) AS score
-		 FROM content_fts CROSS JOIN content_sections s ON s.id = content_fts.rowid
-		 WHERE content_fts MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))";
+			s.page_marks AS page_marks, s.source AS source, bm25(content_idx, 5.0, 1.0) AS score
+		 FROM content_idx CROSS JOIN content_sections s ON s.id = content_idx.rowid
+		 WHERE content_idx MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))";
 	let count_sql = if per_book {
 		"SELECT COUNT(DISTINCT s.media_id) AS total
-		 FROM content_fts JOIN content_sections s ON s.id = content_fts.rowid
-		 WHERE content_fts MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))"
+		 FROM content_idx JOIN content_sections s ON s.id = content_idx.rowid
+		 WHERE content_idx MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))"
 			.to_string()
 	} else {
 		"SELECT COUNT(*) AS total
-		 FROM content_fts JOIN content_sections s ON s.id = content_fts.rowid
-		 WHERE content_fts MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))"
+		 FROM content_idx JOIN content_sections s ON s.id = content_idx.rowid
+		 WHERE content_idx MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))"
 			.to_string()
 	};
 	let total: i64 = conn
@@ -157,7 +163,7 @@ pub async fn search_text(
 	let page_sql = if per_book {
 		format!(
 			"WITH hits AS MATERIALIZED ({inner})
-			 SELECT media_id, section_id, n, title, page_marks, MIN(score) AS score FROM hits
+			 SELECT media_id, section_id, n, title, page_marks, source, MIN(score) AS score FROM hits
 			 GROUP BY media_id ORDER BY score ASC, media_id LIMIT ?3 OFFSET ?4"
 		)
 	} else {
@@ -185,6 +191,7 @@ pub async fn search_text(
 		title: String,
 		score: f64,
 		marks: Option<String>,
+		source: Option<String>,
 	}
 	let mut hits = Vec::with_capacity(rows.len());
 	for row in rows {
@@ -195,92 +202,90 @@ pub async fn search_text(
 			title: row.try_get("", "title")?,
 			score: row.try_get("", "score")?,
 			marks: row.try_get("", "page_marks")?,
+			source: row.try_get("", "source")?,
 		});
 	}
-	let mut passages = Vec::with_capacity(hits.len());
-	// one query per chunk of sections (and a chunk's texts are all that is in memory at once)
-	while !hits.is_empty() {
-		let chunk: Vec<Hit> = hits.drain(..SEARCH_TEXT_CHUNK.min(hits.len())).collect();
-		let section_ids: Vec<i64> = chunk.iter().map(|h| h.section_id).collect();
-		let mut texts = section_texts(conn, &section_ids).await?;
-		let batch: Vec<(Hit, String)> = chunk
-			.into_iter()
-			.map(|h| {
-				let text = texts.remove(&h.section_id).unwrap_or_default();
-				(h, text)
-			})
-			.collect();
-		let terms = terms.clone();
-		// folding up to 2M chars a section is CPU work: not on the async runtime
-		let located = tokio::task::spawn_blocking(move || {
-			batch
-				.into_iter()
-				.map(|(hit, text)| {
-					let (pos, snippet) = locate(&text, &terms);
-					Passage {
-						page_label: page_label_at(hit.marks.as_deref(), pos),
-						media_id: hit.media_id,
-						section: hit.section,
-						section_title: hit.title,
-						score: -hit.score,
-						pos,
-						snippet,
-					}
-				})
-				.collect::<Vec<_>>()
+	// the page's sections are read from the files again, a book at a time (opened once, whatever
+	// the number of its sections on the page)
+	let mut texts: std::collections::HashMap<i64, std::sync::Arc<String>> =
+		std::collections::HashMap::with_capacity(hits.len());
+	let mut by_book: std::collections::HashMap<&str, Vec<Want>> = std::collections::HashMap::new();
+	for hit in &hits {
+		by_book.entry(hit.media_id.as_str()).or_default().push(Want {
+			id: hit.section_id,
+			n: hit.section,
+			source: hit.source.clone(),
+		});
+	}
+	let reads = futures::future::join_all(by_book.into_iter().map(|(media_id, wanted)| async move {
+		let book = books.iter().find(|b| b.media_id == media_id)?;
+		let kind = book.kind?;
+		match read_sections(config, &book.path, kind, &wanted).await {
+			Ok(found) => Some(found),
+			Err(error) => {
+				// the book is still an answer, without its passage
+				tracing::warn!(media_id, %error, "content search: a section could not be read");
+				None
+			},
+		}
+	}))
+	.await;
+	for found in reads.into_iter().flatten() {
+		texts.extend(found);
+	}
+	let batch: Vec<(Hit, Option<std::sync::Arc<String>>)> = hits
+		.into_iter()
+		.map(|hit| {
+			let text = texts.remove(&hit.section_id);
+			(hit, text)
 		})
-		.await
-		.map_err(|_| ContentError::Extract("the search failed".to_string()))?;
-		passages.extend(located);
-	}
-	Ok((total.max(0) as u64, passages))
+		.collect();
+	let terms = terms.clone();
+	// folding up to 2M chars a section is CPU work: not on the async runtime
+	let located = tokio::task::spawn_blocking(move || {
+		batch
+			.into_iter()
+			.map(|(hit, text)| {
+				let (pos, snippet) = match &text {
+					Some(text) => locate(text, &terms),
+					None => (0, String::new()),
+				};
+				Passage {
+					page_label: page_label_at(hit.marks.as_deref(), pos),
+					media_id: hit.media_id,
+					section: hit.section,
+					section_title: hit.title,
+					score: -hit.score,
+					pos,
+					snippet,
+				}
+			})
+			.collect::<Vec<_>>()
+	})
+	.await
+	.map_err(|_| ContentError::Extract("the search failed".to_string()))?;
+	Ok((total.max(0) as u64, located))
 }
 
-/// Sections whose text one query fetches (the memory of a page's texts is bounded by this)
-const SEARCH_TEXT_CHUNK: usize = 10;
-
-/// The texts (at most [`MAX_SECTION_CHARS`] chars each) of the sections `ids`, in one query
-async fn section_texts(
-	conn: &DatabaseConnection,
-	ids: &[i64],
-) -> ContentResult<std::collections::HashMap<i64, String>> {
-	let rows = conn
-		.query_all_raw(stmt(
-			"SELECT rowid AS id, substr(text, 1, ?2) AS text FROM content_fts
-			 WHERE rowid IN (SELECT value FROM json_each(?1))",
-			vec![
-				serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_string()).into(),
-				(MAX_SECTION_CHARS as i64).into(),
-			],
-		))
-		.await?;
-	let mut texts = std::collections::HashMap::with_capacity(rows.len());
-	for row in rows {
-		texts.insert(row.try_get("", "id")?, row.try_get("", "text")?);
-	}
-	Ok(texts)
-}
-
-/// A section's text, `chars` characters from char `pos`
+/// A section's text, `chars` characters from char `pos`, read from the book's file
 async fn section_text(
-	conn: &DatabaseConnection,
-	section_id: i64,
+	config: &StumpConfig,
+	book: &CatalogRow,
+	want: Want,
 	pos: usize,
 	chars: usize,
 ) -> ContentResult<String> {
-	Ok(conn
-		.query_one_raw(stmt(
-			"SELECT substr(text, ?, ?) AS text FROM content_fts WHERE rowid = ?",
-			vec![
-				(pos as i64 + 1).into(),
-				(chars as i64).into(),
-				section_id.into(),
-			],
-		))
-		.await?
-		.map(|row| row.try_get::<String>("", "text"))
-		.transpose()?
-		.unwrap_or_default())
+	let Some(kind) = book.kind else {
+		return Err(ContentError::Unavailable("That book has no text".to_string()));
+	};
+	let id = want.id;
+	let mut texts = read_sections(config, &book.path, kind, &[want]).await?;
+	let text = texts.remove(&id).ok_or_else(|| {
+		ContentError::Unavailable(
+			"The book's file has changed; its text is being read again".to_string(),
+		)
+	})?;
+	Ok(text.chars().skip(pos).take(chars).collect())
 }
 
 /// The label of the page the char at `pos` is on, from a section's page marks (`[[pos, label]]`)
@@ -412,8 +417,8 @@ pub async fn search_catalog(
 		let rows = conn
 			.query_all_raw(stmt(
 				"SELECT DISTINCT s.media_id AS media_id
-				 FROM content_fts JOIN content_sections s ON s.id = content_fts.rowid
-				 WHERE content_fts MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))",
+				 FROM content_idx JOIN content_sections s ON s.id = content_idx.rowid
+				 WHERE content_idx MATCH ?1 AND s.media_id IN (SELECT value FROM json_each(?2))",
 				vec![single.fts_expression(Some("title")).into(), ids_json(&ids)],
 			))
 			.await?;
@@ -533,6 +538,8 @@ pub struct ReadChunk {
 /// it can. `None` when the book has no such section
 pub async fn read_section(
 	conn: &DatabaseConnection,
+	config: &StumpConfig,
+	book: &CatalogRow,
 	media_id: &str,
 	n: i64,
 	pos: usize,
@@ -541,7 +548,7 @@ pub async fn read_section(
 	let chars = chars.clamp(1, MAX_READ_CHARS);
 	let Some(row) = conn
 		.query_one_raw(stmt(
-			"SELECT id, title, chars, page_marks FROM content_sections WHERE media_id = ? AND n = ?",
+			"SELECT id, title, chars, page_marks, source FROM content_sections WHERE media_id = ? AND n = ?",
 			vec![media_id.into(), n.into()],
 		))
 		.await?
@@ -556,7 +563,8 @@ pub async fn read_section(
 			"pos is past the end of the section".to_string(),
 		));
 	}
-	let mut text = section_text(conn, id, pos, chars).await?;
+	let source: Option<String> = row.try_get("", "source")?;
+	let mut text = section_text(config, book, Want { id, n, source }, pos, chars).await?;
 	let mut length = text.chars().count();
 	if pos + length < total {
 		// end at a word boundary when one lies in the last part of the piece
@@ -728,7 +736,8 @@ fn too_slow() -> ContentError {
 /// [`MAX_GREP_HITS`]) and the hits of the page
 pub async fn grep_book(
 	conn: &DatabaseConnection,
-	media_id: &str,
+	config: &StumpConfig,
+	book: &CatalogRow,
 	re: &regex::Regex,
 	case: bool,
 	section: Option<i64>,
@@ -736,37 +745,49 @@ pub async fn grep_book(
 	page_size: u32,
 ) -> ContentResult<(u64, Vec<GrepHit>)> {
 	let deadline = Instant::now() + GREP_BUDGET;
+	let Some(kind) = book.kind else {
+		return Ok((0, Vec::new()));
+	};
 	let mut all: Vec<GrepHit> = Vec::new();
 	let mut last = -1i64;
-	// keyset paging: a few sections per query (text included), regex work off the async runtime
+	// keyset paging: a few sections per query, read from the file together (the book is opened
+	// once for them), regex work off the async runtime
 	while all.len() < MAX_GREP_HITS {
 		if Instant::now() > deadline {
 			return Err(too_slow());
 		}
 		let rows = conn
 			.query_all_raw(stmt(
-				"SELECT s.n AS n, substr(f.text, 1, ?5) AS text
-				 FROM content_sections s JOIN content_fts f ON f.rowid = s.id
+				"SELECT s.id AS id, s.n AS n, s.source AS source
+				 FROM content_sections s
 				 WHERE s.media_id = ?1 AND (?2 IS NULL OR s.n = ?2) AND s.n > ?3
 				 ORDER BY s.n LIMIT ?4",
 				vec![
-					media_id.into(),
+					book.media_id.clone().into(),
 					section.into(),
 					last.into(),
 					(GREP_SECTIONS_PER_QUERY as i64).into(),
-					(MAX_SECTION_CHARS as i64).into(),
 				],
 			))
 			.await?;
 		if rows.is_empty() {
 			break;
 		}
-		let mut batch: Vec<(i64, String)> = Vec::with_capacity(rows.len());
+		let mut wanted: Vec<Want> = Vec::with_capacity(rows.len());
 		for row in rows {
-			batch.push((row.try_get("", "n")?, row.try_get("", "text")?));
+			wanted.push(Want {
+				id: row.try_get("", "id")?,
+				n: row.try_get("", "n")?,
+				source: row.try_get("", "source")?,
+			});
 		}
-		last = batch.last().map(|(n, _)| *n).unwrap_or(last);
-		let full = batch.len() == GREP_SECTIONS_PER_QUERY;
+		last = wanted.last().map(|w| w.n).unwrap_or(last);
+		let full = wanted.len() == GREP_SECTIONS_PER_QUERY;
+		let mut texts = read_sections(config, &book.path, kind, &wanted).await?;
+		let batch: Vec<(i64, std::sync::Arc<String>)> = wanted
+			.iter()
+			.filter_map(|w| texts.remove(&w.id).map(|text| (w.n, text)))
+			.collect();
 		let re = re.clone();
 		let room = MAX_GREP_HITS - all.len();
 		let found = tokio::task::spawn_blocking(move || -> ContentResult<Vec<GrepHit>> {

@@ -5,7 +5,7 @@ use sea_orm::{
 	ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait, Value,
 };
 
-use super::{extract::Section, ContentResult, EXTRACTOR_VERSION};
+use super::{extract::Section, ContentResult, EXTRACTOR_VERSION, LAYOUT_VERSION};
 
 fn stmt(sql: &str, values: Vec<Value>) -> Statement {
 	Statement::from_sql_and_values(DbBackend::Sqlite, sql, values)
@@ -19,6 +19,8 @@ pub struct BookState {
 	pub file_size: i64,
 	pub file_mtime: i64,
 	pub extractor: i32,
+	/// How its rows are kept ([`LAYOUT_VERSION`])
+	pub layout: i32,
 }
 
 pub const INDEXED: &str = "indexed";
@@ -29,7 +31,7 @@ pub const FAILED: &str = "failed";
 pub async fn book_states(conn: &DatabaseConnection) -> ContentResult<Vec<BookState>> {
 	let rows = conn
 		.query_all_raw(stmt(
-			"SELECT media_id, status, file_size, file_mtime, extractor FROM content_books",
+			"SELECT media_id, status, file_size, file_mtime, extractor, layout FROM content_books",
 			vec![],
 		))
 		.await?;
@@ -41,6 +43,7 @@ pub async fn book_states(conn: &DatabaseConnection) -> ContentResult<Vec<BookSta
 			file_size: row.try_get("", "file_size")?,
 			file_mtime: row.try_get("", "file_mtime")?,
 			extractor: row.try_get("", "extractor")?,
+			layout: row.try_get("", "layout")?,
 		});
 	}
 	Ok(states)
@@ -53,7 +56,7 @@ pub async fn book_state(
 ) -> ContentResult<Option<BookState>> {
 	let Some(row) = conn
 		.query_one_raw(stmt(
-			"SELECT media_id, status, file_size, file_mtime, extractor FROM content_books WHERE media_id = ?",
+			"SELECT media_id, status, file_size, file_mtime, extractor, layout FROM content_books WHERE media_id = ?",
 			vec![media_id.into()],
 		))
 		.await?
@@ -66,11 +69,13 @@ pub async fn book_state(
 		file_size: row.try_get("", "file_size")?,
 		file_mtime: row.try_get("", "file_mtime")?,
 		extractor: row.try_get("", "extractor")?,
+		layout: row.try_get("", "layout")?,
 	}))
 }
 
-/// Whether a book needs reading: never read, its file changed, or read by an older extractor.
-/// A failed book is read again only when `retry_failed` (or its file changed).
+/// Whether a book needs reading: never read, its file changed, or read by an older extractor, or
+/// (quietly, it is as searchable as any) kept in an older layout. A failed book is read again only
+/// when `retry_failed` (or its file changed).
 pub fn needs_indexing(
 	state: Option<&BookState>,
 	file_size: i64,
@@ -84,6 +89,9 @@ pub fn needs_indexing(
 		|| state.file_mtime != file_mtime
 		|| state.extractor != EXTRACTOR_VERSION
 	{
+		return true;
+	}
+	if state.status == INDEXED && state.layout < LAYOUT_VERSION {
 		return true;
 	}
 	state.status == FAILED && retry_failed
@@ -116,8 +124,8 @@ pub async fn save_book(
 		};
 		let row = tx
 			.query_one_raw(stmt(
-				"INSERT INTO content_sections (media_id, n, title, level, chars, page_start, page_marks)
-				 VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+				"INSERT INTO content_sections (media_id, n, title, level, chars, page_start, page_marks, source)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
 				vec![
 					media_id.into(),
 					(n as i64).into(),
@@ -126,13 +134,14 @@ pub async fn save_book(
 					chars.into(),
 					section.page_start.map(i64::from).into(),
 					marks.into(),
+					section.source.into(),
 				],
 			))
 			.await?
 			.ok_or_else(|| sea_orm::DbErr::RecordNotInserted)?;
 		let id: i64 = row.try_get("", "id")?;
 		tx.execute_raw(stmt(
-			"INSERT INTO content_fts (rowid, title, text)
+			"INSERT INTO content_idx (rowid, title, text)
 			 SELECT id, title, ? FROM content_sections WHERE id = ?",
 			vec![section.text.into(), id.into()],
 		))
@@ -153,6 +162,55 @@ pub async fn save_book(
 	.await?;
 	tx.commit().await?;
 	Ok(())
+}
+
+/// A book kept in an older layout, whose file is as it was indexed: gives its sections their
+/// `source` without touching the index. Only when the book reads as it did (the same sections with the
+/// same lengths); `false` otherwise, and the caller indexes the book again.
+///
+/// Not a delete and an insert: an FTS5 table without content does not take a deleted row's words out
+/// of its counts, so every book indexed again moves the ranking a little (the inflated row count
+/// makes common words weigh more). Filling a column of `content_sections` moves nothing.
+pub async fn backfill_sources(
+	conn: &DatabaseConnection,
+	media_id: &str,
+	sections: &[Section],
+) -> ContentResult<bool> {
+	let tx = conn.begin().await?;
+	let rows = tx
+		.query_all_raw(stmt(
+			"SELECT n, chars FROM content_sections WHERE media_id = ? ORDER BY n",
+			vec![media_id.into()],
+		))
+		.await?;
+	let mut same = rows.len() == sections.len();
+	if same {
+		for (row, section) in rows.iter().zip(sections) {
+			let n: i64 = row.try_get("", "n")?;
+			let chars: i64 = row.try_get("", "chars")?;
+			if n < 0 || chars != section.text.chars().count() as i64 || section.source.is_none() {
+				same = false;
+				break;
+			}
+		}
+	}
+	if !same {
+		return Ok(false);
+	}
+	for (n, section) in sections.iter().enumerate() {
+		tx.execute_raw(stmt(
+			"UPDATE content_sections SET source = ? WHERE media_id = ? AND n = ?",
+			vec![section.source.clone().into(), media_id.into(), (n as i64).into()],
+		))
+		.await?;
+	}
+	tx.execute_raw(stmt(
+		"UPDATE content_books SET layout = ? WHERE media_id = ?",
+		vec![i64::from(LAYOUT_VERSION).into(), media_id.into()],
+	))
+	.await?;
+	tx.commit().await?;
+	Ok(true)
 }
 
 /// Records that a book could not be read (its old sections go: they are of an older file)
@@ -201,12 +259,12 @@ async fn write_state(
 	error: Option<&str>,
 ) -> ContentResult<()> {
 	conn.execute_raw(stmt(
-		"INSERT INTO content_books (media_id, status, kind, file_size, file_mtime, extractor, sections, chars, error, indexed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		"INSERT INTO content_books (media_id, status, kind, file_size, file_mtime, extractor, layout, sections, chars, error, indexed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(media_id) DO UPDATE SET status = excluded.status, kind = excluded.kind,
 		   file_size = excluded.file_size, file_mtime = excluded.file_mtime, extractor = excluded.extractor,
-		   sections = excluded.sections, chars = excluded.chars, error = excluded.error,
-		   indexed_at = excluded.indexed_at",
+		   layout = excluded.layout, sections = excluded.sections, chars = excluded.chars,
+		   error = excluded.error, indexed_at = excluded.indexed_at",
 		vec![
 			media_id.into(),
 			status.into(),
@@ -214,6 +272,7 @@ async fn write_state(
 			file_size.into(),
 			file_mtime.into(),
 			i64::from(EXTRACTOR_VERSION).into(),
+			i64::from(LAYOUT_VERSION).into(),
 			sections.into(),
 			chars.into(),
 			error.map(str::to_string).into(),
@@ -295,6 +354,7 @@ mod tests {
 			file_size: 10,
 			file_mtime: 20,
 			extractor: EXTRACTOR_VERSION,
+			layout: LAYOUT_VERSION,
 		}
 	}
 
@@ -308,6 +368,18 @@ mod tests {
 		let mut old = state(INDEXED);
 		old.extractor = EXTRACTOR_VERSION - 1;
 		assert!(needs_indexing(Some(&old), 10, 20, false));
+	}
+
+	#[test]
+	fn a_book_of_an_older_layout_is_read_again_but_a_failed_or_empty_one_is_not() {
+		let mut old = state(INDEXED);
+		old.layout = LAYOUT_VERSION - 1;
+		assert!(needs_indexing(Some(&old), 10, 20, false));
+		for status in [FAILED, NO_TEXT] {
+			let mut other = state(status);
+			other.layout = LAYOUT_VERSION - 1;
+			assert!(!needs_indexing(Some(&other), 10, 20, false), "{status}");
+		}
 	}
 
 	#[test]
